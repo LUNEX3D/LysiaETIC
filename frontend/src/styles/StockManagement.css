@@ -1,0 +1,119 @@
+/* Temel Container */
+.stock-container {
+    text-align: center;
+    padding: 2rem;
+    background: linear-gradient(to right, #2c3e50, #4ca1af);
+    color: white;
+}
+
+/* Başlık */
+h1 {
+    font-size: 2rem;
+    margin-bottom: 20px;
+}
+
+.total-products {
+    font-weight: bold;
+    color: #ffdd57;
+}
+
+/* Ürün Grid Yapısı */
+.product-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 20px;
+    padding: 20px;
+}
+
+/* Ürün Kartı */
+.product-card {
+    background: white;
+    border-radius: 10px;
+    padding: 15px;
+    text-align: center;
+    box-shadow: 0px 4px 8px rgba(0, 0, 0, 0.2);
+    transition: transform 0.3s;
+    color: black;
+}
+
+.product-card:hover {
+    transform: scale(1.05);
+}
+
+/* Ürün Görseli */
+.product-img {
+    width: 100%;
+    height: 180px;
+    object-fit: cover;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: transform 0.3s ease-in-out;
+}
+
+.product-img:hover {
+    transform: scale(1.1);
+}
+
+/* Ürün Bilgileri */
+.product-info {
+    margin-top: 10px;
+}
+
+.product-info h3 {
+    font-size: 18px;
+    color: #333;
+}
+
+/* Sayfalama */
+.pagination {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin-top: 20px;
+    font-size: 18px;
+}
+
+.pagination-btn {
+    background-color: #ffdd57;
+    border: none;
+    padding: 10px 15px;
+    margin: 0 10px;
+    font-size: 20px;
+    cursor: pointer;
+    border-radius: 5px;
+    transition: background 0.3s;
+}
+
+.pagination-btn:hover {
+    background-color: #f4c542;
+}
+
+.pagination-btn:disabled {
+    background-color: #ccc;
+    cursor: not-allowed;
+}
+
+/* Modal (Büyük Resim Gösterme) */
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.8);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.modal img {
+    max-width: 80%;
+    max-height: 80%;
+    border-radius: 10px;
+    box-shadow: 0 4px 10px rgba(255, 255, 255, 0.5);
+    transition: transform 0.3s;
+}
+
+.modal img:hover {
+    transform: scale(1.05);
+}
