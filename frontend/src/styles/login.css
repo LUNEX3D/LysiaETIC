@@ -195,3 +195,113 @@ button:active::after {
 .auth-links span:hover {
     color: #764ba2;
 }
+
+/* ── Responsive ── */
+@media (max-width: 768px) {
+    body {
+        padding: 1rem;
+    }
+
+    .brand-text {
+        font-size: 36px;
+    }
+
+    .login-box {
+        max-width: 100%;
+        padding: 28px 20px;
+        margin: 0 12px;
+    }
+
+    h2 {
+        font-size: 20px;
+    }
+
+    input {
+        font-size: 15px;
+        padding: 10px 10px 10px 36px;
+    }
+
+    button {
+        font-size: 15px;
+        padding: 10px;
+    }
+}
+
+@media (max-width: 480px) {
+    .brand-text {
+        font-size: 28px;
+        margin-bottom: 14px;
+    }
+
+    .login-box {
+        padding: 22px 16px;
+        margin: 0 8px;
+        border-radius: 12px;
+    }
+
+    h2 {
+        font-size: 18px;
+        margin-bottom: 16px;
+    }
+
+    .input-group {
+        margin-bottom: 14px;
+    }
+
+    input {
+        font-size: 14px;
+        padding: 9px 9px 9px 34px;
+    }
+
+    button {
+        font-size: 14px;
+        padding: 9px;
+    }
+
+    .message,
+    .auth-links {
+        font-size: 13px;
+    }
+}
+
+@media (max-width: 360px) {
+    .brand-text {
+        font-size: 24px;
+    }
+
+    .login-box {
+        padding: 18px 14px;
+    }
+
+    h2 {
+        font-size: 16px;
+    }
+}
+
+/* ── Landscape fix ── */
+@media (max-height: 500px) and (orientation: landscape) {
+    body {
+        height: auto;
+        min-height: 100vh;
+        overflow-y: auto;
+    }
+
+    .login-container {
+        height: auto;
+        min-height: 100vh;
+        padding: 1rem;
+    }
+
+    .brand-text {
+        font-size: 24px;
+        margin-bottom: 10px;
+    }
+
+    .login-box {
+        padding: 18px;
+    }
+
+    .input-group {
+        margin-bottom: 12px;
+    }
+}

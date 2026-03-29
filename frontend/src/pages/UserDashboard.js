@@ -2808,39 +2808,41 @@ const UserDashboard = () => {
     };
 
     const menuItems = [
+        // ── Ana Sayfa ──
         { id: "dashboard", icon: <FaChartLine />, text: "Genel Bakış" },
+        { type: "divider", label: "Pazaryeri" },
         { id: "integration", icon: <FaPlug />, text: "Entegrasyonlar" },
         { id: "orders", icon: <FaClipboardList />, text: "Sipariş Yönetimi" },
         { id: "inventory", icon: <FaBoxOpen />, text: "Stok Yönetimi" },
         { id: "shipping", icon: <FaTruck />, text: "Kargo Yönetimi" },
         { id: "finance", icon: <FaMoneyBillWave />, text: "Finans Yönetimi" },
+        { type: "divider", label: "Analiz & AI" },
         { id: "analytics", icon: <FaChartPie />, text: "Analiz (Eski)" },
         { id: "advanced-analytics", icon: <FaChartBar />, text: "Gelişmiş Analiz" },
-        { id: "users", icon: <FaUsers />, text: "Kullanıcı Yönetimi" },
-        { id: "billing", icon: <FaFileInvoice />, text: "Faturalandırma" },
         { id: "ai-assistant", icon: <FaRobot />, text: "AI Asistanı (Eski)" },
         { id: "advanced-ai", icon: <FaBrain />, text: "Gelişmiş AI Asistan" },
+        { type: "divider", label: "Yönetim" },
+        { id: "users", icon: <FaUsers />, text: "Kullanıcı Yönetimi" },
+        { id: "billing", icon: <FaFileInvoice />, text: "Faturalandırma" },
         { id: "settings", icon: <FaCog />, text: "Ayarlar" },
     ];
 
     const renderMarketplaceSubmenu = type => (
         <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            exit={{ opacity: 0, height: 0 }}
+            initial={{ opacity: 0, height: 0, overflow: "hidden" }}
+            animate={{ opacity: 1, height: "auto", overflow: "hidden", transition: { height: { duration: 0.28, ease: [0.4, 0, 0.2, 1] }, opacity: { duration: 0.2, delay: 0.06 } } }}
+            exit={{ opacity: 0, height: 0, overflow: "hidden", transition: { height: { duration: 0.22, ease: [0.4, 0, 0.2, 1] }, opacity: { duration: 0.12 } } }}
             className="submenu"
         >
-            {marketplaces.map(m => (
+            {marketplaces.map((m, idx) => (
                 <motion.div
                     key={m._id}
                     className={`menu-item submenu-item ${
                         activePanel === `${type}-${m._id}` ? "active" : ""
                     }`}
-                    onClick={() => {
-                        setActivePanel(`${type}-${m._id}`);
-                    }}
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
+                    onClick={() => setActivePanel(`${type}-${m._id}`)}
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0, transition: { delay: idx * 0.04, duration: 0.22, ease: [0.4, 0, 0.2, 1] } }}
                 >
                     <div className="icon-wrapper">
                         {m.logo ? (
@@ -2849,9 +2851,9 @@ const UserDashboard = () => {
                             <FaBox />
                         )}
                     </div>
-                    <motion.span className="menu-text" animate={{ opacity: menuOpen ? 1 : 0 }}>
+                    <span className="menu-text">
                         {m.name || "Bilinmeyen Pazaryeri"}
-                    </motion.span>
+                    </span>
                 </motion.div>
             ))}
         </motion.div>
@@ -2962,14 +2964,7 @@ const UserDashboard = () => {
             case "ai-assistant":
                 return <AIPanel userId={userId} marketplaces={marketplaces} />;
             case "integration":
-                return (
-                    <div className="content-wrapper">
-                        <h1 className="content-title">
-                            <FaPlug /> Entegrasyon Yönetimi
-                        </h1>
-                        <MarketplaceIntegration userId={userId} />
-                    </div>
-                );
+                return <MarketplaceIntegration userId={userId} />;
             case "users":
                 return <UserProfilePage userId={userId} marketplaces={marketplaces} />;
             case "analytics":
@@ -3008,14 +3003,14 @@ const UserDashboard = () => {
 
             <motion.aside
                 className={`sidebar ${menuOpen ? "open" : "closed"}`}
-                animate={{ width: menuOpen ? 280 : 80 }}
-                transition={{ type: "spring", stiffness: 300 }}
+                animate={{ width: menuOpen ? 260 : 72 }}
+                transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
             >
                 <div className="sidebar-header">
                     <motion.div
                         className="logo-container"
-                        animate={{ opacity: menuOpen ? 1 : 0, x: menuOpen ? 0 : -20 }}
-                        transition={{ duration: 0.3 }}
+                        animate={{ opacity: menuOpen ? 1 : 0 }}
+                        transition={{ duration: 0.15 }}
                     >
                         <h1 className="logo">
                             <span className="logo-main">LUNEX</span>
@@ -3028,10 +3023,27 @@ const UserDashboard = () => {
                 </div>
 
                 <nav className="sidebar-menu">
-                    {menuItems.map(item => (
+                    {menuItems.map((item, itemIdx) => {
+                        /* ── Divider / Section Label ── */
+                        if (item.type === "divider") {
+                            return (
+                                <React.Fragment key={`div-${itemIdx}`}>
+                                    <div className="menu-divider" />
+                                    {item.label && <div className="menu-section-label">{item.label}</div>}
+                                </React.Fragment>
+                            );
+                        }
+
+                        const hasSubmenu = ["orders", "inventory", "shipping", "finance", "integration"].includes(item.id);
+                        const isSubmenuOpen = (item.id === "orders" && showOrdersSubmenu) ||
+                            (item.id === "inventory" && showInventorySubmenu) ||
+                            (item.id === "shipping" && showShippingSubmenu) ||
+                            (item.id === "finance" && showFinanceSubmenu) ||
+                            (item.id === "integration" && showIntegrationSubmenu);
+                        return (
                         <React.Fragment key={item.id}>
-                            <motion.div
-                                className={`menu-item ${activePanel === item.id ? "active" : ""}`}
+                            <div
+                                className={`menu-item ${activePanel === item.id ? "active" : ""} ${hasSubmenu && isSubmenuOpen ? "submenu-open" : ""}`}
                                 onClick={() => {
                                     setShowOrdersSubmenu(false);
                                     setShowInventorySubmenu(false);
@@ -3046,32 +3058,20 @@ const UserDashboard = () => {
                                     else if (item.id === "integration") setShowIntegrationSubmenu(!showIntegrationSubmenu);
                                     else setActivePanel(item.id);
                                 }}
-                                whileHover={{ scale: 1.05 }}
-                                whileTap={{ scale: 0.95 }}
                             >
                                 <div className="icon-wrapper">{item.icon}</div>
-                                <motion.span className="menu-text" animate={{ opacity: menuOpen ? 1 : 0 }}>
-                                    {item.text}
-                                </motion.span>
-                                {["orders", "inventory", "shipping", "finance", "integration"].includes(
-                                    item.id
-                                ) && (
-                                    showFinanceSubmenu && item.id === "finance" ? (
-                                        <FaChevronUp />
-                                    ) : !showFinanceSubmenu && item.id === "finance" ? (
+                                <span className="menu-text">{item.text}</span>
+                                {hasSubmenu && (
+                                    <motion.span
+                                        className="menu-chevron"
+                                        animate={{ rotate: isSubmenuOpen ? 180 : 0 }}
+                                        transition={{ duration: 0.25, ease: "easeInOut" }}
+                                    >
                                         <FaChevronDown />
-                                    ) : (item.id !== "finance") &&
-                                    ((item.id === "orders" && showOrdersSubmenu) ||
-                                        (item.id === "inventory" && showInventorySubmenu) ||
-                                        (item.id === "shipping" && showShippingSubmenu) ||
-                                        (item.id === "integration" && showIntegrationSubmenu)) ? (
-                                        <FaChevronUp />
-                                    ) : (
-                                        <FaChevronDown />
-                                    )
+                                    </motion.span>
                                 )}
-                                <div className="active-indicator" />
-                            </motion.div>
+                                <span className="sidebar-tooltip">{item.text}</span>
+                            </div>
 
                             {item.id === "orders" && (
                                 <AnimatePresence>
@@ -3099,15 +3099,18 @@ const UserDashboard = () => {
                                 </AnimatePresence>
                             )}
                         </React.Fragment>
-                    ))}
+                    );
+                    })}
 
-                    {/* ═══════════════════════════════════════════════════
-                         ÜRÜN YÖNETİMİ — AÇILIR ALT MENÜ
-                    ═══════════════════════════════════════════════════ */}
-                    <motion.div
+                    {/* ── Ürün Yönetimi Divider ── */}
+                    <div className="menu-divider" />
+                    <div className="menu-section-label">Ürün</div>
+
+                    {/* ═══ ÜRÜN YÖNETİMİ — AÇILIR ALT MENÜ ═══ */}
+                    <div
                         className={`menu-item ${
                             activePanel.startsWith("pm-") || activePanel === "product-management" ? "active" : ""
-                        }`}
+                        } ${showProductManagementSubmenu ? "submenu-open" : ""}`}
                         onClick={() => {
                             setShowOrdersSubmenu(false);
                             setShowInventorySubmenu(false);
@@ -3116,28 +3119,27 @@ const UserDashboard = () => {
                             setShowIntegrationSubmenu(false);
                             setShowProductManagementSubmenu(!showProductManagementSubmenu);
                         }}
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
                     >
-                        <div className="icon-wrapper" style={{
-                            background: 'linear-gradient(135deg, #0f766e, #0891b2)',
-                            borderRadius: '8px',
-                            padding: '4px'
-                        }}>
-                            <FaLayerGroup style={{ color: '#fff' }} />
+                        <div className="icon-wrapper icon-wrapper--accent">
+                            <FaLayerGroup />
                         </div>
-                        <motion.span className="menu-text" animate={{ opacity: menuOpen ? 1 : 0 }}>
-                            Ürün Yönetimi
+                        <span className="menu-text">Ürün Yönetimi</span>
+                        <motion.span
+                            className="menu-chevron"
+                            animate={{ rotate: showProductManagementSubmenu ? 180 : 0 }}
+                            transition={{ duration: 0.25, ease: "easeInOut" }}
+                        >
+                            <FaChevronDown />
                         </motion.span>
-                        {showProductManagementSubmenu ? <FaChevronUp /> : <FaChevronDown />}
-                    </motion.div>
+                        <span className="sidebar-tooltip">Ürün Yönetimi</span>
+                    </div>
 
                     <AnimatePresence>
                         {showProductManagementSubmenu && (
                             <motion.div
-                                initial={{ opacity: 0, height: 0 }}
-                                animate={{ opacity: 1, height: "auto" }}
-                                exit={{ opacity: 0, height: 0 }}
+                                initial={{ opacity: 0, height: 0, overflow: "hidden" }}
+                                animate={{ opacity: 1, height: "auto", overflow: "hidden", transition: { height: { duration: 0.28, ease: [0.4, 0, 0.2, 1] }, opacity: { duration: 0.2, delay: 0.06 } } }}
+                                exit={{ opacity: 0, height: 0, overflow: "hidden", transition: { height: { duration: 0.22, ease: [0.4, 0, 0.2, 1] }, opacity: { duration: 0.12 } } }}
                                 className="submenu"
                             >
                                 {[
@@ -3149,20 +3151,18 @@ const UserDashboard = () => {
                                     { id: "pm-categories", icon: <FaLayerGroup />, text: "Kategori Mapping" },
                                     { id: "pm-excel", icon: <FaFileInvoice />, text: "Excel İçe/Dışa" },
                                     { id: "pm-logs", icon: <FaClipboardList />, text: "Loglar" },
-                                ].map(sub => (
+                                ].map((sub, idx) => (
                                     <motion.div
                                         key={sub.id}
                                         className={`menu-item submenu-item ${
                                             activePanel === sub.id ? "active" : ""
                                         }`}
                                         onClick={() => setActivePanel(sub.id)}
-                                        whileHover={{ scale: 1.05 }}
-                                        whileTap={{ scale: 0.95 }}
+                                        initial={{ opacity: 0, x: -10 }}
+                                        animate={{ opacity: 1, x: 0, transition: { delay: idx * 0.035, duration: 0.22, ease: [0.4, 0, 0.2, 1] } }}
                                     >
                                         <div className="icon-wrapper">{sub.icon}</div>
-                                        <motion.span className="menu-text" animate={{ opacity: menuOpen ? 1 : 0 }}>
-                                            {sub.text}
-                                        </motion.span>
+                                        <span className="menu-text">{sub.text}</span>
                                     </motion.div>
                                 ))}
                             </motion.div>
@@ -3174,11 +3174,11 @@ const UserDashboard = () => {
             <AnimatePresence mode="wait">
                 <motion.main
                     key={activePanel}
-                    className="content-area"
-                    initial={{ opacity: 0, x: 50 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -50 }}
-                    transition={{ duration: 0.3 }}
+                    className={`content-area${activePanel === "integration" ? " content-area--galaxy" : ""}`}
+                    initial={{ opacity: 0, y: 12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -8 }}
+                    transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
                     style={{ color: "#ffffff" }}
                 >
                     {renderActivePanel()}

@@ -1,6 +1,6 @@
 import axios from "axios";
 
-const BASE_URL = "http://localhost:5000/api"; // Backend API'nizin temel URL'si
+const BASE_URL = (process.env.REACT_APP_API_URL || "http://13.51.158.124:5000") + "/api"; // Backend API'nizin temel URL'si
 
 // Kullanıcının entegre ettiği pazar yerlerini çekme
 export const getUserMarketplaces = async (userId) => {

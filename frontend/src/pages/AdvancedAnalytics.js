@@ -17,10 +17,10 @@ import {
     PolarRadiusAxis, Treemap, ScatterChart, Scatter, ZAxis
 } from "recharts";
 import { getUserMarketplaces, fetchDashboardData } from "../services/marketplaceApi";
-import axios from "axios";
+import axios from "../services/api";
 import "../styles/advancedAnalytics.css";
 
-const API_BASE = "http://localhost:5000/api";
+const API_BASE = (process.env.REACT_APP_API_URL || "http://13.51.158.124:5000") + "/api";
 const COLORS = ['#4ecdc4', '#ff6b6b', '#ffd93d', '#6bcf7f', '#a29bfe', '#fd79a8', '#fdcb6e', '#00b894', '#e17055', '#0984e3'];
 
 const formatCurrency = (value) => {

@@ -10,18 +10,33 @@
     --box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
 }
 
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
+html {
+    scroll-behavior: smooth;
+    -webkit-text-size-adjust: 100%;
+}
+
 body {
     font-family: "Inter", sans-serif;
     background-color: var(--background-color);
     color: var(--text-color);
     margin: 0;
     padding: 0;
+    overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
 }
 
 .container {
     max-width: 1200px;
     margin: auto;
     padding: 20px;
+    width: 100%;
 }
 
 button {
@@ -48,6 +63,13 @@ select {
     border-radius: 5px;
     font-size: 16px;
     background: var(--input-bg);
+    max-width: 100%;
+}
+
+img,
+video {
+    max-width: 100%;
+    height: auto;
 }
 
 .card {
@@ -56,4 +78,48 @@ select {
     border-radius: 8px;
     box-shadow: var(--box-shadow);
     margin-bottom: 20px;
+}
+
+/* ── Global Responsive ── */
+@media (max-width: 768px) {
+    .container {
+        padding: 12px;
+    }
+
+    button {
+        padding: 10px 14px;
+        font-size: 14px;
+    }
+
+    input,
+    select {
+        padding: 10px;
+        font-size: 14px;
+    }
+
+    .card {
+        padding: 14px;
+    }
+}
+
+@media (max-width: 480px) {
+    .container {
+        padding: 8px;
+    }
+
+    button {
+        padding: 8px 12px;
+        font-size: 13px;
+    }
+
+    input,
+    select {
+        padding: 8px;
+        font-size: 13px;
+    }
+
+    .card {
+        padding: 10px;
+        margin-bottom: 12px;
+    }
 }

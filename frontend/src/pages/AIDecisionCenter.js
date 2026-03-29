@@ -65,7 +65,7 @@ const AIDecisionCenter = () => {
         setError("");
 
         try {
-            const response = await axios.get("/api/ai/decisions");
+            const response = await axios.get("/ai/decisions");
 
             if (response.data.success) {
                 setDecisions(response.data.decisions || []);
@@ -84,7 +84,7 @@ const AIDecisionCenter = () => {
 
     const loadStats = async () => {
         try {
-            const response = await axios.get("/api/ai/action-stats");
+            const response = await axios.get("/ai/action-stats");
             if (response.data.success) {
                 setStats(response.data.stats);
             }
@@ -98,7 +98,7 @@ const AIDecisionCenter = () => {
         setError("");
 
         try {
-            const response = await axios.post("/api/ai/auto-optimize");
+            const response = await axios.post("/ai/auto-optimize");
 
             if (response.data.success) {
                 // Reload decisions
@@ -115,7 +115,7 @@ const AIDecisionCenter = () => {
 
     const handleExecuteAction = async (decision) => {
         try {
-            const response = await axios.post("/api/ai/execute-action", { decision });
+            const response = await axios.post("/ai/execute-action", { decision });
 
             if (response.data.success) {
                 // Reload decisions

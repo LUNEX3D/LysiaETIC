@@ -9,6 +9,10 @@ import React from "react";
 import { BrowserRouter as Router, Route, Routes, useLocation } from "react-router-dom";
 import { CssBaseline, Container, ThemeProvider, createTheme } from "@mui/material";
 
+// PWA & Responsive
+import PWAInstallPrompt from "./components/PWAInstallPrompt";
+import "./styles/responsive.css";
+
 // Sayfalar
 import HomePage from "./pages/HomePage";
 import RegisterForm from "./components/RegisterForm";
@@ -83,7 +87,14 @@ const AppContent = () => {
     }
 
     return (
-        <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
+        <Container
+            maxWidth="lg"
+            sx={{
+                mt: { xs: 2, sm: 3, md: 4 },
+                mb: { xs: 2, sm: 3, md: 4 },
+                px: { xs: 1, sm: 2, md: 3 },
+            }}
+        >
             {routes}
         </Container>
     );
@@ -95,6 +106,7 @@ const App = () => {
             <CssBaseline />
             <Router>
                 <AppContent />
+                <PWAInstallPrompt />
             </Router>
         </ThemeProvider>
     );

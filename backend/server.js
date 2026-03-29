@@ -52,7 +52,9 @@ const stats = {
 };
 
 // ─── 6. CORS ──────────────────────────────────────────────────────────────────
-app.use(cors({ origin: "http://localhost:3000", credentials: true }));
+// Token-based auth (localStorage + Authorization header) kullanıldığı için
+// credentials gerekmez. Tüm origin'lere izin veriyoruz.
+app.use(cors());
 
 // ─── 7. Body parser ───────────────────────────────────────────────────────────
 app.use(express.json());
@@ -186,7 +188,7 @@ mongoose.connection.on("reconnected", () =>
 
 // ─── 14. Sunucuyu başlat ──────────────────────────────────────────────────────
 const PORT = process.env.PORT || 5000;
-const server = app.listen(PORT, () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
     const line = "─".repeat(52);
     logger.info(`\n${line}`);
     logger.info(`  🚀  LysiaETIC Backend başlatıldı`);

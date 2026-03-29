@@ -2,8 +2,7 @@ import axios from "axios";
 
 // Axios instance oluştur
 const API = axios.create({
-    baseURL: "http://localhost:5000/api", // Backend URL'si
-    withCredentials: true, // CORS hatasını engellemek için
+    baseURL: (process.env.REACT_APP_API_URL || "http://13.51.158.124:5000") + "/api", // Backend URL'si
 });
 
 // 🔒 Her istekte Authorization header'ını otomatik ekle

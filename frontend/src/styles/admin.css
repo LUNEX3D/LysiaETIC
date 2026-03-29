@@ -695,6 +695,10 @@
     .admin-main {
         padding: 26px;
     }
+
+    .admin-summary-grid {
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    }
 }
 
 @media (max-width: 720px) {
@@ -706,5 +710,119 @@
     .admin-search,
     .admin-filter {
         min-width: 100%;
+    }
+
+    .admin-main {
+        padding: 16px;
+    }
+
+    .admin-title {
+        font-size: 24px;
+    }
+
+    .admin-grid--kpi {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .admin-grid--cards {
+        grid-template-columns: 1fr;
+    }
+
+    .admin-grid--split {
+        grid-template-columns: 1fr;
+    }
+
+    .admin-toolbar {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .admin-header-actions {
+        width: 100%;
+    }
+
+    .admin-header-actions .admin-btn {
+        flex: 1;
+        text-align: center;
+        justify-content: center;
+    }
+
+    .admin-card--table {
+        border-radius: 12px;
+    }
+
+    .admin-table {
+        min-width: 600px;
+    }
+
+    .admin-chips {
+        flex-direction: column;
+    }
+
+    .admin-chip {
+        min-width: auto;
+    }
+
+    .admin-kpi-value {
+        font-size: 22px;
+    }
+
+    .admin-summary-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 480px) {
+    .admin-sidebar {
+        padding: 16px 14px;
+        gap: 16px;
+    }
+
+    .admin-brand-title {
+        font-size: 16px;
+    }
+
+    .admin-profile {
+        padding: 12px;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+    }
+
+    .admin-main {
+        padding: 12px;
+    }
+
+    .admin-title {
+        font-size: 20px;
+    }
+
+    .admin-grid--kpi {
+        grid-template-columns: 1fr;
+    }
+
+    .admin-card {
+        padding: 14px;
+        border-radius: 14px;
+    }
+
+    .admin-kpi-value {
+        font-size: 20px;
+    }
+
+    .admin-btn {
+        padding: 8px 12px;
+        font-size: 12px;
+    }
+
+    .admin-list-row {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 6px;
+    }
+
+    .admin-feature {
+        flex-direction: column;
+        text-align: center;
     }
 }

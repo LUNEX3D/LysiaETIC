@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LysiaETIC - Çevrimdışı</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Space Grotesk', 'Inter', 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #0a0e1a 0%, #1a1f33 100%);
+            color: #e8edf6;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem;
+        }
+        .offline-container {
+            text-align: center;
+            max-width: 480px;
+            width: 100%;
+        }
+        .offline-icon {
+            font-size: 5rem;
+            margin-bottom: 1.5rem;
+            animation: float 3s ease-in-out infinite;
+        }
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-12px); }
+        }
+        .offline-title {
+            font-size: 2rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #4ecdc4, #45b7d1);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 1rem;
+        }
+        .offline-text {
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 1.05rem;
+            line-height: 1.7;
+            margin-bottom: 2rem;
+        }
+        .offline-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.85rem 2rem;
+            background: linear-gradient(135deg, #4ecdc4, #45b7d1);
+            color: #0a0e1a;
+            border: none;
+            border-radius: 12px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .offline-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(78, 205, 196, 0.4);
+        }
+        .offline-tips {
+            margin-top: 2.5rem;
+            padding: 1.5rem;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 12px;
+            text-align: left;
+        }
+        .offline-tips h3 {
+            font-size: 0.9rem;
+            color: #4ecdc4;
+            margin-bottom: 0.75rem;
+        }
+        .offline-tips ul {
+            list-style: none;
+            padding: 0;
+        }
+        .offline-tips li {
+            padding: 0.4rem 0;
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 0.9rem;
+        }
+        .offline-tips li::before {
+            content: '• ';
+            color: #4ecdc4;
+        }
+    </style>
+</head>
+<body>
+    <div class="offline-container">
+        <div class="offline-icon">📡</div>
+        <h1 class="offline-title">Çevrimdışısınız</h1>
+        <p class="offline-text">
+            İnternet bağlantınız kesilmiş görünüyor.<br/>
+            Bağlantınızı kontrol edip tekrar deneyin.
+        </p>
+        <button class="offline-btn" onclick="window.location.reload()">
+            🔄 Tekrar Dene
+        </button>
+        <div class="offline-tips">
+            <h3>💡 İpuçları</h3>
+            <ul>
+                <li>Wi-Fi veya mobil veri bağlantınızı kontrol edin</li>
+                <li>Uçak modunun kapalı olduğundan emin olun</li>
+                <li>Sayfayı yenileyerek tekrar bağlanmayı deneyin</li>
+                <li>Daha önce ziyaret ettiğiniz sayfalar önbellekten yüklenebilir</li>
+            </ul>
+        </div>
+    </div>
+</body>
+</html>
