@@ -1,17 +1,29 @@
-import React from "react";
-import { NavLink } from "react-router-dom";
+import React, { useState } from "react";
+import { NavLink, useNavigate } from "react-router-dom";
 import {
     FaChartLine,
     FaUsers,
     FaBoxOpen,
-    FaClipboardList
+    FaClipboardList,
+    FaServer,
+    FaSignInAlt,
+    FaCog,
+    FaSignOutAlt,
+    FaBars,
+    FaTimes,
+    FaHome
 } from "react-icons/fa";
 import "../styles/admin.css";
 
 const AdminLayout = ({ title, subtitle, actions, children }) => {
+    const [sidebarOpen, setSidebarOpen] = useState(false);
+    const navigate = useNavigate();
+
     const name = localStorage.getItem("userName") || "Admin";
     const email = localStorage.getItem("userEmail") || "admin@lysiaetic.local";
     const rawRole = (localStorage.getItem("userRole") || "admin").toLowerCase();
+    const loginTime = localStorage.getItem("adminLoginTime");
+
     const roleMap = {
         admin: "Admin",
         dev: "Program Dev",
@@ -28,10 +40,38 @@ const AdminLayout = ({ title, subtitle, actions, children }) => {
         return "admin-pill admin-pill--admin";
     })();
 
+    const handleLogout = () => {
+        localStorage.clear();
+        navigate("/admin/login");
+    };
+
+    const navItems = [
+        { to: "/admin", label: "Genel Bakış", icon: <FaChartLine />, end: true },
+        { to: "/admin/servers", label: "Sunucular", icon: <FaServer /> },
+        { to: "/admin/user-access", label: "Kullanıcı Erişimi", icon: <FaSignInAlt /> },
+        { to: "/admin/users", label: "Kullanıcılar", icon: <FaUsers /> },
+        { to: "/admin/products", label: "Ürünler", icon: <FaBoxOpen /> },
+        { to: "/admin/orders", label: "Siparişler", icon: <FaClipboardList /> },
+    ];
+
     return (
         <div className="admin-root">
+            {/* Mobile Hamburger */}
+            <button
+                className="admin-hamburger"
+                onClick={() => setSidebarOpen(!sidebarOpen)}
+                aria-label="Menü"
+            >
+                {sidebarOpen ? <FaTimes /> : <FaBars />}
+            </button>
+
+            {/* Mobile Overlay */}
+            {sidebarOpen && (
+                <div className="admin-overlay" onClick={() => setSidebarOpen(false)} />
+            )}
+
             <div className="admin-shell">
-                <aside className="admin-sidebar">
+                <aside className={`admin-sidebar ${sidebarOpen ? "admin-sidebar--open" : ""}`}>
                     <div className="admin-brand">
                         <div className="admin-logo">LE</div>
                         <div className="admin-brand-text">
@@ -50,49 +90,57 @@ const AdminLayout = ({ title, subtitle, actions, children }) => {
                     </div>
 
                     <nav className="admin-nav">
+                        <div className="admin-nav-section">YÖNETİM</div>
+                        {navItems.map(item => (
+                            <NavLink
+                                key={item.to}
+                                to={item.to}
+                                end={item.end}
+                                className={({ isActive }) =>
+                                    `admin-nav-item ${isActive ? "active" : ""}`
+                                }
+                                onClick={() => setSidebarOpen(false)}
+                            >
+                                {item.icon}
+                                {item.label}
+                            </NavLink>
+                        ))}
+
+                        <div className="admin-nav-section" style={{ marginTop: 16 }}>SİSTEM</div>
                         <NavLink
-                            to="/admin"
-                            end
+                            to="/admin/settings"
                             className={({ isActive }) =>
                                 `admin-nav-item ${isActive ? "active" : ""}`
                             }
+                            onClick={() => setSidebarOpen(false)}
                         >
-                            <FaChartLine />
-                            Genel Bakış
+                            <FaCog />
+                            Ayarlar
                         </NavLink>
-                        <NavLink
-                            to="/admin/users"
-                            className={({ isActive }) =>
-                                `admin-nav-item ${isActive ? "active" : ""}`
-                            }
+                        <a
+                            href="/"
+                            className="admin-nav-item"
+                            target="_blank"
+                            rel="noopener noreferrer"
                         >
-                            <FaUsers />
-                            Kullanıcılar
-                        </NavLink>
-                        <NavLink
-                            to="/admin/products"
-                            className={({ isActive }) =>
-                                `admin-nav-item ${isActive ? "active" : ""}`
-                            }
+                            <FaHome />
+                            Siteye Git
+                        </a>
+                        <button
+                            className="admin-nav-item admin-nav-item--logout"
+                            onClick={handleLogout}
                         >
-                            <FaBoxOpen />
-                            Ürünler
-                        </NavLink>
-                        <NavLink
-                            to="/admin/orders"
-                            className={({ isActive }) =>
-                                `admin-nav-item ${isActive ? "active" : ""}`
-                            }
-                        >
-                            <FaClipboardList />
-                            Siparişler
-                        </NavLink>
+                            <FaSignOutAlt />
+                            Çıkış Yap
+                        </button>
                     </nav>
 
                     <div className="admin-sidebar-foot">
-                        <div className="admin-foot-title">Kısa Notlar</div>
+                        <div className="admin-foot-title">Oturum Bilgisi</div>
                         <div className="admin-foot-text">
-                            Tüm kritik işlemler kayıt altındadır.
+                            {loginTime
+                                ? `Giriş: ${new Date(loginTime).toLocaleString("tr-TR")}`
+                                : "Tüm kritik işlemler kayıt altındadır."}
                         </div>
                     </div>
                 </aside>

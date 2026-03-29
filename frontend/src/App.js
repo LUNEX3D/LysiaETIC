@@ -18,10 +18,13 @@ import HomePage from "./pages/HomePage";
 import RegisterForm from "./components/RegisterForm";
 import LoginForm from "./components/LoginForm";
 import UserDashboard from "./pages/UserDashboard";
+import AdminLogin from "./pages/AdminLogin";
 import AdminDashboard from "./pages/AdminDashboard";
 import AdminUsers from "./pages/AdminUsers";
 import AdminProducts from "./pages/AdminProducts";
 import AdminOrders from "./pages/AdminOrders";
+import AdminServers from "./pages/AdminServers";
+import AdminUserAccess from "./pages/AdminUserAccess";
 import MarketplaceIntegration from "./pages/MarketplaceIntegration";
 import ProductWizard from "./components/ProductWizard";
 import CategoryMappingPage from "./pages/CategoryMappingPage";
@@ -62,7 +65,10 @@ const AppContent = () => {
             <Route path="/dashboard" element={<UserDashboard />} />
 
             {/* Admin Paneli */}
+            <Route path="/admin/login" element={<AdminLogin />} />
             <Route path="/admin" element={<AdminDashboard />} />
+            <Route path="/admin/servers" element={<AdminServers />} />
+            <Route path="/admin/user-access" element={<AdminUserAccess />} />
             <Route path="/admin/users" element={<AdminUsers />} />
             <Route path="/admin/products" element={<AdminProducts />} />
             <Route path="/admin/orders" element={<AdminOrders />} />
