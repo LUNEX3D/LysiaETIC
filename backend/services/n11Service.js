@@ -476,23 +476,30 @@ const getProducts = async (credentials, params = {}) => {
             sampleData: JSON.stringify(response.data).substring(0, 500)
         });
 
-        // N11 API'nin farklı yanıt yapılarını destekle
+        // ═══════════════════════════════════════════════════════════════
+        // N11 API Yanıt Yapısı (resmi dokümantasyon):
+        // {
+        //   "content": [ { n11ProductId, stockCode, title, salePrice, listPrice, quantity, barcode, imageUrls, categoryId, attributes, ... } ],
+        //   "totalElements": 100,
+        //   "totalPages": 5,
+        //   "number": 0,
+        //   "size": 20,
+        //   "numberOfElements": 20,
+        //   ...
+        // }
+        // ═══════════════════════════════════════════════════════════════
+
         let raw = [];
         if (response.data) {
-            // Olası yanıt yapıları:
-            // 1. { products: [...] }
-            // 2. { productList: [...] }
-            // 3. { content: [...] }
-            // 4. { data: { products: [...] } }
-            // 5. Direkt array: [...]
-            if (Array.isArray(response.data)) {
+            // Öncelik sırası: content (resmi N11 yanıtı) > diğer olası yapılar
+            if (response.data.content && Array.isArray(response.data.content)) {
+                raw = response.data.content;
+            } else if (Array.isArray(response.data)) {
                 raw = response.data;
             } else if (response.data.products && Array.isArray(response.data.products)) {
                 raw = response.data.products;
             } else if (response.data.productList && Array.isArray(response.data.productList)) {
                 raw = response.data.productList;
-            } else if (response.data.content && Array.isArray(response.data.content)) {
-                raw = response.data.content;
             } else if (response.data.data?.products && Array.isArray(response.data.data.products)) {
                 raw = response.data.data.products;
             } else if (response.data.result?.productList && Array.isArray(response.data.result.productList)) {
@@ -505,29 +512,64 @@ const getProducts = async (credentials, params = {}) => {
         // Eğer hiç ürün yoksa detaylı log
         if (raw.length === 0) {
             logger.warn(`[N11 GET PRODUCTS] Ürün bulunamadı. API Yanıtı:`, {
-                fullResponse: JSON.stringify(response.data, null, 2)
+                dataKeys: Object.keys(response.data || {}),
+                fullResponse: JSON.stringify(response.data, null, 2).substring(0, 2000)
+            });
+        } else {
+            // İlk ürünün alanlarını logla (debug için)
+            logger.info(`[N11 GET PRODUCTS] İlk ürün alanları:`, {
+                keys: Object.keys(raw[0] || {}),
+                sample: JSON.stringify(raw[0], null, 2).substring(0, 800)
             });
         }
 
         return {
             success: true,
-            products: raw.map(p => ({
-                marketplaceProductId: p.id || p.productId || p.productSellerCode,
-                barcode:    p.barcode || p.stockCode || p.productSellerCode || "",
-                sku:        p.stockCode || p.productSellerCode || p.barcode || "",
-                name:       p.title || p.productName || p.name || "İsimsiz Ürün",
-                description: p.description || "",
-                price:      parseFloat(p.salePrice || p.sellingPrice || p.price || 0),
-                listPrice:  parseFloat(p.listPrice || p.salePrice || p.sellingPrice || p.price || 0),
-                stock:      parseInt(p.quantity || p.stock || 0),
-                category:   p.categoryName || p.category || "",
-                categoryId: p.categoryId || null,
-                images:     (p.images || []).map(img => (typeof img === "string" ? img : img.url || img)),
-                attributes: { color: p.color, size: p.size }
-            })),
-            total: response.data?.total || response.data?.totalElements || raw.length,
-            page: params.page || 0,
-            size: params.size || 100
+            products: raw.map(p => {
+                // N11 resmi API alanları: n11ProductId, stockCode, title, salePrice, listPrice, quantity, barcode, imageUrls, categoryId, attributes
+                // imageUrls: string array (N11 resmi format)
+                // images: bazı eski API'lerde object array olabilir
+                let images = [];
+                if (Array.isArray(p.imageUrls) && p.imageUrls.length > 0) {
+                    images = p.imageUrls.map(url => (typeof url === "string" ? url : (url?.url || url)));
+                } else if (Array.isArray(p.images) && p.images.length > 0) {
+                    images = p.images.map(img => (typeof img === "string" ? img : (img?.url || img)));
+                } else if (p.imageUrl) {
+                    images = [p.imageUrl];
+                }
+
+                // N11 attributes: [{ attributeId, attributeName, attributeValue }]
+                let attrs = {};
+                if (Array.isArray(p.attributes)) {
+                    p.attributes.forEach(a => {
+                        if (a.attributeName && a.attributeValue) {
+                            attrs[a.attributeName] = a.attributeValue;
+                        }
+                    });
+                } else if (p.attributes && typeof p.attributes === "object") {
+                    attrs = p.attributes;
+                }
+
+                return {
+                    marketplaceProductId: String(p.n11ProductId || p.id || p.productId || p.productSellerCode || ""),
+                    barcode:    p.barcode || p.stockCode || p.productSellerCode || "",
+                    sku:        p.stockCode || p.productSellerCode || p.barcode || "",
+                    name:       p.title || p.productName || p.name || "İsimsiz Ürün",
+                    description: p.description || "",
+                    price:      parseFloat(p.salePrice || p.sellingPrice || p.price || 0),
+                    listPrice:  parseFloat(p.listPrice || p.salePrice || p.sellingPrice || p.price || 0),
+                    stock:      parseInt(p.quantity || p.stock || 0),
+                    category:   p.categoryName || p.category || "",
+                    categoryId: p.categoryId || null,
+                    brand:      attrs["Marka"] || p.brandName || "",
+                    images,
+                    attributes: attrs
+                };
+            }),
+            total: response.data?.totalElements || response.data?.total || raw.length,
+            totalPages: response.data?.totalPages || null,
+            page: response.data?.number ?? (params.page || 0),
+            size: response.data?.size || (params.size || 100)
         };
 
     } catch (error) {

@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { getUserMarketplaces, fetchDashboardData } from "../services/marketplaceApi";
 import MarketplaceIntegration from "../pages/MarketplaceIntegration";
 import OrdersPage from "../pages/OrdersPage";
@@ -17,7 +17,8 @@ import {
     FaChartLine, FaBoxOpen, FaMoneyBillWave, FaChartPie,
     FaTruck, FaUsers, FaFileInvoice, FaPlug,
     FaChevronDown, FaChevronUp, FaBox,
-    FaBrain, FaChartBar, FaLayerGroup, FaExchangeAlt, FaBell
+    FaBrain, FaChartBar, FaLayerGroup, FaExchangeAlt, FaBell,
+    FaCloudDownloadAlt, FaTable
 } from "react-icons/fa";
 import { motion, AnimatePresence } from "framer-motion";
 import Particles from "react-tsparticles";
@@ -2927,15 +2928,27 @@ const UserDashboard = () => {
             );
         }
 
+        // Ürün Yönetimi alt menü panelleri — her biri ProductManagementHub'ı ilgili sekmeyle açar
+        const pmhTabMap = {
+            "product-management": "dashboard",
+            "pm-products": "products",
+            "pm-pull-push": "pull-push",
+            "pm-pricing": "pricing",
+            "pm-comparison": "comparison",
+            "pm-categories": "categories",
+            "pm-excel": "excel",
+            "pm-logs": "logs",
+        };
+
+        if (pmhTabMap[activePanel] !== undefined) {
+            return (
+                <div style={{ margin: "-2rem", width: "calc(100% + 4rem)", minHeight: "100%", color: "inherit" }}>
+                    <ProductManagementHub initialTab={pmhTabMap[activePanel]} />
+                </div>
+            );
+        }
+
         switch (activePanel) {
-            case "product-management":
-                // pmh-root margin:-2rem trick'i content-area padding:2rem'i iptal eder.
-                // color:#fff !important override'ını sıfırlamak için wrapper gerekli.
-                return (
-                    <div style={{ margin: "-2rem", width: "calc(100% + 4rem)", minHeight: "100%", color: "inherit" }}>
-                        <ProductManagementHub />
-                    </div>
-                );
             case "product-management-v4":
             case "new-product-upload":
             case "product-sync":
@@ -3089,28 +3102,25 @@ const UserDashboard = () => {
                     ))}
 
                     {/* ═══════════════════════════════════════════════════
-                         ÜRÜN YÖNETİMİ — YENİ UNIFIED PANEL
+                         ÜRÜN YÖNETİMİ — AÇILIR ALT MENÜ
                     ═══════════════════════════════════════════════════ */}
                     <motion.div
                         className={`menu-item ${
-                            activePanel === "product-management" ? "active" : ""
+                            activePanel.startsWith("pm-") || activePanel === "product-management" ? "active" : ""
                         }`}
                         onClick={() => {
-                            setActivePanel("product-management");
                             setShowOrdersSubmenu(false);
                             setShowInventorySubmenu(false);
                             setShowShippingSubmenu(false);
                             setShowFinanceSubmenu(false);
                             setShowIntegrationSubmenu(false);
-                            setShowProductManagementSubmenu(false);
+                            setShowProductManagementSubmenu(!showProductManagementSubmenu);
                         }}
                         whileHover={{ scale: 1.05 }}
                         whileTap={{ scale: 0.95 }}
                     >
                         <div className="icon-wrapper" style={{
-                            background: activePanel === "product-management"
-                                ? 'linear-gradient(135deg, #0f766e, #0891b2)'
-                                : 'linear-gradient(135deg, #0f766e, #0891b2)',
+                            background: 'linear-gradient(135deg, #0f766e, #0891b2)',
                             borderRadius: '8px',
                             padding: '4px'
                         }}>
@@ -3119,7 +3129,45 @@ const UserDashboard = () => {
                         <motion.span className="menu-text" animate={{ opacity: menuOpen ? 1 : 0 }}>
                             Ürün Yönetimi
                         </motion.span>
+                        {showProductManagementSubmenu ? <FaChevronUp /> : <FaChevronDown />}
                     </motion.div>
+
+                    <AnimatePresence>
+                        {showProductManagementSubmenu && (
+                            <motion.div
+                                initial={{ opacity: 0, height: 0 }}
+                                animate={{ opacity: 1, height: "auto" }}
+                                exit={{ opacity: 0, height: 0 }}
+                                className="submenu"
+                            >
+                                {[
+                                    { id: "product-management", icon: <FaChartBar />, text: "Dashboard" },
+                                    { id: "pm-products", icon: <FaBoxOpen />, text: "Ürünlerim" },
+                                    { id: "pm-pull-push", icon: <FaCloudDownloadAlt />, text: "Çek & Yükle" },
+                                    { id: "pm-pricing", icon: <FaMoneyBillWave />, text: "Fiyatlandırma" },
+                                    { id: "pm-comparison", icon: <FaTable />, text: "Karşılaştırma" },
+                                    { id: "pm-categories", icon: <FaLayerGroup />, text: "Kategori Mapping" },
+                                    { id: "pm-excel", icon: <FaFileInvoice />, text: "Excel İçe/Dışa" },
+                                    { id: "pm-logs", icon: <FaClipboardList />, text: "Loglar" },
+                                ].map(sub => (
+                                    <motion.div
+                                        key={sub.id}
+                                        className={`menu-item submenu-item ${
+                                            activePanel === sub.id ? "active" : ""
+                                        }`}
+                                        onClick={() => setActivePanel(sub.id)}
+                                        whileHover={{ scale: 1.05 }}
+                                        whileTap={{ scale: 0.95 }}
+                                    >
+                                        <div className="icon-wrapper">{sub.icon}</div>
+                                        <motion.span className="menu-text" animate={{ opacity: menuOpen ? 1 : 0 }}>
+                                            {sub.text}
+                                        </motion.span>
+                                    </motion.div>
+                                ))}
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
                 </nav>
             </motion.aside>
 

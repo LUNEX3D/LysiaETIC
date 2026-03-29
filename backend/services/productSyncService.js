@@ -208,6 +208,8 @@ const fetchHepsiburadaProducts = async (credentials) => {
 };
 
 // N11 ürünlerini çek — yeni REST API servisi kullanılıyor
+// N11 resmi API: GET https://api.n11.com/ms/product-query?page=0&size=250
+// Yanıt: { content: [...], totalElements, totalPages, number, size, numberOfElements, empty, last }
 const fetchN11Products = async (credentials) => {
     const { apiKey, secretKey } = credentials;
 
@@ -217,11 +219,15 @@ const fetchN11Products = async (credentials) => {
 
     const allProducts = [];
     let page = 0;
+    const pageSize = 250; // N11 max size: 250
     let hasMore = true;
+    let totalExpected = null;
+
+    logger.info(`[N11 FETCH] N11 ürün çekme başlatılıyor (apiKey: ${apiKey.substring(0, 6)}...)`);
 
     while (hasMore) {
         // n11Service.getProducts hiç throw etmez, her zaman { success, ... } döndürür
-        const result = await n11Service.getProducts(credentials, { page, size: 100 });
+        const result = await n11Service.getProducts(credentials, { page, size: pageSize });
 
         // API hatası — ilk sayfada hata varsa fırlat, sonraki sayfalarda dur
         if (!result.success) {
@@ -235,31 +241,48 @@ const fetchN11Products = async (credentials) => {
 
         const items = result.products || [];
 
-        logger.info(`[N11 FETCH] Sayfa ${page}: ${items.length} ürün alındı (toplam: ${result.total || "?"} )`);
+        // İlk sayfada toplam bilgisini kaydet
+        if (page === 0) {
+            totalExpected = result.total || null;
+            logger.info(`[N11 FETCH] N11 toplam ürün sayısı: ${totalExpected || "bilinmiyor"}, totalPages: ${result.totalPages || "bilinmiyor"}`);
+        }
+
+        logger.info(`[N11 FETCH] Sayfa ${page}: ${items.length} ürün alındı (şu ana kadar: ${allProducts.length + items.length}/${totalExpected || "?"})`);
 
         if (items.length === 0) {
             // İlk sayfada hiç ürün yoksa — mağaza boş veya API farklı yanıt döndü
             if (page === 0) {
-                logger.warn("[N11 FETCH] İlk sayfada ürün bulunamadı. N11 API yanıt yapısı beklenenden farklı olabilir.");
-                logger.warn("[N11 FETCH] Lütfen backend loglarında '[N11 GET PRODUCTS] API Yanıt Yapısı' satırını kontrol edin.");
+                logger.warn("[N11 FETCH] İlk sayfada ürün bulunamadı.");
+                logger.warn("[N11 FETCH] Lütfen backend loglarında '[N11 GET PRODUCTS]' satırlarını kontrol edin.");
+                logger.warn("[N11 FETCH] N11 mağazanızda ürün olduğundan emin olun ve API bilgilerini kontrol edin.");
             }
             hasMore = false;
         } else {
             allProducts.push(...items);
             page++;
 
-            // Toplam sayı biliniyorsa ve tümü çekildiyse dur
-            if (result.total && allProducts.length >= result.total) {
+            // Durdurma koşulları:
+            // 1. totalPages biliniyorsa ve son sayfaya ulaştıysak
+            if (result.totalPages && page >= result.totalPages) {
                 hasMore = false;
             }
-            // Gelen sayı istenen size'dan azsa son sayfadayız
-            if (items.length < 100) {
+            // 2. totalElements biliniyorsa ve tümü çekildiyse
+            else if (totalExpected && allProducts.length >= totalExpected) {
+                hasMore = false;
+            }
+            // 3. Gelen sayı istenen size'dan azsa son sayfadayız
+            else if (items.length < pageSize) {
+                hasMore = false;
+            }
+            // 4. Güvenlik limiti — 50 sayfadan fazla çekme (250*50 = 12500 ürün)
+            else if (page >= 50) {
+                logger.warn(`[N11 FETCH] Güvenlik limiti: ${page} sayfa çekildi, durduruluyor.`);
                 hasMore = false;
             }
         }
     }
 
-    logger.info(`[N11 FETCH] Toplam ${allProducts.length} ürün çekildi`);
+    logger.info(`[N11 FETCH] Tamamlandı — Toplam ${allProducts.length} ürün çekildi (beklenen: ${totalExpected || "?"})`);
     return allProducts;
 };
 

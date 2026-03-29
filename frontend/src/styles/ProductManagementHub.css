@@ -1536,3 +1536,552 @@
     .pmh-detail-meta { grid-template-columns: 1fr; }
     .pmh-sync-cards { grid-template-columns: 1fr; }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   DASHBOARD v7 — Profesyonel Arayüz Stilleri
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+/* ─── KPI Grid — 4 Kart ─────────────────────────────────────────────────────── */
+.pmh-dash-kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin-bottom: 20px;
+}
+
+@media (max-width: 1200px) { .pmh-dash-kpi-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 600px)  { .pmh-dash-kpi-grid { grid-template-columns: 1fr; } }
+
+.pmh-dash-kpi-card {
+    position: relative;
+    background: linear-gradient(135deg, rgba(26,31,53,0.85) 0%, rgba(15,20,30,0.85) 100%);
+    border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 16px;
+    padding: 20px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    overflow: hidden;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.pmh-dash-kpi-card:hover {
+    border-color: rgba(255,255,255,0.12);
+}
+
+.pmh-dash-kpi-glow {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 0;
+}
+
+.pmh-dash-kpi-icon-wrap {
+    width: 48px;
+    height: 48px;
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.2rem;
+    color: #fff;
+    flex-shrink: 0;
+    z-index: 1;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+}
+
+.pmh-dash-kpi-content {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    z-index: 1;
+    min-width: 0;
+}
+
+.pmh-dash-kpi-label {
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.pmh-dash-kpi-value {
+    font-size: 1.5rem;
+    font-weight: 800;
+    color: #e2e8f0;
+    line-height: 1.2;
+}
+
+.pmh-dash-kpi-sub {
+    font-size: 0.7rem;
+    color: #64748b;
+    font-weight: 500;
+}
+
+/* ─── Grafik Satırı — 2 Sütun ───────────────────────────────────────────────── */
+.pmh-dash-charts-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 20px;
+}
+
+@media (max-width: 900px) { .pmh-dash-charts-row { grid-template-columns: 1fr; } }
+
+.pmh-dash-chart-card {
+    background: linear-gradient(135deg, rgba(26,31,53,0.75) 0%, rgba(15,20,30,0.75) 100%);
+    border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 16px;
+    padding: 22px;
+    transition: all 0.25s ease;
+}
+
+.pmh-dash-chart-card:hover {
+    border-color: rgba(78,205,196,0.15);
+    box-shadow: 0 6px 24px rgba(0,0,0,0.2);
+}
+
+.pmh-dash-chart-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 20px;
+}
+
+/* ─── Donut Grafik Alanı ─────────────────────────────────────────────────────── */
+.pmh-dash-donut-area {
+    display: flex;
+    align-items: center;
+    gap: 28px;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.pmh-dash-donut-legend {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.pmh-dash-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 0.82rem;
+}
+
+.pmh-dash-legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+    flex-shrink: 0;
+}
+
+.pmh-dash-legend-label {
+    color: #94a3b8;
+    font-weight: 500;
+    min-width: 80px;
+}
+
+.pmh-dash-legend-val {
+    font-weight: 800;
+    min-width: 36px;
+    text-align: right;
+}
+
+.pmh-dash-legend-pct {
+    color: #475569;
+    font-size: 0.72rem;
+    font-weight: 600;
+    min-width: 30px;
+    text-align: right;
+}
+
+/* ─── Bölüm Kartı (Genel) ───────────────────────────────────────────────────── */
+.pmh-dash-section-card {
+    background: linear-gradient(135deg, rgba(26,31,53,0.75) 0%, rgba(15,20,30,0.75) 100%);
+    border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 16px;
+    padding: 22px;
+    margin-bottom: 20px;
+    transition: all 0.25s ease;
+}
+
+.pmh-dash-section-card:hover {
+    border-color: rgba(78,205,196,0.12);
+}
+
+/* ─── Bar Chart ──────────────────────────────────────────────────────────────── */
+.pmh-dash-bar-chart {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    margin-bottom: 20px;
+}
+
+.pmh-dash-bar-row {
+    display: grid;
+    grid-template-columns: 130px 1fr 100px;
+    gap: 14px;
+    align-items: center;
+}
+
+@media (max-width: 768px) {
+    .pmh-dash-bar-row {
+        grid-template-columns: 100px 1fr 80px;
+        gap: 8px;
+    }
+}
+
+.pmh-dash-bar-label {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.pmh-dash-bar-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.pmh-dash-bar-name {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: #e2e8f0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.pmh-dash-bar-track {
+    height: 28px;
+    border-radius: 8px;
+    background: rgba(255,255,255,0.04);
+    overflow: hidden;
+    position: relative;
+}
+
+.pmh-dash-bar-fill {
+    height: 100%;
+    border-radius: 8px;
+    min-width: 4px;
+    position: relative;
+    overflow: hidden;
+}
+
+.pmh-dash-bar-stats {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    justify-content: flex-end;
+}
+
+.pmh-dash-bar-val {
+    font-size: 0.92rem;
+    font-weight: 800;
+}
+
+.pmh-dash-bar-sync-badge {
+    font-size: 0.68rem;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 10px;
+    white-space: nowrap;
+}
+
+/* ─── Platform Detay Mini Kartları ───────────────────────────────────────────── */
+.pmh-dash-mp-detail-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+    padding-top: 16px;
+    border-top: 1px solid rgba(255,255,255,0.05);
+}
+
+.pmh-dash-mp-mini-card {
+    background: rgba(255,255,255,0.02);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 12px;
+    padding: 14px;
+    transition: all 0.2s ease;
+}
+
+.pmh-dash-mp-mini-card:hover {
+    background: rgba(255,255,255,0.04);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+}
+
+.pmh-dash-mp-metric {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+}
+
+.pmh-dash-mp-metric-val {
+    font-size: 0.95rem;
+    font-weight: 800;
+}
+
+.pmh-dash-mp-metric-label {
+    font-size: 0.62rem;
+    color: #64748b;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+/* ─── Alt Kısım — Yan Yana ──────────────────────────────────────────────────── */
+.pmh-dash-bottom-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 20px;
+}
+
+@media (max-width: 1100px) { .pmh-dash-bottom-row { grid-template-columns: 1fr; } }
+
+.pmh-dash-bottom-left { margin-bottom: 0; }
+.pmh-dash-bottom-right { margin-bottom: 0; }
+
+/* ─── Hızlı Aksiyonlar ──────────────────────────────────────────────────────── */
+.pmh-dash-quick-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.pmh-dash-action-btn {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 12px 14px;
+    border-radius: 12px;
+    border: 1px solid rgba(255,255,255,0.05);
+    background: rgba(255,255,255,0.02);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    width: 100%;
+    text-align: left;
+}
+
+.pmh-dash-action-btn:hover {
+    background: rgba(255,255,255,0.05);
+    border-color: rgba(255,255,255,0.1);
+}
+
+.pmh-dash-action-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.pmh-dash-action-icon {
+    width: 38px;
+    height: 38px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.95rem;
+    flex-shrink: 0;
+    transition: all 0.2s;
+}
+
+.pmh-dash-action-text {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    flex: 1;
+    min-width: 0;
+}
+
+.pmh-dash-action-label {
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: #e2e8f0;
+}
+
+.pmh-dash-action-desc {
+    font-size: 0.7rem;
+    color: #64748b;
+    font-weight: 500;
+}
+
+/* ─── Son İşlemler Listesi ───────────────────────────────────────────────────── */
+.pmh-dash-log-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.pmh-dash-log-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 10px;
+    border-radius: 10px;
+    background: rgba(255,255,255,0.02);
+    transition: all 0.15s ease;
+}
+
+.pmh-dash-log-item:hover {
+    background: rgba(255,255,255,0.04);
+}
+
+.pmh-dash-log-icon {
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.78rem;
+    flex-shrink: 0;
+}
+
+.pmh-dash-log-content {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    flex: 1;
+    min-width: 0;
+}
+
+.pmh-dash-log-action {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: #94a3b8;
+    text-transform: capitalize;
+}
+
+.pmh-dash-log-product {
+    font-size: 0.72rem;
+    color: #64748b;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pmh-dash-log-time {
+    font-size: 0.66rem;
+    color: #475569;
+    font-weight: 600;
+    white-space: nowrap;
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    flex-shrink: 0;
+}
+
+/* ─── Özet Bilgi Şeridi ─────────────────────────────────────────────────────── */
+.pmh-dash-summary-strip {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 14px 20px;
+    background: linear-gradient(135deg, rgba(26,31,53,0.6) 0%, rgba(15,20,30,0.6) 100%);
+    border: 1px solid rgba(255,255,255,0.05);
+    border-radius: 14px;
+    flex-wrap: wrap;
+}
+
+.pmh-dash-summary-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 16px;
+    border-right: 1px solid rgba(255,255,255,0.06);
+}
+
+.pmh-dash-summary-item:last-child {
+    border-right: none;
+}
+
+.pmh-dash-summary-label {
+    font-size: 0.72rem;
+    color: #64748b;
+    font-weight: 600;
+}
+
+.pmh-dash-summary-val {
+    font-size: 0.85rem;
+    font-weight: 800;
+}
+
+/* ─── Dashboard Responsive ───────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+    .pmh-dash-kpi-card {
+        padding: 16px;
+    }
+
+    .pmh-dash-kpi-icon-wrap {
+        width: 42px;
+        height: 42px;
+        font-size: 1rem;
+    }
+
+    .pmh-dash-kpi-value {
+        font-size: 1.25rem;
+    }
+
+    .pmh-dash-chart-card,
+    .pmh-dash-section-card {
+        padding: 16px;
+    }
+
+    .pmh-dash-donut-area {
+        flex-direction: column;
+        gap: 16px;
+    }
+
+    .pmh-dash-bar-row {
+        grid-template-columns: 80px 1fr 70px;
+        gap: 6px;
+    }
+
+    .pmh-dash-bar-name {
+        font-size: 0.75rem;
+    }
+
+    .pmh-dash-bar-track {
+        height: 22px;
+    }
+
+    .pmh-dash-summary-strip {
+        gap: 4px;
+        padding: 10px 12px;
+    }
+
+    .pmh-dash-summary-item {
+        padding: 4px 10px;
+    }
+}
+
+@media (max-width: 480px) {
+    .pmh-dash-mp-detail-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .pmh-dash-summary-strip {
+        flex-direction: column;
+        gap: 2px;
+    }
+
+    .pmh-dash-summary-item {
+        border-right: none;
+        border-bottom: 1px solid rgba(255,255,255,0.04);
+        width: 100%;
+        justify-content: center;
+    }
+
+    .pmh-dash-summary-item:last-child {
+        border-bottom: none;
+    }
+}

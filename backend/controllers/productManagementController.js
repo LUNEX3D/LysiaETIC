@@ -138,6 +138,18 @@ const toObjectId = (id) => {
     try { return new mongoose.Types.ObjectId(id.toString()); } catch { return null; }
 };
 
+// Pazaryeri isimlerini normalize et (büyük/küçük harf, boşluk farkı)
+const normalizeMarketplaceName = (name) => {
+    if (!name) return "";
+    const n = name.trim().toLowerCase();
+    if (n === "trendyol")                          return "Trendyol";
+    if (n === "hepsiburada")                       return "Hepsiburada";
+    if (n === "n11")                               return "N11";
+    if (n === "amazon" || n === "amazon türkiye")  return "Amazon";
+    if (n === "çiçeksepeti" || n === "ciceksepeti") return "ÇiçekSepeti";
+    return name.trim();
+};
+
 /**
  * Tüm ürünleri listele
  */
@@ -164,9 +176,10 @@ exports.getProducts = async (req, res) => {
             filter["masterProduct.category"] = { $regex: category, $options: "i" };
         }
 
-        // Pazaryeri filtresi
+        // Pazaryeri filtresi (case-insensitive — DB'de "n11" veya "N11" olabilir)
         if (marketplace) {
-            filter["marketplaceMappings.marketplaceName"] = marketplace;
+            const normalizedMP = normalizeMarketplaceName(marketplace);
+            filter["marketplaceMappings.marketplaceName"] = new RegExp(`^${normalizedMP}$`, "i");
         }
 
         // Stok durumu filtresi
@@ -862,63 +875,7 @@ exports.markNotificationRead = async (req, res) => {
 // 📊 DASHBOARD & İSTATİSTİKLER
 // ═══════════════════════════════════════════════════════════════
 
-/**
- * Ürün yönetimi dashboard verilerini getir
- */
-exports.getProductManagementDashboard = async (req, res) => {
-    try {
-        const userId = toObjectId(req.user?._id || req.user?.id);
-        if (!userId) return res.status(401).json({ error: "Yetkilendirme hatası" });
-
-        // Toplam ürün sayısı
-        const totalProducts   = await ProductMapping.countDocuments({ userId });
-        const outOfStock      = await ProductMapping.countDocuments({ userId, "stockTracking.isOutOfStock": true });
-        const lowStock        = await ProductMapping.countDocuments({ userId, "stockTracking.isLowStock": true });
-        const synced          = await ProductMapping.countDocuments({ userId, "marketplaceMappings.syncStatus": "synced" });
-
-        // Pazaryeri bazlı istatistikler
-        const mpAgg = await ProductMapping.aggregate([
-            { $match: { userId: require("mongoose").Types.ObjectId.createFromHexString
-                ? require("mongoose").Types.ObjectId.createFromHexString(userId.toString())
-                : new (require("mongoose").Types.ObjectId)(userId.toString()) } },
-            { $unwind: { path: "$marketplaceMappings", preserveNullAndEmptyArrays: false } },
-            { $group: {
-                _id: "$marketplaceMappings.marketplaceName",
-                totalProducts:   { $sum: 1 },
-                syncedProducts:  { $sum: { $cond: [{ $eq: ["$marketplaceMappings.syncStatus", "synced"] }, 1, 0] } },
-                pendingProducts: { $sum: { $cond: [{ $eq: ["$marketplaceMappings.syncStatus", "pending"] }, 1, 0] } },
-                errorProducts:   { $sum: { $cond: [{ $eq: ["$marketplaceMappings.syncStatus", "error"] }, 1, 0] } }
-            }},
-            { $project: { _id: 0, name: "$_id", totalProducts: 1, syncedProducts: 1, pendingProducts: 1, errorProducts: 1 } }
-        ]);
-
-        // Son 10 log
-        const recentLogs = await StockSyncLog.find({ userId })
-            .sort({ timestamp: -1 })
-            .limit(10)
-            .lean();
-
-        // Okunmamış bildirim sayısı
-        const unreadNotifications = await StockSyncLog.countDocuments({
-            userId,
-            "notification.read": false
-        });
-
-        return res.status(200).json({
-            success: true,
-            dashboard: {
-                products: { total: totalProducts, outOfStock, lowStock, synced },
-                marketplaces: mpAgg,
-                recentLogs,
-                unreadNotifications
-            }
-        });
-
-    } catch (error) {
-        logger.error("[DASHBOARD] Hata:", error.message);
-        return res.status(500).json({ error: "Dashboard verisi alınamadı", details: error.message });
-    }
-};
+// NOT: getProductManagementDashboard aşağıda (satır ~1479) tanımlıdır — buradaki eski versiyon kaldırıldı.
 
 // ═══════════════════════════════════════════════════════════════
 // 🟠 N11 ÖZEL SERVİSLER
@@ -1487,26 +1444,33 @@ exports.getProductManagementDashboard = async (req, res) => {
         const lowStock = await ProductMapping.countDocuments({ userId, "stockTracking.isLowStock": true });
 
         // Pazaryeri bazlı dağılım
+        // ÖNEMLİ: DB'deki Marketplace kaydı "n11" (küçük) olabilir ama
+        // ürünlerdeki marketplaceMappings "N11" (normalize) olarak kaydedilir.
+        // Bu yüzden hem DB ismi hem normalize ismi ile case-insensitive arama yapıyoruz.
         const marketplaces = await Marketplace.find({ userId }).lean();
         const marketplaceStats = [];
 
         for (const mp of marketplaces) {
+            const normalizedName = normalizeMarketplaceName(mp.marketplaceName);
+            // Case-insensitive regex ile hem "n11" hem "N11" eşleşsin
+            const nameRegex = new RegExp(`^${normalizedName}$`, "i");
+
             const count = await ProductMapping.countDocuments({
                 userId,
-                "marketplaceMappings.marketplaceName": mp.marketplaceName
+                "marketplaceMappings.marketplaceName": nameRegex
             });
             const syncedCount = await ProductMapping.countDocuments({
                 userId,
                 "marketplaceMappings": {
                     $elemMatch: {
-                        marketplaceName: mp.marketplaceName,
+                        marketplaceName: nameRegex,
                         isSynced: true
                     }
                 }
             });
 
             marketplaceStats.push({
-                name: mp.marketplaceName,
+                name: normalizedName,
                 totalProducts: count,
                 syncedProducts: syncedCount,
                 unsyncedProducts: count - syncedCount
@@ -1572,14 +1536,15 @@ exports.syncAllMarketplaces = async (req, res) => {
 
         const results = [];
         for (const mp of marketplaces) {
+            const mpName = normalizeMarketplaceName(mp.marketplaceName);
             try {
-                logger.info(`[SYNC ALL] ${mp.marketplaceName} senkronize ediliyor...`);
+                logger.info(`[SYNC ALL] ${mpName} senkronize ediliyor...`);
                 const stats = await syncProductsFromMarketplace(userId, mp._id.toString(), mp.marketplaceName);
-                results.push({ marketplace: mp.marketplaceName, success: true, stats });
-                logger.info(`[SYNC ALL] ${mp.marketplaceName} tamamlandı — Yeni: ${stats.new}, Güncellenen: ${stats.updated}`);
+                results.push({ marketplace: mpName, success: true, stats });
+                logger.info(`[SYNC ALL] ${mpName} tamamlandı — Yeni: ${stats.new}, Güncellenen: ${stats.updated}`);
             } catch (err) {
-                logger.error(`[SYNC ALL] ${mp.marketplaceName} hatası: ${err.message}`);
-                results.push({ marketplace: mp.marketplaceName, success: false, error: err.message });
+                logger.error(`[SYNC ALL] ${mpName} hatası: ${err.message}`);
+                results.push({ marketplace: mpName, success: false, error: err.message });
             }
         }
 
@@ -1615,9 +1580,9 @@ exports.getComparisonMatrix = async (req, res) => {
 
         const { page = 0, limit = 50, search, missingOnly } = req.query;
 
-        // Kullanıcının tüm pazaryerlerini al
+        // Kullanıcının tüm pazaryerlerini al (normalize edilmiş isimlerle)
         const marketplaces = await Marketplace.find({ userId }).lean();
-        const mpNames = marketplaces.map(m => m.marketplaceName);
+        const mpNames = marketplaces.map(m => normalizeMarketplaceName(m.marketplaceName));
 
         if (!mpNames.length) {
             return res.status(200).json({ success: true, matrix: [], marketplaces: [], total: 0 });
