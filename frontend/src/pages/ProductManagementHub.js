@@ -2,29 +2,46 @@
  * ═══════════════════════════════════════════════════════════════════════════════
  * 🎯 ÜRÜN YÖNETİM MERKEZİ — ProductManagementHub.js
  * ═══════════════════════════════════════════════════════════════════════════════
- * Dashboard content-area (position:fixed, padding:2rem, overflow-y:auto) içinde
- * tam sayfa olarak çalışır. CSS'de margin:-2rem ile padding sıfırlanır.
+ * ProductManagementPageV3'deki tüm özellikleri kapsayan tam entegrasyon.
+ * 7 Sekme: Dashboard, Stok Takibi, Ürün Dağıtımı, Fiyat&Kampanya,
+ *          Kategori Eşleştirme, Karşılaştırma, Loglar
  * ═══════════════════════════════════════════════════════════════════════════════
  */
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import CategoryMappingPage from "./CategoryMappingPage";
 import {
     FaBoxOpen, FaSearch, FaSync, FaStore, FaWarehouse,
     FaMoneyBillWave, FaChartBar, FaEdit, FaTimes, FaSave,
     FaChevronDown, FaChevronUp, FaSpinner, FaInfoCircle,
     FaFilter, FaEye, FaTag, FaPercent, FaLayerGroup,
     FaExchangeAlt, FaCheckCircle, FaTimesCircle, FaExclamationTriangle,
-    FaArrowUp, FaArrowDown, FaClipboardList, FaHistory
+    FaArrowUp, FaArrowDown, FaClipboardList, FaHistory, FaBox,
+    FaBell, FaBarcode, FaBolt, FaTable, FaRocket, FaTags, FaPlus,
+    FaCheck, FaCheckSquare, FaSquare, FaGlobe, FaExclamation,
+    FaChevronRight, FaImage, FaArrowLeft, FaArrowRight, FaTrash
 } from "react-icons/fa";
 import {
     getProducts, syncAllMarketplaces, syncStock, syncPrice,
-    getProductManagementDashboard, getSyncLogs
+    getProductManagementDashboard, getSyncLogs, createProduct,
+    updateProduct, deleteProduct, getComparisonMatrix,
+    bulkDistributeSelected, getUnreadNotifications, markNotificationRead
 } from "../services/productManagementApi";
 import { getUserMarketplaces } from "../services/marketplaceApi";
 import "../styles/ProductManagementHub.css";
 
 /* ─── Sabitler ─────────────────────────────────────────────────────────────── */
+const TABS = [
+    { key: "dashboard",       icon: <FaChartBar />,      label: "Dashboard"            },
+    { key: "stock",           icon: <FaWarehouse />,     label: "Stok Takibi"          },
+    { key: "distribution",    icon: <FaExchangeAlt />,   label: "Ürün Dağıtımı"        },
+    { key: "pricing",         icon: <FaMoneyBillWave />, label: "Fiyat & Kampanya"     },
+    { key: "categorymapping", icon: <FaLayerGroup />,    label: "Kategori Eşleştirme"  },
+    { key: "comparison",      icon: <FaTable />,         label: "Karşılaştırma"        },
+    { key: "logs",            icon: <FaClipboardList />, label: "Loglar"               },
+];
+
 const MP_COLORS = {
     Trendyol: "#f27a1a", trendyol: "#f27a1a",
     Hepsiburada: "#ff6000", hepsiburada: "#ff6000",
@@ -43,7 +60,33 @@ const fmt = (n) => {
     } catch { return `${(n || 0).toFixed(2)} ₺`; }
 };
 const fmtNum = (n) => new Intl.NumberFormat("tr-TR").format(n || 0);
-const PAGE_SIZE = 12;
+const PAGE_SIZE = 20;
+
+/* ─── Yardımcı Bileşenler ──────────────────────────────────────────────────── */
+const StockBadge = ({ stock, threshold = 10 }) => {
+    if (stock === 0)        return <span className="pmh-stock-pill pmh-stock-out">Stok Yok</span>;
+    if (stock <= threshold) return <span className="pmh-stock-pill pmh-stock-low">Düşük Stok</span>;
+    return                         <span className="pmh-stock-pill pmh-stock-ok">Stokta</span>;
+};
+
+const SyncBadge = ({ status }) => {
+    const map = {
+        synced:  ["pmh-synced",       "Senkron"],
+        success: ["pmh-synced",       "Senkron"],
+        error:   ["pmh-sync-err",     "Hata"],
+        pending: ["pmh-sync-pending", "Bekliyor"],
+    };
+    const [cls, label] = map[status] || ["pmh-sync-pending", status || "—"];
+    return <span className={`pmh-sync-pill ${cls}`}>{label}</span>;
+};
+
+const safeImg = (images) => {
+    if (!images || !images.length) return null;
+    const f = images[0];
+    return typeof f === "string" ? f : f?.url || null;
+};
+
+const Spinner = () => <FaSpinner className="pmh-spin" />;
 
 /* ─── Toast ────────────────────────────────────────────────────────────────── */
 const Toast = ({ toasts, remove }) => (
@@ -156,252 +199,366 @@ const VBarChart = ({ items }) => {
 const ProductManagementHub = () => {
     const userId = localStorage.getItem("userId");
 
-    /* ── State ── */
-    const [activeTab, setActiveTab]           = useState("catalog");
-    const [toasts, setToasts]                 = useState([]);
-    const toastId                             = useRef(0);
-    const [marketplaces, setMarketplaces]     = useState([]);
+    /* ── Genel State ── */
+    const [activeTab, setActiveTab]           = useState("dashboard");
+    const [toast, setToast]                   = useState(null);
+    const toastTimer                          = useRef(null);
+    const [loading, setLoading]               = useState(false);
+    const [autoSyncRunning, setAutoSyncRunning] = useState(false);
+    const [autoSyncStatus, setAutoSyncStatus] = useState("");
+
+    /* ── Dashboard ── */
+    const [dashboard, setDashboard]           = useState(null);
+
+    /* ── Ürünler (Stok & Fiyat sekmelerinde ortak) ── */
     const [products, setProducts]             = useState([]);
     const [totalProducts, setTotalProducts]   = useState(0);
-    const [loading, setLoading]               = useState(false);
-    const [syncing, setSyncing]               = useState(false);
-    const [dashboardData, setDashboardData]   = useState(null);
-    const [syncLogs, setSyncLogs]             = useState([]);
-    const [searchQuery, setSearchQuery]       = useState("");
-    const [filterMarketplace, setFilterMarketplace] = useState("all");
-    const [filterStock, setFilterStock]       = useState("all");
-    const [currentPage, setCurrentPage]       = useState(1);
-    const [showFilters, setShowFilters]       = useState(false);
-    const [editingProduct, setEditingProduct] = useState(null);
-    const [platformPrices, setPlatformPrices] = useState({});
-    const [platformStocks, setPlatformStocks] = useState({});
-    const [savingPrices, setSavingPrices]     = useState(false);
-    const [detailProduct, setDetailProduct]   = useState(null);
+    const [page, setPage]                     = useState(0);
+    const [search, setSearch]                 = useState("");
+    const [filterMP, setFilterMP]             = useState("");
+    const [filterStock, setFilterStock]       = useState("");
+    const [marketplaces, setMarketplaces]     = useState([]);
+
+    /* ── Stok Modal ── */
+    const [stockModal, setStockModal]         = useState(null);
+    const [stockValue, setStockValue]         = useState("");
+    const [stockThreshold, setStockThreshold] = useState("");
+
+    /* ── Fiyat Modal ── */
+    const [priceModal, setPriceModal]         = useState(null);
+    const [salePrice, setSalePrice]           = useState("");
+    const [listPrice, setListPrice]           = useState("");
+    const [discountRate, setDiscountRate]     = useState("");
+
+    /* ── Ürün Dağıtımı ── */
+    const [selectedProducts, setSelectedProducts] = useState([]);
+    const [bulkTargets, setBulkTargets]       = useState([]);
+    const [distResult, setDistResult]         = useState(null);
+    const [distDetailProduct, setDistDetailProduct] = useState(null);
+    const [distSearch, setDistSearch]         = useState("");
+    const [distFilterStatus, setDistFilterStatus] = useState("");
+    const [distFilterMP, setDistFilterMP]     = useState("");
+
+    /* ── Yeni Ürün Formu ── */
+    const [showNewProductForm, setShowNewProductForm] = useState(false);
+    const [newProduct, setNewProduct]         = useState({
+        name: "", barcode: "", sku: "", description: "",
+        price: "", listPrice: "", stock: "", category: "", brand: "",
+        images: [""],
+    });
+    const [newProductTargets, setNewProductTargets] = useState([]);
+
+    /* ── Karşılaştırma ── */
+    const [compMatrix, setCompMatrix]         = useState([]);
+    const [compTotal, setCompTotal]           = useState(0);
+    const [compPage, setCompPage]             = useState(0);
+    const [compSearch, setCompSearch]         = useState("");
+    const [missingOnly, setMissingOnly]       = useState(false);
+    const [compSummary, setCompSummary]       = useState(null);
+
+    /* ── Silme onay ── */
+    const [deleteModal, setDeleteModal]       = useState(null);
+
+    /* ── Loglar & Bildirimler ── */
+    const [logs, setLogs]                     = useState([]);
+    const [notifications, setNotifications]   = useState([]);
+    const [unreadCount, setUnreadCount]       = useState(0);
+
+    /* ── Toplu Fiyat Güncelleme ── */
+    const [bulkPriceMode, setBulkPriceMode]   = useState("fixed");
+    const [bulkPriceValue, setBulkPriceValue] = useState("");
+    const [bulkPriceTargets, setBulkPriceTargets] = useState([]);
 
     /* ── Toast ── */
-    const addToast = useCallback((message, type = "info") => {
-        const id = ++toastId.current;
-        setToasts(p => [...p, { id, message, type }]);
-        setTimeout(() => setToasts(p => p.filter(t => t.id !== id)), 4500);
+    const showToast = useCallback((msg, type = "info") => {
+        setToast({ msg, type });
+        clearTimeout(toastTimer.current);
+        toastTimer.current = setTimeout(() => setToast(null), 4500);
     }, []);
-    const removeToast = useCallback((id) =>
-        setToasts(p => p.filter(t => t.id !== id)), []);
 
-    /* ── Pazaryerleri ── */
-    useEffect(() => {
-        if (!userId) return;
-        getUserMarketplaces(userId)
-            .then(data => setMarketplaces(
-                data.map(m => ({ ...m, name: m.marketplaceName }))
-            ))
-            .catch(() => {});
-    }, [userId]);
-
-    /* ── Ürünler ── */
-    const loadProducts = useCallback(async () => {
-        setLoading(true);
-        try {
-            // Backend 0-tabanlı sayfalama kullanıyor (page=0 → ilk sayfa)
-            const params = {
-                page: currentPage - 1, limit: PAGE_SIZE,
-                ...(searchQuery && { search: searchQuery }),
-                ...(filterMarketplace !== "all" && { marketplace: filterMarketplace }),
-                ...(filterStock !== "all" && { stockStatus: filterStock })
-            };
-            const res = await getProducts(params);
-            // Backend: { success, total, products } veya { data, totalCount }
-            setProducts(res.products || res.data || []);
-            setTotalProducts(res.total || res.totalCount || res.totalProducts || 0);
-        } catch (err) {
-            console.error("[PMH] loadProducts hatası:", err);
-            addToast("Ürünler yüklenirken hata oluştu", "error");
-        } finally { setLoading(false); }
-    }, [currentPage, searchQuery, filterMarketplace, filterStock, addToast]);
-
+    /* ── Veri Yükleme Fonksiyonları ── */
     const loadDashboard = useCallback(async () => {
         try {
             const res = await getProductManagementDashboard();
-            // Backend: { success, dashboard: { products: { total, outOfStock, lowStock }, marketplaces: [...], recentLogs } }
-            // Frontend stats useMemo'su d.totalProducts vb. bekliyor — düzleştiriyoruz
-            const d = res?.dashboard || res || {};
-            const prods = d.products || {};
-            const normalized = {
-                totalProducts:    prods.total      ?? d.totalProducts    ?? 0,
-                activeProducts:   prods.healthy    ?? d.activeProducts   ?? 0,
-                outOfStock:       prods.outOfStock  ?? d.outOfStock       ?? 0,
-                lowStock:         prods.lowStock    ?? d.lowStock         ?? 0,
-                syncedProducts:   prods.synced      ?? d.syncedProducts   ?? 0,
-                priceMismatch:    d.priceMismatch   ?? 0,
-                stockMismatch:    d.stockMismatch   ?? 0,
-                totalRevenue:     d.totalRevenue    ?? 0,
-                avgPrice:         d.avgPrice        ?? 0,
-                marketplaceStats: d.marketplaces    ?? [],
-                recentLogs:       d.recentLogs      ?? [],
-                unreadNotifications: d.unreadNotifications ?? 0
-            };
-            setDashboardData(normalized);
-        } catch (err) {
-            console.error("[PMH] loadDashboard hatası:", err);
-            /* sessiz — istatistikler 0 kalır */
-        }
+            if (res?.dashboard) setDashboard(res.dashboard);
+        } catch { /* sessiz */ }
     }, []);
+
+    const loadProducts = useCallback(async () => {
+        try {
+            const params = { page, limit: PAGE_SIZE };
+            if (search)      params.search      = search;
+            if (filterMP)    params.marketplace = filterMP;
+            if (filterStock) params.stockStatus = filterStock;
+            const res = await getProducts(params);
+            setProducts(res.products || []);
+            setTotalProducts(res.total || 0);
+        } catch (e) {
+            showToast("Ürünler yüklenemedi: " + (e.response?.data?.error || e.message), "error");
+        }
+    }, [page, search, filterMP, filterStock, showToast]);
+
+    const loadMarketplaces = useCallback(async () => {
+        try {
+            const uid = localStorage.getItem("userId");
+            if (!uid) return;
+            const res = await getUserMarketplaces(uid);
+            const list = Array.isArray(res) ? res : (res.marketplaces || res.data || []);
+            setMarketplaces(list.map(m => ({ ...m, name: m.marketplaceName || m.name || "" })));
+        } catch { /* sessiz */ }
+    }, []);
+
+    const loadComparison = useCallback(async () => {
+        try {
+            const params = { page: compPage, limit: PAGE_SIZE };
+            if (compSearch)  params.search     = compSearch;
+            if (missingOnly) params.missingOnly = "true";
+            const res = await getComparisonMatrix(params);
+            setCompMatrix(res.matrix || []);
+            setCompTotal(res.total || 0);
+            setCompSummary(res.summary || null);
+        } catch (e) {
+            showToast("Karşılaştırma yüklenemedi: " + (e.response?.data?.error || e.message), "error");
+        }
+    }, [compPage, compSearch, missingOnly, showToast]);
 
     const loadLogs = useCallback(async () => {
         try {
-            const data = await getSyncLogs({ limit: 25 });
-            // Backend: { success, total, logs: [...] }
-            setSyncLogs(data.logs || data || []);
-        } catch (err) {
-            console.error("[PMH] loadLogs hatası:", err);
-            /* sessiz */
-        }
+            const res = await getSyncLogs({ limit: 50 });
+            setLogs(res.logs || []);
+        } catch { /* sessiz */ }
     }, []);
 
-    useEffect(() => { loadProducts(); }, [loadProducts]);
-    useEffect(() => { loadDashboard(); loadLogs(); }, [loadDashboard, loadLogs]);
+    const loadNotifications = useCallback(async () => {
+        try {
+            const res = await getUnreadNotifications();
+            setNotifications(res.notifications || []);
+            setUnreadCount(res.counts?.total || 0);
+        } catch { /* sessiz */ }
+    }, []);
 
-    /* ── Senkronizasyon ── */
-    const handleSyncAll = async () => {
-        setSyncing(true);
+    /* ── Otomatik Sync ── */
+    const runAutoSync = useCallback(async () => {
+        if (autoSyncRunning) return;
+        setAutoSyncRunning(true);
+        setAutoSyncStatus("⏳ Tüm pazaryerlerinden ürünler çekiliyor...");
         try {
             const res = await syncAllMarketplaces();
-            const msg = res?.message || "Tüm pazaryerleri senkronize ediliyor...";
-            addToast(msg, "success");
-            // 3 saniye sonra verileri yenile
-            setTimeout(() => { loadProducts(); loadDashboard(); loadLogs(); }, 3000);
-        } catch (err) {
-            console.error("[PMH] syncAll hatası:", err);
-            const errMsg = err?.response?.data?.error || err?.message || "Senkronizasyon başlatılamadı";
-            addToast(errMsg, "error");
-        } finally { setSyncing(false); }
-    };
-
-    /* ── Platform Fiyat Düzenleme ── */
-    const openPriceEditor = (product) => {
-        setEditingProduct(product);
-        const prices = {};
-        const stocks = {};
-        if (product.marketplaceData) {
-            Object.entries(product.marketplaceData).forEach(([mp, data]) => {
-                prices[mp] = {
-                    salePrice: data.salePrice || data.price || product.price || 0,
-                    listPrice: data.listPrice || data.salePrice || product.listPrice || product.price || 0
-                };
-                stocks[mp] = data.stock ?? data.quantity ?? product.stock ?? 0;
-            });
+            const { totalNew = 0, totalUpdated = 0, totalErrors = 0 } = res.summary || {};
+            setAutoSyncStatus(`✅ Tamamlandı — Yeni: ${totalNew} | Güncellenen: ${totalUpdated} | Hata: ${totalErrors}`);
+            showToast(`Senkronizasyon tamamlandı — Yeni: ${totalNew}, Güncellenen: ${totalUpdated}`, "success");
+            loadProducts(); loadDashboard(); loadComparison();
+        } catch (e) {
+            setAutoSyncStatus("❌ Hata: " + (e.response?.data?.error || e.message));
+            showToast("Senkronizasyon başarısız: " + (e.response?.data?.error || e.message), "error");
+        } finally {
+            setAutoSyncRunning(false);
+            setTimeout(() => setAutoSyncStatus(""), 6000);
         }
-        marketplaces.forEach(mp => {
-            const name = mp.name || mp.marketplaceName;
-            if (!prices[name]) {
-                prices[name] = {
-                    salePrice: product.price || 0,
-                    listPrice: product.listPrice || product.price || 0
-                };
-            }
-            if (stocks[name] === undefined) stocks[name] = product.stock ?? 0;
-        });
-        setPlatformPrices(prices);
-        setPlatformStocks(stocks);
-    };
+    }, [autoSyncRunning, showToast, loadProducts, loadDashboard, loadComparison]);
 
-    const handlePlatformPriceChange = (mp, field, value) =>
-        setPlatformPrices(prev => ({
-            ...prev, [mp]: { ...prev[mp], [field]: parseFloat(value) || 0 }
-        }));
+    /* ── İlk Yükleme ── */
+    useEffect(() => {
+        loadDashboard();
+        loadMarketplaces();
+        loadNotifications();
+        loadProducts();
+        setTimeout(() => runAutoSync(), 1200);
+        const iv = setInterval(() => loadNotifications(), 15000);
+        return () => clearInterval(iv);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
-    const handlePlatformStockChange = (mp, value) =>
-        setPlatformStocks(prev => ({ ...prev, [mp]: parseInt(value) || 0 }));
+    useEffect(() => { loadProducts(); }, [page, search, filterMP, filterStock]);
 
-    const applyToAllPlatforms = (field, value) =>
-        setPlatformPrices(prev => {
-            const u = { ...prev };
-            Object.keys(u).forEach(mp => { u[mp] = { ...u[mp], [field]: parseFloat(value) || 0 }; });
-            return u;
-        });
+    useEffect(() => {
+        if (activeTab === "logs")       { loadLogs(); loadNotifications(); }
+        if (activeTab === "dashboard")  loadDashboard();
+        if (activeTab === "comparison") loadComparison();
+        if (activeTab === "stock" || activeTab === "pricing" || activeTab === "distribution") loadProducts();
+    }, [activeTab]);
 
-    const applyStockToAll = (value) =>
-        setPlatformStocks(prev => {
-            const u = { ...prev };
-            Object.keys(u).forEach(mp => { u[mp] = parseInt(value) || 0; });
-            return u;
-        });
+    useEffect(() => { loadComparison(); }, [compPage, compSearch, missingOnly]);
 
-    const savePlatformPrices = async () => {
-        if (!editingProduct) return;
-        setSavingPrices(true);
-        const productId = editingProduct._id || editingProduct.id;
+    /* ── Stok Güncelle ── */
+    const handleSyncStock = async () => {
+        if (!stockModal?.product) return;
+        const val = parseInt(stockValue);
+        if (isNaN(val) || val < 0) { showToast("Geçerli bir stok girin (0 veya üzeri)", "warning"); return; }
+        setLoading(true);
         try {
-            // Her platform için fiyat + stok güncelle — sıralı çalıştır (rate-limit'e karşı)
-            const results = [];
-            for (const [mp, priceData] of Object.entries(platformPrices)) {
-                const stock = platformStocks[mp];
-                try {
-                    if (priceData.salePrice > 0) {
-                        await syncPrice(
-                            productId,
-                            priceData.salePrice,
-                            priceData.listPrice || priceData.salePrice
-                        );
-                    }
-                    if (stock !== undefined && stock !== null) {
-                        await syncStock(
-                            productId,
-                            stock,
-                            { salePrice: priceData.salePrice, listPrice: priceData.listPrice }
-                        );
-                    }
-                    results.push({ mp, success: true });
-                } catch (err) {
-                    console.error(`[PMH] ${mp} fiyat/stok güncelleme hatası:`, err);
-                    results.push({ mp, success: false, error: err?.response?.data?.error || err.message });
-                }
-            }
-            const succeeded = results.filter(r => r.success).length;
-            const failed    = results.filter(r => !r.success).length;
-            if (failed === 0) {
-                addToast(`Tüm platformlarda fiyat ve stok güncellendi! (${succeeded} platform)`, "success");
-            } else if (succeeded > 0) {
-                addToast(`${succeeded} platform güncellendi, ${failed} platformda hata oluştu`, "warning");
-            } else {
-                addToast("Hiçbir platformda güncelleme yapılamadı", "error");
-            }
-            setEditingProduct(null);
-            loadProducts();
-            loadDashboard();
-        } catch (err) {
-            console.error("[PMH] savePlatformPrices genel hata:", err);
-            addToast("Güncelleme sırasında beklenmeyen hata oluştu", "error");
-        } finally { setSavingPrices(false); }
+            const priceUpd = listPrice ? { listPrice: parseFloat(listPrice) } : null;
+            await syncStock(stockModal.product._id, val, priceUpd);
+            showToast("✅ Stok tüm pazaryerlerinde güncellendi!", "success");
+            setStockModal(null); setStockValue(""); setStockThreshold("");
+            loadProducts(); loadDashboard(); loadComparison();
+        } catch (e) {
+            showToast("Stok güncellenemedi: " + (e.response?.data?.error || e.message), "error");
+        } finally { setLoading(false); }
     };
 
-    /* ── İstatistikler ── */
-    const stats = useMemo(() => {
-        const d = dashboardData || {};
-        return {
-            // dashboardData normalize edilmiş geliyor (loadDashboard içinde düzleştirildi)
-            totalProducts:    d.totalProducts   || totalProducts || 0,
-            activeProducts:   d.activeProducts  || 0,
-            outOfStock:       d.outOfStock       || 0,
-            lowStock:         d.lowStock         || 0,
-            syncedProducts:   d.syncedProducts   || 0,
-            priceMismatch:    d.priceMismatch    || 0,
-            stockMismatch:    d.stockMismatch    || 0,
-            totalRevenue:     d.totalRevenue     || 0,
-            avgPrice:         d.avgPrice         || 0,
-            marketplaceCount: marketplaces.length
-        };
-    }, [dashboardData, totalProducts, marketplaces]);
+    /* ── Fiyat Güncelle ── */
+    const handleSyncPrice = async () => {
+        if (!priceModal?.product) return;
+        const sp = parseFloat(salePrice);
+        if (isNaN(sp) || sp <= 0) { showToast("Geçerli bir satış fiyatı girin", "warning"); return; }
+        setLoading(true);
+        try {
+            const lp = listPrice ? parseFloat(listPrice) : null;
+            await syncPrice(priceModal.product._id, sp, lp);
+            showToast("✅ Fiyat tüm pazaryerlerinde güncellendi!", "success");
+            setPriceModal(null); setSalePrice(""); setListPrice(""); setDiscountRate("");
+            loadProducts(); loadDashboard(); loadComparison();
+        } catch (e) {
+            showToast("Fiyat güncellenemedi: " + (e.response?.data?.error || e.message), "error");
+        } finally { setLoading(false); }
+    };
+
+    /* ── Fiyat Hesaplama Yardımcıları ── */
+    const calcDiscountRate = (sp, lp) => {
+        if (!sp || !lp || parseFloat(lp) <= 0) return "";
+        const rate = ((parseFloat(lp) - parseFloat(sp)) / parseFloat(lp) * 100).toFixed(1);
+        return rate > 0 ? rate : "";
+    };
+
+    const applyDiscount = (lp, rate) => {
+        if (!lp || !rate) return "";
+        return (parseFloat(lp) * (1 - parseFloat(rate) / 100)).toFixed(2);
+    };
+
+    /* ── Toplu Fiyat Güncelleme ── */
+    const handleBulkPriceUpdate = async () => {
+        if (selectedProducts.length === 0) { showToast("En az bir ürün seçin", "warning"); return; }
+        if (!bulkPriceValue) { showToast("Fiyat değeri girin", "warning"); return; }
+        setLoading(true);
+        let successCount = 0, errorCount = 0;
+        try {
+            for (const pid of selectedProducts) {
+                const product = products.find(p => p._id === pid);
+                if (!product) continue;
+                const mp = product.masterProduct || product;
+                let newPrice;
+                if (bulkPriceMode === "fixed") {
+                    newPrice = parseFloat(bulkPriceValue);
+                } else if (bulkPriceMode === "percent") {
+                    newPrice = parseFloat(mp.price || 0) * (1 - parseFloat(bulkPriceValue) / 100);
+                } else if (bulkPriceMode === "margin") {
+                    newPrice = parseFloat(mp.price || 0) * (1 + parseFloat(bulkPriceValue) / 100);
+                }
+                if (!newPrice || newPrice <= 0) continue;
+                try {
+                    await syncPrice(pid, parseFloat(newPrice.toFixed(2)));
+                    successCount++;
+                } catch { errorCount++; }
+            }
+            showToast(`✅ Toplu fiyat güncellendi — Başarılı: ${successCount}, Hata: ${errorCount}`, "success");
+            setBulkPriceValue(""); setSelectedProducts([]);
+            loadProducts(); loadDashboard();
+        } catch (e) {
+            showToast("Toplu fiyat güncellenemedi: " + (e.response?.data?.error || e.message), "error");
+        } finally { setLoading(false); }
+    };
+
+    /* ── Ürün Sil ── */
+    const handleDelete = async () => {
+        if (!deleteModal) return;
+        setLoading(true);
+        try {
+            await deleteProduct(deleteModal._id);
+            showToast("✅ Ürün silindi", "success");
+            setDeleteModal(null);
+            loadProducts(); loadDashboard(); loadComparison();
+        } catch (e) {
+            showToast("Ürün silinemedi: " + (e.response?.data?.error || e.message), "error");
+        } finally { setLoading(false); }
+    };
+
+    /* ── Toplu Dağıtım ── */
+    const handleBulkDistribute = async () => {
+        if (selectedProducts.length === 0) { showToast("En az bir ürün seçin", "warning"); return; }
+        if (bulkTargets.length === 0)       { showToast("En az bir hedef pazaryeri seçin", "warning"); return; }
+        setLoading(true);
+        setDistResult(null);
+        try {
+            const res = await bulkDistributeSelected(selectedProducts, bulkTargets);
+            const r = res.results || {};
+            setDistResult(r);
+            showToast(`✅ Dağıtım tamamlandı — Başarılı: ${r.success || 0}, Atlanan: ${r.skipped || 0}, Hata: ${r.error || 0}`, "success");
+            setSelectedProducts([]); setBulkTargets([]);
+            loadProducts(); loadDashboard(); loadComparison();
+        } catch (e) {
+            showToast("Toplu dağıtım başarısız: " + (e.response?.data?.error || e.message), "error");
+        } finally { setLoading(false); }
+    };
+
+    /* ── Yeni Ürün Oluştur ── */
+    const handleCreateProduct = async () => {
+        const { name, barcode, sku, price } = newProduct;
+        if (!name || !barcode || !sku || !price) {
+            showToast("Ad, barkod, SKU ve fiyat zorunludur", "warning"); return;
+        }
+        setLoading(true);
+        try {
+            const payload = {
+                ...newProduct,
+                price:     parseFloat(newProduct.price),
+                listPrice: newProduct.listPrice ? parseFloat(newProduct.listPrice) : parseFloat(newProduct.price),
+                stock:     parseInt(newProduct.stock) || 0,
+                images:    newProduct.images.filter(Boolean).map(url => ({ url })),
+                marketplaceMappings: newProductTargets.map(mpName => {
+                    const mp = marketplaces.find(m => m.name === mpName);
+                    return { marketplaceId: mp?._id, marketplaceName: mpName, syncStatus: "pending" };
+                }),
+            };
+            await createProduct(payload);
+            showToast("✅ Ürün oluşturuldu ve seçili pazaryerlerine dağıtıldı!", "success");
+            setShowNewProductForm(false);
+            setNewProduct({ name: "", barcode: "", sku: "", description: "", price: "", listPrice: "", stock: "", category: "", brand: "", images: [""] });
+            setNewProductTargets([]);
+            loadProducts(); loadDashboard(); loadComparison();
+        } catch (e) {
+            showToast("Ürün oluşturulamadı: " + (e.response?.data?.error || e.message), "error");
+        } finally { setLoading(false); }
+    };
+
+    /* ── Seçim Yardımcıları ── */
+    const toggleProduct = (id) =>
+        setSelectedProducts(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+
+    const toggleAllProducts = () =>
+        setSelectedProducts(selectedProducts.length === products.length ? [] : products.map(p => p._id));
+
+    const toggleTarget = (name) =>
+        setBulkTargets(prev => prev.includes(name) ? prev.filter(x => x !== name) : [...prev, name]);
+
+    const toggleNewProductTarget = (name) =>
+        setNewProductTargets(prev => prev.includes(name) ? prev.filter(x => x !== name) : [...prev, name]);
+
+    /* ── Dağıtım Yardımcıları ── */
+    const getProductSyncStatus = (product, mpName) => {
+        const m = (product.marketplaceMappings || []).find(
+            x => (x.marketplaceName || "").toLowerCase() === (mpName || "").toLowerCase()
+        );
+        return m?.syncStatus || null;
+    };
+
+    const getProductMPs = (product) =>
+        (product.marketplaceMappings || []).map(m => m.marketplaceName).filter(Boolean);
+
+    const getMissingMPs = (product) =>
+        marketplaces.map(m => m.name).filter(
+            mpName => !getProductMPs(product).includes(mpName)
+        );
+
+    /* ── Bildirim ── */
+    const handleMarkRead = async (id) => {
+        try { await markNotificationRead(id); loadNotifications(); } catch { /* sessiz */ }
+    };
+    const handleMarkAllRead = async () => {
+        try { await markNotificationRead("all"); loadNotifications(); showToast("Tüm bildirimler okundu ✅", "success"); } catch { /* sessiz */ }
+    };
 
     const totalPages = Math.max(1, Math.ceil(totalProducts / PAGE_SIZE));
-
-    /* ── Sekme Tanımları ── */
-    const tabs = [
-        { id: "catalog",   label: "Ürün Kataloğu",   icon: <FaBoxOpen /> },
-        { id: "pricing",   label: "Fiyat & Stok",     icon: <FaMoneyBillWave /> },
-        { id: "analytics", label: "Analitik",          icon: <FaChartBar /> },
-        { id: "sync",      label: "Senkronizasyon",    icon: <FaSync /> },
-        { id: "logs",      label: "İşlem Geçmişi",     icon: <FaHistory /> },
-    ];
 
     /* ══════════════════════════════════════════════════════════════════════════
        RENDER: Özet Kartları
