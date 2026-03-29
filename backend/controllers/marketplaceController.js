@@ -69,26 +69,25 @@
     // ✅ Pazaryeri Güncelleme (PUT)
     exports.updateMarketplace = async (req, res) => {
         try {
-            const { marketplaceName, credentials } = req.body;
+            const { credentials } = req.body;
 
             // Gerekli alanların kontrolü
             if (!credentials || Object.keys(credentials).length === 0) {
                 return res.status(400).json({ message: "❌ Lütfen API bilgilerini doldurun!" });
             }
 
-            const updatedMarketplace = await Marketplace.findByIdAndUpdate(
-                req.params.id,
-                {
-                    credentials,
-                    updatedAt: Date.now()
-                },
+            // ✅ FIX #4: IDOR kapatıldı — sadece kendi kaydını güncelleyebilir
+            const updatedMarketplace = await Marketplace.findOneAndUpdate(
+                { _id: req.params.id, userId: req.user._id },
+                { credentials, updatedAt: Date.now() },
                 { new: true }
             );
 
             if (!updatedMarketplace) {
-                return res.status(404).json({ message: "❌ Pazaryeri bulunamadı!" });
+                return res.status(404).json({ message: "❌ Pazaryeri bulunamadı veya yetkiniz yok!" });
             }
 
+            logger.info(`Pazaryeri güncellendi: ${updatedMarketplace.marketplaceName} — kullanıcı: ${req.user._id}`);
             res.status(200).json({ message: "✅ Güncelleme başarılı!", marketplace: updatedMarketplace });
         } catch (error) {
             logger.error("Pazaryeri güncelleme hatası", { error: error.message });
@@ -99,12 +98,17 @@
     // ✅ Pazaryeri Silme (DELETE)
     exports.deleteMarketplace = async (req, res) => {
         try {
-            const deletedMarketplace = await Marketplace.findByIdAndDelete(req.params.id);
+            // ✅ FIX #4: IDOR kapatıldı — sadece kendi kaydını silebilir
+            const deletedMarketplace = await Marketplace.findOneAndDelete({
+                _id    : req.params.id,
+                userId : req.user._id
+            });
 
             if (!deletedMarketplace) {
-                return res.status(404).json({ message: "❌ Pazaryeri bulunamadı!" });
+                return res.status(404).json({ message: "❌ Pazaryeri bulunamadı veya yetkiniz yok!" });
             }
 
+            logger.info(`Pazaryeri silindi: ${deletedMarketplace.marketplaceName} — kullanıcı: ${req.user._id}`);
             res.status(200).json({ message: "✅ Entegrasyon başarıyla silindi!" });
         } catch (error) {
             logger.error("Pazaryeri silme hatası", { error: error.message });

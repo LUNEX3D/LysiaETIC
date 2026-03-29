@@ -339,8 +339,11 @@ const fetchCicekSepetiOrders = async (supplierId, apiKey) => {
                 );
 
                 requestCount++;
-                if (requestCount % 1 === 0) {
-                    await new Promise(resolve => setTimeout(resolve, 60000));
+                // ✅ FIX #14: % 1 her zaman 0 dönerdi — her istekte 60sn bekliyordu!
+                // Şimdi her 10 istekte bir 3 saniye bekleniyor (rate limit koruması)
+                if (requestCount % 10 === 0) {
+                    logger.info(`[CicekSepeti] Rate limit koruması: ${requestCount}. istek, 3sn bekleniyor...`);
+                    await new Promise(resolve => setTimeout(resolve, 3000));
                 }
 
                 const items = response.data?.supplierOrderListWithBranch || [];

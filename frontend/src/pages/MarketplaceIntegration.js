@@ -65,11 +65,22 @@ const MarketplaceIntegration = () => {
                     },
                     description: "Hepsiburada Merchant API - Mağaza ID ve Servis Anahtarı gereklidir. Satıcı Paneli > Entegrasyonlar > API Entegrasyonları bölümünden alabilirsiniz."
                 },
-                // ✅ ÇALIŞIYOR - Dokunma
+                // ✅ ÇALIŞIYOR
                 {
                     name: "n11",
-                    fields: ["apiKey", "secretKey"],
-                    description: "n11 API - API Key ve Secret Key gereklidir"
+                    fields: ["apiKey", "secretKey", "shipmentTemplate"],
+                    fieldLabels: {
+                        apiKey:           "App Key",
+                        secretKey:        "App Secret",
+                        shipmentTemplate: "Kargo Şablon Adı"
+                    },
+                    fieldDefaults: {
+                        shipmentTemplate: "STANDART"
+                    },
+                    fieldHints: {
+                        shipmentTemplate: "N11 Paneli → Hesabım → Teslimat Bilgileri → Şablon Adı sütunundaki değer. Boş bırakırsanız 'STANDART' kullanılır."
+                    },
+                    description: "N11 REST API — App Key ve App Secret zorunludur. Kargo şablonu için N11 Paneli > Hesabım > Teslimat Bilgileri'nde 'STANDART' adında bir şablon oluşturun."
                 },
                 // 🔧 AMAZON TÜRKİYE - Gerçek API Bilgileri
                 {
@@ -234,14 +245,17 @@ const MarketplaceIntegration = () => {
         // Bu platform için form verilerini al
         const platformFormData = formData[platform.name] || {};
 
-        // Credentials oluştur
+        // Credentials oluştur — fieldDefaults varsa boş alanlar için varsayılan değeri kullan
         const credentials = {};
         platform.fields.forEach(field => {
-            credentials[field] = platformFormData[field] || "";
+            credentials[field] = platformFormData[field] || platform.fieldDefaults?.[field] || "";
         });
 
-        // Boş alan kontrolü
-        const hasEmptyFields = Object.values(credentials).some(val => !val.trim());
+        // Boş alan kontrolü — fieldDefaults olan alanlar zaten dolu gelir
+        const hasEmptyFields = platform.fields.some(field => {
+            const val = credentials[field];
+            return !val || !val.trim();
+        });
         if (hasEmptyFields) {
             alert(`❌ Lütfen ${platform.name} için tüm API bilgilerini doldurun!`);
             return;
@@ -418,27 +432,41 @@ const MarketplaceIntegration = () => {
 
                                     {/* API Giriş Alanları */}
                                     <div className="api-fields">
-                                        {platform.fields.map(field => (
-                                            <div key={field} className="input-group">
-                                                <label htmlFor={`${platform.name}-${field}`}>
-                                                    {field.replace(/([A-Z])/g, ' $1').trim().toUpperCase()}
-                                                </label>
-                                                <input
-                                                    id={`${platform.name}-${field}`}
-                                                    type="password"
-                                                    placeholder={`${field.replace(/([A-Z])/g, ' $1').trim()} girin...`}
-                                                    className="api-input"
-                                                    value={(formData[platform.name]?.[field]) || ""}
-                                                    onChange={(e) => setFormData(prev => ({
-                                                        ...prev,
-                                                        [platform.name]: {
-                                                            ...(prev[platform.name] || {}),
-                                                            [field]: e.target.value.trim()
-                                                        }
-                                                    }))}
-                                                />
-                                            </div>
-                                        ))}
+                                        {platform.fields.map(field => {
+                                            // fieldLabels varsa kullan, yoksa field adından otomatik üret
+                                            const label = platform.fieldLabels?.[field]
+                                                || field.replace(/([A-Z])/g, ' $1').trim().toUpperCase();
+                                            // fieldHints varsa ipucu göster
+                                            const hint = platform.fieldHints?.[field];
+                                            // shipmentTemplate gibi hassas olmayan alanlar text tipinde göster
+                                            const sensitiveFields = ["apiKey","secretKey","appKey","appSecret","apiSecret","apiPassword","accessToken","sessionKey","clientSecret","mwsAuthToken","userToken","certId","partnerKey","licenseKey","serviceSecret"];
+                                            const inputType = sensitiveFields.includes(field) ? "password" : "text";
+                                            const defaultVal = platform.fieldDefaults?.[field] || "";
+                                            return (
+                                                <div key={field} className="input-group">
+                                                    <label htmlFor={`${platform.name}-${field}`}>
+                                                        {label}
+                                                    </label>
+                                                    <input
+                                                        id={`${platform.name}-${field}`}
+                                                        type={inputType}
+                                                        placeholder={hint || (defaultVal ? `Varsayılan: ${defaultVal}` : `${label} girin...`)}
+                                                        className="api-input"
+                                                        value={(formData[platform.name]?.[field]) || ""}
+                                                        onChange={(e) => setFormData(prev => ({
+                                                            ...prev,
+                                                            [platform.name]: {
+                                                                ...(prev[platform.name] || {}),
+                                                                [field]: e.target.value.trim()
+                                                            }
+                                                        }))}
+                                                    />
+                                                    {hint && (
+                                                        <small className="field-hint">💡 {hint}</small>
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
                                     </div>
 
                                     {/* Gerekli Alan Sayısı */}

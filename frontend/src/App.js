@@ -20,9 +20,13 @@ import AdminProducts from "./pages/AdminProducts";
 import AdminOrders from "./pages/AdminOrders";
 import MarketplaceIntegration from "./pages/MarketplaceIntegration";
 import ProductWizard from "./components/ProductWizard";
+import CategoryMappingPage from "./pages/CategoryMappingPage";
 
 // Modern Finans Paneli
 import FinancePage from "./pages/FinancePage";
+
+// Ürün Yönetimi — V3: Otomatik sync, karşılaştırma matrisi, toplu dağıtım
+import ProductManagementPage from "./pages/ProductManagementPageV3";
 
 // Tema ayarları
 const theme = createTheme({
@@ -65,6 +69,12 @@ const AppContent = () => {
 
             {/* Finans Modülü */}
             <Route path="/finance" element={<FinancePage />} />
+
+            {/* Ürün Yönetimi */}
+            <Route path="/product-management" element={<ProductManagementPage />} />
+
+            {/* Kategori Eşleştirme */}
+            <Route path="/category-mapping" element={<CategoryMappingPage />} />
         </Routes>
     );
 

@@ -1,26 +1,22 @@
-    const mongoose = require("mongoose");
+const mongoose = require("mongoose");
 
-    const MarketplaceSchema = new mongoose.Schema({
-        userId: {
-            type: mongoose.Schema.Types.ObjectId,
-            ref: "User",
-            required: true
-        },
-        marketplaceName: {
-            type: String,
-            required: true
-        },
-        credentials: {
-            type: Object,
-            required: true
-        }
-    }, { timestamps: true });
+const MarketplaceSchema = new mongoose.Schema({
+    userId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+        required: true,
+        index: true
+    },
+    marketplaceName: {
+        type: String,
+        required: true
+    },
+    credentials: {
+        type: Object,
+        default: {}
+    }
+}, { timestamps: true });
 
-    const marketplaceSchema = new mongoose.Schema({
-        userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
-        marketplaceName: { type: String, required: true },
-        credentials: { type: Object, required: true },
-        createdAt: { type: Date, default: Date.now },
-        updatedAt: { type: Date, default: Date.now }
-    });
-    module.exports = mongoose.model("Marketplace", MarketplaceSchema);
+MarketplaceSchema.index({ userId: 1, marketplaceName: 1 });
+
+module.exports = mongoose.model("Marketplace", MarketplaceSchema);

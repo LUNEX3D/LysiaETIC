@@ -276,7 +276,8 @@ function generateActionableDecisions(analysis) {
         });
     }
 
-    // 3. FİYAT OPTİMİZASYONU FIRSATLARIif (analysis.priceOptimizations && analysis.priceOptimizations.length > 0) {
+    // 3. FİYAT OPTİMİZASYONU FIRSATLARI
+    if (analysis.priceOptimizations && analysis.priceOptimizations.length > 0) {
         const increaseOpportunities = analysis.priceOptimizations.filter(opt => opt.change > 0);
         const decreaseNeeds = analysis.priceOptimizations.filter(opt => opt.change < 0);
 

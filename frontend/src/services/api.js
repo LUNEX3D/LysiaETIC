@@ -41,9 +41,10 @@ export const uploadProduct = async (productData) => {
 };
 
 // Kullanıcı girişi fonksiyonu
+// ✅ FIX #15: /login → /auth/login olarak düzeltildi
 export const loginUser = async (credentials) => {
     try {
-        const response = await API.post("/login", credentials);
+        const response = await API.post("/auth/login", credentials);
         return response.data;
     } catch (error) {
         console.error("Giriş yapılırken hata oluştu:", error);
@@ -52,9 +53,10 @@ export const loginUser = async (credentials) => {
 };
 
 // Kullanıcı kaydı fonksiyonu
+// ✅ FIX #15: /register → /auth/register olarak düzeltildi
 export const registerUser = async (userData) => {
     try {
-        const response = await API.post("/register", userData);
+        const response = await API.post("/auth/register", userData);
         return response.data;
     } catch (error) {
         console.error("Kayıt olunurken hata oluştu:", error);

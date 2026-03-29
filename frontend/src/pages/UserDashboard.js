@@ -16,14 +16,15 @@ import {
     FaBars, FaTimes, FaClipboardList, FaCog,
     FaChartLine, FaBoxOpen, FaMoneyBillWave, FaChartPie,
     FaTruck, FaUsers, FaFileInvoice, FaPlug,
-    FaChevronDown, FaChevronUp, FaBox, FaTimesCircle, FaCogs,
-    FaBrain, FaChartBar
+    FaChevronDown, FaChevronUp, FaBox,
+    FaBrain, FaChartBar, FaLayerGroup, FaExchangeAlt, FaBell
 } from "react-icons/fa";
 import { motion, AnimatePresence } from "framer-motion";
 import Particles from "react-tsparticles";
 import { loadSlim } from "tsparticles-slim";
 import "../styles/userDashboard.css";
-import TrendyolProductUpload from "../components/ProductWizard";
+import UnifiedProductManagement from "../pages/UnifiedProductManagement";
+import ProductManagementPageV3 from "../pages/ProductManagementPageV3";
 
 // Mock-realistic dashboard snapshot for fallback/demo (25 Feb 2026)
 const sampleDashboard = {
@@ -86,11 +87,13 @@ const UserDashboard = () => {
     const [dashboardLoading, setDashboardLoading] = useState(false);
     const [dashboardError, setDashboardError] = useState("");
     const [showProductManagement, setShowProductManagement] = useState(false);
+    const [showProductManagementNew, setShowProductManagementNew] = useState(false);
     const [showOrdersSubmenu, setShowOrdersSubmenu] = useState(false);
     const [showInventorySubmenu, setShowInventorySubmenu] = useState(false);
     const [showShippingSubmenu, setShowShippingSubmenu] = useState(false);
     const [showFinanceSubmenu, setShowFinanceSubmenu] = useState(false);
     const [showIntegrationSubmenu, setShowIntegrationSubmenu] = useState(false);
+    const [showProductManagementSubmenu, setShowProductManagementSubmenu] = useState(false);
     const [expandedKpiCard, setExpandedKpiCard] = useState(null);
     const [showOrderDetailsModal, setShowOrderDetailsModal] = useState(false);
     const [selectedOrderTab, setSelectedOrderTab] = useState('all');
@@ -2924,31 +2927,13 @@ const UserDashboard = () => {
         }
 
         switch (activePanel) {
-            case "upload-product":
-                return (
-                    <div className="content-wrapper">
-                        <h1 className="content-title">
-                            <FaBoxOpen /> Ürün Yükleme
-                        </h1>
-                        <TrendyolProductUpload />
-                    </div>
-                );
-            case "delete-product":
-                return (
-                    <div className="content-wrapper">
-                        <h1 className="content-title">
-                            <FaTimesCircle /> Ürün Silme
-                        </h1>
-                    </div>
-                );
-            case "update-product":
-                return (
-                    <div className="content-wrapper">
-                        <h1 className="content-title">
-                            <FaCogs /> Ürün Güncelleme
-                        </h1>
-                    </div>
-                );
+            case "product-management":
+            case "product-management-v4":
+            case "new-product-upload":
+            case "product-sync":
+            case "sync-notifications":
+            case "advanced-product-management":
+                return <ProductManagementPageV3 />;
             case "finance":
                 return (
                     <FinancePage userId={userId} marketplaces={marketplaces} />
@@ -3095,72 +3080,38 @@ const UserDashboard = () => {
                         </React.Fragment>
                     ))}
 
-                    {/* Ürün Yönetimi */}
+                    {/* ═══════════════════════════════════════════════════
+                         ÜRÜN YÖNETİMİ — YENİ UNIFIED PANEL
+                    ═══════════════════════════════════════════════════ */}
                     <motion.div
-                        className={`menu-item ${showProductManagement ? "active" : ""}`}
+                        className={`menu-item ${
+                            activePanel === "product-management" ? "active" : ""
+                        }`}
                         onClick={() => {
-                            setShowProductManagement(!showProductManagement);
+                            setActivePanel("product-management");
                             setShowOrdersSubmenu(false);
                             setShowInventorySubmenu(false);
                             setShowShippingSubmenu(false);
                             setShowFinanceSubmenu(false);
                             setShowIntegrationSubmenu(false);
+                            setShowProductManagementSubmenu(false);
                         }}
                         whileHover={{ scale: 1.05 }}
                         whileTap={{ scale: 0.95 }}
                     >
-                        <div className="icon-wrapper">
-                            <FaBoxOpen />
+                        <div className="icon-wrapper" style={{
+                            background: activePanel === "product-management"
+                                ? 'linear-gradient(135deg, #0f766e, #0891b2)'
+                                : 'linear-gradient(135deg, #0f766e, #0891b2)',
+                            borderRadius: '8px',
+                            padding: '4px'
+                        }}>
+                            <FaLayerGroup style={{ color: '#fff' }} />
                         </div>
                         <motion.span className="menu-text" animate={{ opacity: menuOpen ? 1 : 0 }}>
                             Ürün Yönetimi
                         </motion.span>
-                        {showProductManagement ? <FaChevronUp /> : <FaChevronDown />}
                     </motion.div>
-                    <AnimatePresence>
-                        {showProductManagement && (
-                            <motion.div
-                                initial={{ opacity: 0, height: 0 }}
-                                animate={{ opacity: 1, height: "auto" }}
-                                exit={{ opacity: 0, height: 0 }}
-                                className="submenu"
-                            >
-                                <motion.div
-                                    className={`menu-item submenu-item ${
-                                        activePanel === "upload-product" ? "active" : ""
-                                    }`}
-                                    onClick={() => setActivePanel("upload-product")}
-                                >
-                                    <div className="icon-wrapper">
-                                        <FaBoxOpen />
-                                    </div>
-                                    <span>Ürün Yükleme</span>
-                                </motion.div>
-                                <motion.div
-                                    className={`menu-item submenu-item ${
-                                        activePanel === "delete-product" ? "active" : ""
-                                    }`}
-                                    onClick={() => setActivePanel("delete-product")}
-                                >
-                                    <div className="icon-wrapper">
-                                        <FaTimesCircle />
-                                    </div>
-                                    <span>Ürün Silme</span>
-                                </motion.div>
-                                <motion.div
-                                    className={`menu-item submenu-item ${
-                                        activePanel === "update-product" ? "active" : ""
-                                    }`}
-                                    onClick={() => setActivePanel("update-product")}
-                                >
-                                    <div className="icon-wrapper">
-                                        <FaCogs />
-                                    </div>
-                                    <span>Ürün Güncelleme</span>
-                                </motion.div>
-                            </motion.div>
-                        )}
-                    </AnimatePresence>
                 </nav>
             </motion.aside>
 

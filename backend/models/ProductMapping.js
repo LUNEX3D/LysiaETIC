@@ -1,0 +1,166 @@
+const mongoose = require("mongoose");
+
+/**
+ * ÜRÜN EŞLEŞTİRME MODELİ
+ *
+ * Bir ürünün farklı pazaryerlerindeki karşılıklarını tutar
+ * Örnek: Trendyol'da "TY-123" olan ürün, N11'de "N11-456" olabilir
+ */
+const ProductMappingSchema = new mongoose.Schema({
+    userId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+        required: true,
+        index: true
+    },
+
+    // Ana ürün bilgileri (Master Data)
+    masterProduct: {
+        name: { type: String, required: true },
+        barcode: { type: String, required: true, index: true },
+        sku: { type: String, required: true },
+        description: { type: String },
+        images: [{ type: String }],
+        price: { type: Number, required: true },
+        listPrice: { type: Number },
+        stock: { type: Number, required: true, default: 0 },
+        category: { type: String },
+        brand: { type: String },
+        attributes: {
+            color: String,
+            size: String,
+            weight: Number,
+            dimensions: {
+                width: Number,
+                height: Number,
+                depth: Number
+            }
+        }
+    },
+
+    // Pazaryeri bazlı eşleştirmeler
+    marketplaceMappings: [{
+        marketplaceName: {
+            type: String,
+            required: true
+        },
+        marketplaceProductId: { type: String }, // Pazaryerindeki ürün ID
+        marketplaceSku: { type: String }, // Pazaryerindeki SKU
+        marketplaceBarcode: { type: String }, // Pazaryerindeki barkod
+        categoryId: { type: String }, // Pazaryerine özel kategori ID
+        categoryName: { type: String }, // Pazaryerine özel kategori adı
+        categoryPath: [{ type: String }], // Kategori hiyerarşisi
+
+        // Pazaryerine özel fiyatlandırma
+        price: { type: Number },
+        listPrice: { type: Number },
+        commissionRate: { type: Number },
+
+        // Pazaryerine özel stok
+        stock: { type: Number },
+
+        // Pazaryerine özel özellikler
+        customAttributes: {
+            type: Map,
+            of: mongoose.Schema.Types.Mixed
+        },
+
+        // Durum bilgileri
+        isActive: { type: Boolean, default: true },
+        isSynced: { type: Boolean, default: false },
+        lastSyncDate: { type: Date },
+        syncStatus: {
+            type: String,
+            enum: ["pending", "syncing", "synced", "error"],
+            default: "pending"
+        },
+        syncError: { type: String },
+
+        // N11 asenkron task takibi
+        n11TaskId:     { type: String },   // IN_QUEUE sonrası dönen task ID
+        n11TaskStatus: { type: String },   // COMPLETED / REJECT / FAILED / IN_QUEUE
+
+        // Pazaryerinden çekilme tarihi
+        pulledFromMarketplace: { type: Boolean, default: false },
+        pullDate: { type: Date }
+    }],
+
+    // Otomatik senkronizasyon ayarları
+    autoSync: {
+        enabled: { type: Boolean, default: true },
+        syncStock: { type: Boolean, default: true },
+        syncPrice: { type: Boolean, default: true },
+        syncInterval: { type: Number, default: 300 } // Saniye cinsinden (5 dakika)
+    },
+
+    // Stok takip bilgileri
+    stockTracking: {
+        totalStock: { type: Number, default: 0 },
+        reservedStock: { type: Number, default: 0 },
+        availableStock: { type: Number, default: 0 },
+        lowStockThreshold: { type: Number, default: 10 },
+        isLowStock: { type: Boolean, default: false },
+        isOutOfStock: { type: Boolean, default: false }
+    },
+
+    // Satış istatistikleri
+    salesStats: {
+        totalSales: { type: Number, default: 0 },
+        totalRevenue: { type: Number, default: 0 },
+        lastSaleDate: { type: Date },
+        bestSellingMarketplace: { type: String }
+    },
+
+    // Log ve geçmiş
+    syncHistory: [{
+        date: { type: Date, default: Date.now },
+        action: { type: String }, // "stock_update", "price_update", "product_created", etc.
+        marketplace: { type: String },
+        oldValue: { type: mongoose.Schema.Types.Mixed },
+        newValue: { type: mongoose.Schema.Types.Mixed },
+        status: { type: String, enum: ["success", "error"] },
+        message: { type: String }
+    }],
+
+    // Metadata
+    createdAt: { type: Date, default: Date.now },
+    updatedAt: { type: Date, default: Date.now }
+}, {
+    timestamps: true
+});
+
+// İndeksler
+ProductMappingSchema.index({ userId: 1, "masterProduct.barcode": 1 }, { unique: true });
+ProductMappingSchema.index({ userId: 1, "masterProduct.sku": 1 });
+ProductMappingSchema.index({ "marketplaceMappings.marketplaceName": 1, "marketplaceMappings.marketplaceProductId": 1 });
+
+// Stok durumunu güncelle
+ProductMappingSchema.methods.updateStockStatus = function() {
+    const totalStock = this.stockTracking.totalStock || 0;
+    const reservedStock = this.stockTracking.reservedStock || 0;
+    const availableStock = totalStock - reservedStock;
+
+    this.stockTracking.availableStock = Math.max(0, availableStock);
+    this.stockTracking.isOutOfStock = availableStock <= 0;
+    this.stockTracking.isLowStock = availableStock > 0 && availableStock <= this.stockTracking.lowStockThreshold;
+};
+
+// Sync geçmişi ekle
+ProductMappingSchema.methods.addSyncLog = function(action, marketplace, oldValue, newValue, status, message) {
+    this.syncHistory.push({
+        date: new Date(),
+        action,
+        marketplace,
+        oldValue,
+        newValue,
+        status,
+        message
+    });
+
+    // Son 100 log'u tut
+    if (this.syncHistory.length > 100) {
+        this.syncHistory = this.syncHistory.slice(-100);
+    }
+};
+
+module.exports = mongoose.model("ProductMapping", ProductMappingSchema);

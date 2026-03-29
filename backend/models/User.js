@@ -6,7 +6,8 @@ const UserSchema = new mongoose.Schema({
     password: { type: String, required: true },
     role: {
         type: String,
-        enum: ["admin", "dev", "moderator", "seller", "user", "users"], // 'users' geçici olarak eklendi - düzeltilecek
+        // ✅ FIX #16: Geçersiz "users" enum değeri kaldırıldı
+        enum: ["admin", "dev", "moderator", "seller", "user"],
         default: "user"
     },
 
