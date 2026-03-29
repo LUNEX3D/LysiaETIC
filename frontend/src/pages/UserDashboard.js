@@ -25,6 +25,7 @@ import { loadSlim } from "tsparticles-slim";
 import "../styles/userDashboard.css";
 import UnifiedProductManagement from "../pages/UnifiedProductManagement";
 import ProductManagementPageV3 from "../pages/ProductManagementPageV3";
+import ProductManagementHub from "../pages/ProductManagementHub";
 
 // Mock-realistic dashboard snapshot for fallback/demo (25 Feb 2026)
 const sampleDashboard = {
@@ -2928,6 +2929,13 @@ const UserDashboard = () => {
 
         switch (activePanel) {
             case "product-management":
+                // pmh-root margin:-2rem trick'i content-area padding:2rem'i iptal eder.
+                // color:#fff !important override'ını sıfırlamak için wrapper gerekli.
+                return (
+                    <div style={{ margin: "-2rem", width: "calc(100% + 4rem)", minHeight: "100%", color: "inherit" }}>
+                        <ProductManagementHub />
+                    </div>
+                );
             case "product-management-v4":
             case "new-product-upload":
             case "product-sync":
