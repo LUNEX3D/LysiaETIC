@@ -215,5 +215,8 @@ process.on("SIGTERM", () => {
             logger.info("Sunucu ve DB bağlantısı kapatıldı.");
             process.exit(0);
         });
+        app.get("/", (req, res) => {
+          res.send("Lysia API canlı 🚀");
+        });
     });
 });
