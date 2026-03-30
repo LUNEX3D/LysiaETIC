@@ -35,6 +35,10 @@ import FinancePage from "./pages/FinancePage";
 // Ürün Yönetimi — V3: Otomatik sync, karşılaştırma matrisi, toplu dağıtım
 import ProductManagementPage from "./pages/ProductManagementPageV3";
 
+// Yeni Ürün Yükleme & Fiyat Eşitleme
+import ProductUploadPage from "./pages/ProductUploadPage";
+import PriceSyncPage from "./pages/PriceSyncPage";
+
 // Tema ayarları
 const theme = createTheme({
     palette: {
@@ -82,6 +86,8 @@ const AppContent = () => {
 
             {/* Ürün Yönetimi */}
             <Route path="/product-management" element={<ProductManagementPage />} />
+            <Route path="/product-upload" element={<ProductUploadPage />} />
+            <Route path="/price-sync" element={<PriceSyncPage />} />
 
             {/* Kategori Eşleştirme */}
             <Route path="/category-mapping" element={<CategoryMappingPage />} />

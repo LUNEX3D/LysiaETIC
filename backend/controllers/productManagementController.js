@@ -1427,6 +1427,101 @@ exports.n11DebugRawProducts = async (req, res) => {
 };
 
 // ═══════════════════════════════════════════════════════════════
+// 🏷️ TRENDYOL KATEGORİ ÇEKME
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Trendyol kategori ağacını çek
+ * GET /product-management/trendyol/categories?search=telefon
+ */
+exports.getTrendyolCategories = async (req, res) => {
+    try {
+        const userId = toObjectId(req.user?._id || req.user?.id);
+        if (!userId) return res.status(401).json({ error: "Yetkilendirme hatası" });
+
+        const { search } = req.query;
+
+        // Trendyol entegrasyonunu bul
+        const marketplace = await Marketplace.findOne({
+            userId,
+            marketplaceName: { $regex: /^trendyol$/i }
+        });
+
+        if (!marketplace) {
+            return res.status(404).json({ error: "Trendyol entegrasyonu bulunamadı. Lütfen önce Trendyol entegrasyonunu ekleyin." });
+        }
+
+        const { apiKey, apiSecret, sellerId, supplierId } = marketplace.credentials || {};
+        const actualSellerId = sellerId || supplierId;
+
+        if (!apiKey || !apiSecret || !actualSellerId) {
+            return res.status(400).json({ error: "Trendyol credentials eksik (apiKey, apiSecret, sellerId)" });
+        }
+
+        const axios = require("axios");
+        const authHeader = Buffer.from(`${apiKey}:${apiSecret}`).toString("base64");
+
+        // Trendyol kategori API'si
+        const response = await axios.get(
+            "https://apigw.trendyol.com/integration/product/product-categories",
+            {
+                headers: {
+                    Authorization: `Basic ${authHeader}`,
+                    "User-Agent": `${actualSellerId} - LysiaETIC`,
+                    "Content-Type": "application/json"
+                },
+                timeout: 15000
+            }
+        );
+
+        let categories = response.data?.categories || [];
+
+        // Düz listeye çevir (nested tree → flat list)
+        const flattenCategories = (cats, parentPath = []) => {
+            let result = [];
+            for (const cat of cats) {
+                const path = [...parentPath, cat.name];
+                result.push({
+                    id: cat.id,
+                    name: cat.name,
+                    path: path.join(" > "),
+                    parentId: cat.parentId || null,
+                    hasChildren: !!(cat.subCategories && cat.subCategories.length > 0)
+                });
+                if (cat.subCategories && cat.subCategories.length > 0) {
+                    result = result.concat(flattenCategories(cat.subCategories, path));
+                }
+            }
+            return result;
+        };
+
+        let flatCategories = flattenCategories(categories);
+
+        // Arama filtresi
+        if (search) {
+            const q = search.toLowerCase();
+            flatCategories = flatCategories.filter(c =>
+                c.name.toLowerCase().includes(q) || c.path.toLowerCase().includes(q)
+            );
+        }
+
+        // Sadece yaprak kategorileri göster (ürün yüklenebilir olanlar)
+        const leafCategories = flatCategories.filter(c => !c.hasChildren);
+
+        return res.status(200).json({
+            success: true,
+            total: leafCategories.length,
+            totalAll: flatCategories.length,
+            categories: search ? leafCategories.slice(0, 100) : leafCategories.slice(0, 200)
+        });
+
+    } catch (error) {
+        logger.error("[TRENDYOL CATEGORIES] Hata:", error.message);
+        return res.status(500).json({ error: "Trendyol kategorileri alınamadı", details: error.message });
+    }
+};
+
+// ═══════════════════════════════════════════════════════════════
 // 📊 DASHBOARD & İSTATİSTİKLER
 // ═══════════════════════════════════════════════════════════════
 

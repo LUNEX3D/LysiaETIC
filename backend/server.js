@@ -197,6 +197,10 @@ const server = app.listen(PORT, '0.0.0.0', () => {
     logger.info(`  📊  Durum    : http://localhost:${PORT}/api/status`);
     logger.info(`  🕐  Başlangıç: ${new Date().toLocaleString("tr-TR")}`);
     logger.info(`${line}\n`);
+
+    // ─── Otomatik Stok Senkronizasyon Cron'unu Başlat ────────────────────────
+    const { startStockCron } = require("./services/stockCronService");
+    startStockCron();
 });
 
 // ─── 15. İşlem seviyesi hata yakalama ────────────────────────────────────────
@@ -212,13 +216,12 @@ process.on("uncaughtException", (err) => {
 
 process.on("SIGTERM", () => {
     logger.info("SIGTERM alındı — sunucu kapatılıyor...");
+    const { stopStockCron } = require("./services/stockCronService");
+    stopStockCron();
     server.close(() => {
         mongoose.connection.close(false, () => {
             logger.info("Sunucu ve DB bağlantısı kapatıldı.");
             process.exit(0);
-        });
-        app.get("/", (req, res) => {
-          res.send("Lysia API canlı 🚀");
         });
     });
 });

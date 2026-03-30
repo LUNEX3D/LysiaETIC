@@ -1,875 +1,515 @@
-import React, { useState, useEffect } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+/**
+ * GELİŞMİŞ ÜRÜN YÜKLEME SAYFASI
+ *
+ * - Trendyol'dan kategori çekme (arama ile)
+ * - Ürün bilgileri formu
+ * - "Kaydet" ve "Kaydet ve Dağıt" butonları
+ * - Dağıt seçilince entegre pazaryerlerini tikle
+ * - Yeni yüklenen ürün yeşil border ile gösterilir
+ */
+
+import React, { useState, useEffect, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import {
-    FaBoxOpen, FaBarcode, FaTag, FaImage, FaDollarSign,
-    FaLayerGroup, FaCheck, FaTimes, FaPlus, FaTrash,
-    FaArrowRight, FaArrowLeft, FaSave, FaSpinner, FaInfoCircle
+    FaBoxOpen, FaSave, FaRocket, FaSearch, FaSpinner,
+    FaTimes, FaCheck, FaStore, FaArrowLeft, FaImage
 } from "react-icons/fa";
-import { createProduct } from "../services/productManagementApi";
-import { getUserMarketplaces } from "../services/marketplaceApi";
-import "../styles/ProductManagementPages.css";
+import API from "../services/api";
 
-const STEPS = [
-    { id: 1, title: "Temel Bilgiler", icon: <FaBoxOpen />, desc: "Ürün adı, barkod, SKU ve marka" },
-    { id: 2, title: "Fiyat & Stok", icon: <FaDollarSign />, desc: "Fiyatlandırma ve stok bilgileri" },
-    { id: 3, title: "Görseller & Açıklama", icon: <FaImage />, desc: "Ürün görselleri ve detayları" },
-    { id: 4, title: "Kategori & Özellikler", icon: <FaLayerGroup />, desc: "Kategori ve ürün özellikleri" },
-    { id: 5, title: "Pazaryeri & Kategori Eşleştirme", icon: <FaTag />, desc: "Pazaryeri seçimi ve özel kategori ayarları" },
-    { id: 6, title: "Onay & Yükleme", icon: <FaCheck />, desc: "Son kontrol ve yükleme" }
-];
+const ProductUploadPage = () => {
+    const navigate = useNavigate();
+    const [saving, setSaving] = useState(false);
+    const [message, setMessage] = useState({ text: "", type: "" });
 
-// Pazaryeri bazlı kategori önerileri
-const MARKETPLACE_CATEGORY_HINTS = {
-    Trendyol: {
-        placeholder: "Örn: Giyim & Aksesuar > Kadın > Elbise",
-        idPlaceholder: "Örn: 1007",
-        hint: "Trendyol kategori ID'sini Trendyol Satıcı Paneli > Ürün Yönetimi > Kategori bölümünden bulabilirsiniz."
-    },
-    Hepsiburada: {
-        placeholder: "Örn: Giyim > Kadın Giyim > Elbise",
-        idPlaceholder: "Örn: HB-CAT-1234",
-        hint: "Hepsiburada kategori bilgisini Hepsiburada Merchant Portal'dan alabilirsiniz."
-    },
-    N11: {
-        placeholder: "Örn: Giyim & Aksesuar > Kadın Giyim",
-        idPlaceholder: "Örn: 1000476 (sayısal ID)",
-        hint: "N11 REST API ile kategori ağacını çekebilir veya N11 Mağaza Paneli'nden kategori ID'sini öğrenebilirsiniz. Mandatory özellikler zorunludur."
-    },
-    n11: {
-        placeholder: "Örn: Giyim & Aksesuar > Kadın Giyim",
-        idPlaceholder: "Örn: 1000476 (sayısal ID)",
-        hint: "N11 REST API ile kategori ağacını çekebilir veya N11 Mağaza Paneli'nden kategori ID'sini öğrenebilirsiniz. Mandatory özellikler zorunludur."
-    },
-    Amazon: {
-        placeholder: "Örn: Clothing > Women > Dresses",
-        idPlaceholder: "Örn: ASIN veya node ID",
-        hint: "Amazon kategori bilgisini Amazon Seller Central'dan alabilirsiniz."
-    },
-    ÇiçekSepeti: {
-        placeholder: "Örn: Çiçek & Bitki > Saksı Çiçeği",
-        idPlaceholder: "Örn: CS-1234",
-        hint: "ÇiçekSepeti kategori bilgisini tedarikçi panelinizden alabilirsiniz."
-    }
-};
+    // Kategori
+    const [categorySearch, setCategorySearch] = useState("");
+    const [categories, setCategories] = useState([]);
+    const [catLoading, setCatLoading] = useState(false);
+    const [selectedCategory, setSelectedCategory] = useState(null);
 
-const MASTER_CATEGORIES = [
-    { group: "👕 Giyim & Moda", items: [
-        "Giyim > Kadın Giyim", "Giyim > Erkek Giyim", "Giyim > Çocuk Giyim",
-        "Giyim > Ayakkabı", "Giyim > Çanta", "Giyim > Aksesuar"
-    ]},
-    { group: "📱 Elektronik", items: [
-        "Elektronik > Telefon & Tablet", "Elektronik > Telefon Aksesuarları",
-        "Elektronik > Bilgisayar", "Elektronik > Bilgisayar Aksesuarları",
-        "Elektronik > TV & Ses Sistemleri", "Elektronik > Kamera & Fotoğraf",
-        "Elektronik > Oyun & Oyun Konsolları"
-    ]},
-    { group: "🏠 Ev & Yaşam", items: [
-        "Ev & Yaşam > Mobilya", "Ev & Yaşam > Ev Dekorasyon",
-        "Ev & Yaşam > Ev Tekstili", "Ev & Yaşam > Mutfak",
-        "Ev & Yaşam > Banyo", "Ev & Yaşam > Aydınlatma"
-    ]},
-    { group: "💄 Kozmetik & Kişisel Bakım", items: [
-        "Kozmetik > Makyaj", "Kozmetik > Cilt Bakımı",
-        "Kozmetik > Saç Bakımı", "Kozmetik > Parfüm", "Kozmetik > Kişisel Bakım"
-    ]},
-    { group: "⚽ Spor & Outdoor", items: [
-        "Spor > Spor Giyim", "Spor > Spor Ayakkabı",
-        "Spor > Spor Ekipmanları", "Spor > Outdoor", "Spor > Bisiklet"
-    ]},
-    { group: "🧸 Bebek & Çocuk", items: [
-        "Bebek > Bebek Giyim", "Bebek > Bebek Bakım",
-        "Bebek > Bebek Odası", "Bebek > Oyuncak"
-    ]},
-    { group: "📚 Kitap & Kırtasiye", items: [
-        "Kitap > Kitap", "Kitap > Dergi", "Kitap > Kırtasiye", "Kitap > Hobi"
-    ]},
-    { group: "🚗 Otomotiv", items: [
-        "Otomotiv > Oto Aksesuar", "Otomotiv > Oto Yedek Parça",
-        "Otomotiv > Motosiklet", "Otomotiv > Oto Bakım"
-    ]},
-    { group: "🔧 Yapı Market", items: [
-        "Yapı Market > Hırdavat", "Yapı Market > Elektrik",
-        "Yapı Market > Bahçe", "Yapı Market > El Aletleri"
-    ]},
-    { group: "🐾 Pet Shop", items: [
-        "Pet Shop > Kedi", "Pet Shop > Köpek", "Pet Shop > Kuş", "Pet Shop > Balık"
-    ]},
-    { group: "🍽️ Süpermarket & Gıda", items: [
-        "Süpermarket > Gıda", "Süpermarket > İçecek",
-        "Süpermarket > Atıştırmalık", "Süpermarket > Temizlik"
-    ]},
-    { group: "🎁 Diğer", items: [
-        "Diğer > Hediyelik Eşya", "Diğer > Ofis & Kırtasiye", "Diğer > Hobi & Eğlence"
-    ]}
-];
+    // Pazaryerleri
+    const [marketplaces, setMarketplaces] = useState([]);
+    const [selectedMPs, setSelectedMPs] = useState([]);
 
-const ProductUploadPage = ({ userId, marketplaces: propMarketplaces }) => {
-    const [currentStep, setCurrentStep] = useState(1);
-    const [loading, setLoading] = useState(false);
-    const [success, setSuccess] = useState(false);
-    const [error, setError] = useState("");
-    const [marketplaces, setMarketplaces] = useState(propMarketplaces || []);
 
-    const [formData, setFormData] = useState({
+    // Form
+    const [form, setForm] = useState({
         name: "",
         barcode: "",
         sku: "",
         description: "",
-        images: [""],
         price: "",
         listPrice: "",
         stock: "",
-        category: "",
         brand: "",
-        vatRate: 18,
-        currencyType: "TRY",
-        weight: "",
-        color: "",
-        size: "",
-        selectedMarketplaces: [],
-        marketplaceCategoryOverrides: {}
+        images: ""
     });
 
+    // Kullanıcının entegre pazaryerlerini yükle
     useEffect(() => {
-        if (!propMarketplaces || propMarketplaces.length === 0) {
-            const uid = userId || localStorage.getItem("userId");
-            if (uid) {
-                getUserMarketplaces(uid).then(data => {
-                    const list = Array.isArray(data) ? data : (data.marketplaces || data.data || []);
-                    setMarketplaces(list.map(m => ({
-                        ...m,
-                        name: m.marketplaceName || m.name || ""
-                    })));
-                }).catch(err => {
-                    console.error("Pazaryerleri yüklenemedi:", err);
-                });
+        const loadMarketplaces = async () => {
+            try {
+                const res = await API.get("/marketplace/user-marketplaces/" + localStorage.getItem("userId"));
+                setMarketplaces(res.data || []);
+            } catch {
+                setMarketplaces([]);
             }
-        } else {
-            setMarketplaces(propMarketplaces.map(m => ({
-                ...m,
-                name: m.marketplaceName || m.name || ""
-            })));
+        };
+        loadMarketplaces();
+    }, []);
+
+    // Trendyol kategorilerini ara
+    const searchCategories = useCallback(async (query) => {
+        if (!query || query.length < 2) {
+            setCategories([]);
+            return;
         }
-    }, [userId, propMarketplaces]);
-
-    const updateField = (field, value) => {
-        setFormData(prev => ({ ...prev, [field]: value }));
-        setError("");
-    };
-
-    const addImageField = () => {
-        setFormData(prev => ({ ...prev, images: [...prev.images, ""] }));
-    };
-
-    const removeImageField = (index) => {
-        setFormData(prev => ({
-            ...prev,
-            images: prev.images.filter((_, i) => i !== index)
-        }));
-    };
-
-    const updateImage = (index, value) => {
-        setFormData(prev => {
-            const images = [...prev.images];
-            images[index] = value;
-            return { ...prev, images };
-        });
-    };
-
-    const toggleMarketplace = (name) => {
-        setFormData(prev => {
-            const selected = prev.selectedMarketplaces.includes(name)
-                ? prev.selectedMarketplaces.filter(m => m !== name)
-                : [...prev.selectedMarketplaces, name];
-            return { ...prev, selectedMarketplaces: selected };
-        });
-    };
-
-    const updateMarketplaceCategory = (mpName, field, value) => {
-        setFormData(prev => ({
-            ...prev,
-            marketplaceCategoryOverrides: {
-                ...prev.marketplaceCategoryOverrides,
-                [mpName]: {
-                    ...prev.marketplaceCategoryOverrides[mpName],
-                    [field]: value
-                }
-            }
-        }));
-    };
-
-    // Seçilen ana kategoriye göre pazaryeri kategorilerini otomatik doldur
-    const autoFillMarketplaceCategories = (masterCategory) => {
-        if (!masterCategory) return;
-        setFormData(prev => {
-            const newOverrides = { ...prev.marketplaceCategoryOverrides };
-            prev.selectedMarketplaces.forEach(mpName => {
-                if (!newOverrides[mpName]) newOverrides[mpName] = {};
-                if (!newOverrides[mpName].categoryName) {
-                    newOverrides[mpName] = {
-                        ...newOverrides[mpName],
-                        categoryName: masterCategory
-                    };
-                }
-            });
-            return { ...prev, marketplaceCategoryOverrides: newOverrides };
-        });
-    };
-
-    const validateStep = () => {
-        switch (currentStep) {
-            case 1:
-                if (!formData.name.trim()) return "Ürün adı zorunludur";
-                if (!formData.barcode.trim()) return "Barkod zorunludur";
-                if (!formData.sku.trim()) return "SKU/Stok kodu zorunludur";
-                return null;
-            case 2:
-                if (!formData.price || Number(formData.price) <= 0) return "Geçerli bir satış fiyatı girin";
-                if (!formData.stock || Number(formData.stock) < 0) return "Geçerli bir stok miktarı girin";
-                return null;
-            case 5:
-                if (formData.selectedMarketplaces.length === 0) return "En az bir pazaryeri seçin";
-                return null;
-            default:
-                return null;
-        }
-    };
-
-    const nextStep = () => {
-        const err = validateStep();
-        if (err) { setError(err); return; }
-        setError("");
-        if (currentStep === 4 && formData.category) {
-            autoFillMarketplaceCategories(formData.category);
-        }
-        setCurrentStep(prev => Math.min(prev + 1, STEPS.length));
-    };
-
-    const prevStep = () => {
-        setError("");
-        setCurrentStep(prev => Math.max(prev - 1, 1));
-    };
-
-    const handleSubmit = async () => {
-        setLoading(true);
-        setError("");
+        setCatLoading(true);
         try {
-            const payload = {
-                name: formData.name,
-                barcode: formData.barcode,
-                sku: formData.sku,
-                description: formData.description,
-                images: formData.images.filter(img => img.trim()),
-                price: Number(formData.price),
-                listPrice: Number(formData.listPrice) || Number(formData.price),
-                stock: Number(formData.stock),
-                category: formData.category,
-                brand: formData.brand,
-                attributes: {
-                    color: formData.color,
-                    size: formData.size,
-                    weight: Number(formData.weight) || 0
-                },
-                marketplaceMappings: formData.selectedMarketplaces.map(mpName => ({
-                    marketplaceName: mpName,
-                    categoryId: formData.marketplaceCategoryOverrides[mpName]?.categoryId || "",
-                    categoryName: formData.marketplaceCategoryOverrides[mpName]?.categoryName || formData.category,
-                    syncStatus: "pending"
-                }))
-            };
-            await createProduct(payload);
-            setSuccess(true);
-        } catch (err) {
-            setError(err.response?.data?.error || "Ürün yüklenirken hata oluştu");
+            const res = await API.get(`/product-management/trendyol/categories?search=${encodeURIComponent(query)}`);
+            setCategories(res.data.categories || []);
+        } catch {
+            setCategories([]);
         } finally {
-            setLoading(false);
+            setCatLoading(false);
         }
+    }, []);
+
+    // Debounced kategori arama
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            searchCategories(categorySearch);
+        }, 400);
+        return () => clearTimeout(timer);
+    }, [categorySearch, searchCategories]);
+
+    const handleChange = (e) => {
+        setForm({ ...form, [e.target.name]: e.target.value });
     };
 
-    const resetForm = () => {
-        setFormData({
-            name: "", barcode: "", sku: "", description: "", images: [""],
-            price: "", listPrice: "", stock: "", category: "", brand: "",
-            vatRate: 18, currencyType: "TRY", weight: "", color: "", size: "",
-            selectedMarketplaces: [], marketplaceCategoryOverrides: {}
-        });
-        setCurrentStep(1);
-        setSuccess(false);
-        setError("");
-    };
-
-    if (success) {
-        return (
-            <div className="pm-page">
-                <motion.div
-                    className="pm-success-card"
-                    initial={{ scale: 0.8, opacity: 0 }}
-                    animate={{ scale: 1, opacity: 1 }}
-                >
-                    <div className="pm-success-icon">✅</div>
-                    <h2>Ürün Başarıyla Oluşturuldu!</h2>
-                    <p>
-                        <strong>{formData.name}</strong> ürünü sisteme eklendi ve seçili
-                        pazaryerlerine dağıtım kuyruğuna alındı.
-                    </p>
-                    <div className="pm-success-details">
-                        <span>📦 Barkod: {formData.barcode}</span>
-                        <span>💰 Fiyat: {formData.price} TL</span>
-                        <span>📊 Stok: {formData.stock}</span>
-                        <span>🏪 Pazaryeri: {formData.selectedMarketplaces.join(", ")}</span>
-                    </div>
-                    <div className="pm-success-actions">
-                        <button className="pm-btn pm-btn-primary" onClick={resetForm}>
-                            <FaPlus /> Yeni Ürün Ekle
-                        </button>
-                    </div>
-                </motion.div>
-            </div>
+    const toggleMP = (mpName) => {
+        setSelectedMPs(prev =>
+            prev.includes(mpName) ? prev.filter(n => n !== mpName) : [...prev, mpName]
         );
-    }
+    };
 
-    const renderStepContent = () => {
-        switch (currentStep) {
-            case 1:
-                return (
-                    <div className="pm-form-grid">
-                        <div className="pm-form-group pm-full">
-                            <label>Ürün Adı *</label>
-                            <input
-                                type="text"
-                                value={formData.name}
-                                onChange={e => updateField("name", e.target.value)}
-                                placeholder="Ürün adını girin..."
-                                className="pm-input"
-                            />
-                        </div>
-                        <div className="pm-form-group">
-                            <label><FaBarcode /> Barkod *</label>
-                            <input
-                                type="text"
-                                value={formData.barcode}
-                                onChange={e => updateField("barcode", e.target.value)}
-                                placeholder="Barkod numarası (EAN/GTIN)"
-                                className="pm-input"
-                            />
-                        </div>
-                        <div className="pm-form-group">
-                            <label>SKU / Stok Kodu *</label>
-                            <input
-                                type="text"
-                                value={formData.sku}
-                                onChange={e => updateField("sku", e.target.value)}
-                                placeholder="Stok kodu (benzersiz)"
-                                className="pm-input"
-                            />
-                        </div>
-                        <div className="pm-form-group">
-                            <label>Marka</label>
-                            <input
-                                type="text"
-                                value={formData.brand}
-                                onChange={e => updateField("brand", e.target.value)}
-                                placeholder="Marka adı"
-                                className="pm-input"
-                            />
-                        </div>
-                        <div className="pm-form-group">
-                            <label>Para Birimi</label>
-                            <select
-                                value={formData.currencyType}
-                                onChange={e => updateField("currencyType", e.target.value)}
-                                className="pm-input"
-                            >
-                                <option value="TRY">TRY (₺)</option>
-                                <option value="USD">USD ($)</option>
-                                <option value="EUR">EUR (€)</option>
-                            </select>
-                        </div>
-                        <div className="pm-form-group pm-full" style={{
-                            background: "rgba(78,205,196,0.08)",
-                            border: "1px solid rgba(78,205,196,0.2)",
-                            borderRadius: "10px",
-                            padding: "1rem"
-                        }}>
-                            <FaInfoCircle style={{ color: "#4ecdc4" }} />
-                            <span style={{ color: "#94a3b8", fontSize: "0.9rem" }}>
-                                Barkod ve SKU tüm pazaryerlerinde ürünü eşleştirmek için kullanılır.
-                                Benzersiz ve doğru olduğundan emin olun.
-                            </span>
-                        </div>
-                    </div>
-                );
-
-            case 2:
-                return (
-                    <div className="pm-form-grid">
-                        <div className="pm-form-group">
-                            <label><FaDollarSign /> Satış Fiyatı *</label>
-                            <input
-                                type="number"
-                                value={formData.price}
-                                onChange={e => updateField("price", e.target.value)}
-                                placeholder="0.00"
-                                className="pm-input"
-                                min="0"
-                                step="0.01"
-                            />
-                        </div>
-                        <div className="pm-form-group">
-                            <label>Liste Fiyatı (Piyasa / Üstü Çizili)</label>
-                            <input
-                                type="number"
-                                value={formData.listPrice}
-                                onChange={e => updateField("listPrice", e.target.value)}
-                                placeholder="0.00"
-                                className="pm-input"
-                                min="0"
-                                step="0.01"
-                            />
-                        </div>
-                        <div className="pm-form-group">
-                            <label>📦 Stok Miktarı *</label>
-                            <input
-                                type="number"
-                                value={formData.stock}
-                                onChange={e => updateField("stock", e.target.value)}
-                                placeholder="0"
-                                className="pm-input"
-                                min="0"
-                            />
-                        </div>
-                        <div className="pm-form-group">
-                            <label>KDV Oranı (%)</label>
-                            <select
-                                value={formData.vatRate}
-                                onChange={e => updateField("vatRate", Number(e.target.value))}
-                                className="pm-input"
-                            >
-                                <option value={0}>%0</option>
-                                <option value={1}>%1</option>
-                                <option value={8}>%8</option>
-                                <option value={10}>%10</option>
-                                <option value={18}>%18</option>
-                                <option value={20}>%20</option>
-                            </select>
-                        </div>
-                        {formData.price && formData.listPrice && Number(formData.listPrice) > Number(formData.price) && (
-                            <div className="pm-discount-badge pm-full">
-                                🏷️ İndirim Oranı: %{((1 - Number(formData.price) / Number(formData.listPrice)) * 100).toFixed(1)}
-                                &nbsp;|&nbsp; Tasarruf: {(Number(formData.listPrice) - Number(formData.price)).toFixed(2)} {formData.currencyType}
-                            </div>
-                        )}
-                    </div>
-                );
-
-            case 3:
-                return (
-                    <div className="pm-form-grid">
-                        <div className="pm-form-group pm-full">
-                            <label>Ürün Açıklaması</label>
-                            <textarea
-                                value={formData.description}
-                                onChange={e => updateField("description", e.target.value)}
-                                placeholder="Ürün açıklamasını girin... (SEO dostu, detaylı açıklama önerilir)"
-                                className="pm-input pm-textarea"
-                                rows={5}
-                            />
-                        </div>
-                        <div className="pm-form-group pm-full">
-                            <label><FaImage /> Ürün Görselleri (URL)</label>
-                            {formData.images.map((img, idx) => (
-                                <div key={idx} className="pm-image-row">
-                                    <input
-                                        type="text"
-                                        value={img}
-                                        onChange={e => updateImage(idx, e.target.value)}
-                                        placeholder={`Görsel URL ${idx + 1} (https://...)`}
-                                        className="pm-input"
-                                    />
-                                    {formData.images.length > 1 && (
-                                        <button
-                                            className="pm-btn-icon pm-btn-danger"
-                                            onClick={() => removeImageField(idx)}
-                                        >
-                                            <FaTrash />
-                                        </button>
-                                    )}
-                                </div>
-                            ))}
-                            <button
-                                className="pm-btn pm-btn-outline pm-btn-sm"
-                                onClick={addImageField}
-                                style={{ marginTop: "0.5rem" }}
-                            >
-                                <FaPlus /> Görsel Ekle
-                            </button>
-                        </div>
-                        {formData.images.filter(i => i.trim()).length > 0 && (
-                            <div className="pm-image-preview pm-full">
-                                {formData.images.filter(i => i.trim()).map((img, idx) => (
-                                    <div key={idx} className="pm-preview-thumb">
-                                        <img
-                                            src={img}
-                                            alt={`Görsel ${idx + 1}`}
-                                            onError={e => { e.target.src = "https://via.placeholder.com/100?text=Hata"; }}
-                                        />
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-                );
-
-            case 4:
-                return (
-                    <div className="pm-form-grid">
-                        <div className="pm-form-group pm-full">
-                            <label><FaLayerGroup /> Ana Kategori Seçin</label>
-                            <select
-                                value={formData.category}
-                                onChange={e => updateField("category", e.target.value)}
-                                className="pm-input"
-                            >
-                                <option value="">-- Kategori Seçin --</option>
-                                {MASTER_CATEGORIES.map(group => (
-                                    <optgroup key={group.group} label={group.group}>
-                                        {group.items.map(item => (
-                                            <option key={item} value={item}>{item}</option>
-                                        ))}
-                                    </optgroup>
-                                ))}
-                            </select>
-                            <small style={{ color: "#94a3b8", fontSize: "0.85rem", marginTop: "0.5rem", display: "block" }}>
-                                💡 Bu kategori tüm pazaryerleri için temel kategoridir. Sonraki adımda her pazaryeri için özel kategori belirleyebilirsiniz.
-                            </small>
-                        </div>
-                        <div className="pm-form-group">
-                            <label>Renk</label>
-                            <input
-                                type="text"
-                                value={formData.color}
-                                onChange={e => updateField("color", e.target.value)}
-                                placeholder="Örn: Siyah, Beyaz, Kırmızı"
-                                className="pm-input"
-                            />
-                        </div>
-                        <div className="pm-form-group">
-                            <label>Beden / Boyut</label>
-                            <input
-                                type="text"
-                                value={formData.size}
-                                onChange={e => updateField("size", e.target.value)}
-                                placeholder="Örn: S, M, L, XL, 38, 40"
-                                className="pm-input"
-                            />
-                        </div>
-                        <div className="pm-form-group">
-                            <label>Ağırlık (gram)</label>
-                            <input
-                                type="number"
-                                value={formData.weight}
-                                onChange={e => updateField("weight", e.target.value)}
-                                placeholder="0"
-                                className="pm-input"
-                                min="0"
-                            />
-                        </div>
-                    </div>
-                );
-
-            case 5:
-                return (
-                    <div className="pm-marketplace-selection">
-                        <div className="pm-hint">
-                            <strong>📋 Pazaryeri Seçimi ve Kategori Eşleştirme</strong><br />
-                            Ürünün yükleneceği pazaryerlerini seçin. Her pazaryerinin kendi kategori sistemi
-                            farklı olabilir — aşağıda her pazaryeri için özel kategori ve ID girebilirsiniz.
-                            Boş bırakırsanız ana kategori kullanılır.
-                        </div>
-
-                        <div className="pm-mp-grid">
-                            {marketplaces.length === 0 ? (
-                                <div className="pm-empty-state">
-                                    <p>⚠️ Henüz pazaryeri entegrasyonu yapılmamış. Lütfen önce entegrasyon ekleyin.</p>
-                                </div>
-                            ) : (
-                                marketplaces.map(mp => {
-                                    const mpName = mp.marketplaceName || mp.name;
-                                    const isSelected = formData.selectedMarketplaces.includes(mpName);
-                                    const hints = MARKETPLACE_CATEGORY_HINTS[mpName] || {
-                                        placeholder: "Kategori adı",
-                                        idPlaceholder: "Kategori ID",
-                                        hint: "Bu pazaryeri için kategori bilgisi girin."
-                                    };
-                                    const override = formData.marketplaceCategoryOverrides[mpName] || {};
-
-                                    return (
-                                        <motion.div
-                                            key={mp._id || mpName}
-                                            className={`pm-mp-card ${isSelected ? "selected" : ""}`}
-                                            whileHover={{ scale: 1.02 }}
-                                            whileTap={{ scale: 0.98 }}
-                                        >
-                                            <div
-                                                className="pm-mp-card-header"
-                                                onClick={() => toggleMarketplace(mpName)}
-                                                style={{ cursor: "pointer" }}
-                                            >
-                                                <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-                                                    <div style={{
-                                                        width: "40px", height: "40px", borderRadius: "10px",
-                                                        background: isSelected
-                                                            ? "linear-gradient(135deg,#4ecdc4,#44a08d)"
-                                                            : "rgba(255,255,255,0.1)",
-                                                        display: "flex", alignItems: "center",
-                                                        justifyContent: "center", fontSize: "1.25rem"
-                                                    }}>
-                                                        🏪
-                                                    </div>
-                                                    <div>
-                                                        <span className="pm-mp-name">{mpName}</span>
-                                                        {isSelected && (
-                                                            <div style={{ color: "#4ecdc4", fontSize: "0.8rem", marginTop: "0.2rem" }}>
-                                                                ✓ Seçildi
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                                <div className={`pm-mp-check ${isSelected ? "checked" : ""}`}>
-                                                    {isSelected && <FaCheck />}
-                                                </div>
-                                            </div>
-
-                                            {isSelected && (
-                                                <motion.div
-                                                    className="pm-mp-category-override"
-                                                    initial={{ height: 0, opacity: 0 }}
-                                                    animate={{ height: "auto", opacity: 1 }}
-                                                    onClick={e => e.stopPropagation()}
-                                                >
-                                                    <div style={{
-                                                        background: "rgba(78,205,196,0.08)",
-                                                        border: "1px solid rgba(78,205,196,0.2)",
-                                                        borderRadius: "8px",
-                                                        padding: "0.75rem",
-                                                        marginBottom: "0.75rem",
-                                                        fontSize: "0.82rem",
-                                                        color: "#94a3b8",
-                                                        lineHeight: "1.5"
-                                                    }}>
-                                                        💡 {hints.hint}
-                                                    </div>
-
-                                                    <label>{mpName} Kategori Adı</label>
-                                                    <input
-                                                        type="text"
-                                                        className="pm-input pm-input-sm"
-                                                        placeholder={hints.placeholder}
-                                                        value={override.categoryName || ""}
-                                                        onChange={e => updateMarketplaceCategory(mpName, "categoryName", e.target.value)}
-                                                    />
-
-                                                    <label>{mpName} Kategori ID</label>
-                                                    <input
-                                                        type="text"
-                                                        className="pm-input pm-input-sm"
-                                                        placeholder={hints.idPlaceholder}
-                                                        value={override.categoryId || ""}
-                                                        onChange={e => updateMarketplaceCategory(mpName, "categoryId", e.target.value)}
-                                                    />
-
-                                                    {formData.category && !override.categoryName && (
-                                                        <button
-                                                            className="pm-btn pm-btn-outline pm-btn-sm"
-                                                            style={{ marginTop: "0.5rem" }}
-                                                            onClick={() => updateMarketplaceCategory(mpName, "categoryName", formData.category)}
-                                                        >
-                                                            Ana kategoriyi kullan: "{formData.category}"
-                                                        </button>
-                                                    )}
-                                                </motion.div>
-                                            )}
-                                        </motion.div>
-                                    );
-                                })
-                            )}
-                        </div>
-
-                        {formData.selectedMarketplaces.length > 0 && (
-                            <div style={{
-                                background: "rgba(34,197,94,0.1)",
-                                border: "1px solid rgba(34,197,94,0.3)",
-                                borderRadius: "10px",
-                                padding: "1rem",
-                                marginTop: "1rem"
-                            }}>
-                                <strong style={{ color: "#22c55e" }}>
-                                    ✅ {formData.selectedMarketplaces.length} pazaryeri seçildi:
-                                </strong>
-                                <span style={{ color: "#94a3b8", marginLeft: "0.5rem" }}>
-                                    {formData.selectedMarketplaces.join(" • ")}
-                                </span>
-                            </div>
-                        )}
-                    </div>
-                );
-
-            case 6:
-                return (
-                    <div className="pm-review">
-                        <h3 className="pm-review-title">📋 Ürün Özeti - Son Kontrol</h3>
-                        <div className="pm-review-grid">
-                            <div className="pm-review-section">
-                                <h4>Temel Bilgiler</h4>
-                                <div className="pm-review-row"><span>Ürün Adı:</span><strong>{formData.name}</strong></div>
-                                <div className="pm-review-row"><span>Barkod:</span><strong>{formData.barcode}</strong></div>
-                                <div className="pm-review-row"><span>SKU:</span><strong>{formData.sku}</strong></div>
-                                <div className="pm-review-row"><span>Marka:</span><strong>{formData.brand || "—"}</strong></div>
-                            </div>
-                            <div className="pm-review-section">
-                                <h4>Fiyat & Stok</h4>
-                                <div className="pm-review-row"><span>Satış Fiyatı:</span><strong>{formData.price} {formData.currencyType}</strong></div>
-                                <div className="pm-review-row"><span>Liste Fiyatı:</span><strong>{formData.listPrice || formData.price} {formData.currencyType}</strong></div>
-                                <div className="pm-review-row"><span>Stok:</span><strong>{formData.stock} adet</strong></div>
-                                <div className="pm-review-row"><span>KDV:</span><strong>%{formData.vatRate}</strong></div>
-                            </div>
-                            <div className="pm-review-section">
-                                <h4>Kategori & Özellikler</h4>
-                                <div className="pm-review-row"><span>Ana Kategori:</span><strong>{formData.category || "—"}</strong></div>
-                                <div className="pm-review-row"><span>Renk:</span><strong>{formData.color || "—"}</strong></div>
-                                <div className="pm-review-row"><span>Beden:</span><strong>{formData.size || "—"}</strong></div>
-                                <div className="pm-review-row"><span>Ağırlık:</span><strong>{formData.weight ? `${formData.weight} gr` : "—"}</strong></div>
-                            </div>
-                            <div className="pm-review-section">
-                                <h4>Pazaryeri Dağıtımı</h4>
-                                {formData.selectedMarketplaces.map(mp => {
-                                    const override = formData.marketplaceCategoryOverrides[mp] || {};
-                                    return (
-                                        <div key={mp} style={{ marginBottom: "0.75rem", paddingBottom: "0.75rem", borderBottom: "1px solid rgba(255,255,255,0.05)" }}>
-                                            <div style={{ color: "#4ecdc4", fontWeight: 700, marginBottom: "0.25rem" }}>🏪 {mp}</div>
-                                            <div style={{ color: "#94a3b8", fontSize: "0.85rem" }}>
-                                                Kategori: {override.categoryName || formData.category || "—"}
-                                                {override.categoryId && ` (ID: ${override.categoryId})`}
-                                            </div>
-                                        </div>
-                                    );
-                                })}
-                                {formData.selectedMarketplaces.length === 0 && (
-                                    <div style={{ color: "#ef4444" }}>⚠️ Pazaryeri seçilmedi</div>
-                                )}
-                            </div>
-                        </div>
-
-                        {formData.images.filter(i => i.trim()).length > 0 && (
-                            <div className="pm-review-section" style={{ marginTop: "1rem" }}>
-                                <h4>Görseller ({formData.images.filter(i => i.trim()).length} adet)</h4>
-                                <div className="pm-image-preview">
-                                    {formData.images.filter(i => i.trim()).map((img, idx) => (
-                                        <div key={idx} className="pm-preview-thumb">
-                                            <img
-                                                src={img}
-                                                alt={`Görsel ${idx + 1}`}
-                                                onError={e => { e.target.src = "https://via.placeholder.com/100?text=Hata"; }}
-                                            />
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                );
-
-            default:
-                return null;
+    // Kaydet
+    const handleSave = async (distribute = false) => {
+        if (!form.name || !form.barcode || !form.sku || !form.price) {
+            setMessage({ text: "Ürün adı, barkod, SKU ve fiyat zorunludur.", type: "error" });
+            return;
         }
+
+        if (distribute && selectedMPs.length === 0) {
+            setMessage({ text: "En az bir pazaryeri seçmelisiniz.", type: "error" });
+            return;
+        }
+
+        setSaving(true);
+        setMessage({ text: "", type: "" });
+
+        try {
+            const productData = {
+                name: form.name,
+                barcode: form.barcode,
+                sku: form.sku,
+                description: form.description,
+                price: parseFloat(form.price),
+                listPrice: parseFloat(form.listPrice || form.price),
+                stock: parseInt(form.stock || "0"),
+                brand: form.brand,
+                images: form.images ? form.images.split(",").map(s => s.trim()).filter(Boolean) : [],
+                category: selectedCategory ? selectedCategory.path : "",
+                marketplaceMappings: distribute
+                    ? selectedMPs.map(mpName => ({
+                        marketplaceName: mpName,
+                        categoryId: selectedCategory ? String(selectedCategory.id) : "",
+                        categoryName: selectedCategory ? selectedCategory.name : ""
+                    }))
+                    : []
+            };
+
+            const res = await API.post("/product-management/products", productData);
+
+            if (res.data.success) {
+                // Yeni ürün ID'sini localStorage'a kaydet (yeşil border için)
+                const newIds = JSON.parse(localStorage.getItem("newProductIds") || "[]");
+                newIds.push(res.data.product._id);
+                localStorage.setItem("newProductIds", JSON.stringify(newIds));
+
+                if (distribute && res.data.product._id) {
+                    // Dağıtım yap
+                    try {
+                        await API.post("/product-management/sync/distribute", {
+                            productMappingId: res.data.product._id,
+                            targetMarketplaces: selectedMPs
+                        });
+                        setMessage({
+                            text: `✅ Ürün kaydedildi ve ${selectedMPs.join(", ")} pazaryerlerine dağıtıldı!`,
+                            type: "success"
+                        });
+                    } catch {
+                        setMessage({
+                            text: "Ürün kaydedildi ama dağıtımda hata oluştu. Ürünlerim sayfasından tekrar dağıtabilirsiniz.",
+                            type: "warn"
+                        });
+                    }
+                } else {
+                    setMessage({ text: "✅ Ürün başarıyla kaydedildi!", type: "success" });
+                }
+
+                // 2 saniye sonra ürünlerim sayfasına yönlendir
+                setTimeout(() => navigate("/product-management"), 2000);
+            }
+        } catch (error) {
+            const errMsg = error.response?.data?.error || "Ürün kaydedilemedi.";
+            setMessage({ text: errMsg, type: "error" });
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const inputStyle = {
+        width: "100%",
+        padding: "12px 14px",
+        background: "#0c1021",
+        border: "1px solid rgba(99,102,241,0.15)",
+        borderRadius: 10,
+        color: "#eef2ff",
+        fontSize: 14,
+        fontFamily: "Inter, sans-serif",
+        outline: "none",
+        transition: "border-color 0.2s"
+    };
+
+    const labelStyle = {
+        fontSize: 12,
+        fontWeight: 700,
+        color: "#64748b",
+        textTransform: "uppercase",
+        letterSpacing: "0.05em",
+        marginBottom: 6,
+        display: "block"
     };
 
     return (
-        <div className="pm-page">
-            <div className="pm-header">
-                <h1 className="pm-title"><FaBoxOpen /> Yeni Ürün Yükleme</h1>
-                <p className="pm-subtitle">
-                    Ürün bilgilerini adım adım doldurun. Sistem arka planda seçtiğiniz
-                    pazaryerlerine otomatik olarak dağıtacaktır.
-                </p>
+        <div style={{
+            minHeight: "100vh",
+            background: "#06080f",
+            color: "#eef2ff",
+            fontFamily: "Inter, -apple-system, sans-serif",
+            padding: "32px"
+        }}>
+            {/* Header */}
+            <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 32 }}>
+                <button
+                    onClick={() => navigate("/product-management")}
+                    style={{
+                        background: "rgba(99,102,241,0.1)",
+                        border: "1px solid rgba(99,102,241,0.2)",
+                        borderRadius: 10,
+                        color: "#a5b4fc",
+                        padding: "10px 14px",
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 6,
+                        fontSize: 13,
+                        fontWeight: 600
+                    }}
+                >
+                    <FaArrowLeft /> Geri
+                </button>
+                <div>
+                    <h1 style={{ fontSize: 28, fontWeight: 800, margin: 0, letterSpacing: "-0.03em" }}>
+                        <FaBoxOpen style={{ marginRight: 10, color: "#6366f1" }} />
+                        Yeni Ürün Yükle
+                    </h1>
+                    <p style={{ color: "#64748b", fontSize: 14, margin: "4px 0 0" }}>
+                        Ürün bilgilerini girin, Trendyol'dan kategori seçin ve pazaryerlerine dağıtın
+                    </p>
+                </div>
             </div>
 
-            {/* Stepper */}
-            <div className="pm-stepper">
-                {STEPS.map((step, idx) => (
-                    <div
-                        key={step.id}
-                        className={`pm-step ${currentStep === step.id ? "active" : ""} ${currentStep > step.id ? "completed" : ""}`}
-                    >
-                        <div
-                            className="pm-step-circle"
-                            onClick={() => { if (step.id < currentStep) setCurrentStep(step.id); }}
-                        >
-                            {currentStep > step.id ? <FaCheck /> : step.id}
-                        </div>
-                        <span className="pm-step-label">{step.title}</span>
-                        {idx < STEPS.length - 1 && <div className="pm-step-line" />}
-                    </div>
-                ))}
-            </div>
-
-            {/* Step Content */}
-            <AnimatePresence mode="wait">
-                <motion.div
-                    key={currentStep}
-                    className="pm-step-content"
-                    initial={{ opacity: 0, x: 30 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -30 }}
-                    transition={{ duration: 0.25 }}
-                >
-                    <div className="pm-step-header">
-                        <span className="pm-step-icon">{STEPS[currentStep - 1].icon}</span>
-                        <div>
-                            <h2>{STEPS[currentStep - 1].title}</h2>
-                            <p>{STEPS[currentStep - 1].desc}</p>
-                        </div>
-                    </div>
-                    {renderStepContent()}
-                </motion.div>
-            </AnimatePresence>
-
-            {/* Error */}
-            {error && (
-                <motion.div
-                    className="pm-error"
-                    initial={{ opacity: 0, y: -10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                >
-                    <FaTimes /> {error}
-                </motion.div>
+            {/* Messages */}
+            {message.text && (
+                <div style={{
+                    padding: "14px 18px",
+                    borderRadius: 10,
+                    marginBottom: 20,
+                    fontSize: 13,
+                    fontWeight: 500,
+                    background: message.type === "success" ? "rgba(52,211,153,0.12)" :
+                        message.type === "warn" ? "rgba(251,191,36,0.12)" : "rgba(248,113,113,0.12)",
+                    color: message.type === "success" ? "#34d399" :
+                        message.type === "warn" ? "#fbbf24" : "#f87171",
+                    border: `1px solid ${message.type === "success" ? "rgba(52,211,153,0.2)" :
+                        message.type === "warn" ? "rgba(251,191,36,0.2)" : "rgba(248,113,113,0.2)"}`
+                }}>
+                    {message.text}
+                </div>
             )}
 
-            {/* Navigation */}
-            <div className="pm-nav">
-                {currentStep > 1 && (
-                    <button className="pm-btn pm-btn-outline" onClick={prevStep}>
-                        <FaArrowLeft /> Geri
-                    </button>
-                )}
-                <div className="pm-nav-spacer" />
-                {currentStep < STEPS.length ? (
-                    <button className="pm-btn pm-btn-primary" onClick={nextStep}>
-                        İleri <FaArrowRight />
-                    </button>
-                ) : (
-                    <button
-                        className="pm-btn pm-btn-success"
-                        onClick={handleSubmit}
-                        disabled={loading}
-                    >
-                        {loading
-                            ? <><FaSpinner className="pm-spin" /> Yükleniyor...</>
-                            : <><FaSave /> Ürünü Kaydet & Dağıt</>
-                        }
-                    </button>
-                )}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, maxWidth: 1100 }}>
+                {/* Sol: Ürün Bilgileri */}
+                <div style={{
+                    background: "#111631",
+                    border: "1px solid rgba(99,102,241,0.08)",
+                    borderRadius: 16,
+                    padding: 24
+                }}>
+                    <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 20, display: "flex", alignItems: "center", gap: 8 }}>
+                        <FaBoxOpen style={{ color: "#6366f1" }} /> Ürün Bilgileri
+                    </h3>
+
+                    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                        <div>
+                            <label style={labelStyle}>Ürün Adı *</label>
+                            <input name="name" value={form.name} onChange={handleChange} placeholder="Ürün adını girin" style={inputStyle} />
+                        </div>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                            <div>
+                                <label style={labelStyle}>Barkod *</label>
+                                <input name="barcode" value={form.barcode} onChange={handleChange} placeholder="8680..." style={inputStyle} />
+                            </div>
+                            <div>
+                                <label style={labelStyle}>SKU *</label>
+                                <input name="sku" value={form.sku} onChange={handleChange} placeholder="SKU-001" style={inputStyle} />
+                            </div>
+                        </div>
+                        <div>
+                            <label style={labelStyle}>Açıklama</label>
+                            <textarea
+                                name="description"
+                                value={form.description}
+                                onChange={handleChange}
+                                placeholder="Ürün açıklaması..."
+                                rows={3}
+                                style={{ ...inputStyle, resize: "vertical" }}
+                            />
+                        </div>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+                            <div>
+                                <label style={labelStyle}>Satış Fiyatı (TL) *</label>
+                                <input name="price" type="number" value={form.price} onChange={handleChange} placeholder="0.00" style={inputStyle} />
+                            </div>
+                            <div>
+                                <label style={labelStyle}>Liste Fiyatı (TL)</label>
+                                <input name="listPrice" type="number" value={form.listPrice} onChange={handleChange} placeholder="0.00" style={inputStyle} />
+                            </div>
+                            <div>
+                                <label style={labelStyle}>Stok Adedi</label>
+                                <input name="stock" type="number" value={form.stock} onChange={handleChange} placeholder="0" style={inputStyle} />
+                            </div>
+                        </div>
+                        <div>
+                            <label style={labelStyle}>Marka</label>
+                            <input name="brand" value={form.brand} onChange={handleChange} placeholder="Marka adı" style={inputStyle} />
+                        </div>
+                        <div>
+                            <label style={labelStyle}><FaImage style={{ marginRight: 4 }} /> Görsel URL'leri (virgülle ayırın)</label>
+                            <input name="images" value={form.images} onChange={handleChange} placeholder="https://..., https://..." style={inputStyle} />
+                        </div>
+                    </div>
+                </div>
+
+                {/* Sağ: Kategori + Dağıtım */}
+                <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+                    {/* Kategori Seçimi */}
+                    <div style={{
+                        background: "#111631",
+                        border: "1px solid rgba(99,102,241,0.08)",
+                        borderRadius: 16,
+                        padding: 24
+                    }}>
+                        <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 16, display: "flex", alignItems: "center", gap: 8 }}>
+                            <FaSearch style={{ color: "#6366f1" }} /> Trendyol Kategori Seçimi
+                        </h3>
+
+                        {selectedCategory ? (
+                            <div style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 10,
+                                padding: "12px 16px",
+                                background: "rgba(52,211,153,0.08)",
+                                border: "1px solid rgba(52,211,153,0.2)",
+                                borderRadius: 10,
+                                marginBottom: 12
+                            }}>
+                                <FaCheck style={{ color: "#34d399" }} />
+                                <div style={{ flex: 1 }}>
+                                    <div style={{ fontWeight: 600, fontSize: 13 }}>{selectedCategory.name}</div>
+                                    <div style={{ fontSize: 11, color: "#64748b" }}>{selectedCategory.path}</div>
+                                </div>
+                                <button
+                                    onClick={() => { setSelectedCategory(null); setCategorySearch(""); }}
+                                    style={{ background: "none", border: "none", color: "#f87171", cursor: "pointer", fontSize: 16 }}
+                                >
+                                    <FaTimes />
+                                </button>
+                            </div>
+                        ) : (
+                            <>
+                                <div style={{ position: "relative", marginBottom: 12 }}>
+                                    <FaSearch style={{ position: "absolute", left: 14, top: 14, color: "#64748b", fontSize: 14 }} />
+                                    <input
+                                        value={categorySearch}
+                                        onChange={e => setCategorySearch(e.target.value)}
+                                        placeholder="Kategori ara: telefon, ayakkabı, elektronik..."
+                                        style={{ ...inputStyle, paddingLeft: 40 }}
+                                    />
+                                    {catLoading && <FaSpinner style={{ position: "absolute", right: 14, top: 14, color: "#6366f1", animation: "spin 1s linear infinite" }} />}
+                                </div>
+                                {categories.length > 0 && (
+                                    <div style={{
+                                        maxHeight: 220,
+                                        overflowY: "auto",
+                                        borderRadius: 10,
+                                        border: "1px solid rgba(99,102,241,0.1)"
+                                    }}>
+                                        {categories.map(cat => (
+                                            <div
+                                                key={cat.id}
+                                                onClick={() => { setSelectedCategory(cat); setCategories([]); setCategorySearch(cat.name); }}
+                                                style={{
+                                                    padding: "10px 14px",
+                                                    cursor: "pointer",
+                                                    borderBottom: "1px solid rgba(99,102,241,0.06)",
+                                                    transition: "background 0.15s",
+                                                    fontSize: 13
+                                                }}
+                                                onMouseEnter={e => e.target.style.background = "rgba(99,102,241,0.08)"}
+                                                onMouseLeave={e => e.target.style.background = "transparent"}
+                                            >
+                                                <div style={{ fontWeight: 600 }}>{cat.name}</div>
+                                                <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>{cat.path}</div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </>
+                        )}
+                    </div>
+
+                    {/* Pazaryeri Dağıtım */}
+                    <div style={{
+                        background: "#111631",
+                        border: "1px solid rgba(99,102,241,0.08)",
+                        borderRadius: 16,
+                        padding: 24
+                    }}>
+                        <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 16, display: "flex", alignItems: "center", gap: 8 }}>
+                            <FaStore style={{ color: "#6366f1" }} /> Pazaryeri Dağıtımı
+                        </h3>
+
+                        {marketplaces.length === 0 ? (
+                            <p style={{ color: "#64748b", fontSize: 13 }}>Henüz entegre pazaryeri yok.</p>
+                        ) : (
+                            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                                {marketplaces.map(mp => {
+                                    const name = mp.marketplaceName;
+                                    const isSelected = selectedMPs.includes(name);
+                                    return (
+                                        <div
+                                            key={mp._id}
+                                            onClick={() => toggleMP(name)}
+                                            style={{
+                                                display: "flex",
+                                                alignItems: "center",
+                                                gap: 12,
+                                                padding: "12px 16px",
+                                                borderRadius: 10,
+                                                cursor: "pointer",
+                                                border: `1px solid ${isSelected ? "rgba(99,102,241,0.3)" : "rgba(99,102,241,0.08)"}`,
+                                                background: isSelected ? "rgba(99,102,241,0.08)" : "transparent",
+                                                transition: "all 0.15s"
+                                            }}
+                                        >
+                                            <div style={{
+                                                width: 22, height: 22, borderRadius: 6,
+                                                border: `2px solid ${isSelected ? "#6366f1" : "#64748b"}`,
+                                                background: isSelected ? "#6366f1" : "transparent",
+                                                display: "grid", placeItems: "center",
+                                                transition: "all 0.15s"
+                                            }}>
+                                                {isSelected && <FaCheck style={{ color: "#fff", fontSize: 10 }} />}
+                                            </div>
+                                            <FaStore style={{ color: isSelected ? "#a5b4fc" : "#64748b" }} />
+                                            <span style={{ fontWeight: 600, fontSize: 14 }}>{name}</span>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Butonlar */}
+                    <div style={{ display: "flex", gap: 12 }}>
+                        <button
+                            onClick={() => handleSave(false)}
+                            disabled={saving}
+                            style={{
+                                flex: 1,
+                                padding: "14px 20px",
+                                borderRadius: 12,
+                                border: "1px solid rgba(99,102,241,0.2)",
+                                background: "rgba(99,102,241,0.1)",
+                                color: "#a5b4fc",
+                                fontSize: 14,
+                                fontWeight: 700,
+                                cursor: saving ? "not-allowed" : "pointer",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                gap: 8,
+                                opacity: saving ? 0.5 : 1,
+                                transition: "all 0.2s"
+                            }}
+                        >
+                            <FaSave /> Kaydet
+                        </button>
+                        <button
+                            onClick={() => handleSave(true)}
+                            disabled={saving || selectedMPs.length === 0}
+                            style={{
+                                flex: 1,
+                                padding: "14px 20px",
+                                borderRadius: 12,
+                                border: "none",
+                                background: "linear-gradient(135deg, #6366f1, #a78bfa)",
+                                color: "#fff",
+                                fontSize: 14,
+                                fontWeight: 700,
+                                cursor: (saving || selectedMPs.length === 0) ? "not-allowed" : "pointer",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                gap: 8,
+                                opacity: (saving || selectedMPs.length === 0) ? 0.5 : 1,
+                                boxShadow: "0 4px 16px rgba(99,102,241,0.3)",
+                                transition: "all 0.2s"
+                            }}
+                        >
+                            {saving ? <FaSpinner style={{ animation: "spin 1s linear infinite" }} /> : <FaRocket />}
+                            Kaydet ve Dağıt
+                        </button>
+                    </div>
+                </div>
             </div>
+
+            <style>{`
+                @keyframes spin { to { transform: rotate(360deg); } }
+                input:focus, textarea:focus, select:focus {
+                    border-color: #6366f1 !important;
+                    box-shadow: 0 0 0 3px rgba(99,102,241,0.12);
+                }
+                @media (max-width: 768px) {
+                    div[style*="grid-template-columns: 1fr 1fr"] {
+                        grid-template-columns: 1fr !important;
+                    }
+                }
+            `}</style>
         </div>
     );
 };

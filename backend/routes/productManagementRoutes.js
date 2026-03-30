@@ -82,4 +82,9 @@ router.put("/n11/orders/labor-costs",        authMiddleware, controller.n11AddLa
 // ═══════════════════════════════════════════════════════════════
 router.get("/n11/debug/raw-products",        authMiddleware, controller.n11DebugRawProducts);
 
+// ═══════════════════════════════════════════════════════════════
+// 🏷️ TRENDYOL KATEGORİ ÇEK
+// ═══════════════════════════════════════════════════════════════
+router.get("/trendyol/categories",           authMiddleware, controller.getTrendyolCategories);
+
 module.exports = router;
