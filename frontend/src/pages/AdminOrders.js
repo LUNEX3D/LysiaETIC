@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from "react";
 import { FaSearch, FaClipboardList } from "react-icons/fa";
 import axios from "../services/api";
 import AdminLayout from "../components/AdminLayout";
-import "../styles/admin.css";
 
 const AdminOrders = () => {
     const [orders, setOrders] = useState([]);
@@ -28,31 +27,25 @@ const AdminOrders = () => {
                 setLoading(false);
             }
         };
-
         loadOrders();
     }, []);
 
     const filteredOrders = useMemo(() => {
         const q = query.trim().toLowerCase();
         return orders.filter(order => {
-            const matchesQuery =
-                !q ||
-                order._id?.toLowerCase().includes(q) ||
-                order.customerName?.toLowerCase().includes(q);
-            const matchesStatus =
-                statusFilter === "all" ||
-                (order.status || "").toLowerCase() === statusFilter;
+            const matchesQuery = !q || order._id?.toLowerCase().includes(q) || order.customerName?.toLowerCase().includes(q);
+            const matchesStatus = statusFilter === "all" || (order.status || "").toLowerCase() === statusFilter;
             return matchesQuery && matchesStatus;
         });
     }, [orders, query, statusFilter]);
 
-    const statusClass = status => {
+    const statusBadge = status => {
         const key = (status || "").toLowerCase();
-        if (key.includes("hazir") || key.includes("preparing")) return "admin-pill admin-pill--info";
-        if (key.includes("kargo") || key.includes("shipped")) return "admin-pill admin-pill--warn";
-        if (key.includes("tamam") || key.includes("delivered")) return "admin-pill admin-pill--success";
-        if (key.includes("iptal") || key.includes("cancel")) return "admin-pill admin-pill--danger";
-        return "admin-pill admin-pill--neutral";
+        if (key.includes("hazir") || key.includes("preparing")) return "ap-badge ap-badge--blue";
+        if (key.includes("kargo") || key.includes("shipped")) return "ap-badge ap-badge--yellow";
+        if (key.includes("tamam") || key.includes("delivered")) return "ap-badge ap-badge--green";
+        if (key.includes("iptal") || key.includes("cancel")) return "ap-badge ap-badge--red";
+        return "ap-badge ap-badge--neutral";
     };
 
     return (
@@ -60,23 +53,19 @@ const AdminOrders = () => {
             title="Sipariş Yönetimi"
             subtitle="Durum takibi ve operasyon görünümü"
             actions={
-                <div className="admin-action-row">
-                    <button className="admin-btn admin-btn--ghost" type="button">
-                        Dışa aktar
-                    </button>
-                    <button className="admin-btn admin-btn--primary" type="button">
-                        Yeni işlem
-                    </button>
+                <div className="ap-actions">
+                    <button className="ap-btn ap-btn--ghost">Dışa Aktar</button>
+                    <button className="ap-btn ap-btn--primary">Yeni İşlem</button>
                 </div>
             }
         >
-            {error && <div className="admin-alert admin-alert--error">{error}</div>}
-            {loading && <div className="admin-loading">Siparişler yükleniyor...</div>}
+            {error && <div className="ap-alert ap-alert--error">{error}</div>}
+            {loading && <div className="ap-loading">Siparişler yükleniyor...</div>}
 
             {!loading && (
                 <>
-                    <div className="admin-toolbar">
-                        <div className="admin-search">
+                    <div className="ap-toolbar">
+                        <div className="ap-search">
                             <FaSearch />
                             <input
                                 type="text"
@@ -85,23 +74,21 @@ const AdminOrders = () => {
                                 onChange={e => setQuery(e.target.value)}
                             />
                         </div>
-                        <div className="admin-filter">
-                            <FaClipboardList />
-                            <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
-                                <option value="all">Tüm durumlar</option>
-                                <option value="hazirlaniyor">Hazırlanıyor</option>
-                                <option value="kargoda">Kargoda</option>
-                                <option value="tamamlandi">Tamamlandı</option>
-                                <option value="iptal">İptal</option>
-                            </select>
-                        </div>
-                        <div className="admin-toolbar-meta">
+                        <select className="ap-select" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+                            <option value="all">Tüm Durumlar</option>
+                            <option value="hazirlaniyor">Hazırlanıyor</option>
+                            <option value="kargoda">Kargoda</option>
+                            <option value="tamamlandi">Tamamlandı</option>
+                            <option value="iptal">İptal</option>
+                        </select>
+                        <div className="ap-toolbar-count">
+                            <FaClipboardList style={{ marginRight: 4 }} />
                             {filteredOrders.length} sipariş
                         </div>
                     </div>
 
-                    <div className="admin-card admin-card--table">
-                        <table className="admin-table">
+                    <div className="ap-table-wrap">
+                        <table className="ap-table">
                             <thead>
                                 <tr>
                                     <th>ID</th>
@@ -114,10 +101,10 @@ const AdminOrders = () => {
                                 {filteredOrders.map(order => (
                                     <tr key={order._id}>
                                         <td className="mono">{order._id}</td>
-                                        <td>{order.customerName || "Bilinmiyor"}</td>
-                                        <td>{order.total} TL</td>
+                                        <td style={{ fontWeight: 600 }}>{order.customerName || "Bilinmiyor"}</td>
+                                        <td style={{ fontWeight: 600 }}>{order.total} TL</td>
                                         <td>
-                                            <span className={statusClass(order.status)}>
+                                            <span className={statusBadge(order.status)}>
                                                 {order.status || "Bilinmiyor"}
                                             </span>
                                         </td>
@@ -126,7 +113,7 @@ const AdminOrders = () => {
                             </tbody>
                         </table>
                         {filteredOrders.length === 0 && (
-                            <div className="admin-empty">Sipariş bulunamadı.</div>
+                            <div className="ap-empty">Sipariş bulunamadı.</div>
                         )}
                     </div>
                 </>

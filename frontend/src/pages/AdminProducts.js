@@ -1,8 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { FaSearch, FaBoxOpen } from "react-icons/fa";
+import { FaSearch, FaBoxOpen, FaTrash } from "react-icons/fa";
 import axios from "../services/api";
 import AdminLayout from "../components/AdminLayout";
-import "../styles/admin.css";
 
 const AdminProducts = () => {
     const [products, setProducts] = useState([]);
@@ -27,27 +26,21 @@ const AdminProducts = () => {
                 setLoading(false);
             }
         };
-
         loadProducts();
     }, []);
 
     const filteredProducts = useMemo(() => {
         const q = query.trim().toLowerCase();
-        return products.filter(product => {
-            if (!q) return true;
-            return (
-                product.name?.toLowerCase().includes(q) ||
-                product._id?.toLowerCase().includes(q)
-            );
-        });
+        return products.filter(p => !q || p.name?.toLowerCase().includes(q) || p._id?.toLowerCase().includes(q));
     }, [products, query]);
 
     const deleteProduct = id => {
+        if (!window.confirm("Bu ürünü silmek istediğinize emin misiniz?")) return;
         axios
             .delete(`/admin/delete-product/${id}`, {
                 headers: { Authorization: `Bearer ${localStorage.getItem("token")}` }
             })
-            .then(() => setProducts(products.filter(product => product._id !== id)))
+            .then(() => setProducts(products.filter(p => p._id !== id)))
             .catch(err => console.error(err));
     };
 
@@ -56,23 +49,19 @@ const AdminProducts = () => {
             title="Ürün Yönetimi"
             subtitle="Katalog, fiyat ve operasyon yönetimi"
             actions={
-                <div className="admin-action-row">
-                    <button className="admin-btn admin-btn--ghost" type="button">
-                        Toplu aktarım
-                    </button>
-                    <button className="admin-btn admin-btn--primary" type="button">
-                        Yeni ürün
-                    </button>
+                <div className="ap-actions">
+                    <button className="ap-btn ap-btn--ghost">Toplu Aktarım</button>
+                    <button className="ap-btn ap-btn--primary">Yeni Ürün</button>
                 </div>
             }
         >
-            {error && <div className="admin-alert admin-alert--error">{error}</div>}
-            {loading && <div className="admin-loading">Ürünler yükleniyor...</div>}
+            {error && <div className="ap-alert ap-alert--error">{error}</div>}
+            {loading && <div className="ap-loading">Ürünler yükleniyor...</div>}
 
             {!loading && (
                 <>
-                    <div className="admin-toolbar">
-                        <div className="admin-search">
+                    <div className="ap-toolbar">
+                        <div className="ap-search">
                             <FaSearch />
                             <input
                                 type="text"
@@ -81,13 +70,14 @@ const AdminProducts = () => {
                                 onChange={e => setQuery(e.target.value)}
                             />
                         </div>
-                        <div className="admin-toolbar-meta">
+                        <div className="ap-toolbar-count">
+                            <FaBoxOpen style={{ marginRight: 4 }} />
                             {filteredProducts.length} ürün
                         </div>
                     </div>
 
-                    <div className="admin-card admin-card--table">
-                        <table className="admin-table">
+                    <div className="ap-table-wrap">
+                        <table className="ap-table">
                             <thead>
                                 <tr>
                                     <th>ID</th>
@@ -101,19 +91,18 @@ const AdminProducts = () => {
                                     <tr key={product._id}>
                                         <td className="mono">{product._id}</td>
                                         <td>
-                                            <div className="admin-cell">
-                                                <FaBoxOpen />
-                                                <span>{product.name}</span>
+                                            <div className="ap-table-cell">
+                                                <FaBoxOpen style={{ color: "var(--ap-primary)", fontSize: 14 }} />
+                                                <span style={{ fontWeight: 600 }}>{product.name}</span>
                                             </div>
                                         </td>
-                                        <td>{product.price} TL</td>
+                                        <td style={{ fontWeight: 600 }}>{product.price} TL</td>
                                         <td>
                                             <button
-                                                className="admin-btn admin-btn--danger"
-                                                type="button"
+                                                className="ap-btn ap-btn--danger ap-btn--sm"
                                                 onClick={() => deleteProduct(product._id)}
                                             >
-                                                Sil
+                                                <FaTrash /> Sil
                                             </button>
                                         </td>
                                     </tr>
@@ -121,7 +110,7 @@ const AdminProducts = () => {
                             </tbody>
                         </table>
                         {filteredProducts.length === 0 && (
-                            <div className="admin-empty">Ürün bulunamadı.</div>
+                            <div className="ap-empty">Ürün bulunamadı.</div>
                         )}
                     </div>
                 </>

@@ -1,9 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { FaSearch, FaUserShield } from "react-icons/fa";
+import { FaSearch, FaUsers } from "react-icons/fa";
 import axios from "../services/api";
 import AdminLayout from "../components/AdminLayout";
-import "../styles/admin.css";
 
 const AdminUsers = () => {
     const [users, setUsers] = useState([]);
@@ -19,8 +18,7 @@ const AdminUsers = () => {
                 const res = await axios.get("/admin/users", {
                     headers: { Authorization: `Bearer ${localStorage.getItem("token")}` }
                 });
-                const list = Array.isArray(res.data) ? res.data : [];
-                setUsers(list);
+                setUsers(Array.isArray(res.data) ? res.data : []);
             } catch (err) {
                 console.error(err);
                 setUsers([]);
@@ -28,17 +26,12 @@ const AdminUsers = () => {
                 setLoading(false);
             }
         };
-
         loadUsers();
     }, []);
 
     useEffect(() => {
         const loadIntegrations = async () => {
-            if (!users.length) {
-                setMarketplacesByUser({});
-                return;
-            }
-
+            if (!users.length) { setMarketplacesByUser({}); return; }
             const entries = await Promise.all(
                 users.map(async user => {
                     try {
@@ -47,29 +40,20 @@ const AdminUsers = () => {
                             { headers: { Authorization: `Bearer ${localStorage.getItem("token")}` } }
                         );
                         return [user._id, res.data || []];
-                    } catch (err) {
-                        if (err.response?.status === 404) {
-                            return [user._id, []];
-                        }
+                    } catch {
                         return [user._id, []];
                     }
                 })
             );
-
             setMarketplacesByUser(Object.fromEntries(entries));
         };
-
         loadIntegrations();
     }, [users]);
 
     const filteredUsers = useMemo(() => {
         const q = query.trim().toLowerCase();
         return users.filter(user => {
-            const matchesQuery =
-                !q ||
-                user.name?.toLowerCase().includes(q) ||
-                user.email?.toLowerCase().includes(q) ||
-                user._id?.toLowerCase().includes(q);
+            const matchesQuery = !q || user.name?.toLowerCase().includes(q) || user.email?.toLowerCase().includes(q) || user._id?.toLowerCase().includes(q);
             const matchesRole = roleFilter === "all" || user.role === roleFilter;
             return matchesQuery && matchesRole;
         });
@@ -77,42 +61,26 @@ const AdminUsers = () => {
 
     const roleClass = role => {
         const key = (role || "user").toLowerCase();
-        if (key === "admin") return "admin-pill admin-pill--admin";
-        if (key === "dev") return "admin-pill admin-pill--dev";
-        if (key === "moderator") return "admin-pill admin-pill--moderator";
-        if (key === "seller") return "admin-pill admin-pill--seller";
-        return "admin-pill admin-pill--user";
+        if (key === "admin") return "ap-badge ap-badge--red";
+        if (key === "dev") return "ap-badge ap-badge--cyan";
+        if (key === "moderator") return "ap-badge ap-badge--yellow";
+        if (key === "seller") return "ap-badge ap-badge--green";
+        return "ap-badge ap-badge--blue";
     };
 
     const renderIntegrations = userId => {
         const integrations = marketplacesByUser[userId] || [];
         if (!integrations.length) {
-            return <span className="admin-chip admin-chip--empty">Entegrasyon yok</span>;
+            return <span style={{ fontSize: 12, color: "var(--ap-muted)", fontStyle: "italic" }}>Yok</span>;
         }
-
         const preview = integrations.slice(0, 3);
         const extra = integrations.length - preview.length;
-
         return (
-            <div className="admin-chips">
-                {preview.map(item => {
-                    const meta =
-                        item.credentials?.sellerId ||
-                        item.credentials?.merchantId ||
-                        item.credentials?.supplierId ||
-                        item.credentials?.storeId ||
-                        null;
-
-                    return (
-                        <div key={item._id} className="admin-chip">
-                            <div className="admin-chip-title">{item.marketplaceName}</div>
-                            {meta && <div className="admin-chip-meta">ID: {meta}</div>}
-                        </div>
-                    );
-                })}
-                {extra > 0 && (
-                    <span className="admin-chip admin-chip--more">+{extra}</span>
-                )}
+            <div className="ap-chips">
+                {preview.map(item => (
+                    <span key={item._id} className="ap-chip">{item.marketplaceName}</span>
+                ))}
+                {extra > 0 && <span className="ap-chip" style={{ color: "var(--ap-muted)" }}>+{extra}</span>}
             </div>
         );
     };
@@ -122,18 +90,14 @@ const AdminUsers = () => {
             title="Kullanıcı Yönetimi"
             subtitle="Roller, erişimler ve entegrasyonlar"
             actions={
-                <div className="admin-action-row">
-                    <button className="admin-btn admin-btn--ghost" type="button">
-                        CSV indir
-                    </button>
-                    <button className="admin-btn admin-btn--primary" type="button">
-                        Yeni kullanıcı
-                    </button>
+                <div className="ap-actions">
+                    <button className="ap-btn ap-btn--ghost">CSV İndir</button>
+                    <button className="ap-btn ap-btn--primary">Yeni Kullanıcı</button>
                 </div>
             }
         >
-            <div className="admin-toolbar">
-                <div className="admin-search">
+            <div className="ap-toolbar">
+                <div className="ap-search">
                     <FaSearch />
                     <input
                         type="text"
@@ -142,27 +106,25 @@ const AdminUsers = () => {
                         onChange={e => setQuery(e.target.value)}
                     />
                 </div>
-                <div className="admin-filter">
-                    <FaUserShield />
-                    <select value={roleFilter} onChange={e => setRoleFilter(e.target.value)}>
-                        <option value="all">Tüm roller</option>
-                        <option value="admin">Admin</option>
-                        <option value="dev">Program Dev</option>
-                        <option value="moderator">Moderatör</option>
-                        <option value="seller">Satıcı</option>
-                        <option value="user">Kullanıcı</option>
-                    </select>
-                </div>
-                <div className="admin-toolbar-meta">
+                <select className="ap-select" value={roleFilter} onChange={e => setRoleFilter(e.target.value)}>
+                    <option value="all">Tüm Roller</option>
+                    <option value="admin">Admin</option>
+                    <option value="dev">Developer</option>
+                    <option value="moderator">Moderatör</option>
+                    <option value="seller">Satıcı</option>
+                    <option value="user">Kullanıcı</option>
+                </select>
+                <div className="ap-toolbar-count">
+                    <FaUsers style={{ marginRight: 4 }} />
                     {filteredUsers.length} kullanıcı
                 </div>
             </div>
 
-            {loading && <div className="admin-loading">Kullanıcılar yükleniyor...</div>}
+            {loading && <div className="ap-loading">Kullanıcılar yükleniyor...</div>}
 
             {!loading && (
-                <div className="admin-card admin-card--table">
-                    <table className="admin-table">
+                <div className="ap-table-wrap">
+                    <table className="ap-table">
                         <thead>
                             <tr>
                                 <th>ID</th>
@@ -177,16 +139,14 @@ const AdminUsers = () => {
                             {filteredUsers.map(user => (
                                 <tr key={user._id}>
                                     <td className="mono">{user._id}</td>
-                                    <td>{user.name}</td>
+                                    <td style={{ fontWeight: 600 }}>{user.name}</td>
                                     <td>{user.email}</td>
                                     <td>
-                                        <span className={roleClass(user.role)}>
-                                            {user.role || "user"}
-                                        </span>
+                                        <span className={roleClass(user.role)}>{user.role || "user"}</span>
                                     </td>
                                     <td>{renderIntegrations(user._id)}</td>
                                     <td>
-                                        <Link to={`/admin/user/${user._id}`} className="admin-link">
+                                        <Link to={`/admin/user/${user._id}`} className="ap-btn ap-btn--ghost ap-btn--sm">
                                             Düzenle
                                         </Link>
                                     </td>
@@ -195,7 +155,7 @@ const AdminUsers = () => {
                         </tbody>
                     </table>
                     {filteredUsers.length === 0 && (
-                        <div className="admin-empty">Eşleşen kullanıcı bulunamadı.</div>
+                        <div className="ap-empty">Eşleşen kullanıcı bulunamadı.</div>
                     )}
                 </div>
             )}

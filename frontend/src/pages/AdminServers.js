@@ -18,7 +18,6 @@ import {
 } from "react-icons/fa";
 import axios from "../services/api";
 import AdminLayout from "../components/AdminLayout";
-import "../styles/admin.css";
 
 const AdminServers = () => {
     const [systemStatus, setSystemStatus] = useState(null);
@@ -30,15 +29,15 @@ const AdminServers = () => {
     const [autoRefresh, setAutoRefresh] = useState(true);
     const [lastRefresh, setLastRefresh] = useState(null);
 
-    const headers = { Authorization: `Bearer ${localStorage.getItem("token")}` };
+    const getHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem("token")}` });
 
     const loadData = useCallback(async () => {
         try {
+            const h = { Authorization: `Bearer ${localStorage.getItem("token")}` };
             const [statusRes, serversRes] = await Promise.all([
-                axios.get("/admin/system/status", { headers }),
-                axios.get("/admin/system/servers", { headers })
+                axios.get("/admin/system/status", { headers: h }),
+                axios.get("/admin/system/servers", { headers: h })
             ]);
-
             setSystemStatus(statusRes.data);
             setServers(serversRes.data.servers || []);
             setLastRefresh(new Date());
@@ -53,22 +52,15 @@ const AdminServers = () => {
 
     const loadLogs = useCallback(async () => {
         try {
-            const res = await axios.get("/admin/system/logs", { headers });
+            const res = await axios.get("/admin/system/logs", { headers: getHeaders() });
             setLogs(res.data.logs || []);
         } catch (err) {
             console.error("Log yükleme hatası:", err);
         }
     }, []);
 
-    useEffect(() => {
-        loadData();
-    }, [loadData]);
-
-    useEffect(() => {
-        if (activeTab === "logs") loadLogs();
-    }, [activeTab, loadLogs]);
-
-    // Auto refresh
+    useEffect(() => { loadData(); }, [loadData]);
+    useEffect(() => { if (activeTab === "logs") loadLogs(); }, [activeTab, loadLogs]);
     useEffect(() => {
         if (!autoRefresh) return;
         const interval = setInterval(loadData, 15000);
@@ -76,9 +68,9 @@ const AdminServers = () => {
     }, [autoRefresh, loadData]);
 
     const getStatusIcon = (status) => {
-        if (status === "online") return <FaCheckCircle style={{ color: "#10b981" }} />;
-        if (status === "offline") return <FaTimesCircle style={{ color: "#ef4444" }} />;
-        return <FaExclamationTriangle style={{ color: "#f59e0b" }} />;
+        if (status === "online") return <FaCheckCircle style={{ color: "var(--ap-green)" }} />;
+        if (status === "offline") return <FaTimesCircle style={{ color: "var(--ap-red)" }} />;
+        return <FaExclamationTriangle style={{ color: "var(--ap-yellow)" }} />;
     };
 
     const getServerTypeIcon = (type) => {
@@ -88,15 +80,25 @@ const AdminServers = () => {
         return <FaNetworkWired />;
     };
 
-    const formatUptime = (uptime) => {
-        if (!uptime) return "-";
-        return uptime.formatted || "-";
+    const getServerIconColor = (type) => {
+        if (type === "api") return "ap-kpi-icon--purple";
+        if (type === "web") return "ap-kpi-icon--blue";
+        if (type === "database") return "ap-kpi-icon--green";
+        return "ap-kpi-icon--cyan";
     };
 
+    const formatUptime = (uptime) => uptime?.formatted || "-";
+
     const getMemoryColor = (percent) => {
-        if (percent >= 90) return "#ef4444";
-        if (percent >= 70) return "#f59e0b";
-        return "#10b981";
+        if (percent >= 90) return "var(--ap-red)";
+        if (percent >= 70) return "var(--ap-yellow)";
+        return "var(--ap-green)";
+    };
+
+    const getMemoryBarClass = (percent) => {
+        if (percent >= 90) return "ap-progress-bar--red";
+        if (percent >= 70) return "ap-progress-bar--yellow";
+        return "ap-progress-bar--green";
     };
 
     const renderOverview = () => {
@@ -106,79 +108,71 @@ const AdminServers = () => {
         return (
             <>
                 {/* KPI Cards */}
-                <div className="admin-grid admin-grid--kpi">
-                    <div className="admin-card admin-kpi">
-                        <div className="admin-kpi-label">
-                            <FaClock style={{ marginRight: 6 }} /> Uptime
-                        </div>
-                        <div className="admin-kpi-value" style={{ fontSize: 20 }}>
-                            {formatUptime(server.uptime)}
-                        </div>
-                        <div className="admin-kpi-foot">Sunucu çalışma süresi</div>
+                <div className="ap-kpi-grid">
+                    <div className="ap-kpi">
+                        <div className="ap-kpi-icon ap-kpi-icon--cyan"><FaClock /></div>
+                        <div className="ap-kpi-label">Uptime</div>
+                        <div className="ap-kpi-val" style={{ fontSize: 22 }}>{formatUptime(server.uptime)}</div>
+                        <div className="ap-kpi-sub">Sunucu çalışma süresi</div>
                     </div>
-                    <div className="admin-card admin-kpi">
-                        <div className="admin-kpi-label">
-                            <FaMicrochip style={{ marginRight: 6 }} /> CPU
-                        </div>
-                        <div className="admin-kpi-value">%{cpu.usage}</div>
-                        <div className="admin-kpi-foot">{cpu.cores} çekirdek · {cpu.model.split(" ").slice(0, 3).join(" ")}</div>
+                    <div className="ap-kpi">
+                        <div className="ap-kpi-icon ap-kpi-icon--blue"><FaMicrochip /></div>
+                        <div className="ap-kpi-label">CPU</div>
+                        <div className="ap-kpi-val">%{cpu.usage}</div>
+                        <div className="ap-kpi-sub">{cpu.cores} çekirdek</div>
                     </div>
-                    <div className="admin-card admin-kpi">
-                        <div className="admin-kpi-label">
-                            <FaMemory style={{ marginRight: 6 }} /> RAM
-                        </div>
-                        <div className="admin-kpi-value" style={{ color: getMemoryColor(memory.system.usagePercent) }}>
+                    <div className="ap-kpi">
+                        <div className="ap-kpi-icon ap-kpi-icon--yellow"><FaMemory /></div>
+                        <div className="ap-kpi-label">RAM</div>
+                        <div className="ap-kpi-val" style={{ color: getMemoryColor(memory.system.usagePercent) }}>
                             %{memory.system.usagePercent}
                         </div>
-                        <div className="admin-kpi-foot">{memory.system.used} / {memory.system.total}</div>
+                        <div className="ap-kpi-sub">{memory.system.used} / {memory.system.total}</div>
                     </div>
-                    <div className="admin-card admin-kpi">
-                        <div className="admin-kpi-label">
-                            <FaDatabase style={{ marginRight: 6 }} /> Veritabanı
-                        </div>
-                        <div className="admin-kpi-value" style={{ fontSize: 20, color: database.connected ? "#10b981" : "#ef4444" }}>
+                    <div className="ap-kpi">
+                        <div className="ap-kpi-icon ap-kpi-icon--green"><FaDatabase /></div>
+                        <div className="ap-kpi-label">Veritabanı</div>
+                        <div className="ap-kpi-val" style={{ fontSize: 22, color: database.connected ? "var(--ap-green)" : "var(--ap-red)" }}>
                             {database.state}
                         </div>
-                        <div className="admin-kpi-foot">{database.name} @ {database.host?.split(".")[0]}</div>
+                        <div className="ap-kpi-sub">{database.name}</div>
                     </div>
                 </div>
 
                 {/* Server Cards */}
-                <div className="admin-section">
-                    <div className="admin-section-title">Kayıtlı Sunucular</div>
-                    <div className="admin-grid admin-grid--cards">
+                <div className="ap-card">
+                    <div className="ap-card-head"><FaServer /> Kayıtlı Sunucular</div>
+                    <div className="ap-grid ap-grid--3">
                         {servers.map(srv => (
-                            <div key={srv.id} className="admin-card" style={{ position: "relative" }}>
-                                <div style={{ position: "absolute", top: 16, right: 16 }}>
-                                    {getStatusIcon(srv.status)}
-                                </div>
-                                <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
-                                    <div className="admin-feature-icon">
+                            <div key={srv.id} className="ap-server-card">
+                                <div className="ap-server-status">{getStatusIcon(srv.status)}</div>
+                                <div className="ap-server-head">
+                                    <div className={`ap-server-icon ap-kpi-icon ${getServerIconColor(srv.type)}`}>
                                         {getServerTypeIcon(srv.type)}
                                     </div>
                                     <div>
-                                        <div style={{ fontWeight: 600, fontSize: 15 }}>{srv.name}</div>
-                                        <div style={{ fontSize: 12, color: "var(--muted)" }}>{srv.description}</div>
+                                        <div className="ap-server-name">{srv.name}</div>
+                                        <div className="ap-server-desc">{srv.description}</div>
                                     </div>
                                 </div>
-                                <div className="admin-list" style={{ gap: 6 }}>
-                                    <div className="admin-list-row" style={{ padding: "8px 12px" }}>
-                                        <span style={{ fontSize: 12, color: "var(--muted)" }}>URL</span>
+                                <div className="ap-list">
+                                    <div className="ap-row">
+                                        <span style={{ fontSize: 12, color: "var(--ap-muted)" }}>URL</span>
                                         <span className="mono" style={{ fontSize: 11 }}>{srv.url}</span>
                                     </div>
-                                    <div className="admin-list-row" style={{ padding: "8px 12px" }}>
-                                        <span style={{ fontSize: 12, color: "var(--muted)" }}>Port</span>
+                                    <div className="ap-row">
+                                        <span style={{ fontSize: 12, color: "var(--ap-muted)" }}>Port</span>
                                         <span className="mono">{srv.port || "-"}</span>
                                     </div>
                                     {srv.memory && (
-                                        <div className="admin-list-row" style={{ padding: "8px 12px" }}>
-                                            <span style={{ fontSize: 12, color: "var(--muted)" }}>Bellek</span>
+                                        <div className="ap-row">
+                                            <span style={{ fontSize: 12, color: "var(--ap-muted)" }}>Bellek</span>
                                             <span className="mono">{srv.memory}</span>
                                         </div>
                                     )}
                                     {srv.uptime && (
-                                        <div className="admin-list-row" style={{ padding: "8px 12px" }}>
-                                            <span style={{ fontSize: 12, color: "var(--muted)" }}>Uptime</span>
+                                        <div className="ap-row">
+                                            <span style={{ fontSize: 12, color: "var(--ap-muted)" }}>Uptime</span>
                                             <span className="mono">{Math.floor(srv.uptime / 60)}dk</span>
                                         </div>
                                     )}
@@ -188,8 +182,8 @@ const AdminServers = () => {
                                         href={srv.url + srv.healthCheck}
                                         target="_blank"
                                         rel="noopener noreferrer"
-                                        className="admin-btn admin-btn--ghost"
-                                        style={{ marginTop: 12, display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12 }}
+                                        className="ap-btn ap-btn--ghost ap-btn--sm"
+                                        style={{ marginTop: 14, width: "100%", justifyContent: "center" }}
                                     >
                                         <FaExternalLinkAlt /> Arayüze Git
                                     </a>
@@ -200,36 +194,34 @@ const AdminServers = () => {
                 </div>
 
                 {/* System Details */}
-                <div className="admin-grid admin-grid--split">
-                    <div className="admin-card">
-                        <div className="admin-section-title">
-                            <FaHdd style={{ marginRight: 8 }} /> Sistem Bilgileri
-                        </div>
-                        <div className="admin-list">
-                            <div className="admin-list-row">
+                <div className="ap-grid ap-grid--2">
+                    <div className="ap-card">
+                        <div className="ap-card-head"><FaHdd /> Sistem Bilgileri</div>
+                        <div className="ap-list">
+                            <div className="ap-row">
                                 <span>Hostname</span>
                                 <span className="mono">{server.hostname}</span>
                             </div>
-                            <div className="admin-list-row">
+                            <div className="ap-row">
                                 <span>Platform</span>
                                 <span className="mono">{server.platform} ({server.arch})</span>
                             </div>
-                            <div className="admin-list-row">
+                            <div className="ap-row">
                                 <span>Node.js</span>
                                 <span className="mono">{server.nodeVersion}</span>
                             </div>
-                            <div className="admin-list-row">
+                            <div className="ap-row">
                                 <span>Ortam</span>
-                                <span className={`admin-pill ${server.env === "production" ? "admin-pill--success" : "admin-pill--warn"}`}>
+                                <span className={`ap-badge ${server.env === "production" ? "ap-badge--green" : "ap-badge--yellow"}`}>
                                     {server.env}
                                 </span>
                             </div>
-                            <div className="admin-list-row">
+                            <div className="ap-row">
                                 <span>PID</span>
                                 <span className="mono">{server.pid}</span>
                             </div>
                             {systemStatus.os?.loadAvg && (
-                                <div className="admin-list-row">
+                                <div className="ap-row">
                                     <span>Load Average</span>
                                     <span className="mono">{systemStatus.os.loadAvg.join(" / ")}</span>
                                 </div>
@@ -237,86 +229,77 @@ const AdminServers = () => {
                         </div>
                     </div>
 
-                    <div className="admin-card">
-                        <div className="admin-section-title">
-                            <FaChartBar style={{ marginRight: 8 }} /> Bellek Detayları
-                        </div>
-                        <div className="admin-list">
-                            <div className="admin-list-row">
+                    <div className="ap-card">
+                        <div className="ap-card-head"><FaChartBar /> Bellek Detayları</div>
+                        <div className="ap-list">
+                            <div className="ap-row">
                                 <span>Sistem RAM</span>
                                 <span className="mono">{memory.system.used} / {memory.system.total}</span>
                             </div>
-                            <div className="admin-list-row">
+                            <div className="ap-row">
                                 <span>Heap Used</span>
                                 <span className="mono">{memory.process.heapUsed}</span>
                             </div>
-                            <div className="admin-list-row">
+                            <div className="ap-row">
                                 <span>Heap Total</span>
                                 <span className="mono">{memory.process.heapTotal}</span>
                             </div>
-                            <div className="admin-list-row">
+                            <div className="ap-row">
                                 <span>RSS</span>
                                 <span className="mono">{memory.process.rss}</span>
                             </div>
-                            <div className="admin-list-row">
+                            <div className="ap-row">
                                 <span>External</span>
                                 <span className="mono">{memory.process.external}</span>
                             </div>
                         </div>
-
-                        {/* Memory Bar */}
-                        <div style={{ marginTop: 16 }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 6, color: "var(--muted)" }}>
+                        <div style={{ marginTop: 18 }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, marginBottom: 8, color: "var(--ap-muted)" }}>
                                 <span>RAM Kullanımı</span>
-                                <span style={{ color: getMemoryColor(memory.system.usagePercent), fontWeight: 600 }}>
+                                <span style={{ color: getMemoryColor(memory.system.usagePercent), fontWeight: 700 }}>
                                     %{memory.system.usagePercent}
                                 </span>
                             </div>
-                            <div style={{ height: 8, borderRadius: 4, background: "var(--line)", overflow: "hidden" }}>
-                                <div style={{
-                                    height: "100%",
-                                    width: `${memory.system.usagePercent}%`,
-                                    borderRadius: 4,
-                                    background: getMemoryColor(memory.system.usagePercent),
-                                    transition: "width 0.5s ease"
-                                }} />
+                            <div className="ap-progress">
+                                <div
+                                    className={`ap-progress-bar ${getMemoryBarClass(memory.system.usagePercent)}`}
+                                    style={{ width: `${memory.system.usagePercent}%` }}
+                                />
                             </div>
                         </div>
                     </div>
                 </div>
 
                 {/* User Stats */}
-                <div className="admin-card">
-                    <div className="admin-section-title">Kullanıcı İstatistikleri</div>
-                    <div className="admin-grid admin-grid--kpi" style={{ marginTop: 12 }}>
-                        <div style={{ padding: 16, borderRadius: 14, background: "#f8fafc", border: "1px solid var(--line)", textAlign: "center" }}>
-                            <div style={{ fontSize: 28, fontWeight: 700, color: "var(--accent)" }}>{users.total}</div>
-                            <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>Toplam Kullanıcı</div>
+                <div className="ap-card">
+                    <div className="ap-card-head"><FaChartBar /> Kullanıcı İstatistikleri</div>
+                    <div className="ap-kpi-grid" style={{ marginTop: 4 }}>
+                        <div className="ap-stat-mini">
+                            <div className="ap-stat-mini-val" style={{ color: "var(--ap-primary)" }}>{users.total}</div>
+                            <div className="ap-stat-mini-label">Toplam Kullanıcı</div>
                         </div>
-                        <div style={{ padding: 16, borderRadius: 14, background: "#f8fafc", border: "1px solid var(--line)", textAlign: "center" }}>
-                            <div style={{ fontSize: 28, fontWeight: 700, color: "#b91c1c" }}>{users.admins}</div>
-                            <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>Admin Sayısı</div>
+                        <div className="ap-stat-mini">
+                            <div className="ap-stat-mini-val" style={{ color: "var(--ap-red)" }}>{users.admins}</div>
+                            <div className="ap-stat-mini-label">Admin Sayısı</div>
                         </div>
-                        <div style={{ padding: 16, borderRadius: 14, background: "#f8fafc", border: "1px solid var(--line)", textAlign: "center" }}>
-                            <div style={{ fontSize: 28, fontWeight: 700, color: "#1d4ed8" }}>{users.activeToday}</div>
-                            <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>Bugün Aktif</div>
+                        <div className="ap-stat-mini">
+                            <div className="ap-stat-mini-val" style={{ color: "var(--ap-blue)" }}>{users.activeToday}</div>
+                            <div className="ap-stat-mini-label">Bugün Aktif</div>
                         </div>
-                        <div style={{ padding: 16, borderRadius: 14, background: "#f8fafc", border: "1px solid var(--line)", textAlign: "center" }}>
-                            <div style={{ fontSize: 28, fontWeight: 700, color: "#0f766e" }}>{servers.length}</div>
-                            <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 4 }}>Aktif Sunucu</div>
+                        <div className="ap-stat-mini">
+                            <div className="ap-stat-mini-val" style={{ color: "var(--ap-green)" }}>{servers.length}</div>
+                            <div className="ap-stat-mini-label">Aktif Sunucu</div>
                         </div>
                     </div>
                 </div>
 
                 {/* Network */}
                 {systemStatus.os?.networkInterfaces && Object.keys(systemStatus.os.networkInterfaces).length > 0 && (
-                    <div className="admin-card">
-                        <div className="admin-section-title">
-                            <FaNetworkWired style={{ marginRight: 8 }} /> Ağ Arayüzleri
-                        </div>
-                        <div className="admin-list">
+                    <div className="ap-card">
+                        <div className="ap-card-head"><FaNetworkWired /> Ağ Arayüzleri</div>
+                        <div className="ap-list">
                             {Object.entries(systemStatus.os.networkInterfaces).map(([name, ip]) => (
-                                <div key={name} className="admin-list-row">
+                                <div key={name} className="ap-row">
                                     <span>{name}</span>
                                     <span className="mono">{ip}</span>
                                 </div>
@@ -329,51 +312,24 @@ const AdminServers = () => {
     };
 
     const renderLogs = () => (
-        <div className="admin-card">
-            <div className="admin-section-title">
-                <FaTerminal style={{ marginRight: 8 }} /> Sistem Logları
-            </div>
-            {logs.length === 0 && <div className="admin-empty">Log dosyası bulunamadı.</div>}
+        <div className="ap-card">
+            <div className="ap-card-head"><FaTerminal /> Sistem Logları</div>
+            {logs.length === 0 && <div className="ap-empty">Log dosyası bulunamadı.</div>}
             {logs.map((logFile, idx) => (
                 <div key={idx} style={{ marginBottom: 20 }}>
-                    <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8, color: "var(--accent)" }}>
+                    <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 10, color: "var(--ap-text2)" }}>
                         📄 {logFile.file}
                     </div>
-                    <div style={{
-                        background: "#0f172a",
-                        borderRadius: 12,
-                        padding: 16,
-                        maxHeight: 400,
-                        overflowY: "auto",
-                        fontFamily: "Consolas, monospace",
-                        fontSize: 12,
-                        lineHeight: 1.8,
-                        color: "#e2e8f0"
-                    }}>
+                    <div className="ap-terminal">
                         {logFile.lines.slice(-30).map((line, i) => (
-                            <div key={i} style={{
-                                padding: "2px 0",
-                                borderBottom: "1px solid rgba(148,163,184,0.1)",
-                                color: line.level === "error" ? "#ef4444" :
-                                    line.level === "warn" ? "#f59e0b" :
-                                        line.level === "http" ? "#94a3b8" : "#e2e8f0"
-                            }}>
-                                <span style={{ color: "#64748b", marginRight: 8 }}>
+                            <div key={i} className="ap-log-line">
+                                <span className="ap-log-time">
                                     {line.timestamp ? new Date(line.timestamp).toLocaleTimeString("tr-TR") : ""}
                                 </span>
-                                <span style={{
-                                    padding: "1px 6px",
-                                    borderRadius: 4,
-                                    fontSize: 10,
-                                    fontWeight: 600,
-                                    marginRight: 8,
-                                    background: line.level === "error" ? "rgba(239,68,68,0.2)" :
-                                        line.level === "warn" ? "rgba(245,158,11,0.2)" : "rgba(148,163,184,0.1)",
-                                    textTransform: "uppercase"
-                                }}>
+                                <span className={`ap-log-level ap-log-level--${line.level || "info"}`}>
                                     {line.level || "info"}
                                 </span>
-                                {line.message}
+                                <span className="ap-log-msg">{line.message}</span>
                             </div>
                         ))}
                     </div>
@@ -387,43 +343,44 @@ const AdminServers = () => {
             title="Sunucu Yönetimi"
             subtitle="Sistem durumu, sunucu izleme ve log yönetimi"
             actions={
-                <div className="admin-action-row">
+                <div className="ap-actions">
                     <button
-                        className={`admin-btn ${autoRefresh ? "admin-btn--primary" : "admin-btn--ghost"}`}
+                        className={`ap-btn ${autoRefresh ? "ap-btn--primary" : "ap-btn--ghost"}`}
                         onClick={() => setAutoRefresh(!autoRefresh)}
                     >
-                        <FaSync style={{ marginRight: 6 }} />
-                        {autoRefresh ? "Otomatik Yenileme: Açık" : "Otomatik Yenileme: Kapalı"}
+                        <FaSync />
+                        {autoRefresh ? "Oto-Yenileme: Açık" : "Oto-Yenileme: Kapalı"}
                     </button>
-                    <button className="admin-btn admin-btn--ghost" onClick={() => { setLoading(true); loadData(); }}>
-                        <FaSync style={{ marginRight: 6 }} /> Yenile
+                    <button className="ap-btn ap-btn--ghost" onClick={() => { setLoading(true); loadData(); }}>
+                        <FaSync /> Yenile
                     </button>
                 </div>
             }
         >
-            {error && <div className="admin-alert admin-alert--error">{error}</div>}
-            {loading && <div className="admin-loading">Sistem verileri yükleniyor...</div>}
+            {error && <div className="ap-alert ap-alert--error">{error}</div>}
+            {loading && <div className="ap-loading">Sistem verileri yükleniyor...</div>}
 
             {!loading && (
                 <>
-                    {/* Tab Navigation */}
-                    <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-                        {[
-                            { key: "overview", label: "Genel Bakış", icon: <FaServer /> },
-                            { key: "logs", label: "Loglar", icon: <FaTerminal /> }
-                        ].map(tab => (
-                            <button
-                                key={tab.key}
-                                className={`admin-btn ${activeTab === tab.key ? "admin-btn--primary" : "admin-btn--ghost"}`}
-                                onClick={() => setActiveTab(tab.key)}
-                                style={{ display: "flex", alignItems: "center", gap: 6 }}
-                            >
-                                {tab.icon} {tab.label}
-                            </button>
-                        ))}
+                    {/* Tabs */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                        <div className="ap-tabs">
+                            {[
+                                { key: "overview", label: "Genel Bakış", icon: <FaServer /> },
+                                { key: "logs", label: "Loglar", icon: <FaTerminal /> }
+                            ].map(tab => (
+                                <button
+                                    key={tab.key}
+                                    className={`ap-tab ${activeTab === tab.key ? "ap-tab--active" : ""}`}
+                                    onClick={() => setActiveTab(tab.key)}
+                                >
+                                    {tab.icon} {tab.label}
+                                </button>
+                            ))}
+                        </div>
                         {lastRefresh && (
-                            <span style={{ marginLeft: "auto", fontSize: 12, color: "var(--muted)", display: "flex", alignItems: "center", gap: 6 }}>
-                                <FaClock /> Son güncelleme: {lastRefresh.toLocaleTimeString("tr-TR")}
+                            <span style={{ fontSize: 12, color: "var(--ap-muted)", display: "flex", alignItems: "center", gap: 6, marginLeft: "auto" }}>
+                                <FaClock /> Son: {lastRefresh.toLocaleTimeString("tr-TR")}
                             </span>
                         )}
                     </div>

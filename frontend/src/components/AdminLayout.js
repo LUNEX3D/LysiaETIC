@@ -1,17 +1,17 @@
 import React, { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import {
-    FaChartLine,
+    FaChartPie,
     FaUsers,
     FaBoxOpen,
     FaClipboardList,
     FaServer,
-    FaSignInAlt,
+    FaUserShield,
     FaCog,
     FaSignOutAlt,
     FaBars,
     FaTimes,
-    FaHome
+    FaExternalLinkAlt
 } from "react-icons/fa";
 import "../styles/admin.css";
 
@@ -25,20 +25,13 @@ const AdminLayout = ({ title, subtitle, actions, children }) => {
     const loginTime = localStorage.getItem("adminLoginTime");
 
     const roleMap = {
-        admin: "Admin",
-        dev: "Program Dev",
-        moderator: "Moderatör",
-        seller: "Satıcı",
-        user: "Kullanıcı"
+        admin: { label: "Admin", cls: "ap-role--admin" },
+        dev: { label: "Developer", cls: "ap-role--dev" },
+        moderator: { label: "Moderatör", cls: "ap-role--moderator" },
+        seller: { label: "Satıcı", cls: "ap-role--seller" },
+        user: { label: "Kullanıcı", cls: "ap-role--user" }
     };
-    const roleLabel = roleMap[rawRole] || "Admin";
-    const roleClass = (() => {
-        if (rawRole === "dev") return "admin-pill admin-pill--dev";
-        if (rawRole === "moderator") return "admin-pill admin-pill--moderator";
-        if (rawRole === "seller") return "admin-pill admin-pill--seller";
-        if (rawRole === "user") return "admin-pill admin-pill--user";
-        return "admin-pill admin-pill--admin";
-    })();
+    const role = roleMap[rawRole] || roleMap.admin;
 
     const handleLogout = () => {
         localStorage.clear();
@@ -46,19 +39,19 @@ const AdminLayout = ({ title, subtitle, actions, children }) => {
     };
 
     const navItems = [
-        { to: "/admin", label: "Genel Bakış", icon: <FaChartLine />, end: true },
+        { to: "/admin", label: "Genel Bakış", icon: <FaChartPie />, end: true },
         { to: "/admin/servers", label: "Sunucular", icon: <FaServer /> },
-        { to: "/admin/user-access", label: "Kullanıcı Erişimi", icon: <FaSignInAlt /> },
+        { to: "/admin/user-access", label: "Kullanıcı Erişimi", icon: <FaUserShield /> },
         { to: "/admin/users", label: "Kullanıcılar", icon: <FaUsers /> },
         { to: "/admin/products", label: "Ürünler", icon: <FaBoxOpen /> },
-        { to: "/admin/orders", label: "Siparişler", icon: <FaClipboardList /> },
+        { to: "/admin/orders", label: "Siparişler", icon: <FaClipboardList /> }
     ];
 
     return (
-        <div className="admin-root">
+        <div className="ap">
             {/* Mobile Hamburger */}
             <button
-                className="admin-hamburger"
+                className="ap-hamburger"
                 onClick={() => setSidebarOpen(!sidebarOpen)}
                 aria-label="Menü"
             >
@@ -67,37 +60,45 @@ const AdminLayout = ({ title, subtitle, actions, children }) => {
 
             {/* Mobile Overlay */}
             {sidebarOpen && (
-                <div className="admin-overlay" onClick={() => setSidebarOpen(false)} />
+                <div className="ap-overlay" onClick={() => setSidebarOpen(false)} />
             )}
 
-            <div className="admin-shell">
-                <aside className={`admin-sidebar ${sidebarOpen ? "admin-sidebar--open" : ""}`}>
-                    <div className="admin-brand">
-                        <div className="admin-logo">LE</div>
-                        <div className="admin-brand-text">
-                            <div className="admin-brand-title">LysiaETIC</div>
-                            <div className="admin-brand-sub">Yönetim Konsolu</div>
+            <div className="ap-shell">
+                {/* ─── Sidebar ─── */}
+                <aside className={`ap-side ${sidebarOpen ? "ap-side--open" : ""}`}>
+                    {/* Brand */}
+                    <div className="ap-brand">
+                        <div className="ap-brand-icon">LE</div>
+                        <div>
+                            <div className="ap-brand-name">LysiaETIC</div>
+                            <div className="ap-brand-tag">Admin Konsol</div>
                         </div>
                     </div>
 
-                    <div className="admin-profile">
-                        <div className="admin-avatar">{name.slice(0, 1).toUpperCase()}</div>
-                        <div className="admin-profile-info">
-                            <div className="admin-profile-name">{name}</div>
-                            <div className="admin-profile-email">{email}</div>
-                            <div className={roleClass}>{roleLabel}</div>
+                    {/* User Profile */}
+                    <div className="ap-user">
+                        <div className="ap-user-avatar">
+                            {name.charAt(0).toUpperCase()}
+                        </div>
+                        <div className="ap-user-info">
+                            <div className="ap-user-name">{name}</div>
+                            <div className="ap-user-email">{email}</div>
+                            <span className={`ap-user-role ${role.cls}`}>
+                                {role.label}
+                            </span>
                         </div>
                     </div>
 
-                    <nav className="admin-nav">
-                        <div className="admin-nav-section">YÖNETİM</div>
+                    {/* Navigation */}
+                    <nav className="ap-nav">
+                        <div className="ap-nav-label">Yönetim</div>
                         {navItems.map(item => (
                             <NavLink
                                 key={item.to}
                                 to={item.to}
                                 end={item.end}
                                 className={({ isActive }) =>
-                                    `admin-nav-item ${isActive ? "active" : ""}`
+                                    `ap-nav-item ${isActive ? "active" : ""}`
                                 }
                                 onClick={() => setSidebarOpen(false)}
                             >
@@ -106,11 +107,11 @@ const AdminLayout = ({ title, subtitle, actions, children }) => {
                             </NavLink>
                         ))}
 
-                        <div className="admin-nav-section" style={{ marginTop: 16 }}>SİSTEM</div>
+                        <div className="ap-nav-label">Sistem</div>
                         <NavLink
                             to="/admin/settings"
                             className={({ isActive }) =>
-                                `admin-nav-item ${isActive ? "active" : ""}`
+                                `ap-nav-item ${isActive ? "active" : ""}`
                             }
                             onClick={() => setSidebarOpen(false)}
                         >
@@ -119,15 +120,15 @@ const AdminLayout = ({ title, subtitle, actions, children }) => {
                         </NavLink>
                         <a
                             href="/"
-                            className="admin-nav-item"
+                            className="ap-nav-item"
                             target="_blank"
                             rel="noopener noreferrer"
                         >
-                            <FaHome />
+                            <FaExternalLinkAlt />
                             Siteye Git
                         </a>
                         <button
-                            className="admin-nav-item admin-nav-item--logout"
+                            className="ap-nav-item ap-nav-item--danger"
                             onClick={handleLogout}
                         >
                             <FaSignOutAlt />
@@ -135,26 +136,26 @@ const AdminLayout = ({ title, subtitle, actions, children }) => {
                         </button>
                     </nav>
 
-                    <div className="admin-sidebar-foot">
-                        <div className="admin-foot-title">Oturum Bilgisi</div>
-                        <div className="admin-foot-text">
-                            {loginTime
-                                ? `Giriş: ${new Date(loginTime).toLocaleString("tr-TR")}`
-                                : "Tüm kritik işlemler kayıt altındadır."}
-                        </div>
+                    {/* Footer */}
+                    <div className="ap-side-foot">
+                        <strong>Oturum Bilgisi</strong>
+                        {loginTime
+                            ? `Giriş: ${new Date(loginTime).toLocaleString("tr-TR")}`
+                            : "Tüm işlemler kayıt altındadır."}
                     </div>
                 </aside>
 
-                <main className="admin-main">
-                    <header className="admin-header">
-                        <div>
-                            <div className="admin-title">{title}</div>
-                            {subtitle && <div className="admin-subtitle">{subtitle}</div>}
+                {/* ─── Main Content ─── */}
+                <main className="ap-main">
+                    <header className="ap-header">
+                        <div className="ap-header-left">
+                            <h1 className="ap-title">{title}</h1>
+                            {subtitle && <p className="ap-desc">{subtitle}</p>}
                         </div>
-                        {actions && <div className="admin-header-actions">{actions}</div>}
+                        {actions && <div className="ap-actions">{actions}</div>}
                     </header>
 
-                    <section className="admin-content">{children}</section>
+                    <div className="ap-body">{children}</div>
                 </main>
             </div>
         </div>
