@@ -3,13 +3,26 @@ const mongoose = require("mongoose");
 const UserSchema = new mongoose.Schema({
     name: { type: String, required: true },
     email: { type: String, required: true, unique: true },
-    password: { type: String, required: true },
+    password: { type: String },
     role: {
         type: String,
         // ✅ FIX #16: Geçersiz "users" enum değeri kaldırıldı
         enum: ["admin", "dev", "moderator", "seller", "user"],
         default: "user"
     },
+
+    // Email Verification
+    emailVerified: { type: Boolean, default: false },
+    verificationToken: { type: String },
+    verificationTokenExpires: { type: Date },
+
+    // Password Reset
+    resetPasswordCode: { type: String },
+    resetPasswordExpires: { type: Date },
+
+    // Google OAuth
+    googleId: { type: String },
+    authProvider: { type: String, enum: ["local", "google"], default: "local" },
 
     // Profile Information
     profile: {

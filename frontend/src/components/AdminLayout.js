@@ -1,17 +1,11 @@
 import React, { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import {
-    FaChartPie,
-    FaUsers,
-    FaBoxOpen,
-    FaClipboardList,
-    FaServer,
-    FaUserShield,
-    FaCog,
-    FaSignOutAlt,
-    FaBars,
-    FaTimes,
-    FaExternalLinkAlt
+    FaChartPie, FaUsers, FaBoxOpen, FaClipboardList, FaServer,
+    FaUserShield, FaCog, FaSignOutAlt, FaBars, FaTimes,
+    FaExternalLinkAlt, FaBuilding, FaCrown, FaCreditCard,
+    FaPlug, FaTachometerAlt, FaChartBar, FaBullhorn,
+    FaHistory, FaTicketAlt, FaShieldAlt
 } from "react-icons/fa";
 import "../styles/admin.css";
 
@@ -25,7 +19,7 @@ const AdminLayout = ({ title, subtitle, actions, children }) => {
     const loginTime = localStorage.getItem("adminLoginTime");
 
     const roleMap = {
-        admin: { label: "Admin", cls: "ap-role--admin" },
+        admin: { label: "Super Admin", cls: "ap-role--admin" },
         dev: { label: "Developer", cls: "ap-role--dev" },
         moderator: { label: "Moderatör", cls: "ap-role--moderator" },
         seller: { label: "Satıcı", cls: "ap-role--seller" },
@@ -38,18 +32,48 @@ const AdminLayout = ({ title, subtitle, actions, children }) => {
         navigate("/admin/login");
     };
 
-    const navItems = [
-        { to: "/admin", label: "Genel Bakış", icon: <FaChartPie />, end: true },
-        { to: "/admin/servers", label: "Sunucular", icon: <FaServer /> },
-        { to: "/admin/user-access", label: "Kullanıcı Erişimi", icon: <FaUserShield /> },
-        { to: "/admin/users", label: "Kullanıcılar", icon: <FaUsers /> },
-        { to: "/admin/products", label: "Ürünler", icon: <FaBoxOpen /> },
-        { to: "/admin/orders", label: "Siparişler", icon: <FaClipboardList /> }
+    const navSections = [
+        {
+            label: "Ana Kontrol",
+            items: [
+                { to: "/admin", label: "Dashboard", icon: <FaChartPie />, end: true },
+                { to: "/admin/tenants", label: "Firma Yönetimi", icon: <FaBuilding /> },
+                { to: "/admin/users", label: "Kullanıcılar", icon: <FaUsers /> },
+            ]
+        },
+        {
+            label: "Finans & Abonelik",
+            items: [
+                { to: "/admin/subscriptions", label: "Paket & Abonelik", icon: <FaCrown /> },
+                { to: "/admin/payments", label: "Ödeme & Fatura", icon: <FaCreditCard /> },
+            ]
+        },
+        {
+            label: "Operasyon",
+            items: [
+                { to: "/admin/integrations", label: "Entegrasyonlar", icon: <FaPlug /> },
+                { to: "/admin/usage", label: "Kullanım & Limitler", icon: <FaTachometerAlt /> },
+                { to: "/admin/reports", label: "Global Raporlar", icon: <FaChartBar /> },
+            ]
+        },
+        {
+            label: "İletişim",
+            items: [
+                { to: "/admin/announcements", label: "Duyurular", icon: <FaBullhorn /> },
+                { to: "/admin/tickets", label: "Destek Talepleri", icon: <FaTicketAlt /> },
+            ]
+        },
+        {
+            label: "Sistem & Güvenlik",
+            items: [
+                { to: "/admin/audit-logs", label: "İşlem Logları", icon: <FaHistory /> },
+                { to: "/admin/system-config", label: "Sistem Ayarları", icon: <FaCog /> },
+            ]
+        }
     ];
 
     return (
         <div className="ap">
-            {/* Mobile Hamburger */}
             <button
                 className="ap-hamburger"
                 onClick={() => setSidebarOpen(!sidebarOpen)}
@@ -58,20 +82,18 @@ const AdminLayout = ({ title, subtitle, actions, children }) => {
                 {sidebarOpen ? <FaTimes /> : <FaBars />}
             </button>
 
-            {/* Mobile Overlay */}
             {sidebarOpen && (
                 <div className="ap-overlay" onClick={() => setSidebarOpen(false)} />
             )}
 
             <div className="ap-shell">
-                {/* ─── Sidebar ─── */}
                 <aside className={`ap-side ${sidebarOpen ? "ap-side--open" : ""}`}>
                     {/* Brand */}
                     <div className="ap-brand">
                         <div className="ap-brand-icon">LE</div>
                         <div>
                             <div className="ap-brand-name">LysiaETIC</div>
-                            <div className="ap-brand-tag">Admin Konsol</div>
+                            <div className="ap-brand-tag">SaaS Yönetim Konsolu</div>
                         </div>
                     </div>
 
@@ -91,33 +113,27 @@ const AdminLayout = ({ title, subtitle, actions, children }) => {
 
                     {/* Navigation */}
                     <nav className="ap-nav">
-                        <div className="ap-nav-label">Yönetim</div>
-                        {navItems.map(item => (
-                            <NavLink
-                                key={item.to}
-                                to={item.to}
-                                end={item.end}
-                                className={({ isActive }) =>
-                                    `ap-nav-item ${isActive ? "active" : ""}`
-                                }
-                                onClick={() => setSidebarOpen(false)}
-                            >
-                                {item.icon}
-                                {item.label}
-                            </NavLink>
+                        {navSections.map((section, idx) => (
+                            <React.Fragment key={idx}>
+                                <div className="ap-nav-label">{section.label}</div>
+                                {section.items.map(item => (
+                                    <NavLink
+                                        key={item.to}
+                                        to={item.to}
+                                        end={item.end}
+                                        className={({ isActive }) =>
+                                            `ap-nav-item ${isActive ? "active" : ""}`
+                                        }
+                                        onClick={() => setSidebarOpen(false)}
+                                    >
+                                        {item.icon}
+                                        {item.label}
+                                    </NavLink>
+                                ))}
+                            </React.Fragment>
                         ))}
 
-                        <div className="ap-nav-label">Sistem</div>
-                        <NavLink
-                            to="/admin/settings"
-                            className={({ isActive }) =>
-                                `ap-nav-item ${isActive ? "active" : ""}`
-                            }
-                            onClick={() => setSidebarOpen(false)}
-                        >
-                            <FaCog />
-                            Ayarlar
-                        </NavLink>
+                        <div className="ap-nav-label">Diğer</div>
                         <a
                             href="/"
                             className="ap-nav-item"
@@ -145,7 +161,7 @@ const AdminLayout = ({ title, subtitle, actions, children }) => {
                     </div>
                 </aside>
 
-                {/* ─── Main Content ─── */}
+                {/* Main Content */}
                 <main className="ap-main">
                     <header className="ap-header">
                         <div className="ap-header-left">
@@ -154,7 +170,6 @@ const AdminLayout = ({ title, subtitle, actions, children }) => {
                         </div>
                         {actions && <div className="ap-actions">{actions}</div>}
                     </header>
-
                     <div className="ap-body">{children}</div>
                 </main>
             </div>

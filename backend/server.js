@@ -34,6 +34,7 @@ const userRoutes              = require("./routes/userRoutes");
 const analyticsRoutes         = require("./routes/analyticsRoutes");
 const productManagementRoutes = require("./routes/productManagementRoutes");
 const advancedProductRoutes   = require("./routes/advancedProductRoutes");
+const saasAdminRoutes         = require("./routes/saasAdminRoutes");
 
 // ─── 3. DNS & App ─────────────────────────────────────────────────────────────
 dns.setServers(["1.1.1.1", "8.8.8.8"]);
@@ -120,6 +121,7 @@ app.use("/api/user",               userRoutes);
 app.use("/api/analytics",          analyticsRoutes);
 app.use("/api/product-management", productManagementRoutes);
 app.use("/api/advanced-products",  advancedProductRoutes);
+app.use("/api/saas-admin",        saasAdminRoutes);
 
 // ─── 10. SUNUCU DURUM ENDPOINTİ (/api/status) ────────────────────────────────
 app.get("/api/status", (req, res) => {

@@ -8,6 +8,7 @@
 import React from "react";
 import { BrowserRouter as Router, Route, Routes, useLocation } from "react-router-dom";
 import { CssBaseline, Container, ThemeProvider, createTheme } from "@mui/material";
+import { AppProvider } from "./context/AppContext";
 
 // PWA & Responsive
 import PWAInstallPrompt from "./components/PWAInstallPrompt";
@@ -29,6 +30,18 @@ import MarketplaceIntegration from "./pages/MarketplaceIntegration";
 import ProductWizard from "./components/ProductWizard";
 import CategoryMappingPage from "./pages/CategoryMappingPage";
 
+// SaaS Admin Panel Sayfaları
+import SaasTenants from "./pages/SaasTenants";
+import SaasSubscriptions from "./pages/SaasSubscriptions";
+import SaasPayments from "./pages/SaasPayments";
+import SaasIntegrations from "./pages/SaasIntegrations";
+import SaasUsage from "./pages/SaasUsage";
+import SaasReports from "./pages/SaasReports";
+import SaasAnnouncements from "./pages/SaasAnnouncements";
+import SaasTickets from "./pages/SaasTickets";
+import SaasAuditLogs from "./pages/SaasAuditLogs";
+import SaasSystemConfig from "./pages/SaasSystemConfig";
+
 // Modern Finans Paneli
 import FinancePage from "./pages/FinancePage";
 
@@ -38,6 +51,9 @@ import ProductManagementPage from "./pages/ProductManagementPageV3";
 // Yeni Ürün Yükleme & Fiyat Eşitleme
 import ProductUploadPage from "./pages/ProductUploadPage";
 import PriceSyncPage from "./pages/PriceSyncPage";
+
+// Email Doğrulama
+import VerifyEmail from "./pages/VerifyEmail";
 
 // Tema ayarları
 const theme = createTheme({
@@ -57,13 +73,15 @@ const theme = createTheme({
 const AppContent = () => {
     const location = useLocation();
     const isAdminRoute = location.pathname.startsWith("/admin");
+    const isAuthRoute = ["/" , "/login", "/register", "/verify-email", "/forgot-password"].includes(location.pathname);
 
     const routes = (
         <Routes>
-            {/* Genel Sayfalar */}
-            <Route path="/" element={<HomePage />} />
+            {/* Auth Sayfaları — Direkt login ekranı karşılar */}
+            <Route path="/" element={<LoginForm />} />
             <Route path="/register" element={<RegisterForm />} />
             <Route path="/login" element={<LoginForm />} />
+            <Route path="/verify-email" element={<VerifyEmail />} />
 
             {/* Kullanıcı Paneli */}
             <Route path="/dashboard" element={<UserDashboard />} />
@@ -77,6 +95,18 @@ const AppContent = () => {
             <Route path="/admin/products" element={<AdminProducts />} />
             <Route path="/admin/orders" element={<AdminOrders />} />
             <Route path="/admin/products/upload" element={<ProductWizard />} />
+
+            {/* SaaS Admin Panel */}
+            <Route path="/admin/tenants" element={<SaasTenants />} />
+            <Route path="/admin/subscriptions" element={<SaasSubscriptions />} />
+            <Route path="/admin/payments" element={<SaasPayments />} />
+            <Route path="/admin/integrations" element={<SaasIntegrations />} />
+            <Route path="/admin/usage" element={<SaasUsage />} />
+            <Route path="/admin/reports" element={<SaasReports />} />
+            <Route path="/admin/announcements" element={<SaasAnnouncements />} />
+            <Route path="/admin/tickets" element={<SaasTickets />} />
+            <Route path="/admin/audit-logs" element={<SaasAuditLogs />} />
+            <Route path="/admin/system-config" element={<SaasSystemConfig />} />
 
             {/* Pazaryeri Entegrasyonu */}
             <Route path="/marketplace-integration" element={<MarketplaceIntegration />} />
@@ -94,7 +124,8 @@ const AppContent = () => {
         </Routes>
     );
 
-    if (isAdminRoute) {
+    // Admin ve Auth sayfaları Container dışında render edilir (tam ekran)
+    if (isAdminRoute || isAuthRoute) {
         return routes;
     }
 
@@ -114,13 +145,15 @@ const AppContent = () => {
 
 const App = () => {
     return (
-        <ThemeProvider theme={theme}>
-            <CssBaseline />
-            <Router>
-                <AppContent />
-                <PWAInstallPrompt />
-            </Router>
-        </ThemeProvider>
+        <AppProvider>
+            <ThemeProvider theme={theme}>
+                <CssBaseline />
+                <Router>
+                    <AppContent />
+                    <PWAInstallPrompt />
+                </Router>
+            </ThemeProvider>
+        </AppProvider>
     );
 };
 

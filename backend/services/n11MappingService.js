@@ -219,8 +219,10 @@ const getCategoryAttributesCached = async (userId, credentials, categoryId) => {
  *   isCustomValue: false → SADECE valueId ile gönder
  *     1. Tam eşleşme ara
  *     2. Kısmi eşleşme ara
- *     3. Hiç eşleşme yoksa → ilk geçerli valueId'yi kullan (zorunlu attr için güvenli fallback)
- *     4. attributeValues tamamen boşsa → null döner (attribute ATLANIR, customValue GÖNDERİLMEZ)
+ *     3. Eşleşme yoksa:
+ *        - Zorunlu attribute → ilk geçerli valueId kullan (güvenli fallback)
+ *        - Opsiyonel attribute → null döner (attribute ATLANIR)
+ *     4. attributeValues tamamen boşsa → null döner (attribute ATLANIR)
  *
  * @param {Object} catAttr      - N11 kategori attribute tanımı
  * @param {string|null} productValue - Ürünün bu attribute için değeri
@@ -229,6 +231,7 @@ const getCategoryAttributesCached = async (userId, credentials, categoryId) => {
 const transformAttribute = (catAttr, productValue) => {
     const attrId        = Number(catAttr.attributeId || catAttr.id);
     const isCustomValue = catAttr.isCustomValue === true;
+    const isMandatory   = catAttr.isMandatory   === true;
     const attrValues    = catAttr.attributeValues || [];
     const attrName      = catAttr.attributeName   || "";
 
@@ -237,19 +240,40 @@ const transformAttribute = (catAttr, productValue) => {
     // Marka (id:1) — ayrıca işlenir, burada atla
     if (attrId === 1) return null;
 
+    // ── Geçersiz değerleri filtrele ──────────────────────────────────────────
+    // "null" string, boş string, undefined, null → hepsi geçersiz
+    const rawValue = (productValue || "").toString().trim();
+    const isInvalidValue = !rawValue ||
+                          rawValue === "null" ||
+                          rawValue === "undefined" ||
+                          rawValue === "0";
+
+    if (isInvalidValue) {
+        if (isMandatory) {
+            // Zorunlu attribute ama değer geçersiz → fallback kullanılacak
+            // Warning yerine debug seviyesinde logla (çok fazla spam olmasın)
+            logger.debug(
+                `[N11 MAPPING] Zorunlu attr "${attrName}" (${attrId}): ` +
+                `ürün değeri geçersiz ("${productValue}") — fallback kullanılacak`
+            );
+        } else {
+            // Opsiyonel attribute + geçersiz değer → atla (log bile gereksiz)
+            return null;
+        }
+    }
+
     // ── isCustomValue: true → serbest metin ──────────────────────────────────
     if (isCustomValue) {
-        const val = (productValue || "").toString().trim();
-        // Boş değer gönderme — N11 bazı kategorilerde boş customValue reddeder
-        if (!val) {
+        // Geçersiz değer varsa atla
+        if (isInvalidValue) {
             logger.warn(
                 `[N11 MAPPING] Attr "${attrName}" (${attrId}): ` +
-                `isCustomValue:true ama değer boş — attribute atlandı`
+                `isCustomValue:true ama değer geçersiz — attribute atlandı`
             );
             return null;
         }
-        logger.info(`[N11 MAPPING] ✅ Attr "${attrName}" (${attrId}): customValue="${val}"`);
-        return { id: attrId, valueId: null, customValue: val };
+        logger.debug(`[N11 MAPPING] ✅ Attr "${attrName}" (${attrId}): customValue="${rawValue}"`);
+        return { id: attrId, valueId: null, customValue: rawValue };
     }
 
     // ── isCustomValue: false → SADECE valueId ────────────────────────────────
@@ -264,32 +288,52 @@ const transformAttribute = (catAttr, productValue) => {
         return null;
     }
 
-    const normalizedVal = (productValue || "").toString().trim().toLowerCase();
+    const normalizedVal = rawValue.toLowerCase();
+    let match = null;
 
-    // 1. Tam eşleşme
-    let match = attrValues.find(
-        v => v.value && v.value.toString().toLowerCase() === normalizedVal
-    );
-
-    // 2. Kısmi eşleşme
-    if (!match && normalizedVal) {
+    // Geçerli değer varsa eşleşme ara
+    if (!isInvalidValue) {
+        // 1. Tam eşleşme
         match = attrValues.find(
-            v => v.value && (
-                v.value.toString().toLowerCase().includes(normalizedVal) ||
-                normalizedVal.includes(v.value.toString().toLowerCase())
-            )
+            v => v.value && v.value.toString().toLowerCase() === normalizedVal
         );
+
+        // 2. Kısmi eşleşme
+        if (!match) {
+            match = attrValues.find(
+                v => v.value && (
+                    v.value.toString().toLowerCase().includes(normalizedVal) ||
+                    normalizedVal.includes(v.value.toString().toLowerCase())
+                )
+            );
+        }
     }
 
-    // 3. Eşleşme yoksa → ilk geçerli valueId (zorunlu attribute için güvenli fallback)
+    // 3. Eşleşme yoksa → zorunlu attribute için fallback, opsiyonel için atla
     if (!match) {
-        match = attrValues.find(v => v.id && Number(v.id) > 0);
-        if (match) {
-            logger.warn(
-                `[N11 MAPPING] Attr "${attrName}" (${attrId}): ` +
-                `"${productValue}" eşleşmedi — ilk değer kullanıldı: ` +
-                `"${match.value}" (valueId: ${match.id})`
-            );
+        if (isMandatory) {
+            // Zorunlu attribute → ilk geçerli valueId kullan
+            match = attrValues.find(v => v.id && Number(v.id) > 0);
+            if (match) {
+                // Sadece geçersiz değer DEĞİLSE warning ver (gerçek veri eşleşmediyse önemli)
+                if (!isInvalidValue) {
+                    logger.warn(
+                        `[N11 MAPPING] ⚠️ Zorunlu attr "${attrName}" (${attrId}): ` +
+                        `"${productValue}" eşleşmedi — fallback kullanıldı: ` +
+                        `"${match.value}" (valueId: ${match.id}). ` +
+                        `Çözüm: Ürün Yönetimi'nden bu ürünün "${attrName}" alanını düzeltin.`
+                    );
+                } else {
+                    // Geçersiz değer için fallback → debug seviyesinde
+                    logger.debug(
+                        `[N11 MAPPING] Zorunlu attr "${attrName}" (${attrId}): ` +
+                        `fallback kullanıldı: "${match.value}" (valueId: ${match.id})`
+                    );
+                }
+            }
+        } else {
+            // Opsiyonel attribute → sessizce atla (log gereksiz)
+            return null;
         }
     }
 
@@ -302,7 +346,8 @@ const transformAttribute = (catAttr, productValue) => {
         return null;
     }
 
-    logger.info(
+    // Başarılı eşleşme — sadece debug seviyesinde logla (spam olmasın)
+    logger.debug(
         `[N11 MAPPING] ✅ Attr "${attrName}" (${attrId}): ` +
         `valueId=${match.id} ("${match.value}")`
     );
@@ -366,13 +411,20 @@ const transformProductForN11 = async (userId, credentials, product) => {
         };
         for (const [key, val] of Object.entries(product.attributes)) {
             if (val !== null && val !== undefined) {
+                // "null", "undefined" string değerlerini filtrele (Trendyol bazen bunları gönderir)
+                const strVal = val.toString().trim();
+                if (strVal === "null" || strVal === "undefined" || strVal === "") continue;
                 const normalKey = keyMap[key.toLowerCase()] || key.toLowerCase();
                 productAttrMap[normalKey] = val;
             }
         }
     }
 
-    // ── 4. isMandatory attribute'ları dönüştür ───────────────────────────────
+    // ── 4. Attribute'ları dönüştür (zorunlu + ürün verisi olan opsiyoneller) ──
+    // ESKİ: Sadece isMandatory attribute'lar işleniyordu → opsiyonel ama önemli
+    //        attribute'lar (Renk, Model vb.) atlanıyordu → N11 ürünü eksik bilgiyle reddedebiliyordu
+    // YENİ: Zorunlu attribute'lar HER ZAMAN işlenir + opsiyonel attribute'lar
+    //        SADECE ürün verisinde değer varsa işlenir (gereksiz fallback yapılmaz)
     const safeAttributes = [];
 
     for (const catAttr of categoryAttrs) {
@@ -383,9 +435,6 @@ const transformProductForN11 = async (userId, credentials, product) => {
         // Marka (id:1) — ayrıca eklenir
         if (attrId === 1) continue;
 
-        // Zorunlu olmayan attribute'ları atla
-        if (!isMandatory) continue;
-
         // Ürün verisinden bu attribute'a karşılık gelen değeri bul
         // Önce Türkçe adla, sonra attribute ID'siyle ara
         const productValue =
@@ -393,11 +442,19 @@ const transformProductForN11 = async (userId, credentials, product) => {
             productAttrMap[String(attrId)] ||
             null;
 
+        // Opsiyonel attribute — ürün verisinde geçerli değer YOKSA atla
+        // (gereksiz fallback yapılmaz, sadece gerçek veri varsa gönderilir)
+        if (!isMandatory) {
+            const rawVal = (productValue || "").toString().trim();
+            const isValid = rawVal && rawVal !== "null" && rawVal !== "undefined" && rawVal !== "0";
+            if (!isValid) continue; // Opsiyonel + değer yok → atla
+        }
+
         const transformed = transformAttribute(catAttr, productValue);
 
         if (transformed) {
             safeAttributes.push(transformed);
-        } else {
+        } else if (isMandatory) {
             // Zorunlu attribute dönüştürülemedi — logla ama devam et
             // (N11 zaten reddedecek, ama hangi attribute olduğu log'da görünür)
             logger.warn(
@@ -411,14 +468,20 @@ const transformProductForN11 = async (userId, credentials, product) => {
     }
 
     // ── 5. Marka (id:1) — her zaman customValue ile ──────────────────────────
-    const brand = (
+    let brand = (
         product.brand                                                          ||
         productAttrMap["marka"]                                                ||
         (typeof product.attributes === "object" && !Array.isArray(product.attributes)
             ? product.attributes?.brand
             : null)                                                            ||
-        "Genel"
+        ""
     ).toString().trim();
+
+    // N11 "Genel" markasını kabul etmiyor — geçersiz markaları "Diğer" yap
+    const invalidBrands = ["genel", "generic", "no brand", "nobrand", "marka yok", "belirtilmemiş", ""];
+    if (invalidBrands.includes(brand.toLowerCase())) {
+        brand = "Diğer";
+    }
 
     // Marka zaten yoksa başa ekle
     const hasBrand = safeAttributes.some(a => Number(a.id) === 1);

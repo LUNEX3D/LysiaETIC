@@ -9,8 +9,8 @@ const CategoryMapping = require("../models/CategoryMapping");
 const StockSyncLog = require("../models/StockSyncLog");
 const Marketplace = require("../models/Marketplace");
 const logger = require("../config/logger");
-const { syncProductsFromMarketplace, distributeProductToMarketplaces } = require("../services/productSyncService");
-const { manualStockSync, autoStockSync } = require("../services/stockSyncService");
+const { syncProductsFromMarketplace, distributeProductToMarketplaces, checkPendingN11Tasks } = require("../services/productSyncService");
+const { manualStockSync, autoStockSync, syncStockToAllMarketplaces } = require("../services/stockSyncService");
 const n11Service = require("../services/n11Service");
 const xlsx = require("xlsx");
 const multer = require("multer");
@@ -196,6 +196,146 @@ exports.getProducts = async (req, res) => {
             .limit(Number(limit))
             .lean();
 
+        // ── PLATFORM ZENGİNLEŞTİRME ──
+        // Strateji: Kullanıcının TÜM ProductMapping kayıtlarını çek,
+        // ürün ismine göre grupla, aynı ürünün farklı platformlardaki kayıtlarını birleştir.
+        try {
+            // ═══ ADIM 0: TAM DİAGNOSTİK — DB'deki tüm kayıtları logla (ilk istek için) ═══
+            const allUserProducts = await ProductMapping.find({ userId })
+                .select("masterProduct.name masterProduct.barcode masterProduct.sku marketplaceMappings")
+                .lean();
+
+            // Platform dağılımını logla
+            const platformDist = {};
+            for (const ap of allUserProducts) {
+                for (const mm of (ap.marketplaceMappings || [])) {
+                    const pn = mm.marketplaceName || "UNKNOWN";
+                    platformDist[pn] = (platformDist[pn] || 0) + 1;
+                }
+            }
+            logger.info(`[PLATFORM-DIAG] Toplam ${allUserProducts.length} ProductMapping kaydı. Platform dağılımı: ${JSON.stringify(platformDist)}`);
+
+            // Tüm ürünleri listele (ilk 20)
+            for (const ap of allUserProducts.slice(0, 20)) {
+                const pls = (ap.marketplaceMappings || []).map(m => `${m.marketplaceName}(id:${m.marketplaceProductId || "-"},bc:${m.marketplaceBarcode || "-"},sku:${m.marketplaceSku || "-"})`);
+                logger.info(`[PLATFORM-DIAG] "${ap.masterProduct?.name}" | masterBarcode=${ap.masterProduct?.barcode} | masterSku=${ap.masterProduct?.sku} | mappings=[${pls.join(", ")}]`);
+            }
+
+            // ═══ ADIM 1: İsim bazlı gruplama ile cross-reference ═══
+            // Aynı ürün farklı platformlarda farklı barcode ile kayıtlı olabilir.
+            // Bu yüzden barcode/sku yerine İSİM benzerliği ile eşleştirme yapıyoruz.
+
+            // Tüm kullanıcı ürünlerinden isim → platform mapping haritası oluştur
+            const nameToMappings = new Map(); // normalizedName → [marketplaceMapping, ...]
+            for (const ap of allUserProducts) {
+                const rawName = ap.masterProduct?.name || "";
+                // İsmi normalize et: küçük harf, fazla boşlukları sil, özel karakterleri temizle
+                const normName = rawName.trim().toLowerCase()
+                    .replace(/\s+/g, " ")           // çoklu boşluk → tek boşluk
+                    .replace(/[–—-]+/g, "-")         // farklı tire türleri → tek tire
+                    .replace(/[""'']/g, "");          // tırnak işaretleri temizle
+
+                if (!normName) continue;
+
+                if (!nameToMappings.has(normName)) nameToMappings.set(normName, []);
+                for (const mm of (ap.marketplaceMappings || [])) {
+                    nameToMappings.get(normName).push(mm);
+                }
+
+                // Ayrıca barcode ve sku bazlı da ekle (eski mantık korunsun)
+                const bc = ap.masterProduct?.barcode;
+                const sk = ap.masterProduct?.sku;
+                if (bc) {
+                    const bcKey = `__bc__${bc}`;
+                    if (!nameToMappings.has(bcKey)) nameToMappings.set(bcKey, []);
+                    for (const mm of (ap.marketplaceMappings || [])) {
+                        nameToMappings.get(bcKey).push(mm);
+                    }
+                }
+                if (sk) {
+                    const skKey = `__sk__${sk}`;
+                    if (!nameToMappings.has(skKey)) nameToMappings.set(skKey, []);
+                    for (const mm of (ap.marketplaceMappings || [])) {
+                        nameToMappings.get(skKey).push(mm);
+                    }
+                }
+            }
+
+            // ═══ ADIM 2: Her sayfadaki ürün için eksik platformları ekle ═══
+            for (const p of products) {
+                const existingPlatforms = new Set(
+                    (p.marketplaceMappings || []).map(m => normalizeMarketplaceName(m.marketplaceName))
+                );
+
+                // Bu ürünle eşleşebilecek tüm mapping'leri topla
+                const candidateMappings = [];
+
+                // İsim bazlı eşleşme
+                const rawName = p.masterProduct?.name || "";
+                const normName = rawName.trim().toLowerCase()
+                    .replace(/\s+/g, " ")
+                    .replace(/[–—-]+/g, "-")
+                    .replace(/[""'']/g, "");
+                if (normName && nameToMappings.has(normName)) {
+                    candidateMappings.push(...nameToMappings.get(normName));
+                }
+
+                // Barcode bazlı eşleşme
+                const bc = p.masterProduct?.barcode;
+                if (bc && nameToMappings.has(`__bc__${bc}`)) {
+                    candidateMappings.push(...nameToMappings.get(`__bc__${bc}`));
+                }
+
+                // SKU bazlı eşleşme
+                const sk = p.masterProduct?.sku;
+                if (sk && nameToMappings.has(`__sk__${sk}`)) {
+                    candidateMappings.push(...nameToMappings.get(`__sk__${sk}`));
+                }
+
+                // Marketplace mapping'lerindeki barcode/sku ile de eşleştir
+                for (const mm of (p.marketplaceMappings || [])) {
+                    if (mm.marketplaceBarcode && nameToMappings.has(`__bc__${mm.marketplaceBarcode}`)) {
+                        candidateMappings.push(...nameToMappings.get(`__bc__${mm.marketplaceBarcode}`));
+                    }
+                    if (mm.marketplaceSku && nameToMappings.has(`__sk__${mm.marketplaceSku}`)) {
+                        candidateMappings.push(...nameToMappings.get(`__sk__${mm.marketplaceSku}`));
+                    }
+                }
+
+                // Eksik platformları ekle
+                for (const mm of candidateMappings) {
+                    const normalized = normalizeMarketplaceName(mm.marketplaceName);
+                    if (normalized && !existingPlatforms.has(normalized)) {
+                        existingPlatforms.add(normalized);
+                        if (!p.marketplaceMappings) p.marketplaceMappings = [];
+                        p.marketplaceMappings.push({
+                            marketplaceName: normalized,
+                            marketplaceProductId: mm.marketplaceProductId || "",
+                            marketplaceSku: mm.marketplaceSku || "",
+                            marketplaceBarcode: mm.marketplaceBarcode || "",
+                            price: mm.price || 0,
+                            listPrice: mm.listPrice || 0,
+                            stock: mm.stock != null ? mm.stock : 0,
+                            isActive: mm.isActive !== false,
+                            isSynced: mm.isSynced || false,
+                            syncStatus: mm.syncStatus || "synced",
+                            lastSyncDate: mm.lastSyncDate,
+                            pulledFromMarketplace: mm.pulledFromMarketplace || false,
+                            _crossReferenced: true
+                        });
+                    }
+                }
+            }
+
+            // DEBUG LOG — ilk 3 ürünün platform durumunu logla
+            for (const p of products.slice(0, 3)) {
+                const platforms = (p.marketplaceMappings || []).map(m => `${m.marketplaceName}${m._crossReferenced ? "(CROSS)" : ""}`);
+                logger.info(`[PLATFORM-CHECK] "${p.masterProduct?.name}" barcode=${p.masterProduct?.barcode} sku=${p.masterProduct?.sku} → platforms: [${platforms.join(", ")}]`);
+            }
+        } catch (enrichErr) {
+            logger.warn("[PRODUCT LIST] Cross-reference zenginleştirme hatası:", enrichErr.message);
+        }
+
         return res.status(200).json({
             success: true,
             total,
@@ -224,6 +364,73 @@ exports.getProductDetail = async (req, res) => {
         const product = await ProductMapping.findOne({ _id: productId, userId });
         if (!product) {
             return res.status(404).json({ error: "Ürün bulunamadı" });
+        }
+
+        // ── PLATFORM ZENGİNLEŞTİRME (barcode + sku + isim cross-reference) ──
+        try {
+            const lookupBarcodes = new Set();
+            const lookupSkus = new Set();
+            if (product.masterProduct?.barcode) lookupBarcodes.add(product.masterProduct.barcode);
+            if (product.masterProduct?.sku) lookupSkus.add(product.masterProduct.sku);
+            for (const mm of (product.marketplaceMappings || [])) {
+                if (mm.marketplaceBarcode) lookupBarcodes.add(mm.marketplaceBarcode);
+                if (mm.marketplaceSku) lookupSkus.add(mm.marketplaceSku);
+            }
+
+            const orConds = [];
+            if (lookupBarcodes.size > 0) {
+                orConds.push({ "masterProduct.barcode": { $in: [...lookupBarcodes] } });
+                orConds.push({ "marketplaceMappings.marketplaceBarcode": { $in: [...lookupBarcodes] } });
+            }
+            if (lookupSkus.size > 0) {
+                orConds.push({ "masterProduct.sku": { $in: [...lookupSkus] } });
+                orConds.push({ "marketplaceMappings.marketplaceSku": { $in: [...lookupSkus] } });
+            }
+            // İsim ile de ara
+            if (product.masterProduct?.name) {
+                const escaped = product.masterProduct.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+                orConds.push({ "masterProduct.name": { $regex: new RegExp("^" + escaped + "$", "i") } });
+            }
+
+            if (orConds.length > 0) {
+                const relatedProducts = await ProductMapping.find({
+                    userId,
+                    _id: { $ne: product._id },
+                    $or: orConds
+                }).select("marketplaceMappings").lean();
+
+                const existingPlatforms = new Set(
+                    (product.marketplaceMappings || []).map(m => normalizeMarketplaceName(m.marketplaceName))
+                );
+
+                for (const rp of relatedProducts) {
+                    for (const mm of (rp.marketplaceMappings || [])) {
+                        const normalized = normalizeMarketplaceName(mm.marketplaceName);
+                        if (normalized && !existingPlatforms.has(normalized)) {
+                            existingPlatforms.add(normalized);
+                            product.marketplaceMappings.push({
+                                marketplaceName: normalized,
+                                marketplaceProductId: mm.marketplaceProductId || "",
+                                marketplaceSku: mm.marketplaceSku || "",
+                                marketplaceBarcode: mm.marketplaceBarcode || "",
+                                price: mm.price || 0,
+                                listPrice: mm.listPrice || 0,
+                                stock: mm.stock != null ? mm.stock : 0,
+                                isActive: mm.isActive !== false,
+                                isSynced: mm.isSynced || false,
+                                syncStatus: mm.syncStatus || "synced",
+                                lastSyncDate: mm.lastSyncDate,
+                                pulledFromMarketplace: mm.pulledFromMarketplace || false,
+                                _crossReferenced: true
+                            });
+                        }
+                    }
+                }
+
+                logger.info(`[PRODUCT DETAIL] "${product.masterProduct?.name}" → platforms: [${[...existingPlatforms].join(", ")}]`);
+            }
+        } catch (enrichErr) {
+            logger.warn("[PRODUCT DETAIL] Cross-reference zenginleştirme hatası:", enrichErr.message);
         }
 
         return res.status(200).json({ success: true, product });
@@ -260,12 +467,38 @@ exports.updateProduct = async (req, res) => {
         if (updates.brand) product.masterProduct.brand = updates.brand;
         if (updates.attributes) product.masterProduct.attributes = { ...product.masterProduct.attributes, ...updates.attributes };
 
+        // 🛡️ Güvenlik stoğu güncelleme
+        if (updates.safetyStock !== undefined) {
+            product.stockTracking.safetyStock = Math.max(0, Number(updates.safetyStock));
+        }
+
         // Stok güncelleme
+        let syncResults = [];
         if (updates.stock !== undefined) {
             const oldStock = product.stockTracking.totalStock;
-            product.masterProduct.stock = updates.stock;
-            product.stockTracking.totalStock = updates.stock;
+            const newStock = Number(updates.stock);
+            product.masterProduct.stock = newStock;
+            product.stockTracking.totalStock = newStock;
             product.updateStockStatus();
+
+            // 🛡️ Güvenlik stoğu düşülmüş stoku hesapla
+            const marketplaceStock = product.getMarketplaceStock();
+
+            // ✅ Fiyat güncelleme varsa hazırla
+            const priceUpdate = (updates.price || updates.listPrice)
+                ? {
+                    salePrice: updates.price ? parseFloat(updates.price) : undefined,
+                    listPrice: updates.listPrice ? parseFloat(updates.listPrice) : undefined
+                  }
+                : null;
+
+            // ✅ Tüm pazaryerlerinde stoku senkronize et (güvenlik stoğu düşülmüş)
+            try {
+                syncResults = await syncStockToAllMarketplaces(userId, product, marketplaceStock, null, priceUpdate);
+                logger.info(`[PRODUCT UPDATE] Stok senkronize edildi — ${product.masterProduct.name}: ${oldStock} → ${newStock} | platformlara: ${marketplaceStock} (güvenlik: ${product.stockTracking.safetyStock || 0})`);
+            } catch (syncError) {
+                logger.error(`[PRODUCT UPDATE] Stok senkronizasyon hatası: ${syncError.message}`);
+            }
 
             // Log oluştur
             await StockSyncLog.create({
@@ -280,22 +513,39 @@ exports.updateProduct = async (req, res) => {
                 changes: {
                     field: "stock",
                     oldValue: oldStock,
-                    newValue: updates.stock,
-                    difference: updates.stock - oldStock
+                    newValue: newStock,
+                    difference: newStock - oldStock
                 },
                 status: "success",
+                affectedMarketplaces: syncResults,
                 notification: {
-                    priority: updates.stock === 0 ? "critical" : updates.stock <= product.stockTracking.lowStockThreshold ? "high" : "low"
+                    priority: newStock === 0 ? "critical" : newStock <= product.stockTracking.lowStockThreshold ? "high" : "low"
                 }
             });
+        } else if (updates.safetyStock !== undefined) {
+            // Sadece güvenlik stoğu değiştiyse de platformlara push et
+            const marketplaceStock = product.getMarketplaceStock();
+            try {
+                syncResults = await syncStockToAllMarketplaces(userId, product, marketplaceStock);
+                logger.info(`[PRODUCT UPDATE] Güvenlik stoğu güncellendi — ${product.masterProduct.name} | platformlara: ${marketplaceStock} (güvenlik: ${product.stockTracking.safetyStock})`);
+            } catch (syncError) {
+                logger.error(`[PRODUCT UPDATE] Güvenlik stoğu sync hatası: ${syncError.message}`);
+            }
         }
 
         await product.save();
 
+        const mpSuccess = syncResults.filter(m => m.syncStatus === "success").length;
+        const mpError   = syncResults.filter(m => m.syncStatus === "error").length;
+        const marketplaceStock = product.getMarketplaceStock();
+
         return res.status(200).json({
             success: true,
-            message: "Ürün güncellendi",
-            product
+            message: `Ürün güncellendi${syncResults.length > 0 ? `. ${mpSuccess} pazaryerinde senkronize edildi${mpError > 0 ? `, ${mpError} hata` : ""}` : ""}`,
+            product,
+            marketplaceStock,
+            safetyStock: product.stockTracking.safetyStock || 0,
+            marketplaces: syncResults
         });
 
     } catch (error) {
@@ -430,53 +680,66 @@ exports.bulkDistribute = async (req, res) => {
             details: []
         };
 
-        for (const product of products) {
-            try {
-                // Her hedef pazaryeri için kontrol et
-                const missingMarketplaces = targetMarketplaces.filter(target => {
-                    const existing = product.marketplaceMappings.find(
-                        m => m.marketplaceName === target && m.marketplaceProductId
-                    );
-                    return !existing;
-                });
+        // ⚡ Paralel dağıtım — 3'erli batch ile (API rate limit koruması)
+        const BATCH_SIZE = 3;
+        for (let i = 0; i < products.length; i += BATCH_SIZE) {
+            const batch = products.slice(i, i + BATCH_SIZE);
 
-                if (missingMarketplaces.length === 0) {
-                    results.skipped++;
-                    results.details.push({
+            const batchResults = await Promise.all(batch.map(async (product) => {
+                try {
+                    // Her hedef pazaryeri için kontrol et
+                    const missingMarketplaces = targetMarketplaces.filter(target => {
+                        const existing = product.marketplaceMappings.find(
+                            m => m.marketplaceName === target && m.marketplaceProductId
+                        );
+                        return !existing;
+                    });
+
+                    if (missingMarketplaces.length === 0) {
+                        return {
+                            barcode: product.masterProduct.barcode,
+                            name: product.masterProduct.name,
+                            status: "skipped",
+                            message: "Tüm hedef pazaryerlerinde mevcut",
+                            _skipped: true
+                        };
+                    }
+
+                    // Eksik pazaryerlerine dağıt
+                    const distResults = await distributeProductToMarketplaces(
+                        userId,
+                        product._id,
+                        missingMarketplaces
+                    );
+
+                    const successCount = distResults.filter(r => r.status === "success").length;
+                    return {
                         barcode: product.masterProduct.barcode,
                         name: product.masterProduct.name,
-                        status: "skipped",
-                        message: "Tüm hedef pazaryerlerinde mevcut"
-                    });
-                    continue;
+                        status: successCount > 0 ? "success" : "error",
+                        marketplaces: distResults,
+                        _distributed: successCount > 0,
+                        _hasError: distResults.some(r => r.status === "error")
+                    };
+
+                } catch (error) {
+                    return {
+                        barcode: product.masterProduct.barcode,
+                        name: product.masterProduct.name,
+                        status: "error",
+                        message: error.message,
+                        _hasError: true
+                    };
                 }
+            }));
 
-                // Eksik pazaryerlerine dağıt
-                const distResults = await distributeProductToMarketplaces(
-                    userId,
-                    product._id,
-                    missingMarketplaces
-                );
-
-                const successCount = distResults.filter(r => r.status === "success").length;
-                if (successCount > 0) results.distributed++;
-                if (distResults.some(r => r.status === "error")) results.errors++;
-
-                results.details.push({
-                    barcode: product.masterProduct.barcode,
-                    name: product.masterProduct.name,
-                    status: successCount > 0 ? "success" : "error",
-                    marketplaces: distResults
-                });
-
-            } catch (error) {
-                results.errors++;
-                results.details.push({
-                    barcode: product.masterProduct.barcode,
-                    name: product.masterProduct.name,
-                    status: "error",
-                    message: error.message
-                });
+            for (const br of batchResults) {
+                if (br._skipped)     results.skipped++;
+                if (br._distributed) results.distributed++;
+                if (br._hasError)    results.errors++;
+                // Temizle — iç flagleri response'a gönderme
+                const { _skipped, _distributed, _hasError, ...detail } = br;
+                results.details.push(detail);
             }
         }
 
@@ -558,14 +821,15 @@ exports.syncStock = async (req, res) => {
 };
 
 /**
- * Fiyat senkronizasyonu — tüm pazaryerlerine fiyat güncelle
+ * Fiyat senkronizasyonu — tüm veya belirli pazaryerine fiyat güncelle
+ * targetMarketplace gönderilirse sadece o platforma, gönderilmezse tümüne push eder
  */
 exports.syncPrice = async (req, res) => {
     try {
         const userId = toObjectId(req.user?._id || req.user?.id);
         if (!userId) return res.status(401).json({ error: "Yetkilendirme hatası" });
 
-        const { productMappingId, salePrice, listPrice } = req.body;
+        const { productMappingId, salePrice, listPrice, targetMarketplace } = req.body;
 
         if (!productMappingId) {
             return res.status(400).json({ error: "Ürün ID gerekli" });
@@ -586,22 +850,111 @@ exports.syncPrice = async (req, res) => {
 
         const priceUpdate = { salePrice: newSalePrice, listPrice: newListPrice };
 
-        // Mevcut stok ile birlikte fiyatı güncelle
-        const result = await manualStockSync(
-            userId,
-            productMappingId,
-            mapping.stockTracking.totalStock,
-            priceUpdate
-        );
+        // ✅ targetMarketplace varsa: sadece o platformun fiyatını güncelle (master product'ı değiştirme)
+        if (targetMarketplace) {
+            const mpName = normalizeMarketplaceName(targetMarketplace);
+            const mpMapping = mapping.marketplaceMappings.find(
+                m => normalizeMarketplaceName(m.marketplaceName) === mpName
+            );
+
+            if (!mpMapping) {
+                return res.status(404).json({ error: `${targetMarketplace} eşleştirmesi bulunamadı` });
+            }
+
+            // Pazaryeri entegrasyonunu al
+            const marketplace = await Marketplace.findOne({
+                userId,
+                marketplaceName: { $regex: new RegExp(`^${mpName}$`, "i") }
+            });
+
+            if (!marketplace) {
+                return res.status(404).json({ error: `${mpName} entegrasyonu bulunamadı` });
+            }
+
+            // Doğru productId belirle
+            let productIdForMP;
+            switch (mpName) {
+                case "Trendyol":
+                    productIdForMP = mpMapping.marketplaceBarcode || mpMapping.marketplaceSku || mapping.masterProduct.barcode || mapping.masterProduct.sku;
+                    break;
+                case "N11":
+                    productIdForMP = mpMapping.marketplaceSku || mpMapping.marketplaceBarcode || mapping.masterProduct.sku || mapping.masterProduct.barcode;
+                    break;
+                case "Hepsiburada":
+                    productIdForMP = mpMapping.marketplaceSku || mpMapping.marketplaceProductId || mapping.masterProduct.sku || mapping.masterProduct.barcode;
+                    break;
+                default:
+                    productIdForMP = mpMapping.marketplaceSku || mpMapping.marketplaceProductId || mapping.masterProduct.barcode || mapping.masterProduct.sku;
+            }
+
+            const { updateStockOnMarketplace } = require("../services/stockSyncService");
+            const marketplaceStock = mapping.getMarketplaceStock();
+            const updateResult = await updateStockOnMarketplace(marketplace, productIdForMP, marketplaceStock, priceUpdate);
+
+            if (updateResult.success) {
+                mpMapping.price = newSalePrice;
+                mpMapping.listPrice = newListPrice;
+                mpMapping.lastSyncDate = new Date();
+                mpMapping.syncStatus = "synced";
+            }
+
+            await mapping.save();
+
+            return res.status(200).json({
+                success: true,
+                message: `${mpName} fiyatı ${newSalePrice} TL olarak güncellendi.`,
+                targetMarketplace: mpName,
+                oldPrice: mpMapping.price || oldPrice,
+                newPrice: newSalePrice,
+                syncStatus: updateResult.success ? "success" : "error",
+                error: updateResult.error || null
+            });
+        }
+
+        // ✅ targetMarketplace yoksa: master product + tüm platformlara push (eski davranış)
+        // Master product fiyatını güncelle
+        mapping.masterProduct.price = newSalePrice;
+        mapping.masterProduct.listPrice = newListPrice;
+
+        // 🛡️ Güvenlik stoğu düşülmüş stoku hesapla
+        const marketplaceStock = mapping.getMarketplaceStock();
+
+        // Tüm pazaryerlerinde fiyat + stok senkronize et
+        const syncResults = await syncStockToAllMarketplaces(userId, mapping, marketplaceStock, null, priceUpdate);
+
+        // Fiyat log oluştur
+        if (newSalePrice !== oldPrice) {
+            await StockSyncLog.create({
+                userId,
+                actionType: "price_update",
+                product: {
+                    productMappingId: mapping._id,
+                    barcode: mapping.masterProduct.barcode,
+                    sku: mapping.masterProduct.sku,
+                    name: mapping.masterProduct.name
+                },
+                changes: {
+                    field: "price",
+                    oldValue: oldPrice,
+                    newValue: newSalePrice,
+                    difference: newSalePrice - oldPrice
+                },
+                status: "success",
+                affectedMarketplaces: syncResults,
+                notification: { priority: "low" }
+            });
+        }
+
+        await mapping.save();
 
         return res.status(200).json({
             success: true,
-            message: `Fiyat ${newSalePrice} TL olarak güncellendi. ${(result.marketplaces || []).filter(m => m.syncStatus === "success").length} pazaryerinde senkronize edildi.`,
+            message: `Fiyat ${newSalePrice} TL olarak güncellendi. ${(syncResults || []).filter(m => m.syncStatus === "success").length} pazaryerinde senkronize edildi.`,
             oldPrice,
             newPrice: newSalePrice,
             oldListPrice,
             newListPrice,
-            result
+            marketplaces: syncResults
         });
 
     } catch (error) {
@@ -1427,6 +1780,79 @@ exports.n11DebugRawProducts = async (req, res) => {
 };
 
 // ═══════════════════════════════════════════════════════════════
+// 🔬 DEBUG: Platform eşleşme kontrolü
+// ═══════════════════════════════════════════════════════════════
+exports.debugPlatformCheck = async (req, res) => {
+    try {
+        const userId = toObjectId(req.user?._id || req.user?.id);
+        if (!userId) return res.status(401).json({ error: "Yetkilendirme hatası" });
+
+        // Toplam kayıt sayısı
+        const totalMappings = await ProductMapping.countDocuments({ userId });
+
+        // Platform bazlı dağılım — her marketplaceMappings içindeki marketplaceName'leri say
+        const allProducts = await ProductMapping.find({ userId })
+            .select("masterProduct.name masterProduct.barcode masterProduct.sku marketplaceMappings.marketplaceName marketplaceMappings.marketplaceProductId marketplaceMappings.syncStatus")
+            .lean();
+
+        const platformCounts = {};
+        const productsWithMultiplePlatforms = [];
+        const n11Products = [];
+
+        for (const p of allProducts) {
+            const platforms = (p.marketplaceMappings || []).map(m => m.marketplaceName);
+            for (const pl of platforms) {
+                platformCounts[pl] = (platformCounts[pl] || 0) + 1;
+            }
+            if (platforms.length > 1) {
+                productsWithMultiplePlatforms.push({
+                    name: p.masterProduct?.name,
+                    barcode: p.masterProduct?.barcode,
+                    sku: p.masterProduct?.sku,
+                    platforms
+                });
+            }
+            // N11 içeren kayıtları topla
+            const hasN11 = platforms.some(pl => pl && pl.toLowerCase().includes("n11"));
+            if (hasN11) {
+                n11Products.push({
+                    id: p._id,
+                    name: p.masterProduct?.name,
+                    barcode: p.masterProduct?.barcode,
+                    sku: p.masterProduct?.sku,
+                    platforms,
+                    mappings: (p.marketplaceMappings || []).map(m => ({
+                        name: m.marketplaceName,
+                        productId: m.marketplaceProductId,
+                        syncStatus: m.syncStatus
+                    }))
+                });
+            }
+        }
+
+        // İlk 5 ürünün detayı
+        const first5 = allProducts.slice(0, 5).map(p => ({
+            name: p.masterProduct?.name,
+            barcode: p.masterProduct?.barcode,
+            sku: p.masterProduct?.sku,
+            platforms: (p.marketplaceMappings || []).map(m => m.marketplaceName),
+            mappingCount: (p.marketplaceMappings || []).length
+        }));
+
+        return res.status(200).json({
+            success: true,
+            totalProductMappings: totalMappings,
+            platformDistribution: platformCounts,
+            productsWithMultiplePlatforms: productsWithMultiplePlatforms.slice(0, 10),
+            n11ProductsInDB: n11Products.slice(0, 10),
+            n11TotalCount: n11Products.length,
+            first5Products: first5
+        });
+    } catch (error) {
+        return res.status(500).json({ error: error.message });
+    }
+};
+
 // 🏷️ TRENDYOL KATEGORİ ÇEKME
 // ═══════════════════════════════════════════════════════════════
 
@@ -1559,7 +1985,18 @@ exports.getProductManagementDashboard = async (req, res) => {
                 "marketplaceMappings": {
                     $elemMatch: {
                         marketplaceName: nameRegex,
-                        isSynced: true
+                        syncStatus: "synced"
+                    }
+                }
+            });
+
+            // Hatalı ürün sayısı
+            const errorCount = await ProductMapping.countDocuments({
+                userId,
+                "marketplaceMappings": {
+                    $elemMatch: {
+                        marketplaceName: nameRegex,
+                        syncStatus: "error"
                     }
                 }
             });
@@ -1568,7 +2005,8 @@ exports.getProductManagementDashboard = async (req, res) => {
                 name: normalizedName,
                 totalProducts: count,
                 syncedProducts: syncedCount,
-                unsyncedProducts: count - syncedCount
+                unsyncedProducts: count - syncedCount,
+                errorProducts: errorCount
             });
         }
 
@@ -1627,21 +2065,24 @@ exports.syncAllMarketplaces = async (req, res) => {
             return res.status(404).json({ error: "Hiç pazaryeri entegrasyonu bulunamadı" });
         }
 
-        logger.info(`[SYNC ALL] ${marketplaces.length} pazaryeri için senkronizasyon başlatılıyor...`);
+        logger.info(`[SYNC ALL] ${marketplaces.length} pazaryeri için PARALEL senkronizasyon başlatılıyor...`);
 
-        const results = [];
-        for (const mp of marketplaces) {
+        // ⚡ Tüm pazaryerlerini paralel çek — sıralı yerine Promise.allSettled
+        // Her biri bağımsız API çağrısı, birbirini beklemeye gerek yok
+        const promises = marketplaces.map(async (mp) => {
             const mpName = normalizeMarketplaceName(mp.marketplaceName);
             try {
                 logger.info(`[SYNC ALL] ${mpName} senkronize ediliyor...`);
                 const stats = await syncProductsFromMarketplace(userId, mp._id.toString(), mp.marketplaceName);
-                results.push({ marketplace: mpName, success: true, stats });
                 logger.info(`[SYNC ALL] ${mpName} tamamlandı — Yeni: ${stats.new}, Güncellenen: ${stats.updated}`);
+                return { marketplace: mpName, success: true, stats };
             } catch (err) {
                 logger.error(`[SYNC ALL] ${mpName} hatası: ${err.message}`);
-                results.push({ marketplace: mpName, success: false, error: err.message });
+                return { marketplace: mpName, success: false, error: err.message };
             }
-        }
+        });
+
+        const results = await Promise.all(promises);
 
         const totalNew     = results.reduce((s, r) => s + (r.stats?.new     || 0), 0);
         const totalUpdated = results.reduce((s, r) => s + (r.stats?.updated || 0), 0);
@@ -1657,6 +2098,160 @@ exports.syncAllMarketplaces = async (req, res) => {
     } catch (error) {
         logger.error("[SYNC ALL] Genel hata:", error.message);
         return res.status(500).json({ error: "Toplu senkronizasyon başarısız", details: error.message });
+    }
+};
+
+// ═══════════════════════════════════════════════════════════════
+// 💰 BAZ PLATFORM FİYAT SENKRONİZASYONU
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Baz platformdan fiyat alıp hedef platformlara dağıt (TÜM ürünler — server-side)
+ * POST /product-management/sync/base-price-sync
+ */
+exports.basePriceSync = async (req, res) => {
+    try {
+        const userId = toObjectId(req.user?._id || req.user?.id);
+        if (!userId) return res.status(401).json({ error: "Yetkilendirme hatası" });
+
+        const { baseMarketplace, targetMarketplaces, margin = 0, roundTo = "" } = req.body;
+
+        if (!baseMarketplace || !targetMarketplaces || targetMarketplaces.length === 0) {
+            return res.status(400).json({ error: "Baz ve hedef pazaryerleri gerekli" });
+        }
+
+        const baseMPName = normalizeMarketplaceName(baseMarketplace);
+        const targetMPNames = targetMarketplaces.map(t => normalizeMarketplaceName(t));
+
+        logger.info(`[BASE PRICE SYNC] ${baseMPName} → ${targetMPNames.join(", ")} | margin: ${margin}% | roundTo: ${roundTo}`);
+
+        // Baz platformda eşleştirmesi olan TÜM ürünleri çek
+        const products = await ProductMapping.find({
+            userId,
+            "marketplaceMappings.marketplaceName": new RegExp(`^${baseMPName}$`, "i")
+        });
+
+        const results = { total: products.length, updated: 0, skipped: 0, errors: 0, details: [] };
+
+        // 3'erli batch ile paralel işle
+        const BATCH_SIZE = 3;
+        for (let i = 0; i < products.length; i += BATCH_SIZE) {
+            const batch = products.slice(i, i + BATCH_SIZE);
+
+            const batchResults = await Promise.all(batch.map(async (product) => {
+                try {
+                    const baseMapping = product.marketplaceMappings.find(
+                        m => normalizeMarketplaceName(m.marketplaceName) === baseMPName
+                    );
+                    const basePrice = baseMapping?.price || product.masterProduct.price || 0;
+                    if (!basePrice || basePrice <= 0) {
+                        return { barcode: product.masterProduct.barcode, status: "skipped", reason: "Baz fiyat yok" };
+                    }
+
+                    // Yeni fiyat hesapla
+                    let newPrice = basePrice * (1 + (parseFloat(margin) || 0) / 100);
+                    if (roundTo) {
+                        const decimal = parseFloat(roundTo);
+                        newPrice = Math.floor(newPrice) + decimal;
+                    }
+                    newPrice = Math.round(newPrice * 100) / 100; // 2 ondalık
+
+                    // Her hedef platforma ayrı ayrı gönder
+                    let mpOk = 0, mpErr = 0;
+                    for (const targetMP of targetMPNames) {
+                        const mpMapping = product.marketplaceMappings.find(
+                            m => normalizeMarketplaceName(m.marketplaceName) === targetMP
+                        );
+                        if (!mpMapping) continue;
+
+                        const marketplace = await Marketplace.findOne({
+                            userId,
+                            marketplaceName: { $regex: new RegExp(`^${targetMP}$`, "i") }
+                        });
+                        if (!marketplace) { mpErr++; continue; }
+
+                        let productIdForMP;
+                        switch (targetMP) {
+                            case "Trendyol":
+                                productIdForMP = mpMapping.marketplaceBarcode || mpMapping.marketplaceSku || product.masterProduct.barcode;
+                                break;
+                            case "N11":
+                                productIdForMP = mpMapping.marketplaceSku || mpMapping.marketplaceBarcode || product.masterProduct.sku;
+                                break;
+                            case "Hepsiburada":
+                                productIdForMP = mpMapping.marketplaceSku || mpMapping.marketplaceProductId || product.masterProduct.sku;
+                                break;
+                            default:
+                                productIdForMP = mpMapping.marketplaceSku || mpMapping.marketplaceProductId || product.masterProduct.barcode;
+                        }
+
+                        const { updateStockOnMarketplace } = require("../services/stockSyncService");
+                        const marketplaceStock = product.getMarketplaceStock();
+                        const priceUpdate = { salePrice: newPrice, listPrice: newPrice };
+                        const updateResult = await updateStockOnMarketplace(marketplace, productIdForMP, marketplaceStock, priceUpdate);
+
+                        if (updateResult.success) {
+                            mpMapping.price = newPrice;
+                            mpMapping.listPrice = newPrice;
+                            mpMapping.lastSyncDate = new Date();
+                            mpMapping.syncStatus = "synced";
+                            mpOk++;
+                        } else {
+                            mpErr++;
+                        }
+                    }
+
+                    await product.save();
+                    return {
+                        barcode: product.masterProduct.barcode,
+                        name: product.masterProduct.name,
+                        basePrice,
+                        newPrice,
+                        status: mpOk > 0 ? "success" : "error",
+                        platformsUpdated: mpOk,
+                        platformErrors: mpErr
+                    };
+                } catch (error) {
+                    return { barcode: product.masterProduct?.barcode, status: "error", error: error.message };
+                }
+            }));
+
+            for (const br of batchResults) {
+                if (br.status === "success") results.updated++;
+                else if (br.status === "skipped") results.skipped++;
+                else results.errors++;
+                results.details.push(br);
+            }
+        }
+
+        // Log oluştur
+        await StockSyncLog.create({
+            userId,
+            actionType: "bulk_update",
+            product: {
+                barcode: "BASE_PRICE_SYNC",
+                name: `Baz fiyat sync: ${baseMPName} → ${targetMPNames.join(", ")}`
+            },
+            changes: {
+                field: "price",
+                oldValue: baseMPName,
+                newValue: targetMPNames.join(", ")
+            },
+            status: results.errors > 0 ? "partial" : "success",
+            notification: { priority: "medium" }
+        });
+
+        logger.info(`[BASE PRICE SYNC] Tamamlandı — ${results.updated} güncellendi, ${results.skipped} atlandı, ${results.errors} hata`);
+
+        return res.status(200).json({
+            success: true,
+            message: `Baz fiyat senkronizasyonu tamamlandı — ${results.updated} ürün güncellendi`,
+            results
+        });
+
+    } catch (error) {
+        logger.error("[BASE PRICE SYNC] Hata:", error.message);
+        return res.status(500).json({ error: "Baz fiyat senkronizasyonu başarısız", details: error.message });
     }
 };
 
@@ -1693,26 +2288,52 @@ exports.getComparisonMatrix = async (req, res) => {
             ];
         }
 
+        // ── Özet istatistikleri MongoDB aggregation ile hesapla (hızlı) ──
+        // Sadece gerekli alanları çek (projection ile RAM tasarrufu)
         const allProducts = await ProductMapping.find(filter)
+            .select("masterProduct.name masterProduct.barcode masterProduct.sku masterProduct.price masterProduct.stock stockTracking.totalStock marketplaceMappings.marketplaceName marketplaceMappings.syncStatus marketplaceMappings.stock marketplaceMappings.price updatedAt")
             .sort({ updatedAt: -1 })
             .lean();
 
-        // Her ürün için hangi pazaryerinde var/yok hesapla
-        const matrix = allProducts.map(product => {
+        // ── Tek geçişte hem matrix hem summary hesapla (O(N) — eskisi O(N×M×3) idi) ──
+        let fullyDistributed = 0;
+        let partiallyMissing = 0;
+        let notDistributed   = 0;
+        const perMarketplace = {};
+        for (const mpName of mpNames) {
+            perMarketplace[mpName] = { present: 0, missing: 0 };
+        }
+
+        const matrix = [];
+        for (const product of allProducts) {
             const presence = {};
+            let existsCount = 0;
+
             for (const mpName of mpNames) {
                 const mapping = (product.marketplaceMappings || []).find(
                     m => m.marketplaceName?.toLowerCase() === mpName.toLowerCase()
                 );
-                presence[mpName] = mapping
-                    ? { exists: true, syncStatus: mapping.syncStatus || "pending", stock: mapping.stock, price: mapping.price }
-                    : { exists: false };
+                if (mapping) {
+                    presence[mpName] = { exists: true, syncStatus: mapping.syncStatus || "pending", stock: mapping.stock, price: mapping.price };
+                    existsCount++;
+                    perMarketplace[mpName].present++;
+                } else {
+                    presence[mpName] = { exists: false };
+                    perMarketplace[mpName].missing++;
+                }
             }
 
-            const existsCount  = Object.values(presence).filter(p => p.exists).length;
             const missingCount = mpNames.length - existsCount;
 
-            return {
+            // Summary sayaçları
+            if (missingCount === 0) fullyDistributed++;
+            else if (existsCount > 0) partiallyMissing++;
+            else notDistributed++;
+
+            // missingOnly filtresi — erken atlama
+            if (missingOnly === "true" && missingCount === 0) continue;
+
+            matrix.push({
                 _id:      product._id,
                 name:     product.masterProduct?.name,
                 barcode:  product.masterProduct?.barcode,
@@ -1723,34 +2344,22 @@ exports.getComparisonMatrix = async (req, res) => {
                 existsCount,
                 missingCount,
                 missingMarketplaces: mpNames.filter(mp => !presence[mp]?.exists)
-            };
-        });
-
-        // Sadece eksik olanları göster filtresi
-        const filtered = missingOnly === "true"
-            ? matrix.filter(p => p.missingCount > 0)
-            : matrix;
+            });
+        }
 
         // Sayfalama
-        const total    = filtered.length;
+        const total    = matrix.length;
         const pageNum  = Number(page);
         const limitNum = Number(limit);
-        const paged    = filtered.slice(pageNum * limitNum, (pageNum + 1) * limitNum);
+        const paged    = matrix.slice(pageNum * limitNum, (pageNum + 1) * limitNum);
 
-        // Özet istatistikler
         const summary = {
             totalProducts:    allProducts.length,
-            fullyDistributed: matrix.filter(p => p.missingCount === 0).length,
-            partiallyMissing: matrix.filter(p => p.missingCount > 0 && p.existsCount > 0).length,
-            notDistributed:   matrix.filter(p => p.existsCount === 0).length,
-            perMarketplace:   {}
+            fullyDistributed,
+            partiallyMissing,
+            notDistributed,
+            perMarketplace
         };
-        for (const mpName of mpNames) {
-            summary.perMarketplace[mpName] = {
-                present: matrix.filter(p => p.presence[mpName]?.exists).length,
-                missing: matrix.filter(p => !p.presence[mpName]?.exists).length
-            };
-        }
 
         return res.status(200).json({
             success: true,
@@ -1795,21 +2404,33 @@ exports.bulkDistributeSelected = async (req, res) => {
 
         const results = { success: 0, skipped: 0, error: 0, details: [] };
 
-        for (const productId of productIds) {
-            try {
-                const distResults = await distributeProductToMarketplaces(userId, productId, targetMarketplaces);
-                const ok      = distResults.filter(r => r.status === "success").length;
-                const skipped = distResults.filter(r => r.status === "skipped").length;
-                const err     = distResults.filter(r => r.status === "error").length;
+        // ⚡ Paralel dağıtım — 3'erli batch ile (API rate limit koruması)
+        const BATCH_SIZE = 3;
+        for (let i = 0; i < productIds.length; i += BATCH_SIZE) {
+            const batch = productIds.slice(i, i + BATCH_SIZE);
 
-                if (ok > 0)      results.success++;
-                if (skipped > 0) results.skipped++;
-                if (err > 0)     results.error++;
+            const batchResults = await Promise.all(
+                batch.map(async (productId) => {
+                    try {
+                        const distResults = await distributeProductToMarketplaces(userId, productId, targetMarketplaces);
+                        const ok      = distResults.filter(r => r.status === "success").length;
+                        const skipped = distResults.filter(r => r.status === "skipped").length;
+                        const err     = distResults.filter(r => r.status === "error").length;
+                        return { productId, ok, skipped, err, distResults };
+                    } catch (err) {
+                        return { productId, ok: 0, skipped: 0, err: 1, error: err.message };
+                    }
+                })
+            );
 
-                results.details.push({ productId, results: distResults });
-            } catch (err) {
-                results.error++;
-                results.details.push({ productId, error: err.message });
+            for (const br of batchResults) {
+                if (br.ok > 0)      results.success++;
+                if (br.skipped > 0) results.skipped++;
+                if (br.err > 0)     results.error++;
+                results.details.push(br.error
+                    ? { productId: br.productId, error: br.error }
+                    : { productId: br.productId, results: br.distResults }
+                );
             }
         }
 
@@ -1822,6 +2443,33 @@ exports.bulkDistributeSelected = async (req, res) => {
     } catch (error) {
         logger.error("[BULK DIST SELECTED] Hata:", error.message);
         return res.status(500).json({ error: "Toplu dağıtım başarısız", details: error.message });
+    }
+};
+
+// ═══════════════════════════════════════════════════════════════
+// ⏳ N11 PENDING TASK CHECKER
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * N11'de "pending" durumundaki ürünlerin task sonuçlarını kontrol et
+ * POST /product-management/sync/check-pending
+ */
+exports.checkPendingTasks = async (req, res) => {
+    try {
+        const userId = toObjectId(req.user?._id || req.user?.id);
+        if (!userId) return res.status(401).json({ error: "Yetkilendirme hatası" });
+
+        logger.info(`[CHECK PENDING] Kullanıcı ${userId} — pending task kontrolü başlatılıyor`);
+        const result = await checkPendingN11Tasks(userId);
+
+        return res.status(200).json({
+            success: true,
+            message: `Pending kontrol tamamlandı — ${result.checked} kontrol, ${result.updated} kesinleşen, ${result.failed} başarısız`,
+            ...result
+        });
+    } catch (error) {
+        logger.error("[CHECK PENDING] Hata:", error.message);
+        return res.status(500).json({ error: "Pending task kontrolü başarısız", details: error.message });
     }
 };
 
@@ -2311,4 +2959,1406 @@ const validateRow = (row) => {
     if (!row.price || row.price <= 0)        errors.push("Fiyat 0'dan büyük olmalı");
     if (row.stock < 0)                       errors.push("Stok negatif olamaz");
     return errors;
+};
+
+// ═══════════════════════════════════════════════════════════════
+// 📋 TOPLU ÜRÜN YÖNETİMİ (BULK OPERATIONS)
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Toplu fiyat güncelleme
+ * POST /product-management/bulk/update-prices
+ *
+ * Body:
+ *   productIds: [String]          — Güncellenecek ürün ID'leri
+ *   mode: "fixed"|"percent"|"round" — Güncelleme modu
+ *   value: Number                 — Sabit fiyat veya yüzde değeri
+ *   roundTo: String               — Yuvarlama (ör: "0.90", "0.99")
+ *   applyToListPrice: Boolean     — Liste fiyatına da uygula
+ *   syncToMarketplaces: Boolean   — Platformlara da push et
+ */
+exports.bulkUpdatePrices = async (req, res) => {
+    try {
+        const userId = toObjectId(req.user?._id || req.user?.id);
+        if (!userId) return res.status(401).json({ error: "Yetkilendirme hatası" });
+
+        const { productIds, mode, value, roundTo, applyToListPrice = true, syncToMarketplaces = false } = req.body;
+
+        if (!productIds || !Array.isArray(productIds) || productIds.length === 0) {
+            return res.status(400).json({ error: "Ürün listesi boş olamaz" });
+        }
+        if (!mode || !["fixed", "percent", "round"].includes(mode)) {
+            return res.status(400).json({ error: "Geçersiz mod. fixed, percent veya round olmalı" });
+        }
+        if (mode !== "round" && (value === undefined || value === null)) {
+            return res.status(400).json({ error: "Değer gerekli" });
+        }
+
+        logger.info(`[BULK PRICE] ${productIds.length} ürün — mod: ${mode}, değer: ${value}, roundTo: ${roundTo}`);
+
+        const results = { total: productIds.length, updated: 0, errors: 0, synced: 0, details: [] };
+
+        const BATCH_SIZE = 5;
+        for (let i = 0; i < productIds.length; i += BATCH_SIZE) {
+            const batch = productIds.slice(i, i + BATCH_SIZE);
+
+            const batchResults = await Promise.all(batch.map(async (pid) => {
+                try {
+                    const product = await ProductMapping.findOne({ _id: pid, userId });
+                    if (!product) return { id: pid, status: "error", error: "Ürün bulunamadı" };
+
+                    const oldPrice = product.masterProduct.price || 0;
+                    let newPrice;
+
+                    switch (mode) {
+                        case "fixed":
+                            newPrice = parseFloat(value);
+                            break;
+                        case "percent":
+                            // Pozitif = artış, negatif = azalış
+                            newPrice = oldPrice * (1 + parseFloat(value) / 100);
+                            break;
+                        case "round":
+                            newPrice = oldPrice;
+                            break;
+                        default:
+                            newPrice = oldPrice;
+                    }
+
+                    // Yuvarlama uygula
+                    if (roundTo) {
+                        const decimal = parseFloat(roundTo);
+                        newPrice = Math.floor(newPrice) + decimal;
+                    }
+
+                    newPrice = Math.round(Math.max(0.01, newPrice) * 100) / 100;
+
+                    product.masterProduct.price = newPrice;
+                    if (applyToListPrice) {
+                        // Liste fiyatı da aynı oranda güncelle
+                        const oldList = product.masterProduct.listPrice || oldPrice;
+                        if (mode === "fixed") {
+                            product.masterProduct.listPrice = newPrice;
+                        } else if (mode === "percent") {
+                            product.masterProduct.listPrice = Math.round(Math.max(0.01, oldList * (1 + parseFloat(value) / 100)) * 100) / 100;
+                        } else {
+                            product.masterProduct.listPrice = roundTo ? Math.floor(oldList) + parseFloat(roundTo) : oldList;
+                        }
+                    }
+
+                    await product.save();
+
+                    // Platformlara sync
+                    let syncCount = 0;
+                    if (syncToMarketplaces) {
+                        try {
+                            const marketplaceStock = product.getMarketplaceStock();
+                            const priceUpdate = { salePrice: newPrice, listPrice: product.masterProduct.listPrice || newPrice };
+                            const syncResults = await syncStockToAllMarketplaces(userId, product, marketplaceStock, null, priceUpdate);
+                            syncCount = (syncResults || []).filter(r => r.syncStatus === "success").length;
+                        } catch (syncErr) {
+                            logger.warn(`[BULK PRICE] Sync hatası (${product.masterProduct.barcode}): ${syncErr.message}`);
+                        }
+                    }
+
+                    return {
+                        id: pid,
+                        name: product.masterProduct.name,
+                        barcode: product.masterProduct.barcode,
+                        oldPrice,
+                        newPrice,
+                        status: "success",
+                        syncedPlatforms: syncCount
+                    };
+                } catch (err) {
+                    return { id: pid, status: "error", error: err.message };
+                }
+            }));
+
+            for (const br of batchResults) {
+                if (br.status === "success") { results.updated++; results.synced += (br.syncedPlatforms || 0); }
+                else results.errors++;
+                results.details.push(br);
+            }
+        }
+
+        // Log
+        await StockSyncLog.create({
+            userId,
+            actionType: "bulk_update",
+            product: { barcode: "BULK_PRICE", name: `Toplu fiyat: ${mode} — ${results.updated} ürün` },
+            changes: { field: "price", oldValue: mode, newValue: value },
+            status: results.errors > 0 ? "partial" : "success",
+            notification: { priority: "medium" }
+        });
+
+        return res.status(200).json({
+            success: true,
+            message: `${results.updated} ürün fiyatı güncellendi${results.synced > 0 ? `, ${results.synced} platform senkronize edildi` : ""}`,
+            results
+        });
+
+    } catch (error) {
+        logger.error("[BULK PRICE] Hata:", error.message);
+        return res.status(500).json({ error: "Toplu fiyat güncelleme başarısız", details: error.message });
+    }
+};
+
+/**
+ * Toplu stok güncelleme
+ * POST /product-management/bulk/update-stocks
+ *
+ * Body:
+ *   productIds: [String]
+ *   mode: "fixed"|"increase"|"decrease"
+ *   value: Number
+ *   syncToMarketplaces: Boolean
+ */
+exports.bulkUpdateStocks = async (req, res) => {
+    try {
+        const userId = toObjectId(req.user?._id || req.user?.id);
+        if (!userId) return res.status(401).json({ error: "Yetkilendirme hatası" });
+
+        const { productIds, mode, value, syncToMarketplaces = false } = req.body;
+
+        if (!productIds || !Array.isArray(productIds) || productIds.length === 0) {
+            return res.status(400).json({ error: "Ürün listesi boş olamaz" });
+        }
+        if (!mode || !["fixed", "increase", "decrease"].includes(mode)) {
+            return res.status(400).json({ error: "Geçersiz mod. fixed, increase veya decrease olmalı" });
+        }
+        if (value === undefined || value === null || isNaN(Number(value))) {
+            return res.status(400).json({ error: "Geçerli bir değer girin" });
+        }
+
+        logger.info(`[BULK STOCK] ${productIds.length} ürün — mod: ${mode}, değer: ${value}`);
+
+        const results = { total: productIds.length, updated: 0, errors: 0, synced: 0, details: [] };
+
+        const BATCH_SIZE = 5;
+        for (let i = 0; i < productIds.length; i += BATCH_SIZE) {
+            const batch = productIds.slice(i, i + BATCH_SIZE);
+
+            const batchResults = await Promise.all(batch.map(async (pid) => {
+                try {
+                    const product = await ProductMapping.findOne({ _id: pid, userId });
+                    if (!product) return { id: pid, status: "error", error: "Ürün bulunamadı" };
+
+                    const oldStock = product.stockTracking.totalStock || 0;
+                    let newStock;
+
+                    switch (mode) {
+                        case "fixed":
+                            newStock = Math.max(0, Math.round(Number(value)));
+                            break;
+                        case "increase":
+                            newStock = Math.max(0, oldStock + Math.round(Number(value)));
+                            break;
+                        case "decrease":
+                            newStock = Math.max(0, oldStock - Math.round(Number(value)));
+                            break;
+                        default:
+                            newStock = oldStock;
+                    }
+
+                    product.masterProduct.stock = newStock;
+                    product.stockTracking.totalStock = newStock;
+                    product.updateStockStatus();
+                    await product.save();
+
+                    // Platformlara sync
+                    let syncCount = 0;
+                    if (syncToMarketplaces) {
+                        try {
+                            const marketplaceStock = product.getMarketplaceStock();
+                            const syncResults = await syncStockToAllMarketplaces(userId, product, marketplaceStock);
+                            syncCount = (syncResults || []).filter(r => r.syncStatus === "success").length;
+                        } catch (syncErr) {
+                            logger.warn(`[BULK STOCK] Sync hatası (${product.masterProduct.barcode}): ${syncErr.message}`);
+                        }
+                    }
+
+                    return {
+                        id: pid,
+                        name: product.masterProduct.name,
+                        barcode: product.masterProduct.barcode,
+                        oldStock,
+                        newStock,
+                        status: "success",
+                        syncedPlatforms: syncCount
+                    };
+                } catch (err) {
+                    return { id: pid, status: "error", error: err.message };
+                }
+            }));
+
+            for (const br of batchResults) {
+                if (br.status === "success") { results.updated++; results.synced += (br.syncedPlatforms || 0); }
+                else results.errors++;
+                results.details.push(br);
+            }
+        }
+
+        // Log
+        await StockSyncLog.create({
+            userId,
+            actionType: "bulk_update",
+            product: { barcode: "BULK_STOCK", name: `Toplu stok: ${mode} — ${results.updated} ürün` },
+            changes: { field: "stock", oldValue: mode, newValue: value },
+            status: results.errors > 0 ? "partial" : "success",
+            notification: { priority: results.details.some(d => d.newStock === 0) ? "high" : "medium" }
+        });
+
+        return res.status(200).json({
+            success: true,
+            message: `${results.updated} ürün stoğu güncellendi${results.synced > 0 ? `, ${results.synced} platform senkronize edildi` : ""}`,
+            results
+        });
+
+    } catch (error) {
+        logger.error("[BULK STOCK] Hata:", error.message);
+        return res.status(500).json({ error: "Toplu stok güncelleme başarısız", details: error.message });
+    }
+};
+
+/**
+ * Toplu ürün silme
+ * POST /product-management/bulk/delete
+ *
+ * Body:
+ *   productIds: [String]
+ */
+exports.bulkDeleteProducts = async (req, res) => {
+    try {
+        const userId = toObjectId(req.user?._id || req.user?.id);
+        if (!userId) return res.status(401).json({ error: "Yetkilendirme hatası" });
+
+        const { productIds } = req.body;
+
+        if (!productIds || !Array.isArray(productIds) || productIds.length === 0) {
+            return res.status(400).json({ error: "Ürün listesi boş olamaz" });
+        }
+
+        logger.info(`[BULK DELETE] ${productIds.length} ürün silinecek`);
+
+        // Silinecek ürünlerin bilgilerini al (log için)
+        const toDelete = await ProductMapping.find({ _id: { $in: productIds }, userId })
+            .select("masterProduct.name masterProduct.barcode")
+            .lean();
+
+        const result = await ProductMapping.deleteMany({
+            _id: { $in: productIds },
+            userId
+        });
+
+        // Log
+        await StockSyncLog.create({
+            userId,
+            actionType: "bulk_update",
+            product: { barcode: "BULK_DELETE", name: `Toplu silme: ${result.deletedCount} ürün` },
+            changes: { field: "delete", oldValue: productIds.length, newValue: result.deletedCount },
+            status: "success",
+            notification: { priority: "high" }
+        });
+
+        logger.info(`[BULK DELETE] ${result.deletedCount} ürün silindi`);
+
+        return res.status(200).json({
+            success: true,
+            message: `${result.deletedCount} ürün başarıyla silindi`,
+            deletedCount: result.deletedCount,
+            deletedProducts: toDelete.map(p => ({ name: p.masterProduct?.name, barcode: p.masterProduct?.barcode }))
+        });
+
+    } catch (error) {
+        logger.error("[BULK DELETE] Hata:", error.message);
+        return res.status(500).json({ error: "Toplu silme başarısız", details: error.message });
+    }
+};
+
+/**
+ * Toplu ürün bilgisi güncelleme (kategori, marka, güvenlik stoğu vb.)
+ * POST /product-management/bulk/update-fields
+ *
+ * Body:
+ *   productIds: [String]
+ *   fields: { category?, brand?, safetyStock?, lowStockThreshold? }
+ */
+exports.bulkUpdateFields = async (req, res) => {
+    try {
+        const userId = toObjectId(req.user?._id || req.user?.id);
+        if (!userId) return res.status(401).json({ error: "Yetkilendirme hatası" });
+
+        const { productIds, fields } = req.body;
+
+        if (!productIds || !Array.isArray(productIds) || productIds.length === 0) {
+            return res.status(400).json({ error: "Ürün listesi boş olamaz" });
+        }
+        if (!fields || typeof fields !== "object" || Object.keys(fields).length === 0) {
+            return res.status(400).json({ error: "Güncellenecek alan belirtilmedi" });
+        }
+
+        logger.info(`[BULK FIELDS] ${productIds.length} ürün — alanlar: ${Object.keys(fields).join(", ")}`);
+
+        // MongoDB $set objesi oluştur
+        const updateSet = {};
+        const changedFields = [];
+
+        if (fields.category !== undefined) {
+            updateSet["masterProduct.category"] = fields.category;
+            changedFields.push("kategori");
+        }
+        if (fields.brand !== undefined) {
+            updateSet["masterProduct.brand"] = fields.brand;
+            changedFields.push("marka");
+        }
+        if (fields.safetyStock !== undefined) {
+            updateSet["stockTracking.safetyStock"] = Math.max(0, Number(fields.safetyStock));
+            changedFields.push("güvenlik stoğu");
+        }
+        if (fields.lowStockThreshold !== undefined) {
+            updateSet["stockTracking.lowStockThreshold"] = Math.max(0, Number(fields.lowStockThreshold));
+            changedFields.push("düşük stok eşiği");
+        }
+
+        if (Object.keys(updateSet).length === 0) {
+            return res.status(400).json({ error: "Geçerli güncellenecek alan bulunamadı" });
+        }
+
+        updateSet["updatedAt"] = new Date();
+
+        const result = await ProductMapping.updateMany(
+            { _id: { $in: productIds }, userId },
+            { $set: updateSet }
+        );
+
+        // Güvenlik stoğu değiştiyse platformlara sync gerekebilir
+        let syncedCount = 0;
+        if (fields.safetyStock !== undefined) {
+            const products = await ProductMapping.find({ _id: { $in: productIds }, userId });
+            for (const product of products) {
+                product.updateStockStatus();
+                await product.save();
+            }
+        }
+
+        // Log
+        await StockSyncLog.create({
+            userId,
+            actionType: "bulk_update",
+            product: { barcode: "BULK_FIELDS", name: `Toplu alan güncelleme: ${changedFields.join(", ")}` },
+            changes: { field: changedFields.join(", "), oldValue: productIds.length, newValue: result.modifiedCount },
+            status: "success",
+            notification: { priority: "low" }
+        });
+
+        return res.status(200).json({
+            success: true,
+            message: `${result.modifiedCount} ürünün ${changedFields.join(", ")} alanları güncellendi`,
+            modifiedCount: result.modifiedCount,
+            fields: changedFields
+        });
+
+    } catch (error) {
+        logger.error("[BULK FIELDS] Hata:", error.message);
+        return res.status(500).json({ error: "Toplu alan güncelleme başarısız", details: error.message });
+    }
+};
+
+// ═══════════════════════════════════════════════════════════════
+// 🗂️ OTOMATİK KATEGORİ EŞLEŞTİRME MERKEZİ
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Tüm platformlardan kategori ağaçlarını çek
+ * GET /product-management/categories/all-platforms
+ */
+exports.getAllPlatformCategories = async (req, res) => {
+    try {
+        const userId = toObjectId(req.user?._id || req.user?.id);
+        if (!userId) return res.status(401).json({ error: "Yetkilendirme hatası" });
+
+        const { search } = req.query;
+        const marketplaces = await Marketplace.find({ userId }).lean();
+        const result = {};
+
+        for (const mp of marketplaces) {
+            const name = normalizeMarketplaceName(mp.marketplaceName);
+            try {
+                if (name === "Trendyol") {
+                    const { apiKey, apiSecret, sellerId, supplierId } = mp.credentials || {};
+                    const actualSellerId = sellerId || supplierId;
+                    if (!apiKey || !apiSecret || !actualSellerId) continue;
+                    const axios = require("axios");
+                    const authHeader = Buffer.from(`${apiKey}:${apiSecret}`).toString("base64");
+                    const response = await axios.get(
+                        "https://apigw.trendyol.com/integration/product/product-categories",
+                        {
+                            headers: { Authorization: `Basic ${authHeader}`, "User-Agent": `${actualSellerId} - LysiaETIC`, "Content-Type": "application/json" },
+                            timeout: 15000
+                        }
+                    );
+                    const flattenCats = (cats, parentPath = []) => {
+                        let res = [];
+                        for (const c of cats) {
+                            const path = [...parentPath, c.name];
+                            res.push({ id: c.id, name: c.name, path: path.join(" > "), hasChildren: !!(c.subCategories?.length) });
+                            if (c.subCategories?.length) res = res.concat(flattenCats(c.subCategories, path));
+                        }
+                        return res;
+                    };
+                    let flat = flattenCats(response.data?.categories || []);
+                    flat = flat.filter(c => !c.hasChildren); // sadece yaprak
+                    if (search) {
+                        const q = search.toLowerCase();
+                        flat = flat.filter(c => c.name.toLowerCase().includes(q) || c.path.toLowerCase().includes(q));
+                    }
+                    result.Trendyol = flat.slice(0, 200);
+                } else if (name === "N11") {
+                    const n11Result = await n11Service.getCategories(mp.credentials);
+                    if (n11Result.success) {
+                        const flattenN11 = (cats, parentPath = []) => {
+                            let res = [];
+                            for (const c of (cats || [])) {
+                                const path = [...parentPath, c.name || c.categoryName || ""];
+                                const isLeaf = !c.subCategories || c.subCategories.length === 0;
+                                res.push({ id: c.id || c.categoryId, name: c.name || c.categoryName || "", path: path.join(" > "), hasChildren: !isLeaf });
+                                if (!isLeaf) res = res.concat(flattenN11(c.subCategories, path));
+                            }
+                            return res;
+                        };
+                        let flat = flattenN11(n11Result.categories);
+                        flat = flat.filter(c => !c.hasChildren);
+                        if (search) {
+                            const q = search.toLowerCase();
+                            flat = flat.filter(c => c.name.toLowerCase().includes(q) || c.path.toLowerCase().includes(q));
+                        }
+                        result.N11 = flat.slice(0, 200);
+                    }
+                }
+            } catch (err) {
+                logger.warn(`[ALL PLATFORM CATS] ${name} kategori çekme hatası: ${err.message}`);
+            }
+        }
+
+        return res.status(200).json({ success: true, platforms: result });
+    } catch (error) {
+        logger.error("[ALL PLATFORM CATS] Hata:", error.message);
+        return res.status(500).json({ error: error.message });
+    }
+};
+
+/**
+ * Otomatik kategori eşleştirme — kaynak kategori adına göre tüm platformlarda eşleşme bul
+ * POST /product-management/categories/auto-match
+ * Body: { sourceCategoryName, sourcePlatform? }
+ */
+exports.autoCategoryMatch = async (req, res) => {
+    try {
+        const userId = toObjectId(req.user?._id || req.user?.id);
+        if (!userId) return res.status(401).json({ error: "Yetkilendirme hatası" });
+
+        const { sourceCategoryName, sourcePlatform } = req.body;
+        if (!sourceCategoryName) return res.status(400).json({ error: "sourceCategoryName gerekli" });
+
+        const marketplaces = await Marketplace.find({ userId }).lean();
+        const matches = {};
+
+        // Kaynak kategori adını parçala — "Ev & Yaşam > Mutfak > Bıçak Seti" → ["ev", "yaşam", "mutfak", "bıçak", "seti"]
+        const sourceWords = sourceCategoryName.toLowerCase()
+            .replace(/[>→\-–—&,\/\\|]/g, " ")
+            .split(/\s+/)
+            .filter(w => w.length > 1);
+
+        for (const mp of marketplaces) {
+            const name = normalizeMarketplaceName(mp.marketplaceName);
+            if (name === sourcePlatform) continue; // Kaynak platformu atla
+
+            try {
+                let categories = [];
+
+                if (name === "Trendyol") {
+                    const { apiKey, apiSecret, sellerId, supplierId } = mp.credentials || {};
+                    const actualSellerId = sellerId || supplierId;
+                    if (!apiKey || !apiSecret || !actualSellerId) continue;
+                    const axios = require("axios");
+                    const authHeader = Buffer.from(`${apiKey}:${apiSecret}`).toString("base64");
+                    const response = await axios.get(
+                        "https://apigw.trendyol.com/integration/product/product-categories",
+                        {
+                            headers: { Authorization: `Basic ${authHeader}`, "User-Agent": `${actualSellerId} - LysiaETIC`, "Content-Type": "application/json" },
+                            timeout: 15000
+                        }
+                    );
+                    const flattenCats = (cats, parentPath = []) => {
+                        let res = [];
+                        for (const c of cats) {
+                            const path = [...parentPath, c.name];
+                            res.push({ id: c.id, name: c.name, path: path.join(" > "), hasChildren: !!(c.subCategories?.length) });
+                            if (c.subCategories?.length) res = res.concat(flattenCats(c.subCategories, path));
+                        }
+                        return res;
+                    };
+                    categories = flattenCats(response.data?.categories || []).filter(c => !c.hasChildren);
+                } else if (name === "N11") {
+                    const n11Result = await n11Service.getCategories(mp.credentials);
+                    if (n11Result.success) {
+                        const flattenN11 = (cats, parentPath = []) => {
+                            let res = [];
+                            for (const c of (cats || [])) {
+                                const path = [...parentPath, c.name || c.categoryName || ""];
+                                const isLeaf = !c.subCategories || c.subCategories.length === 0;
+                                res.push({ id: c.id || c.categoryId, name: c.name || c.categoryName || "", path: path.join(" > "), hasChildren: !isLeaf });
+                                if (!isLeaf) res = res.concat(flattenN11(c.subCategories, path));
+                            }
+                            return res;
+                        };
+                        categories = flattenN11(n11Result.categories).filter(c => !c.hasChildren);
+                    }
+                }
+
+                if (categories.length === 0) continue;
+
+                // Skor hesapla — her hedef kategori için kaynak kelimeleriyle eşleşme skoru
+                const scored = categories.map(cat => {
+                    const catWords = (cat.path || cat.name || "").toLowerCase()
+                        .replace(/[>→\-–—&,\/\\|]/g, " ")
+                        .split(/\s+/)
+                        .filter(w => w.length > 1);
+
+                    let matchCount = 0;
+                    let exactBonus = 0;
+                    for (const sw of sourceWords) {
+                        for (const cw of catWords) {
+                            if (cw === sw) { matchCount++; exactBonus += 0.2; break; }
+                            if (cw.includes(sw) || sw.includes(cw)) { matchCount += 0.7; break; }
+                        }
+                    }
+
+                    // Tam isim eşleşmesi bonus
+                    const srcName = sourceCategoryName.toLowerCase().trim();
+                    const catName = (cat.name || "").toLowerCase().trim();
+                    if (srcName === catName) exactBonus += 1;
+                    else if (catName.includes(srcName) || srcName.includes(catName)) exactBonus += 0.5;
+
+                    const score = sourceWords.length > 0
+                        ? ((matchCount / sourceWords.length) * 0.7 + exactBonus * 0.3)
+                        : 0;
+
+                    return { ...cat, score: Math.min(1, score) };
+                });
+
+                // En iyi 5 eşleşmeyi al (skor > 0.2)
+                const topMatches = scored
+                    .filter(c => c.score > 0.15)
+                    .sort((a, b) => b.score - a.score)
+                    .slice(0, 5)
+                    .map(c => ({
+                        categoryId: String(c.id),
+                        categoryName: c.name,
+                        categoryPath: c.path,
+                        score: Math.round(c.score * 100),
+                    }));
+
+                if (topMatches.length > 0) {
+                    matches[name] = topMatches;
+                }
+            } catch (err) {
+                logger.warn(`[AUTO MATCH] ${name} eşleşme hatası: ${err.message}`);
+            }
+        }
+
+        return res.status(200).json({ success: true, source: sourceCategoryName, matches });
+    } catch (error) {
+        logger.error("[AUTO MATCH] Hata:", error.message);
+        return res.status(500).json({ error: error.message });
+    }
+};
+
+/**
+ * Toplu otomatik kategori eşleştirme — tüm eşleştirilmemiş kategorileri otomatik eşleştir
+ * POST /product-management/categories/auto-match-all
+ */
+exports.autoCategoryMatchAll = async (req, res) => {
+    try {
+        const userId = toObjectId(req.user?._id || req.user?.id);
+        if (!userId) return res.status(401).json({ error: "Yetkilendirme hatası" });
+
+        // Mevcut kategori mapping'leri al
+        const existingMappings = await CategoryMapping.find({ userId }).lean();
+
+        // Tüm ürünlerin kategorilerini topla
+        const allProducts = await ProductMapping.find({ userId })
+            .select("masterProduct.category masterProduct.name marketplaceMappings.marketplaceName")
+            .lean();
+
+        // Benzersiz kategorileri bul
+        const categorySet = new Map(); // categoryName → { count, platforms }
+        for (const p of allProducts) {
+            const cat = (p.masterProduct?.category || "").trim();
+            if (!cat) continue;
+            if (!categorySet.has(cat)) {
+                categorySet.set(cat, { count: 0, platforms: new Set() });
+            }
+            const entry = categorySet.get(cat);
+            entry.count++;
+            for (const mm of (p.marketplaceMappings || [])) {
+                if (mm.marketplaceName) entry.platforms.add(normalizeMarketplaceName(mm.marketplaceName));
+            }
+        }
+
+        // Hangi kategorilerin hangi platformlarda eşleşmesi eksik?
+        const targetPlatforms = ["Trendyol", "N11", "Hepsiburada", "Amazon", "ÇiçekSepeti"];
+        const unmapped = [];
+
+        for (const [catName, info] of categorySet) {
+            const existing = existingMappings.find(m =>
+                m.masterCategory?.name?.toLowerCase() === catName.toLowerCase()
+            );
+            const mappedPlatforms = existing
+                ? (existing.marketplaceCategories || []).filter(mc => mc.isActive !== false).map(mc => mc.marketplaceName)
+                : [];
+
+            const missingPlatforms = targetPlatforms.filter(tp => !mappedPlatforms.includes(tp));
+
+            if (missingPlatforms.length > 0) {
+                unmapped.push({
+                    categoryName: catName,
+                    productCount: info.count,
+                    existingPlatforms: [...info.platforms],
+                    mappedPlatforms,
+                    missingPlatforms,
+                    existingMappingId: existing?._id || null
+                });
+            }
+        }
+
+        // Her eşleştirilmemiş kategori için otomatik eşleşme bul
+        const marketplaces = await Marketplace.find({ userId }).lean();
+        const results = [];
+        let autoMatchedCount = 0;
+
+        // Platform kategori cache'i (her platform için bir kez çek)
+        const platformCategoryCache = {};
+
+        for (const mp of marketplaces) {
+            const name = normalizeMarketplaceName(mp.marketplaceName);
+            try {
+                if (name === "Trendyol") {
+                    const { apiKey, apiSecret, sellerId, supplierId } = mp.credentials || {};
+                    const actualSellerId = sellerId || supplierId;
+                    if (!apiKey || !apiSecret || !actualSellerId) continue;
+                    const axios = require("axios");
+                    const authHeader = Buffer.from(`${apiKey}:${apiSecret}`).toString("base64");
+                    const response = await axios.get(
+                        "https://apigw.trendyol.com/integration/product/product-categories",
+                        {
+                            headers: { Authorization: `Basic ${authHeader}`, "User-Agent": `${actualSellerId} - LysiaETIC`, "Content-Type": "application/json" },
+                            timeout: 15000
+                        }
+                    );
+                    const flattenCats = (cats, pp = []) => {
+                        let r = [];
+                        for (const c of cats) {
+                            const p = [...pp, c.name];
+                            r.push({ id: c.id, name: c.name, path: p.join(" > "), hasChildren: !!(c.subCategories?.length) });
+                            if (c.subCategories?.length) r = r.concat(flattenCats(c.subCategories, p));
+                        }
+                        return r;
+                    };
+                    platformCategoryCache.Trendyol = flattenCats(response.data?.categories || []).filter(c => !c.hasChildren);
+                } else if (name === "N11") {
+                    const n11Result = await n11Service.getCategories(mp.credentials);
+                    if (n11Result.success) {
+                        const flattenN11 = (cats, pp = []) => {
+                            let r = [];
+                            for (const c of (cats || [])) {
+                                const p = [...pp, c.name || c.categoryName || ""];
+                                const isLeaf = !c.subCategories || c.subCategories.length === 0;
+                                r.push({ id: c.id || c.categoryId, name: c.name || c.categoryName || "", path: p.join(" > "), hasChildren: !isLeaf });
+                                if (!isLeaf) r = r.concat(flattenN11(c.subCategories, p));
+                            }
+                            return r;
+                        };
+                        platformCategoryCache.N11 = flattenN11(n11Result.categories).filter(c => !c.hasChildren);
+                    }
+                }
+            } catch (err) {
+                logger.warn(`[AUTO MATCH ALL] ${name} kategori çekme hatası: ${err.message}`);
+            }
+        }
+
+        // Her eşleştirilmemiş kategori için en iyi eşleşmeyi bul ve kaydet
+        for (const um of unmapped) {
+            const sourceWords = um.categoryName.toLowerCase()
+                .replace(/[>→\-–—&,\/\\|]/g, " ")
+                .split(/\s+/)
+                .filter(w => w.length > 1);
+
+            const matchResults = {};
+
+            for (const platform of um.missingPlatforms) {
+                const cats = platformCategoryCache[platform];
+                if (!cats || cats.length === 0) continue;
+
+                let bestMatch = null;
+                let bestScore = 0;
+
+                for (const cat of cats) {
+                    const catWords = (cat.path || cat.name || "").toLowerCase()
+                        .replace(/[>→\-–—&,\/\\|]/g, " ")
+                        .split(/\s+/)
+                        .filter(w => w.length > 1);
+
+                    let matchCount = 0;
+                    for (const sw of sourceWords) {
+                        for (const cw of catWords) {
+                            if (cw === sw) { matchCount++; break; }
+                            if (cw.includes(sw) || sw.includes(cw)) { matchCount += 0.7; break; }
+                        }
+                    }
+
+                    const srcName = um.categoryName.toLowerCase().trim();
+                    const catName = (cat.name || "").toLowerCase().trim();
+                    let bonus = 0;
+                    if (srcName === catName) bonus = 1;
+                    else if (catName.includes(srcName) || srcName.includes(catName)) bonus = 0.5;
+
+                    const score = sourceWords.length > 0
+                        ? ((matchCount / sourceWords.length) * 0.7 + bonus * 0.3)
+                        : 0;
+
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestMatch = cat;
+                    }
+                }
+
+                if (bestMatch && bestScore > 0.3) {
+                    matchResults[platform] = {
+                        categoryId: String(bestMatch.id),
+                        categoryName: bestMatch.name,
+                        categoryPath: bestMatch.path,
+                        score: Math.round(bestScore * 100)
+                    };
+                }
+            }
+
+            // Yüksek skorlu eşleşmeleri otomatik kaydet (skor >= 70%)
+            const autoSaved = {};
+            for (const [platform, match] of Object.entries(matchResults)) {
+                if (match.score >= 70) {
+                    try {
+                        const slug = um.categoryName.toLowerCase().replace(/[^a-z0-9ğüşıöçĞÜŞİÖÇ]+/g, "-").replace(/^-|-$/g, "");
+                        let mapping = await CategoryMapping.findOne({ userId, "masterCategory.slug": slug });
+                        if (!mapping) {
+                            mapping = new CategoryMapping({
+                                userId,
+                                masterCategory: {
+                                    name: um.categoryName,
+                                    slug,
+                                    path: um.categoryName.split(/\s*[>→]\s*/).filter(Boolean)
+                                },
+                                marketplaceCategories: []
+                            });
+                        }
+                        mapping.setMarketplaceCategory(platform, {
+                            categoryId: match.categoryId,
+                            categoryName: match.categoryName,
+                            categoryPath: (match.categoryPath || "").split(" > ").filter(Boolean),
+                            isActive: true
+                        });
+                        await mapping.save();
+                        autoSaved[platform] = true;
+                        autoMatchedCount++;
+                    } catch (saveErr) {
+                        logger.warn(`[AUTO MATCH ALL] Kaydetme hatası: ${um.categoryName} → ${platform}: ${saveErr.message}`);
+                    }
+                }
+            }
+
+            results.push({
+                categoryName: um.categoryName,
+                productCount: um.count,
+                missingPlatforms: um.missingPlatforms,
+                matches: matchResults,
+                autoSaved
+            });
+        }
+
+        return res.status(200).json({
+            success: true,
+            totalCategories: categorySet.size,
+            unmappedCount: unmapped.length,
+            autoMatchedCount,
+            results
+        });
+    } catch (error) {
+        logger.error("[AUTO MATCH ALL] Hata:", error.message);
+        return res.status(500).json({ error: error.message });
+    }
+};
+
+/**
+ * Kategori eşleştirmesini kaydet (tek platform)
+ * POST /product-management/categories/save-mapping
+ * Body: { categoryName, platform, categoryId, categoryName: platformCategoryName, categoryPath }
+ */
+exports.saveCategoryMappingManual = async (req, res) => {
+    try {
+        const userId = toObjectId(req.user?._id || req.user?.id);
+        if (!userId) return res.status(401).json({ error: "Yetkilendirme hatası" });
+
+        const { categoryName, platform, categoryId, platformCategoryName, categoryPath } = req.body;
+        if (!categoryName || !platform || !categoryId) {
+            return res.status(400).json({ error: "categoryName, platform ve categoryId gerekli" });
+        }
+
+        const slug = categoryName.toLowerCase().replace(/[^a-z0-9ğüşıöçĞÜŞİÖÇ]+/g, "-").replace(/^-|-$/g, "");
+        let mapping = await CategoryMapping.findOne({ userId, "masterCategory.slug": slug });
+        if (!mapping) {
+            mapping = new CategoryMapping({
+                userId,
+                masterCategory: {
+                    name: categoryName,
+                    slug,
+                    path: categoryName.split(/\s*[>→]\s*/).filter(Boolean)
+                },
+                marketplaceCategories: []
+            });
+        }
+
+        mapping.setMarketplaceCategory(platform, {
+            categoryId: String(categoryId),
+            categoryName: platformCategoryName || "",
+            categoryPath: categoryPath ? categoryPath.split(" > ").filter(Boolean) : [],
+            isActive: true
+        });
+
+        await mapping.save();
+
+        logger.info(`[CATEGORY MAPPING] Kaydedildi: "${categoryName}" → ${platform}: ${categoryId} (${platformCategoryName})`);
+
+        return res.status(200).json({ success: true, mapping });
+    } catch (error) {
+        logger.error("[CATEGORY MAPPING SAVE] Hata:", error.message);
+        return res.status(500).json({ error: error.message });
+    }
+};
+
+/**
+ * Ürün oluştur ve platformlara dağıt (tek adımda)
+ * POST /product-management/products/create-and-distribute
+ */
+exports.createAndDistribute = async (req, res) => {
+    try {
+        const userId = toObjectId(req.user?._id || req.user?.id);
+        if (!userId) return res.status(401).json({ error: "Yetkilendirme hatası" });
+
+        const {
+            name, barcode, sku, description, images,
+            price, listPrice, stock, category, brand,
+            attributes, targetMarketplaces
+        } = req.body;
+
+        // Zorunlu alan kontrolü
+        if (!name || !barcode || !sku || !price) {
+            return res.status(400).json({
+                error: "Zorunlu alanlar eksik",
+                required: ["name", "barcode", "sku", "price"]
+            });
+        }
+
+        // Barkod benzersizlik kontrolü
+        const existing = await ProductMapping.findOne({ userId, "masterProduct.barcode": barcode });
+        if (existing) {
+            return res.status(409).json({
+                error: "Bu barkoda sahip bir ürün zaten mevcut",
+                existingProduct: { id: existing._id, name: existing.masterProduct.name }
+            });
+        }
+
+        // Ürün oluştur
+        const stockVal = stock || 0;
+        const productMapping = new ProductMapping({
+            userId,
+            masterProduct: {
+                name,
+                barcode,
+                sku,
+                description: description || "",
+                images: images || [],
+                price,
+                listPrice: listPrice || price,
+                stock: stockVal,
+                category: category || "",
+                brand: brand || "",
+                attributes: attributes || {}
+            },
+            marketplaceMappings: [],
+            stockTracking: {
+                totalStock: stockVal,
+                availableStock: stockVal,
+                lowStockThreshold: 10
+            }
+        });
+
+        productMapping.updateStockStatus();
+        await productMapping.save();
+
+        logger.info(`[PRODUCT] Yeni ürün oluşturuldu: ${name} (${barcode})`);
+
+        // Platformlara dağıt (varsa)
+        const distributeResults = [];
+        if (targetMarketplaces && targetMarketplaces.length > 0) {
+            for (const target of targetMarketplaces) {
+                try {
+                    const distResult = await distributeProductToMarketplaces(
+                        userId, productMapping._id, [target]
+                    );
+                    distributeResults.push({
+                        marketplace: target,
+                        success: true,
+                        result: distResult
+                    });
+                } catch (distErr) {
+                    distributeResults.push({
+                        marketplace: target,
+                        success: false,
+                        error: distErr.message
+                    });
+                    logger.warn(`[PRODUCT DISTRIBUTE] ${target} dağıtım hatası: ${distErr.message}`);
+                }
+            }
+        }
+
+        // Log oluştur
+        await StockSyncLog.create({
+            userId,
+            actionType: "product_created",
+            product: { productMappingId: productMapping._id, barcode, sku, name },
+            status: "success",
+            notification: { priority: "low" }
+        });
+
+        return res.status(201).json({
+            success: true,
+            message: "Ürün oluşturuldu" + (distributeResults.length > 0 ? ` ve ${distributeResults.filter(r => r.success).length} platforma dağıtıldı` : ""),
+            product: productMapping,
+            distributeResults
+        });
+
+    } catch (error) {
+        logger.error("[PRODUCT CREATE & DISTRIBUTE] Hata:", error.message);
+        return res.status(500).json({ error: "Ürün oluşturulamadı", details: error.message });
+    }
+};
+
+// ═══════════════════════════════════════════════════════════════
+// 🔤 BARKOD & SKU ÖNERİSİ
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Ürün adına göre barkod ve SKU önerisi üret
+ * POST /product-management/products/suggest-codes
+ * Body: { productName, brand?, category? }
+ */
+exports.suggestBarcodeAndSku = async (req, res) => {
+    try {
+        const userId = toObjectId(req.user?._id || req.user?.id);
+        if (!userId) return res.status(401).json({ error: "Yetkilendirme hatası" });
+
+        const { productName, brand, category } = req.body;
+        if (!productName) return res.status(400).json({ error: "productName gerekli" });
+
+        // Türkçe karakter dönüşümü
+        const trMap = { ç: "c", ğ: "g", ı: "i", ö: "o", ş: "s", ü: "u", Ç: "C", Ğ: "G", İ: "I", Ö: "O", Ş: "S", Ü: "U" };
+        const toAscii = (str) => str.replace(/[çğıöşüÇĞİÖŞÜ]/g, c => trMap[c] || c);
+
+        // Ürün adından kısaltma oluştur
+        const words = toAscii(productName.trim()).split(/\s+/).filter(w => w.length > 0);
+        const prefix = words.map(w => w[0].toUpperCase()).join("").slice(0, 4);
+        const brandPrefix = brand ? toAscii(brand.trim()).slice(0, 3).toUpperCase() : "";
+        const catPrefix = category ? toAscii(category.split(">").pop().trim()).slice(0, 3).toUpperCase() : "";
+
+        // Benzersiz sayı üret (timestamp son 6 hane + random 4 hane)
+        const ts = Date.now().toString().slice(-6);
+        const rnd = Math.floor(1000 + Math.random() * 9000).toString();
+        const rnd2 = Math.floor(100 + Math.random() * 900).toString();
+
+        // Mevcut barkod sayısını al (sıralı numara için)
+        const existingCount = await ProductMapping.countDocuments({ userId });
+        const seq = String(existingCount + 1).padStart(4, "0");
+
+        // Öneriler oluştur
+        const suggestions = {
+            barcodes: [
+                `LYS${ts}${rnd}`,                                          // LYS + timestamp + random
+                `${prefix}${ts}${rnd2}`,                                    // Kısaltma + timestamp + random
+                `869${ts}${rnd.slice(0, 3)}`,                               // 869 (TR) + timestamp + random
+                brandPrefix ? `${brandPrefix}${prefix}${rnd}` : null,       // Marka + kısaltma + random
+            ].filter(Boolean).slice(0, 4),
+            skus: [
+                `${prefix}-${seq}`,                                         // Kısaltma-sıra
+                `${brandPrefix || "PRD"}-${prefix}-${rnd2}`,                // Marka-kısaltma-random
+                catPrefix ? `${catPrefix}-${prefix}-${seq}` : `SKU-${prefix}-${seq}`, // Kategori-kısaltma-sıra
+                `LYS-${seq}-${rnd2}`,                                       // LYS-sıra-random
+            ].filter(Boolean).slice(0, 4),
+        };
+
+        // Benzersizlik kontrolü — mevcut barkodlarla çakışma var mı?
+        const existingBarcodes = await ProductMapping.find({
+            userId,
+            "masterProduct.barcode": { $in: suggestions.barcodes }
+        }).select("masterProduct.barcode").lean();
+        const usedBarcodes = new Set(existingBarcodes.map(p => p.masterProduct.barcode));
+        suggestions.barcodes = suggestions.barcodes.map(b => ({
+            value: b,
+            available: !usedBarcodes.has(b)
+        }));
+
+        const existingSkus = await ProductMapping.find({
+            userId,
+            "masterProduct.sku": { $in: suggestions.skus.map(s => typeof s === "string" ? s : s.value) }
+        }).select("masterProduct.sku").lean();
+        const usedSkus = new Set(existingSkus.map(p => p.masterProduct.sku));
+        suggestions.skus = suggestions.skus.map(s => {
+            const val = typeof s === "string" ? s : s.value;
+            return { value: val, available: !usedSkus.has(val) };
+        });
+
+        return res.status(200).json({ success: true, suggestions });
+    } catch (error) {
+        logger.error("[SUGGEST CODES] Hata:", error.message);
+        return res.status(500).json({ error: error.message });
+    }
+};
+
+// ═══════════════════════════════════════════════════════════════
+// 🤖 AI AÇIKLAMA ÜRETİCİ
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Ürün bilgilerine göre profesyonel açıklama üret
+ * POST /product-management/products/generate-description
+ * Body: { productName, category?, brand?, price?, attributes? }
+ */
+exports.generateAIDescription = async (req, res) => {
+    try {
+        const userId = toObjectId(req.user?._id || req.user?.id);
+        if (!userId) return res.status(401).json({ error: "Yetkilendirme hatası" });
+
+        const { productName, category, brand, price, attributes, tone } = req.body;
+        if (!productName) return res.status(400).json({ error: "productName gerekli" });
+
+        // Kategori anahtar kelimeleri
+        const catWords = (category || "").toLowerCase();
+        const brandText = brand && brand !== "Diğer" && brand !== "Genel" ? brand : "";
+
+        // Ton seçimi
+        const toneStyle = tone || "professional"; // professional, friendly, luxury, minimal
+
+        // Akıllı açıklama şablonları
+        const templates = {
+            professional: () => {
+                const parts = [];
+                parts.push(`${productName}${brandText ? ` — ${brandText}` : ""}`);
+                parts.push("");
+
+                if (catWords.includes("mutfak") || catWords.includes("ev")) {
+                    parts.push(`Evinizin vazgeçilmezi olacak ${productName}, üstün kalite malzemelerden üretilmiştir. Günlük kullanımda dayanıklılığı ve şık tasarımıyla öne çıkar.`);
+                } else if (catWords.includes("giyim") || catWords.includes("moda") || catWords.includes("kıyafet")) {
+                    parts.push(`Şıklığınızı tamamlayacak ${productName}, özenle seçilmiş kumaşlardan üretilmiştir. Hem rahat hem de modern bir görünüm sunar.`);
+                } else if (catWords.includes("elektronik") || catWords.includes("teknoloji") || catWords.includes("bilgisayar")) {
+                    parts.push(`Yüksek performanslı ${productName}, en son teknolojiyle donatılmıştır. Günlük kullanımdan profesyonel ihtiyaçlara kadar geniş bir yelpazede hizmet verir.`);
+                } else if (catWords.includes("kozmetik") || catWords.includes("bakım") || catWords.includes("güzellik")) {
+                    parts.push(`Cildinize özen gösteren ${productName}, doğal içeriklerle formüle edilmiştir. Günlük bakım rutininizin vazgeçilmez parçası olacak.`);
+                } else if (catWords.includes("spor") || catWords.includes("fitness")) {
+                    parts.push(`Aktif yaşam tarzınıza uygun ${productName}, dayanıklı ve ergonomik tasarımıyla performansınızı artırır.`);
+                } else if (catWords.includes("oyuncak") || catWords.includes("çocuk") || catWords.includes("bebek")) {
+                    parts.push(`Çocuğunuzun gelişimine katkı sağlayan ${productName}, güvenli malzemelerden üretilmiştir. Eğlenceli ve eğitici özellikleriyle dikkat çeker.`);
+                } else if (catWords.includes("takı") || catWords.includes("aksesuar") || catWords.includes("mücevher")) {
+                    parts.push(`Zarif tasarımıyla göz kamaştıran ${productName}, özel anlarınızda şıklığınızı tamamlar. Kaliteli işçilik ve estetik detaylarla öne çıkar.`);
+                } else {
+                    parts.push(`Yüksek kaliteli ${productName}${brandText ? `, ${brandText} güvencesiyle` : ""} sizlerle. Titizlikle üretilmiş bu ürün, beklentilerinizi karşılayacak performans ve dayanıklılık sunar.`);
+                }
+
+                parts.push("");
+
+                // Özellikler
+                if (attributes && Object.keys(attributes).length > 0) {
+                    parts.push("📋 Ürün Özellikleri:");
+                    for (const [key, val] of Object.entries(attributes)) {
+                        if (val && val !== "null" && val !== "undefined") {
+                            parts.push(`• ${key}: ${val}`);
+                        }
+                    }
+                    parts.push("");
+                }
+
+                // Kategori bazlı ek bilgiler
+                parts.push("✅ Öne Çıkan Özellikler:");
+                parts.push(`• Yüksek kalite malzeme ve işçilik`);
+                parts.push(`• Hızlı ve güvenli kargo ile kapınıza teslim`);
+                if (brandText) parts.push(`• ${brandText} markasının güvencesi`);
+                parts.push(`• Kolay iade ve değişim imkanı`);
+                parts.push("");
+
+                if (price) {
+                    parts.push(`💰 Özel fiyat avantajıyla şimdi sipariş verin!`);
+                }
+
+                return parts.join("\n");
+            },
+            friendly: () => {
+                const parts = [];
+                parts.push(`🎉 ${productName}${brandText ? ` by ${brandText}` : ""}`);
+                parts.push("");
+                parts.push(`Merhaba! Bu harika ürünü keşfettiğiniz için çok mutluyuz! ${productName}, tam da aradığınız şey olabilir.`);
+                parts.push("");
+                parts.push(`Neden bu ürünü seveceksiniz?`);
+                parts.push(`✨ Kaliteli malzeme ve özenli üretim`);
+                parts.push(`🚀 Hızlı kargo ile hemen kapınızda`);
+                parts.push(`💯 Müşteri memnuniyeti garantisi`);
+                if (brandText) parts.push(`🏷️ ${brandText} kalitesi`);
+                parts.push("");
+                parts.push(`Hemen sepetinize ekleyin, fırsatı kaçırmayın! 🛒`);
+                return parts.join("\n");
+            },
+            luxury: () => {
+                const parts = [];
+                parts.push(`${productName}${brandText ? ` | ${brandText}` : ""}`);
+                parts.push("");
+                parts.push(`Seçkin zevklere hitap eden ${productName}, üstün kalite ve zarif tasarımın buluşma noktasıdır.`);
+                parts.push("");
+                parts.push(`Her detayında mükemmellik arayışını yansıtan bu eşsiz ürün, yaşam alanınıza sofistike bir dokunuş katacaktır.`);
+                parts.push("");
+                if (attributes && Object.keys(attributes).length > 0) {
+                    parts.push("Detaylar:");
+                    for (const [key, val] of Object.entries(attributes)) {
+                        if (val && val !== "null" && val !== "undefined") {
+                            parts.push(`  ◆ ${key}: ${val}`);
+                        }
+                    }
+                    parts.push("");
+                }
+                parts.push(`Kendinize veya sevdiklerinize özel bir hediye olarak tercih edebilirsiniz.`);
+                return parts.join("\n");
+            },
+            minimal: () => {
+                const parts = [];
+                parts.push(productName);
+                if (brandText) parts.push(`Marka: ${brandText}`);
+                if (category) parts.push(`Kategori: ${category}`);
+                parts.push("");
+                parts.push("Özellikler:");
+                parts.push("- Kaliteli malzeme");
+                parts.push("- Hızlı kargo");
+                parts.push("- Kolay iade");
+                if (attributes && Object.keys(attributes).length > 0) {
+                    for (const [key, val] of Object.entries(attributes)) {
+                        if (val && val !== "null" && val !== "undefined") {
+                            parts.push(`- ${key}: ${val}`);
+                        }
+                    }
+                }
+                return parts.join("\n");
+            }
+        };
+
+        const generator = templates[toneStyle] || templates.professional;
+        const description = generator();
+
+        return res.status(200).json({
+            success: true,
+            description,
+            tone: toneStyle,
+            availableTones: ["professional", "friendly", "luxury", "minimal"]
+        });
+    } catch (error) {
+        logger.error("[AI DESCRIPTION] Hata:", error.message);
+        return res.status(500).json({ error: error.message });
+    }
+};
+
+// ═══════════════════════════════════════════════════════════════
+// 🌳 KATEGORİ AĞACI (Hiyerarşik)
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Platform kategori ağacını hiyerarşik olarak getir
+ * GET /product-management/categories/tree?platform=Trendyol&parentId=0
+ * parentId=0 → kök kategoriler, parentId=123 → 123'ün alt kategorileri
+ */
+exports.getCategoryTree = async (req, res) => {
+    try {
+        const userId = toObjectId(req.user?._id || req.user?.id);
+        if (!userId) return res.status(401).json({ error: "Yetkilendirme hatası" });
+
+        const { platform, parentId, search } = req.query;
+        if (!platform) return res.status(400).json({ error: "platform parametresi gerekli" });
+
+        const mpName = normalizeMarketplaceName(platform);
+        const marketplace = await Marketplace.findOne({
+            userId,
+            marketplaceName: { $regex: new RegExp(`^${mpName}$`, "i") }
+        });
+
+        if (!marketplace) {
+            return res.status(404).json({ error: `${mpName} entegrasyonu bulunamadı` });
+        }
+
+        let categories = [];
+
+        if (mpName === "Trendyol") {
+            const { apiKey, apiSecret, sellerId, supplierId } = marketplace.credentials || {};
+            const actualSellerId = sellerId || supplierId;
+            if (!apiKey || !apiSecret || !actualSellerId) {
+                return res.status(400).json({ error: "Trendyol credentials eksik" });
+            }
+
+            const axios = require("axios");
+            const authHeader = Buffer.from(`${apiKey}:${apiSecret}`).toString("base64");
+            const response = await axios.get(
+                "https://apigw.trendyol.com/integration/product/product-categories",
+                {
+                    headers: {
+                        Authorization: `Basic ${authHeader}`,
+                        "User-Agent": `${actualSellerId} - LysiaETIC`,
+                        "Content-Type": "application/json"
+                    },
+                    timeout: 15000
+                }
+            );
+
+            const allCats = response.data?.categories || [];
+
+            // Arama modu — tüm ağaçta ara
+            if (search) {
+                const q = search.toLowerCase();
+                const flattenAll = (cats, parentPath = []) => {
+                    let res = [];
+                    for (const c of cats) {
+                        const path = [...parentPath, c.name];
+                        const isLeaf = !c.subCategories || c.subCategories.length === 0;
+                        if (c.name.toLowerCase().includes(q) || path.join(" > ").toLowerCase().includes(q)) {
+                            res.push({
+                                id: c.id,
+                                name: c.name,
+                                path: path.join(" > "),
+                                hasChildren: !isLeaf,
+                                isLeaf
+                            });
+                        }
+                        if (c.subCategories?.length) {
+                            res = res.concat(flattenAll(c.subCategories, path));
+                        }
+                    }
+                    return res;
+                };
+                categories = flattenAll(allCats).slice(0, 100);
+            } else if (!parentId || parentId === "0") {
+                // Kök kategoriler
+                categories = allCats.map(c => ({
+                    id: c.id,
+                    name: c.name,
+                    hasChildren: !!(c.subCategories?.length),
+                    isLeaf: !c.subCategories || c.subCategories.length === 0
+                }));
+            } else {
+                // Alt kategorileri bul (recursive arama)
+                const findChildren = (cats) => {
+                    for (const c of cats) {
+                        if (String(c.id) === String(parentId)) {
+                            return (c.subCategories || []).map(sc => ({
+                                id: sc.id,
+                                name: sc.name,
+                                hasChildren: !!(sc.subCategories?.length),
+                                isLeaf: !sc.subCategories || sc.subCategories.length === 0
+                            }));
+                        }
+                        if (c.subCategories?.length) {
+                            const found = findChildren(c.subCategories);
+                            if (found) return found;
+                        }
+                    }
+                    return null;
+                };
+                categories = findChildren(allCats) || [];
+            }
+        } else if (mpName === "N11") {
+            if (search) {
+                // N11 arama — tüm kategorileri çek ve filtrele
+                const n11Result = await n11Service.getCategories(marketplace.credentials);
+                if (n11Result.success) {
+                    const q = search.toLowerCase();
+                    const flattenN11 = (cats, parentPath = []) => {
+                        let res = [];
+                        for (const c of (cats || [])) {
+                            const name = c.name || c.categoryName || "";
+                            const path = [...parentPath, name];
+                            const isLeaf = !c.subCategories || c.subCategories.length === 0;
+                            if (name.toLowerCase().includes(q) || path.join(" > ").toLowerCase().includes(q)) {
+                                res.push({
+                                    id: c.id || c.categoryId,
+                                    name,
+                                    path: path.join(" > "),
+                                    hasChildren: !isLeaf,
+                                    isLeaf
+                                });
+                            }
+                            if (!isLeaf) res = res.concat(flattenN11(c.subCategories, path));
+                        }
+                        return res;
+                    };
+                    categories = flattenN11(n11Result.categories).slice(0, 100);
+                }
+            } else if (!parentId || parentId === "0") {
+                const n11Result = await n11Service.getCategories(marketplace.credentials);
+                if (n11Result.success) {
+                    categories = (n11Result.categories || []).map(c => ({
+                        id: c.id || c.categoryId,
+                        name: c.name || c.categoryName || "",
+                        hasChildren: !!(c.subCategories?.length),
+                        isLeaf: !c.subCategories || c.subCategories.length === 0
+                    }));
+                }
+            } else {
+                // N11 alt kategorileri — tüm ağaçta recursive ara
+                const n11Result = await n11Service.getCategories(marketplace.credentials);
+                if (n11Result.success) {
+                    const findChildren = (cats) => {
+                        for (const c of (cats || [])) {
+                            const cId = c.id || c.categoryId;
+                            if (String(cId) === String(parentId)) {
+                                return (c.subCategories || []).map(sc => ({
+                                    id: sc.id || sc.categoryId,
+                                    name: sc.name || sc.categoryName || "",
+                                    hasChildren: !!(sc.subCategories?.length),
+                                    isLeaf: !sc.subCategories || sc.subCategories.length === 0
+                                }));
+                            }
+                            if (c.subCategories?.length) {
+                                const found = findChildren(c.subCategories);
+                                if (found) return found;
+                            }
+                        }
+                        return null;
+                    };
+                    categories = findChildren(n11Result.categories) || [];
+                }
+            }
+        }
+
+        return res.status(200).json({
+            success: true,
+            platform: mpName,
+            parentId: parentId || "0",
+            total: categories.length,
+            categories
+        });
+    } catch (error) {
+        logger.error("[CATEGORY TREE] Hata:", error.message);
+        return res.status(500).json({ error: error.message });
+    }
 };

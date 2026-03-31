@@ -671,7 +671,13 @@ const getCategoryAttributes = async (credentials, categoryId) => {
 
 /**
  * Sipariş Listeleme (GetShipmentPackages)
- * GET /rest/order/v1/shipment-packages
+ * GET /rest/delivery/v1/shipmentPackages
+ *
+ * ⚠️ N11 REST API Kuralları:
+ *   - Endpoint: /rest/delivery/v1/shipmentPackages (güncel)
+ *   - Status parametresi her istekte TEK bir değer alır (virgülle ayrılmaz)
+ *   - Birden fazla statü için ayrı ayrı istek atılmalıdır
+ *   - 2024 Kasım öncesi sipariş datası bu servisten verilmez
  *
  * @param {Object} credentials - { apiKey, secretKey }
  * @param {Object} params - { status, startDate, endDate, page, size }
@@ -682,27 +688,40 @@ const getOrders = async (credentials, params = {}) => {
 
         if (!apiKey || !secretKey) return { success: false, error: "N11 credentials eksik", orders: [] };
 
-        // Sadece tanımlı parametreleri gönder
-        const queryParams = {
-            page: params.page || 0,
-            size: params.size || 100
-        };
-        if (params.status)    queryParams.status    = params.status;
-        if (params.startDate) queryParams.startDate = params.startDate;
-        if (params.endDate)   queryParams.endDate   = params.endDate;
+        // Status virgülle ayrılmışsa her biri için ayrı istek at
+        const statuses = params.status ? params.status.split(",").map(s => s.trim()).filter(Boolean) : [null];
+        let allOrders = [];
 
-        const response = await axios.get(
-            `${N11_BASE_URL}/rest/order/v1/shipment-packages`,
-            {
-                headers: getN11Headers(apiKey, secretKey),
-                params:  queryParams,
-                timeout: 20000
+        for (const status of statuses) {
+            const queryParams = {
+                page: params.page || 0,
+                size: params.size || 100
+            };
+            if (status)           queryParams.status    = status;
+            if (params.startDate) queryParams.startDate = params.startDate;
+            if (params.endDate)   queryParams.endDate   = params.endDate;
+
+            try {
+                const response = await axios.get(
+                    `${N11_BASE_URL}/rest/delivery/v1/shipmentPackages`,
+                    {
+                        headers: getN11Headers(apiKey, secretKey),
+                        params:  queryParams,
+                        timeout: 20000
+                    }
+                );
+
+                const orders = response.data?.content || [];
+                allOrders = allOrders.concat(orders);
+            } catch (innerError) {
+                // Tek bir status hata verirse diğerlerine devam et
+                logger.warn(`[N11 Sipariş] Status "${status}" sorgusu başarısız: ${innerError.response?.status || innerError.message}`);
             }
-        );
+        }
 
         return {
             success: true,
-            orders: response.data?.content || response.data || []
+            orders: allOrders
         };
 
     } catch (error) {

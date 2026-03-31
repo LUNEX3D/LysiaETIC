@@ -14,13 +14,8 @@ import {
     getCategoryMappings,
     saveCategoryMapping,
     deleteCategoryMapping,
-    suggestCategory,
     getN11Categories,
 } from "../services/categoryMappingApi";
-import {
-    getProducts,
-    distributeProduct,
-} from "../services/productManagementApi";
 
 // ─── Renkler & Sabitler ───────────────────────────────────────────────────────
 const COLORS = {
@@ -41,14 +36,6 @@ const COLORS = {
     textMuted: "#64748b",
     textSub:   "#94a3b8",
 };
-
-const TABS = [
-    { key: "unmapped",  label: "⚠️ Eşleştirilmemiş",  badge: true  },
-    { key: "mapped",    label: "✅ Kayıtlı Mapping'ler", badge: false },
-    { key: "send",      label: "🚀 Ürün Gönder",        badge: false },
-];
-
-const MP_OPTIONS = ["N11", "Hepsiburada", "ÇiçekSepeti"];
 
 // ─── Yardımcı Bileşenler ──────────────────────────────────────────────────────
 
@@ -86,23 +73,6 @@ const Input = ({ value, onChange, placeholder, style = {} }) => (
             fontSize: 13, outline: "none", width: "100%", ...style
         }}
     />
-);
-
-const Select = ({ value, onChange, options, placeholder, style = {} }) => (
-    <select
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        style={{
-            background: "#0f1117", border: "1.5px solid rgba(255,255,255,0.1)",
-            borderRadius: 8, color: value ? COLORS.text : COLORS.textMuted,
-            padding: "8px 14px", fontSize: 13, outline: "none", width: "100%", ...style
-        }}
-    >
-        <option value="">{placeholder || "Seçin..."}</option>
-        {options.map(o => (
-            <option key={o.value ?? o} value={o.value ?? o}>{o.label ?? o}</option>
-        ))}
-    </select>
 );
 
 const Card = ({ children, style = {} }) => (
@@ -824,408 +794,6 @@ const MappedTab = ({ onChanged }) => {
     );
 };
 
-// ─── Sekme 3: Ürün Gönder ────────────────────────────────────────────────────
-
-const SendTab = () => {
-    const [products, setProducts]         = useState([]);
-    const [loading, setLoading]           = useState(true);
-    const [search, setSearch]             = useState("");
-    const [selectedProduct, setSelected]  = useState(null);
-    const [targetMP, setTargetMP]         = useState("N11");
-    const [sending, setSending]           = useState(false);
-    const [result, setResult]             = useState(null);
-    const [filterSource, setFilterSource] = useState("");
-
-    // Ürün düzenleme alanları
-    const [editTitle,    setEditTitle]    = useState("");
-    const [editPrice,    setEditPrice]    = useState("");
-    const [editStock,    setEditStock]    = useState("");
-    const [editBrand,    setEditBrand]    = useState("");
-    const [editCategory, setEditCategory] = useState("");
-    const [editDesc,     setEditDesc]     = useState("");
-
-    const load = useCallback(async () => {
-        setLoading(true);
-        try {
-            const res = await getProducts({ limit: 200 });
-            setProducts(res.products || res.data || []);
-        } catch { /* ignore */ }
-        setLoading(false);
-    }, []);
-
-    useEffect(() => { load(); }, [load]);
-
-    const selectProduct = (p) => {
-        setSelected(p);
-        setResult(null);
-        setEditTitle(p.masterProduct?.name || "");
-        setEditPrice(String(p.masterProduct?.price || ""));
-        setEditStock(String(p.masterProduct?.stock || ""));
-        setEditBrand(p.masterProduct?.brand || "");
-        setEditCategory(p.masterProduct?.category || "");
-        setEditDesc(p.masterProduct?.description || "");
-    };
-
-    const handleSend = async () => {
-        if (!selectedProduct) return;
-        setSending(true);
-        setResult(null);
-        try {
-            const res = await distributeProduct(selectedProduct._id, [targetMP]);
-            const r = res.results?.[0] || res;
-            setResult({
-                type:    r.status === "success" ? "success" : r.status === "skipped" ? "warn" : "error",
-                message: r.message || r.error || JSON.stringify(r)
-            });
-        } catch (e) {
-            setResult({ type: "error", message: e?.response?.data?.message || e.message });
-        }
-        setSending(false);
-    };
-
-    const sources = [...new Set(
-        products.flatMap(p => (p.marketplaceMappings || []).map(m => m.marketplaceName))
-    )].filter(Boolean);
-
-    const filtered = products.filter(p => {
-        const name = (p.masterProduct?.name || "").toLowerCase();
-        const cat  = (p.masterProduct?.category || "").toLowerCase();
-        const matchSearch = !search || name.includes(search.toLowerCase()) || cat.includes(search.toLowerCase());
-        const matchSource = !filterSource || (p.marketplaceMappings || []).some(m => m.marketplaceName === filterSource);
-        return matchSearch && matchSource;
-    });
-
-    const getProductStatus = (p, mp) => {
-        const m = (p.marketplaceMappings || []).find(x => x.marketplaceName?.toLowerCase() === mp.toLowerCase());
-        return m?.syncStatus || null;
-    };
-
-    const MP_COLORS_LOCAL = { N11: "#6f2da8", Hepsiburada: "#ff6000", ÇiçekSepeti: "#e91e8c" };
-
-    return (
-        <div>
-            {/* Açıklama Bandı */}
-            <div style={{
-                background: "rgba(111,45,168,0.08)", border: "1px solid rgba(111,45,168,0.2)",
-                borderRadius: 12, padding: "14px 18px", marginBottom: 20,
-                display: "flex", alignItems: "flex-start", gap: 12
-            }}>
-                <span style={{ fontSize: 24, flexShrink: 0 }}>🚀</span>
-                <div>
-                    <div style={{ color: COLORS.text, fontWeight: 700, fontSize: 14, marginBottom: 4 }}>
-                        Ürün Gönderme Nasıl Çalışır?
-                    </div>
-                    <div style={{ color: COLORS.textMuted, fontSize: 12, lineHeight: 1.6 }}>
-                        Soldan bir ürün seçin, hedef platformu belirleyin, gerekirse bilgileri düzenleyin ve gönderin.
-                        Ürünün kategorisinin N11 ile eşleştirilmiş olması gerekir — aksi hâlde ürün atlanır.
-                    </div>
-                </div>
-            </div>
-
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 420px", gap: 16, alignItems: "start" }}>
-
-                {/* Sol: Ürün Listesi */}
-                <div>
-                    {/* Filtreler */}
-                    <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
-                        <div style={{
-                            flex: 1, minWidth: 180,
-                            display: "flex", alignItems: "center", gap: 8,
-                            background: "#0f1117", border: "1.5px solid rgba(255,255,255,0.1)",
-                            borderRadius: 8, padding: "8px 12px"
-                        }}>
-                            <span style={{ color: COLORS.textMuted }}>🔍</span>
-                            <input
-                                value={search} onChange={e => setSearch(e.target.value)}
-                                placeholder="Ürün adı veya kategori ara..."
-                                style={{
-                                    background: "none", border: "none", outline: "none",
-                                    color: COLORS.text, fontSize: 13, width: "100%"
-                                }}
-                            />
-                        </div>
-                        <Select
-                            value={filterSource} onChange={setFilterSource}
-                            options={sources} placeholder="Kaynak filtrele"
-                            style={{ width: 160 }}
-                        />
-                        <div style={{
-                            background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)",
-                            borderRadius: 8, padding: "8px 14px", fontSize: 12,
-                            color: COLORS.textMuted, display: "flex", alignItems: "center", gap: 6
-                        }}>
-                            📦 {filtered.length} ürün
-                        </div>
-                    </div>
-
-                    {/* Hedef Platform Seçimi (liste üstünde) */}
-                    <div style={{ marginBottom: 12 }}>
-                        <div style={{ color: COLORS.textMuted, fontSize: 11, fontWeight: 600, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                            Hedef Platform
-                        </div>
-                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                            {MP_OPTIONS.map(mp => {
-                                const col = MP_COLORS_LOCAL[mp] || COLORS.accent;
-                                const isActive = targetMP === mp;
-                                return (
-                                    <button key={mp} onClick={() => setTargetMP(mp)} style={{
-                                        background: isActive ? col : "transparent",
-                                        border: `1.5px solid ${isActive ? col : "rgba(255,255,255,0.12)"}`,
-                                        borderRadius: 8, color: isActive ? "#fff" : COLORS.textSub,
-                                        padding: "7px 18px", fontSize: 13, cursor: "pointer",
-                                        fontWeight: 700, transition: "all .15s",
-                                        display: "flex", alignItems: "center", gap: 6
-                                    }}>
-                                        <span style={{
-                                            width: 8, height: 8, borderRadius: "50%",
-                                            background: isActive ? "#fff" : col, display: "inline-block"
-                                        }} />
-                                        {mp}
-                                    </button>
-                                );
-                            })}
-                        </div>
-                    </div>
-
-                    {/* Ürün Listesi */}
-                    {loading ? (
-                        <div style={{ textAlign: "center", color: COLORS.textMuted, padding: 40 }}>
-                            ⏳ Ürünler yükleniyor...
-                        </div>
-                    ) : filtered.length === 0 ? (
-                        <Card style={{ textAlign: "center", padding: 32 }}>
-                            <div style={{ fontSize: 32, marginBottom: 8 }}>📭</div>
-                            <div style={{ color: COLORS.textMuted, fontSize: 13 }}>Ürün bulunamadı</div>
-                        </Card>
-                    ) : (
-                        <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 520, overflowY: "auto", paddingRight: 4 }}>
-                            {filtered.map(p => {
-                                const isSelected = selectedProduct?._id === p._id;
-                                const status = getProductStatus(p, targetMP);
-                                const statusColor = status === "synced" ? COLORS.success : status === "error" ? COLORS.danger : status ? COLORS.warn : null;
-                                const stock = p.masterProduct?.stock ?? 0;
-                                return (
-                                    <div key={p._id} onClick={() => selectProduct(p)} style={{
-                                        background:   isSelected ? "rgba(111,45,168,0.12)" : COLORS.card,
-                                        border:       `1.5px solid ${isSelected ? COLORS.accent : COLORS.cardBorder}`,
-                                        borderRadius: 10, padding: "12px 14px",
-                                        cursor: "pointer", transition: "all .15s",
-                                        borderLeft: isSelected ? `3px solid ${COLORS.accent}` : undefined
-                                    }}>
-                                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
-                                            <div style={{ flex: 1, minWidth: 0 }}>
-                                                <div style={{
-                                                    color: COLORS.text, fontWeight: 700, fontSize: 13,
-                                                    whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-                                                    marginBottom: 4
-                                                }}>
-                                                    {p.masterProduct?.name || "İsimsiz"}
-                                                </div>
-                                                <div style={{ display: "flex", gap: 10, flexWrap: "wrap", fontSize: 11, color: COLORS.textMuted }}>
-                                                    {p.masterProduct?.category && <span>📂 {p.masterProduct.category}</span>}
-                                                    {p.masterProduct?.brand    && <span>🏷️ {p.masterProduct.brand}</span>}
-                                                    <span>💰 ₺{Number(p.masterProduct?.price || 0).toLocaleString("tr-TR")}</span>
-                                                    <span style={{ color: stock === 0 ? COLORS.danger : stock < 10 ? COLORS.warn : COLORS.success }}>
-                                                        📦 {stock} adet
-                                                    </span>
-                                                </div>
-                                            </div>
-                                            <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-end", flexShrink: 0 }}>
-                                                {status && statusColor && (
-                                                    <span style={{
-                                                        background: `${statusColor}18`, border: `1px solid ${statusColor}33`,
-                                                        borderRadius: 999, padding: "2px 8px",
-                                                        fontSize: 10, fontWeight: 700, color: statusColor
-                                                    }}>
-                                                        {status === "synced" ? "✅ Senkron" : status === "error" ? "❌ Hata" : "⏳ Bekliyor"}
-                                                    </span>
-                                                )}
-                                                {isSelected && (
-                                                    <span style={{ color: COLORS.accent, fontSize: 11, fontWeight: 700 }}>Seçili ✓</span>
-                                                )}
-                                            </div>
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    )}
-                </div>
-
-                {/* Sağ: Revize & Gönder Paneli */}
-                <div style={{ position: "sticky", top: 20 }}>
-                    {!selectedProduct ? (
-                        <Card style={{ textAlign: "center", padding: "48px 24px" }}>
-                            <div style={{ fontSize: 48, marginBottom: 12 }}>👈</div>
-                            <div style={{ color: COLORS.text, fontWeight: 700, fontSize: 15, marginBottom: 6 }}>
-                                Ürün Seçin
-                            </div>
-                            <div style={{ color: COLORS.textMuted, fontSize: 12, lineHeight: 1.6 }}>
-                                Soldan bir ürün seçerek bilgilerini düzenleyebilir ve hedef platforma gönderebilirsiniz.
-                            </div>
-                        </Card>
-                    ) : (
-                        <Card style={{ border: `1.5px solid ${COLORS.accent}44` }}>
-                            {/* Başlık */}
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-                                <div style={{ color: COLORS.text, fontWeight: 700, fontSize: 15 }}>
-                                    ✏️ Ürün Düzenle & Gönder
-                                </div>
-                                <Btn outline color={COLORS.textMuted} onClick={() => { setSelected(null); setResult(null); }}
-                                    style={{ padding: "4px 10px", fontSize: 12 }}>
-                                    ✕ Kapat
-                                </Btn>
-                            </div>
-
-                            {/* Seçili Ürün Özeti */}
-                            <div style={{
-                                background: COLORS.accentSoft, border: `1px solid ${COLORS.accent}33`,
-                                borderRadius: 8, padding: "10px 14px", marginBottom: 14
-                            }}>
-                                <div style={{ color: COLORS.text, fontWeight: 600, fontSize: 13, marginBottom: 2 }}>
-                                    {selectedProduct.masterProduct?.name || "İsimsiz"}
-                                </div>
-                                <div style={{ color: COLORS.textMuted, fontSize: 11 }}>
-                                    SKU: {selectedProduct.masterProduct?.sku || "—"} &nbsp;·&nbsp;
-                                    Barkod: {selectedProduct.masterProduct?.barcode || "—"}
-                                </div>
-                            </div>
-
-                            {/* Hedef Platform */}
-                            <div style={{ marginBottom: 14 }}>
-                                <label style={{ color: COLORS.textMuted, fontSize: 11, display: "block", marginBottom: 6, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                                    Hedef Platform *
-                                </label>
-                                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                                    {MP_OPTIONS.map(mp => {
-                                        const col = MP_COLORS_LOCAL[mp] || COLORS.accent;
-                                        const isActive = targetMP === mp;
-                                        const status = getProductStatus(selectedProduct, mp);
-                                        return (
-                                            <button key={mp} onClick={() => setTargetMP(mp)} style={{
-                                                background: isActive ? col : "transparent",
-                                                border: `1.5px solid ${isActive ? col : "rgba(255,255,255,0.12)"}`,
-                                                borderRadius: 8, color: isActive ? "#fff" : COLORS.textSub,
-                                                padding: "7px 16px", fontSize: 12, cursor: "pointer",
-                                                fontWeight: 700, transition: "all .15s",
-                                                display: "flex", flexDirection: "column", alignItems: "center", gap: 2
-                                            }}>
-                                                <span>{mp}</span>
-                                                {status && (
-                                                    <span style={{ fontSize: 9, opacity: 0.8 }}>
-                                                        {status === "synced" ? "✅ var" : status === "error" ? "❌ hata" : "⏳"}
-                                                    </span>
-                                                )}
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-                            </div>
-
-                            {/* Platform Mevcut Durum Uyarısı */}
-                            {(() => {
-                                const status = getProductStatus(selectedProduct, targetMP);
-                                if (!status) return null;
-                                const cfg = {
-                                    synced: { bg: COLORS.successSoft, color: COLORS.success, msg: "✅ Bu ürün zaten bu platformda mevcut — üzerine yazılacak" },
-                                    error:  { bg: COLORS.dangerSoft,  color: COLORS.danger,  msg: "❌ Önceki yükleme başarısız — tekrar denenebilir" },
-                                };
-                                const c = cfg[status] || { bg: COLORS.warnSoft, color: COLORS.warn, msg: "⏳ Bekliyor — tekrar gönderilebilir" };
-                                return (
-                                    <div style={{ background: c.bg, borderRadius: 8, padding: "8px 12px", marginBottom: 14, color: c.color, fontSize: 12, fontWeight: 600 }}>
-                                        {c.msg}
-                                    </div>
-                                );
-                            })()}
-
-                            {/* Düzenleme Alanları */}
-                            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 14 }}>
-                                {[
-                                    { label: "Ürün Başlığı *", val: editTitle,    set: setEditTitle,    placeholder: "Ürün adını girin" },
-                                    { label: "Marka",           val: editBrand,    set: setEditBrand,    placeholder: "Marka adı" },
-                                    { label: "Kategori *",      val: editCategory, set: setEditCategory, placeholder: "Ürün kategorisi" },
-                                    { label: "Fiyat (₺) *",    val: editPrice,    set: setEditPrice,    placeholder: "0.00", type: "number" },
-                                    { label: "Stok Adedi",      val: editStock,    set: setEditStock,    placeholder: "0",    type: "number" },
-                                ].map(({ label, val, set, placeholder, type }) => (
-                                    <div key={label}>
-                                        <label style={{ color: COLORS.textMuted, fontSize: 11, display: "block", marginBottom: 4, fontWeight: 600 }}>
-                                            {label}
-                                        </label>
-                                        <input
-                                            type={type || "text"}
-                                            value={val}
-                                            onChange={e => set(e.target.value)}
-                                            placeholder={placeholder}
-                                            style={{
-                                                width: "100%", background: "#0f1117",
-                                                border: "1.5px solid rgba(255,255,255,0.1)",
-                                                borderRadius: 8, color: COLORS.text,
-                                                padding: "8px 12px", fontSize: 13, outline: "none",
-                                                transition: "border-color .15s"
-                                            }}
-                                            onFocus={e => { e.target.style.borderColor = COLORS.accent; }}
-                                            onBlur={e => { e.target.style.borderColor = "rgba(255,255,255,0.1)"; }}
-                                        />
-                                    </div>
-                                ))}
-                                <div>
-                                    <label style={{ color: COLORS.textMuted, fontSize: 11, display: "block", marginBottom: 4, fontWeight: 600 }}>
-                                        Açıklama
-                                    </label>
-                                    <textarea
-                                        value={editDesc} onChange={e => setEditDesc(e.target.value)}
-                                        rows={3} placeholder="Ürün açıklaması..."
-                                        style={{
-                                            width: "100%", background: "#0f1117",
-                                            border: "1.5px solid rgba(255,255,255,0.1)",
-                                            borderRadius: 8, color: COLORS.text,
-                                            padding: "8px 12px", fontSize: 13, outline: "none",
-                                            resize: "vertical"
-                                        }}
-                                    />
-                                </div>
-                            </div>
-
-                            {/* Kategori Uyarısı */}
-                            {editCategory && (
-                                <div style={{
-                                    background: COLORS.warnSoft, border: `1px solid ${COLORS.warn}33`,
-                                    borderRadius: 8, padding: "8px 12px", marginBottom: 12,
-                                    color: COLORS.warn, fontSize: 12
-                                }}>
-                                    ⚠️ <strong>"{editCategory}"</strong> kategorisinin N11 mapping'i olduğundan emin olun.
-                                    Eşleştirme yoksa ürün atlanır — <em>Eşleştirilmemiş</em> sekmesini kontrol edin.
-                                </div>
-                            )}
-
-                            {/* Sonuç */}
-                            {result && (
-                                <div style={{
-                                    background: result.type === "success" ? COLORS.successSoft : result.type === "warn" ? COLORS.warnSoft : COLORS.dangerSoft,
-                                    border: `1px solid ${result.type === "success" ? COLORS.success : result.type === "warn" ? COLORS.warn : COLORS.danger}33`,
-                                    borderRadius: 8, padding: "10px 14px", marginBottom: 12,
-                                    color: result.type === "success" ? COLORS.success : result.type === "warn" ? COLORS.warn : COLORS.danger,
-                                    fontSize: 13, fontWeight: 600
-                                }}>
-                                    {result.type === "success" ? "✅" : result.type === "warn" ? "⚠️" : "❌"} {result.message}
-                                </div>
-                            )}
-
-                            {/* Gönder Butonu */}
-                            <div style={{ display: "flex", gap: 8 }}>
-                                <Btn onClick={handleSend} disabled={sending} color={COLORS.accent}
-                                    style={{ flex: 1, padding: "11px 0", fontSize: 14, justifyContent: "center" }}>
-                                    {sending ? "⏳ Gönderiliyor..." : `🚀 ${targetMP}'e Gönder`}
-                                </Btn>
-                            </div>
-                        </Card>
-                    )}
-                </div>
-            </div>
-        </div>
-    );
-};
-
 // ─── Ana Sayfa ────────────────────────────────────────────────────────────────
 
 const CategoryMappingPage = () => {
@@ -1249,7 +817,6 @@ const CategoryMappingPage = () => {
     const tabConfig = [
         { key: "unmapped", label: "Eşleştirilmemiş", icon: "⚠️", badge: unmappedCount, badgeColor: COLORS.warn },
         { key: "mapped",   label: "Kayıtlı Mapping", icon: "✅", badge: mappedCount,   badgeColor: COLORS.success },
-        { key: "send",     label: "Ürün Gönder",     icon: "🚀", badge: null,          badgeColor: null },
     ];
 
     return (
@@ -1267,8 +834,8 @@ const CategoryMappingPage = () => {
                         🗂️ Kategori Eşleştirme Merkezi
                     </h1>
                     <p style={{ color: COLORS.textMuted, fontSize: 12, margin: 0, lineHeight: 1.5 }}>
-                        Trendyol'dan çekilen ürün kategorilerini N11 kategorileriyle eşleştirin ve ürünleri platforma gönderin.
-                        Eşleştirme olmadan ürün gönderilemez.
+                        Platformlar arası kategori eşleştirmelerini yönetin. Eşleştirilmemiş kategoriler otomatik tespit edilir.
+                        Eşleştirme yapılmadan ürün dağıtımı yapılamaz.
                     </p>
                 </div>
                 {/* Özet Sayaçlar */}
@@ -1335,7 +902,6 @@ const CategoryMappingPage = () => {
             {/* ── Sekme İçerikleri ── */}
             {activeTab === "unmapped" && <UnmappedTab onMapped={refreshCount} />}
             {activeTab === "mapped"   && <MappedTab   onChanged={refreshCount} />}
-            {activeTab === "send"     && <SendTab />}
         </div>
     );
 };

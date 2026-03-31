@@ -1,0 +1,272 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   LysiaETIC — Tailwind CSS Entry Point
+   Mobile-first responsive design system
+   ═══════════════════════════════════════════════════════════════════════ */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ═══════════════════════════════════════════════════════════════════════
+   BASE LAYER — Global resets & defaults
+   ═══════════════════════════════════════════════════════════════════════ */
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    -ms-text-size-adjust: 100%;
+    scroll-behavior: smooth;
+    overflow-x: hidden;
+    font-size: 16px;
+  }
+
+  body {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow-x: hidden;
+    min-height: 100vh;
+    min-height: -webkit-fill-available;
+    font-family: "Inter", "Space Grotesk", system-ui, sans-serif;
+    background-color: #0a0e1a;
+    color: #e8edf6;
+    margin: 0;
+    padding: 0;
+  }
+
+  /* Responsive images by default */
+  img,
+  video,
+  svg {
+    max-width: 100%;
+    height: auto;
+    display: block;
+  }
+
+  /* Touch-friendly targets */
+  button,
+  a,
+  input,
+  select,
+  textarea,
+  [role="button"] {
+    min-height: 44px;
+  }
+
+  /* Responsive typography */
+  h1 { font-size: clamp(1.5rem, 4vw, 2.5rem); }
+  h2 { font-size: clamp(1.25rem, 3.5vw, 2rem); }
+  h3 { font-size: clamp(1.1rem, 3vw, 1.5rem); }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   COMPONENTS LAYER — Reusable component classes
+   ═══════════════════════════════════════════════════════════════════════ */
+@layer components {
+  /* ── Glass Card ── */
+  .glass-card {
+    @apply tw-bg-white/5 tw-backdrop-blur-md tw-border tw-border-white/10 tw-rounded-2xl tw-p-4 sm:tw-p-6;
+  }
+
+  /* ── Dashboard Card ── */
+  .dashboard-card {
+    @apply tw-bg-gradient-to-br tw-from-dark-700/80 tw-to-dark-800/80
+           tw-border tw-border-white/10 tw-rounded-2xl
+           tw-p-4 sm:tw-p-6
+           tw-transition-all tw-duration-300 tw-ease-out;
+  }
+
+  .dashboard-card:hover {
+    @apply tw-border-primary/30 tw--translate-y-1;
+    box-shadow: 0 20px 40px rgba(78, 205, 196, 0.15);
+  }
+
+  /* ── Status Badge ── */
+  .status-pill {
+    @apply tw-inline-flex tw-items-center tw-gap-1.5
+           tw-px-3 tw-py-1 tw-rounded-full
+           tw-text-xs tw-font-bold tw-whitespace-nowrap;
+  }
+
+  .status-pill--success {
+    @apply tw-bg-success/10 tw-border tw-border-success/30 tw-text-success;
+  }
+
+  .status-pill--warning {
+    @apply tw-bg-warning/10 tw-border tw-border-warning/30 tw-text-warning;
+  }
+
+  .status-pill--danger {
+    @apply tw-bg-danger/10 tw-border tw-border-danger/30 tw-text-danger;
+  }
+
+  .status-pill--info {
+    @apply tw-bg-info/10 tw-border tw-border-info/30 tw-text-info;
+  }
+
+  /* ── Responsive Grid Layouts ── */
+  .grid-responsive-1 {
+    @apply tw-grid tw-grid-cols-1 tw-gap-4;
+  }
+
+  .grid-responsive-2 {
+    @apply tw-grid tw-grid-cols-1 sm:tw-grid-cols-2 tw-gap-4;
+  }
+
+  .grid-responsive-3 {
+    @apply tw-grid tw-grid-cols-1 sm:tw-grid-cols-2 lg:tw-grid-cols-3 tw-gap-4;
+  }
+
+  .grid-responsive-4 {
+    @apply tw-grid tw-grid-cols-1 sm:tw-grid-cols-2 lg:tw-grid-cols-3 xl:tw-grid-cols-4 tw-gap-4;
+  }
+
+  .grid-responsive-auto {
+    @apply tw-grid tw-gap-4;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  }
+
+  /* ── Responsive Section Padding ── */
+  .section-padding {
+    @apply tw-px-4 sm:tw-px-6 md:tw-px-8 lg:tw-px-12;
+  }
+
+  .section-padding-y {
+    @apply tw-py-4 sm:tw-py-6 md:tw-py-8;
+  }
+
+  /* ── Gradient Text ── */
+  .gradient-text-primary {
+    @apply tw-bg-clip-text tw-text-transparent;
+    background-image: linear-gradient(135deg, #4ecdc4 0%, #44a08d 100%);
+  }
+
+  .gradient-text-accent {
+    @apply tw-bg-clip-text tw-text-transparent;
+    background-image: linear-gradient(135deg, #8b5cf6 0%, #4ecdc4 100%);
+  }
+
+  /* ── Responsive Table Wrapper ── */
+  .table-responsive {
+    @apply tw-w-full tw-overflow-x-auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* ── Mobile Overlay ── */
+  .mobile-overlay {
+    @apply tw-fixed tw-inset-0 tw-bg-black/50 tw-z-[9998] tw-backdrop-blur-sm;
+  }
+
+  /* ── Responsive Button ── */
+  .btn-responsive {
+    @apply tw-w-full sm:tw-w-auto tw-px-4 tw-py-3 sm:tw-px-6 sm:tw-py-3
+           tw-rounded-xl tw-font-semibold tw-text-sm
+           tw-transition-all tw-duration-200 tw-ease-out
+           tw-cursor-pointer tw-border-0;
+  }
+
+  .btn-primary-gradient {
+    @apply btn-responsive tw-text-white;
+    background: linear-gradient(135deg, #4ecdc4 0%, #44a08d 100%);
+    box-shadow: 0 4px 15px rgba(78, 205, 196, 0.3);
+  }
+
+  .btn-primary-gradient:hover {
+    @apply tw--translate-y-0.5;
+    box-shadow: 0 8px 25px rgba(78, 205, 196, 0.4);
+  }
+
+  /* ── Scrollbar Styling ── */
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 10px;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.25);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   UTILITIES LAYER — Custom utility classes
+   ═══════════════════════════════════════════════════════════════════════ */
+@layer utilities {
+  /* Safe area padding for notched devices */
+  .safe-area-top {
+    padding-top: env(safe-area-inset-top);
+  }
+
+  .safe-area-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .safe-area-x {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+
+  /* Text balance for headings */
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  /* Hide scrollbar but keep functionality */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Responsive text sizes */
+  .text-responsive-xs {
+    font-size: clamp(0.7rem, 1.5vw, 0.75rem);
+  }
+
+  .text-responsive-sm {
+    font-size: clamp(0.75rem, 2vw, 0.875rem);
+  }
+
+  .text-responsive-base {
+    font-size: clamp(0.875rem, 2.5vw, 1rem);
+  }
+
+  .text-responsive-lg {
+    font-size: clamp(1rem, 3vw, 1.25rem);
+  }
+
+  .text-responsive-xl {
+    font-size: clamp(1.25rem, 3.5vw, 1.5rem);
+  }
+
+  .text-responsive-2xl {
+    font-size: clamp(1.5rem, 4vw, 2rem);
+  }
+
+  .text-responsive-3xl {
+    font-size: clamp(1.75rem, 5vw, 2.5rem);
+  }
+
+  /* Prevent content overflow */
+  .overflow-wrap {
+    overflow-wrap: break-word;
+    word-wrap: break-word;
+    word-break: break-word;
+  }
+}

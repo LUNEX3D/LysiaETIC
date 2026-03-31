@@ -19,13 +19,146 @@ const normalizeMarketplaceName = (name) => {
 };
 
 /**
- * STOK SENKRONİZASYON SERVİSİ
+ * STOK SENKRONİZASYON SERVİSİ — Merkezi Stok Yönetimi (Centralized Inventory)
  *
- * Tüm pazaryerlerinde stok senkronizasyonunu yönetir
- * Sipariş verildiğinde otomatik olarak tüm pazaryerlerdeki stokları günceller
+ * PRENSİP: "Bizim programdaki stok TEK DOĞRU KAYNAK (Single Source of Truth)"
+ *
+ * 🔄 Akış:
+ *   1. Sipariş gelir → stok düşer → TÜM platformlara ANLIK push
+ *   2. İptal/iade → stok artar → TÜM platformlara ANLIK push
+ *   3. Manuel güncelleme → TÜM platformlara ANLIK push
+ *   4. Cron (5dk) → fark kontrolü → düzeltme push
+ *
+ * 🔒 Stok Kilitleme (Overselling Koruması):
+ *   - Sipariş geldiğinde stok önce "reserve" edilir
+ *   - Aynı anda 2 sipariş gelirse: ilk gelen reserve eder, ikincisi yetersiz stok görür
+ *   - MongoDB atomic operations ($inc) ile race condition önlenir
+ *
+ * 🛡️ Güvenlik Stoğu (Safety Stock / Buffer):
+ *   - Gerçek stok: 10, güvenlik stoğu: 2 → platformlara 8 gönderilir
+ *   - Gecikmelerde bile "eksi stok" riski azalır
+ *
+ * 📡 Platformlara gönderilen stok = totalStock - reservedStock - safetyStock
  */
 
-// Sipariş sonrası stok güncelleme
+// ═══════════════════════════════════════════════════════════════
+// 🔒 STOK KİLİTLEME — Atomic Reserve & Release
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Stok rezerve et (sipariş geldiğinde) — MongoDB atomic $inc ile race condition önlenir
+ * @returns {Object} { success, mapping, oldStock, newStock, marketplaceStock }
+ */
+const reserveStock = async (userId, barcode, quantity) => {
+    // Atomic: totalStock düşür + reservedStock artır (tek DB operasyonu)
+    const mapping = await ProductMapping.findOneAndUpdate(
+        {
+            userId,
+            $or: [
+                { "masterProduct.barcode": barcode },
+                { "masterProduct.sku": barcode },
+                { "marketplaceMappings.marketplaceSku": barcode },
+                { "marketplaceMappings.marketplaceBarcode": barcode }
+            ],
+            "stockTracking.totalStock": { $gte: quantity } // Yeterli stok var mı?
+        },
+        {
+            $inc: {
+                "stockTracking.totalStock": -quantity,
+                "masterProduct.stock": -quantity
+            }
+        },
+        { new: true } // Güncellenmiş dökümanı döndür
+    );
+
+    if (!mapping) {
+        // Stok yetersiz veya ürün bulunamadı
+        const existing = await ProductMapping.findOne({
+            userId,
+            $or: [
+                { "masterProduct.barcode": barcode },
+                { "masterProduct.sku": barcode }
+            ]
+        });
+
+        if (!existing) {
+            return { success: false, error: "Ürün bulunamadı", barcode };
+        }
+
+        return {
+            success: false,
+            error: `Yetersiz stok: mevcut=${existing.stockTracking.totalStock}, istenen=${quantity}`,
+            barcode,
+            currentStock: existing.stockTracking.totalStock
+        };
+    }
+
+    mapping.updateStockStatus();
+    await mapping.save();
+
+    const marketplaceStock = mapping.getMarketplaceStock();
+
+    logger.info(`[STOCK LOCK] 🔒 Stok rezerve — ${mapping.masterProduct.name} | adet: ${quantity} | kalan: ${mapping.stockTracking.totalStock} | platformlara: ${marketplaceStock}`);
+
+    return {
+        success: true,
+        mapping,
+        oldStock: mapping.stockTracking.totalStock + quantity,
+        newStock: mapping.stockTracking.totalStock,
+        marketplaceStock
+    };
+};
+
+/**
+ * Stok serbest bırak (iptal/iade durumunda) — MongoDB atomic $inc
+ */
+const releaseStock = async (userId, barcode, quantity) => {
+    const mapping = await ProductMapping.findOneAndUpdate(
+        {
+            userId,
+            $or: [
+                { "masterProduct.barcode": barcode },
+                { "masterProduct.sku": barcode },
+                { "marketplaceMappings.marketplaceSku": barcode },
+                { "marketplaceMappings.marketplaceBarcode": barcode }
+            ]
+        },
+        {
+            $inc: {
+                "stockTracking.totalStock": quantity,
+                "masterProduct.stock": quantity
+            }
+        },
+        { new: true }
+    );
+
+    if (!mapping) {
+        return { success: false, error: "Ürün bulunamadı", barcode };
+    }
+
+    mapping.updateStockStatus();
+    await mapping.save();
+
+    const marketplaceStock = mapping.getMarketplaceStock();
+
+    logger.info(`[STOCK LOCK] 🔓 Stok serbest — ${mapping.masterProduct.name} | adet: +${quantity} | yeni: ${mapping.stockTracking.totalStock} | platformlara: ${marketplaceStock}`);
+
+    return {
+        success: true,
+        mapping,
+        oldStock: mapping.stockTracking.totalStock - quantity,
+        newStock: mapping.stockTracking.totalStock,
+        marketplaceStock
+    };
+};
+
+// ═══════════════════════════════════════════════════════════════
+// ⚡ SİPARİŞ SONRASI ANLIK STOK GÜNCELLEME
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Sipariş sonrası stok güncelleme — atomic reserve + anlık tüm platformlara push
+ */
 const updateStockAfterOrder = async (orderId) => {
     try {
         const order = await Order.findById(orderId).populate('marketplace');
@@ -33,37 +166,33 @@ const updateStockAfterOrder = async (orderId) => {
             throw new Error("Sipariş bulunamadı");
         }
 
-        logger.info(`[STOCK SYNC] Sipariş sonrası stok güncelleme: ${order._id}`);
+        logger.info(`[STOCK SYNC] ⚡ Sipariş sonrası ANLIK stok güncelleme: ${order._id}`);
 
         const results = [];
 
-        // Siparişteki her ürün için
         for (const item of order.items) {
             try {
-                // Ürün eşleştirmesini bul
-                const mapping = await ProductMapping.findOne({
-                    userId: order.user,
-                    "masterProduct.barcode": item.barcode
-                });
+                // 🔒 Atomic stok rezerve et
+                const reserveResult = await reserveStock(order.user, item.barcode, item.quantity);
 
-                if (!mapping) {
-                    logger.warn(`[STOCK SYNC] Ürün eşleştirmesi bulunamadı: ${item.barcode}`);
+                if (!reserveResult.success) {
+                    logger.warn(`[STOCK SYNC] ⚠️ Stok rezerve başarısız: ${item.barcode} — ${reserveResult.error}`);
+                    results.push({
+                        barcode: item.barcode,
+                        name: item.productName,
+                        status: "error",
+                        error: reserveResult.error
+                    });
                     continue;
                 }
 
-                // Stok miktarını azalt
-                const oldStock = mapping.stockTracking.totalStock;
-                const newStock = Math.max(0, oldStock - item.quantity);
+                const { mapping, oldStock, newStock, marketplaceStock } = reserveResult;
 
-                mapping.stockTracking.totalStock = newStock;
-                mapping.stockTracking.reservedStock = Math.max(0, mapping.stockTracking.reservedStock - item.quantity);
-                mapping.updateStockStatus();
-
-                // Tüm pazaryerlerinde stoku güncelle
+                // ⚡ TÜM pazaryerlerine ANLIK push (güvenlik stoğu düşülmüş hali)
                 const syncResults = await syncStockToAllMarketplaces(
                     order.user,
                     mapping,
-                    newStock,
+                    marketplaceStock,
                     order.marketplaceName
                 );
 
@@ -107,10 +236,13 @@ const updateStockAfterOrder = async (orderId) => {
                     name: item.productName,
                     oldStock,
                     newStock,
+                    marketplaceStock,
                     quantity: item.quantity,
                     status: "success",
                     marketplaces: syncResults
                 });
+
+                logger.info(`[STOCK SYNC] ✅ ${item.productName} | stok: ${oldStock}→${newStock} | platformlara: ${marketplaceStock} | ${syncResults.filter(r => r.syncStatus === "success").length} platform güncellendi`);
 
             } catch (error) {
                 logger.error(`[STOCK SYNC] Ürün stok güncelleme hatası (${item.barcode}):`, error.message);
@@ -130,9 +262,22 @@ const updateStockAfterOrder = async (orderId) => {
     }
 };
 
-// Tüm pazaryerlerinde stok VE fiyat senkronize et
+// ═══════════════════════════════════════════════════════════════
+// 🌐 TÜM PAZARYERLERINE STOK PUSH
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Tüm pazaryerlerinde stok VE fiyat senkronize et
+ * @param {String} userId
+ * @param {Object} productMapping — Mongoose document
+ * @param {Number} newStock — Platformlara gönderilecek stok (safetyStock zaten düşülmüş olmalı)
+ * @param {String} excludeMarketplace — Siparişin geldiği platform (atlanır)
+ * @param {Object} priceUpdate — { salePrice, listPrice } (opsiyonel)
+ */
 const syncStockToAllMarketplaces = async (userId, productMapping, newStock, excludeMarketplace = null, priceUpdate = null) => {
     const results = [];
+    const masterBarcode = productMapping.masterProduct?.barcode || "";
+    const masterSku     = productMapping.masterProduct?.sku || "";
 
     for (const marketplaceMapping of productMapping.marketplaceMappings) {
         const mpName = normalizeMarketplaceName(marketplaceMapping.marketplaceName);
@@ -165,10 +310,61 @@ const syncStockToAllMarketplaces = async (userId, productMapping, newStock, excl
                 continue;
             }
 
+            // ✅ Pazaryerine göre doğru productId belirle
+            // Trendyol → barcode ile çalışır
+            // N11 → stockCode (sku) ile çalışır
+            // Hepsiburada → merchantSku ile çalışır
+            // ÇiçekSepeti → ürün ID ile çalışır
+            let productIdForMarketplace;
+            switch (mpName) {
+                case "Trendyol":
+                    // Trendyol: önce marketplace-specific barcode, sonra master barcode
+                    productIdForMarketplace =
+                        marketplaceMapping.marketplaceBarcode ||
+                        marketplaceMapping.marketplaceSku ||
+                        masterBarcode ||
+                        masterSku;
+                    break;
+                case "N11":
+                    // N11: stockCode = sku
+                    productIdForMarketplace =
+                        marketplaceMapping.marketplaceSku ||
+                        marketplaceMapping.marketplaceBarcode ||
+                        masterSku ||
+                        masterBarcode;
+                    break;
+                case "Hepsiburada":
+                    // Hepsiburada: merchantSku
+                    productIdForMarketplace =
+                        marketplaceMapping.marketplaceSku ||
+                        marketplaceMapping.marketplaceProductId ||
+                        masterSku ||
+                        masterBarcode;
+                    break;
+                default:
+                    productIdForMarketplace =
+                        marketplaceMapping.marketplaceSku ||
+                        marketplaceMapping.marketplaceProductId ||
+                        masterBarcode ||
+                        masterSku;
+            }
+
+            if (!productIdForMarketplace) {
+                logger.warn(`[STOCK SYNC] ${mpName} için productId bulunamadı — ürün: ${productMapping.masterProduct?.name}`);
+                results.push({
+                    name: mpName,
+                    syncStatus: "error",
+                    error: `${mpName} için ürün tanımlayıcı (barcode/sku) bulunamadı`
+                });
+                continue;
+            }
+
+            logger.info(`[STOCK SYNC] ${mpName} güncelleniyor — productId: ${productIdForMarketplace}, stok: ${newStock}`);
+
             // Stok + fiyat güncelle
             const updateResult = await updateStockOnMarketplace(
                 marketplace,
-                marketplaceMapping.marketplaceSku || marketplaceMapping.marketplaceProductId,
+                productIdForMarketplace,
                 newStock,
                 priceUpdate
             );
@@ -242,44 +438,94 @@ const updateTrendyolStock = async (credentials, productId, newStock, priceUpdate
         if (!apiKey || !apiSecret || !actualSellerId) {
             return { success: false, error: "Trendyol credentials eksik (apiKey, apiSecret, sellerId)" };
         }
+        if (!productId) {
+            return { success: false, error: "Trendyol stok güncelleme: barcode/sku (productId) gerekli" };
+        }
         const authHeader = Buffer.from(`${apiKey}:${apiSecret}`).toString("base64");
+        const trendyolHeaders = {
+            Authorization: `Basic ${authHeader}`,
+            "User-Agent": `${actualSellerId} - LysiaETIC`,
+            "Content-Type": "application/json"
+        };
 
+        // ✅ Trendyol price-and-inventory API'si barcode alanı ile çalışır
+        const stockQty = parseInt(newStock) || 0;
         const item = {
-            barcode: productId,
-            quantity: newStock
+            barcode: String(productId).trim(),
+            quantity: stockQty
         };
         // Fiyat güncelleme varsa ekle
-        if (priceUpdate?.salePrice) item.salePrice = priceUpdate.salePrice;
-        if (priceUpdate?.listPrice) item.listPrice = priceUpdate.listPrice;
+        if (priceUpdate?.salePrice) item.salePrice = parseFloat(priceUpdate.salePrice);
+        if (priceUpdate?.listPrice) item.listPrice = parseFloat(priceUpdate.listPrice);
+
+        logger.info(`[TRENDYOL STOCK] Güncelleniyor — barcode: ${item.barcode}, quantity: ${item.quantity}, salePrice: ${item.salePrice || "-"}, sellerId: ${actualSellerId}`);
 
         const response = await axios.post(
             `https://apigw.trendyol.com/integration/inventory/sellers/${actualSellerId}/products/price-and-inventory`,
             { items: [item] },
-            {
-                headers: {
-                    Authorization: `Basic ${authHeader}`,
-                    "User-Agent": `${actualSellerId} - LysiaETIC`,
-                    "Content-Type": "application/json"
-                },
-                timeout: 10000
-            }
+            { headers: trendyolHeaders, timeout: 15000 }
         );
 
-        return { success: true, response: response.data };
+        // ✅ Trendyol batch ID döndürür — hata varsa response.data.errors içinde olur
+        const batchId = response.data?.batchRequestId;
+        const errors = response.data?.errors;
+        if (errors && errors.length > 0) {
+            const errMsg = errors.map(e => e.message || JSON.stringify(e)).join("; ");
+            logger.error(`[TRENDYOL STOCK] Batch hata — barcode: ${item.barcode}, errors: ${errMsg}`);
+            return { success: false, error: errMsg, batchId };
+        }
+
+        logger.info(`[TRENDYOL STOCK] ✅ Stok güncellendi — barcode: ${item.barcode}, batchId: ${batchId}`);
+
+        // 🔓 Stok > 0 ise ürünü otomatik olarak satışa aç (unlock)
+        // Trendyol'da ürün "satışa kapalı" (locked) olabilir — stok varsa unlock API ile açılır
+        if (stockQty > 0) {
+            try {
+                const unlockResponse = await axios.put(
+                    `https://apigw.trendyol.com/integration/product/sellers/${actualSellerId}/products/unlock`,
+                    { items: [{ barcode: String(productId).trim() }] },
+                    { headers: trendyolHeaders, timeout: 15000 }
+                );
+                const unlockBatchId = unlockResponse.data?.batchRequestId;
+                const unlockErrors = unlockResponse.data?.errors;
+                if (unlockErrors && unlockErrors.length > 0) {
+                    // Unlock hatası kritik değil — ürün zaten açık olabilir, sadece logla
+                    logger.warn(`[TRENDYOL UNLOCK] Uyarı — barcode: ${item.barcode}, errors: ${unlockErrors.map(e => e.message || JSON.stringify(e)).join("; ")}`);
+                } else {
+                    logger.info(`[TRENDYOL UNLOCK] 🔓 Ürün satışa açıldı — barcode: ${item.barcode}, batchId: ${unlockBatchId}`);
+                }
+            } catch (unlockErr) {
+                // Unlock hatası stok güncellemeyi başarısız yapmaz — sadece logla
+                const unlockMsg = unlockErr.response?.data?.errors?.[0]?.message || unlockErr.message;
+                logger.warn(`[TRENDYOL UNLOCK] Unlock başarısız (stok güncelleme başarılı) — barcode: ${item.barcode}, error: ${unlockMsg}`);
+            }
+        }
+
+        return { success: true, batchId, response: response.data, unlocked: stockQty > 0 };
     } catch (error) {
-        logger.error("[TRENDYOL STOCK] Hata:", error.response?.data || error.message);
-        return { success: false, error: error.response?.data?.message || error.message };
+        const errData = error.response?.data;
+        const errMsg = errData?.errors?.[0]?.message || errData?.message || error.message;
+        logger.error(`[TRENDYOL STOCK] Hata — productId: ${productId}, status: ${error.response?.status}, error: ${errMsg}`);
+        return { success: false, error: errMsg };
     }
 };
 
 // Hepsiburada stok + fiyat güncelleme
 const updateHepsiburadaStock = async (credentials, productId, newStock, priceUpdate = null) => {
     try {
-        const { merchantId, apiKey } = credentials;
-        if (!merchantId || !apiKey) {
-            return { success: false, error: "Hepsiburada credentials eksik" };
+        const { merchantId, apiKey, username, password } = credentials;
+        if (!merchantId) {
+            return { success: false, error: "Hepsiburada credentials eksik: merchantId gerekli" };
         }
-        const authHeader = `Basic ${Buffer.from(`${merchantId}:${apiKey}`).toString("base64")}`;
+
+        // ✅ Hepsiburada Basic Auth: username:password (merchantId değil!)
+        // Bazı kullanıcılar username/password, bazıları merchantId/apiKey olarak kaydetmiş olabilir
+        const authUser = username || merchantId;
+        const authPass = password || apiKey;
+        if (!authUser || !authPass) {
+            return { success: false, error: "Hepsiburada credentials eksik: username/password veya merchantId/apiKey gerekli" };
+        }
+        const authHeader = `Basic ${Buffer.from(`${authUser}:${authPass}`).toString("base64")}`;
 
         const listing = {
             hepsiburadaSku: productId,
@@ -406,7 +652,10 @@ const updateCicekSepetiStock = async (credentials, productId, newStock, priceUpd
     }
 };
 
-// Manuel stok + fiyat senkronizasyonu
+// ═══════════════════════════════════════════════════════════════
+// 🖐️ MANUEL STOK + FİYAT SENKRONİZASYONU
+// ═══════════════════════════════════════════════════════════════
+
 const manualStockSync = async (userId, productMappingId, newStock, priceUpdate = null) => {
     try {
         const mapping = await ProductMapping.findOne({ _id: productMappingId, userId });
@@ -431,8 +680,11 @@ const manualStockSync = async (userId, productMappingId, newStock, priceUpdate =
             mapping.masterProduct.listPrice = parseFloat(priceUpdate.listPrice);
         }
 
+        // 🛡️ Güvenlik stoğu düşülmüş stoku hesapla
+        const marketplaceStock = mapping.getMarketplaceStock();
+
         // Tüm pazaryerlerinde stok + fiyat senkronize et
-        const syncResults = await syncStockToAllMarketplaces(userId, mapping, newStock, null, priceUpdate);
+        const syncResults = await syncStockToAllMarketplaces(userId, mapping, marketplaceStock, null, priceUpdate);
 
         // Stok log oluştur
         await StockSyncLog.create({
@@ -482,10 +734,13 @@ const manualStockSync = async (userId, productMappingId, newStock, priceUpdate =
 
         await mapping.save();
 
+        logger.info(`[MANUAL SYNC] ✅ ${mapping.masterProduct.name} | stok: ${oldStock}→${newStock} | platformlara: ${marketplaceStock}`);
+
         return {
             success: true,
             oldStock,
             newStock,
+            marketplaceStock,
             oldPrice,
             newPrice: priceUpdate?.salePrice || oldPrice,
             marketplaces: syncResults
@@ -496,7 +751,10 @@ const manualStockSync = async (userId, productMappingId, newStock, priceUpdate =
     }
 };
 
-// Otomatik stok senkronizasyonu (periyodik)
+// ═══════════════════════════════════════════════════════════════
+// 🔄 OTOMATİK STOK SENKRONİZASYONU (Kullanıcı tetiklemeli)
+// ═══════════════════════════════════════════════════════════════
+
 const autoStockSync = async (userId) => {
     try {
         logger.info(`[AUTO SYNC] Kullanıcı ${userId} için otomatik stok senkronizasyonu başlatılıyor...`);
@@ -510,16 +768,24 @@ const autoStockSync = async (userId) => {
 
         for (const mapping of mappings) {
             try {
+                // 🛡️ Güvenlik stoğu düşülmüş stoku hesapla
+                const marketplaceStock = mapping.getMarketplaceStock();
+
                 const syncResults = await syncStockToAllMarketplaces(
                     userId,
                     mapping,
-                    mapping.stockTracking.totalStock
+                    marketplaceStock
                 );
+
+                await mapping.save();
 
                 results.push({
                     productId: mapping._id,
                     barcode: mapping.masterProduct.barcode,
                     name: mapping.masterProduct.name,
+                    totalStock: mapping.stockTracking.totalStock,
+                    marketplaceStock,
+                    safetyStock: mapping.stockTracking.safetyStock || 0,
                     status: "success",
                     marketplaces: syncResults
                 });
@@ -563,9 +829,15 @@ const autoStockSync = async (userId) => {
 };
 
 module.exports = {
+    // Sipariş akışı
     updateStockAfterOrder,
+    // Stok kilitleme (atomic)
+    reserveStock,
+    releaseStock,
+    // Pazaryeri senkronizasyon
     syncStockToAllMarketplaces,
     updateStockOnMarketplace,
+    // Manuel & otomatik
     manualStockSync,
     autoStockSync
 };

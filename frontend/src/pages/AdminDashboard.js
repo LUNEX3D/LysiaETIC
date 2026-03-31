@@ -1,310 +1,406 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
 import {
-    FaUsers,
-    FaBoxOpen,
-    FaClipboardList,
-    FaServer,
-    FaUserShield,
-    FaChartLine,
-    FaArrowRight,
-    FaBolt,
-    FaShieldAlt,
-    FaSlidersH,
-    FaStore
+    FaUsers, FaBuilding, FaCrown, FaCreditCard, FaPlug,
+    FaChartBar, FaBullhorn, FaTicketAlt, FaHistory, FaCog,
+    FaArrowRight, FaBolt, FaServer, FaChartLine, FaBoxOpen,
+    FaClipboardList, FaExclamationTriangle, FaCheckCircle,
+    FaTimesCircle, FaClock, FaArrowUp, FaArrowDown, FaSync,
+    FaDatabase, FaMemory, FaMicrochip
 } from "react-icons/fa";
-import axios from "../services/api";
 import AdminLayout from "../components/AdminLayout";
+import { getDashboardMetrics } from "../services/saasAdminApi";
 
 const AdminDashboard = () => {
-    const [users, setUsers] = useState([]);
-    const [marketplacesByUser, setMarketplacesByUser] = useState({});
+    const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
+    const [lastRefresh, setLastRefresh] = useState(null);
 
-    useEffect(() => {
-        const loadData = async () => {
-            setLoading(true);
-            setError("");
-            try {
-                const userResponse = await axios.get("/admin/users", {
-                    headers: { Authorization: `Bearer ${localStorage.getItem("token")}` }
-                });
-                const userList = Array.isArray(userResponse.data) ? userResponse.data : [];
-                setUsers(userList);
-
-                if (!userList.length) {
-                    setMarketplacesByUser({});
-                    setLoading(false);
-                    return;
-                }
-
-                const entries = await Promise.all(
-                    userList.map(async user => {
-                        try {
-                            const res = await axios.get(
-                                `/marketplace/user-marketplaces/${user._id}`,
-                                { headers: { Authorization: `Bearer ${localStorage.getItem("token")}` } }
-                            );
-                            return [user._id, res.data || []];
-                        } catch {
-                            return [user._id, []];
-                        }
-                    })
-                );
-                setMarketplacesByUser(Object.fromEntries(entries));
-            } catch (err) {
-                console.error(err);
-                setError("Veriler alınamadı. Lütfen tekrar deneyin.");
-            } finally {
-                setLoading(false);
-            }
-        };
-        loadData();
+    const loadData = useCallback(async () => {
+        setLoading(true);
+        setError("");
+        try {
+            const res = await getDashboardMetrics();
+            setData(res.data);
+            setLastRefresh(new Date());
+        } catch (err) {
+            console.error(err);
+            setError("Dashboard verileri alınamadı. Lütfen tekrar deneyin.");
+        } finally {
+            setLoading(false);
+        }
     }, []);
 
-    const marketplaceList = useMemo(() => Object.values(marketplacesByUser).flat(), [marketplacesByUser]);
+    useEffect(() => { loadData(); }, [loadData]);
 
-    const userMap = useMemo(() => {
-        return users.reduce((acc, u) => { acc[u._id] = u; return acc; }, {});
-    }, [users]);
+    // Auto-refresh every 60 seconds
+    useEffect(() => {
+        const interval = setInterval(loadData, 60000);
+        return () => clearInterval(interval);
+    }, [loadData]);
 
-    const totalIntegrations = marketplaceList.length;
-    const uniqueMarketplaces = useMemo(() => new Set(marketplaceList.map(m => m.marketplaceName || "Diğer")), [marketplaceList]);
-    const usersWithoutIntegrations = useMemo(() => users.filter(u => (marketplacesByUser[u._id] || []).length === 0).length, [users, marketplacesByUser]);
+    const fmt = (n) => {
+        if (n === undefined || n === null) return "0";
+        if (n >= 1000000) return (n / 1000000).toFixed(1) + "M";
+        if (n >= 1000) return (n / 1000).toFixed(1) + "K";
+        return n.toLocaleString("tr-TR");
+    };
 
-    const marketplaceStats = useMemo(() => {
-        const stats = {};
-        marketplaceList.forEach(m => {
-            const name = m.marketplaceName || "Diğer";
-            stats[name] = (stats[name] || 0) + 1;
-        });
-        return Object.entries(stats).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
-    }, [marketplaceList]);
+    const fmtMoney = (n) => {
+        if (!n) return "₺0";
+        return "₺" + n.toLocaleString("tr-TR", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    };
 
-    const latestIntegrations = useMemo(() => {
-        return [...marketplaceList]
-            .map(m => ({ ...m, userName: userMap[m.userId]?.name || "Bilinmeyen" }))
-            .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
-            .slice(0, 5);
-    }, [marketplaceList, userMap]);
-
-    const userIntegrationSummary = useMemo(() => {
-        return users
-            .map(u => ({ id: u._id, name: u.name, email: u.email, count: (marketplacesByUser[u._id] || []).length }))
-            .sort((a, b) => b.count - a.count)
-            .slice(0, 6);
-    }, [users, marketplacesByUser]);
+    const fmtUptime = (sec) => {
+        if (!sec) return "—";
+        const d = Math.floor(sec / 86400);
+        const h = Math.floor((sec % 86400) / 3600);
+        const m = Math.floor((sec % 3600) / 60);
+        if (d > 0) return `${d}g ${h}s ${m}dk`;
+        if (h > 0) return `${h}s ${m}dk`;
+        return `${m}dk`;
+    };
 
     return (
         <AdminLayout
-            title="Genel Bakış"
-            subtitle="Sistem durumu, pazaryeri entegrasyonları ve operasyon kontrolü"
+            title="SaaS Dashboard"
+            subtitle="Platform genel görünüm — tüm metrikleri tek ekrandan izle"
             actions={
                 <div className="ap-actions">
-                    <button className="ap-btn ap-btn--ghost">Rapor İndir</button>
-                    <button className="ap-btn ap-btn--primary">Yeni Duyuru</button>
+                    {lastRefresh && (
+                        <span style={{ fontSize: 11, color: "var(--ap-muted)", marginRight: 8 }}>
+                            Son: {lastRefresh.toLocaleTimeString("tr-TR")}
+                        </span>
+                    )}
+                    <button className="ap-btn ap-btn--ghost" onClick={loadData} disabled={loading}>
+                        <FaSync className={loading ? "ap-spin-icon" : ""} /> Yenile
+                    </button>
                 </div>
             }
         >
-            {error && <div className="ap-alert ap-alert--error">{error}</div>}
-            {loading && <div className="ap-loading">Veriler yükleniyor...</div>}
+            {error && <div className="ap-alert ap-alert--error"><FaExclamationTriangle /> {error}</div>}
+            {loading && !data && <div className="ap-loading">Dashboard yükleniyor...</div>}
 
-            {!loading && (
+            {data && (
                 <>
-                    {/* ─── KPI Cards ─── */}
+                    {/* ═══ KPI CARDS — Ana Metrikler ═══ */}
                     <div className="ap-kpi-grid">
                         <div className="ap-kpi">
                             <div className="ap-kpi-icon ap-kpi-icon--purple"><FaUsers /></div>
                             <div className="ap-kpi-label">Toplam Kullanıcı</div>
-                            <div className="ap-kpi-val">{users.length}</div>
-                            <div className="ap-kpi-sub">Kayıtlı hesap</div>
+                            <div className="ap-kpi-val">{fmt(data.users?.total)}</div>
+                            <div className="ap-kpi-sub">
+                                <FaArrowUp style={{ color: "var(--ap-green)", fontSize: 10 }} />
+                                <span style={{ color: "var(--ap-green)" }}>+{data.users?.todayRegistrations || 0}</span> bugün
+                            </div>
                         </div>
                         <div className="ap-kpi">
-                            <div className="ap-kpi-icon ap-kpi-icon--green"><FaStore /></div>
-                            <div className="ap-kpi-label">Toplam Entegrasyon</div>
-                            <div className="ap-kpi-val">{totalIntegrations}</div>
-                            <div className="ap-kpi-sub">Bağlı pazaryeri</div>
+                            <div className="ap-kpi-icon ap-kpi-icon--green"><FaCrown /></div>
+                            <div className="ap-kpi-label">Aktif Abonelik</div>
+                            <div className="ap-kpi-val">{fmt(data.subscriptions?.active)}</div>
+                            <div className="ap-kpi-sub">
+                                {data.subscriptions?.trial || 0} deneme · {data.subscriptions?.expired || 0} süresi dolmuş
+                            </div>
                         </div>
                         <div className="ap-kpi">
-                            <div className="ap-kpi-icon ap-kpi-icon--blue"><FaChartLine /></div>
-                            <div className="ap-kpi-label">Pazaryeri Çeşidi</div>
-                            <div className="ap-kpi-val">{uniqueMarketplaces.size}</div>
-                            <div className="ap-kpi-sub">Aktif platform</div>
+                            <div className="ap-kpi-icon ap-kpi-icon--blue"><FaCreditCard /></div>
+                            <div className="ap-kpi-label">Platform Geliri</div>
+                            <div className="ap-kpi-val">{fmtMoney(data.payments?.platformRevenue)}</div>
+                            <div className="ap-kpi-sub">
+                                Bu ay: {fmtMoney(data.payments?.monthlyRevenue)}
+                            </div>
                         </div>
                         <div className="ap-kpi">
-                            <div className="ap-kpi-icon ap-kpi-icon--orange"><FaBolt /></div>
-                            <div className="ap-kpi-label">Entegrasyonsuz</div>
-                            <div className="ap-kpi-val">{usersWithoutIntegrations}</div>
-                            <div className="ap-kpi-sub">Dikkat gerektirir</div>
+                            <div className="ap-kpi-icon ap-kpi-icon--orange"><FaClipboardList /></div>
+                            <div className="ap-kpi-label">Toplam Sipariş</div>
+                            <div className="ap-kpi-val">{fmt(data.orders?.total)}</div>
+                            <div className="ap-kpi-sub">
+                                Bugün: {data.orders?.today || 0} · Hafta: {data.orders?.week || 0}
+                            </div>
+                        </div>
+                        <div className="ap-kpi">
+                            <div className="ap-kpi-icon ap-kpi-icon--cyan"><FaPlug /></div>
+                            <div className="ap-kpi-label">Entegrasyon</div>
+                            <div className="ap-kpi-val">{fmt(data.integrations?.total)}</div>
+                            <div className="ap-kpi-sub">
+                                {data.integrations?.distribution?.length || 0} farklı platform
+                            </div>
+                        </div>
+                        <div className="ap-kpi">
+                            <div className="ap-kpi-icon ap-kpi-icon--yellow"><FaBoxOpen /></div>
+                            <div className="ap-kpi-label">Toplam Ürün</div>
+                            <div className="ap-kpi-val">{fmt(data.products?.total)}</div>
+                            <div className="ap-kpi-sub">Tüm firmalar</div>
+                        </div>
+                        <div className="ap-kpi">
+                            <div className="ap-kpi-icon ap-kpi-icon--red"><FaTicketAlt /></div>
+                            <div className="ap-kpi-label">Açık Ticket</div>
+                            <div className="ap-kpi-val">{fmt(data.tickets?.open)}</div>
+                            <div className="ap-kpi-sub">Toplam: {data.tickets?.total || 0}</div>
+                        </div>
+                        <div className="ap-kpi">
+                            <div className="ap-kpi-icon ap-kpi-icon--green"><FaCheckCircle /></div>
+                            <div className="ap-kpi-label">Aktif Kullanıcı</div>
+                            <div className="ap-kpi-val">{fmt(data.users?.active)}</div>
+                            <div className="ap-kpi-sub">Son 7 gün</div>
                         </div>
                     </div>
 
-                    {/* ─── Quick Actions ─── */}
+                    {/* ═══ HIZLI İŞLEMLER ═══ */}
                     <div className="ap-card">
                         <div className="ap-card-head"><FaBolt /> Hızlı İşlemler</div>
-                        <div className="ap-grid ap-grid--3">
-                            <Link to="/admin/users" className="ap-quick">
-                                <div className="ap-quick-icon ap-quick-icon--purple"><FaUsers /></div>
-                                <div>
-                                    <div className="ap-quick-title">Kullanıcı Yönetimi</div>
-                                    <div className="ap-quick-sub">Rol, yetki ve profil kontrolü</div>
-                                </div>
-                                <FaArrowRight className="ap-quick-arrow" />
-                            </Link>
-                            <Link to="/admin/products" className="ap-quick">
-                                <div className="ap-quick-icon ap-quick-icon--green"><FaBoxOpen /></div>
-                                <div>
-                                    <div className="ap-quick-title">Ürün Operasyonları</div>
-                                    <div className="ap-quick-sub">Listeleme ve toplu işlemler</div>
-                                </div>
-                                <FaArrowRight className="ap-quick-arrow" />
-                            </Link>
-                            <Link to="/admin/orders" className="ap-quick">
-                                <div className="ap-quick-icon ap-quick-icon--blue"><FaClipboardList /></div>
-                                <div>
-                                    <div className="ap-quick-title">Sipariş Kontrolü</div>
-                                    <div className="ap-quick-sub">Durum ve iade yönetimi</div>
-                                </div>
-                                <FaArrowRight className="ap-quick-arrow" />
-                            </Link>
-                        </div>
-                    </div>
-
-                    {/* ─── Two Column: Dev Areas + Marketplace Stats ─── */}
-                    <div className="ap-grid ap-grid--2">
-                        <div className="ap-card">
-                            <div className="ap-card-head"><FaShieldAlt /> Geliştirici Alanları</div>
-                            <div className="ap-list">
-                                <div className="ap-row">
-                                    <div className="ap-row-left">
-                                        <div className="ap-kpi-icon ap-kpi-icon--red" style={{ width: 36, height: 36, borderRadius: 10, fontSize: 14 }}>
-                                            <FaShieldAlt />
-                                        </div>
-                                        <div>
-                                            <div className="ap-row-title">Yetki Motoru</div>
-                                            <div className="ap-row-sub">Gelişmiş rol haritası ve erişim profilleri</div>
-                                        </div>
+                        <div className="ap-grid ap-grid--4">
+                            {[
+                                { to: "/admin/tenants", icon: <FaBuilding />, color: "purple", title: "Firma Yönetimi", sub: "Firmalar, durum, askıya alma" },
+                                { to: "/admin/subscriptions", icon: <FaCrown />, color: "green", title: "Abonelik Yönetimi", sub: "Paket oluştur, plan değiştir" },
+                                { to: "/admin/payments", icon: <FaCreditCard />, color: "blue", title: "Ödeme & Fatura", sub: "Ödeme geçmişi, faturalar" },
+                                { to: "/admin/tickets", icon: <FaTicketAlt />, color: "orange", title: "Destek Talepleri", sub: `${data.tickets?.open || 0} açık ticket` },
+                                { to: "/admin/integrations", icon: <FaPlug />, color: "cyan", title: "Entegrasyonlar", sub: "Pazaryeri bağlantıları" },
+                                { to: "/admin/usage", icon: <FaChartLine />, color: "yellow", title: "Kullanım & Limitler", sub: "Limit aşımı kontrolü" },
+                                { to: "/admin/reports", icon: <FaChartBar />, color: "purple", title: "Global Raporlar", sub: "Gelir, churn, trendler" },
+                                { to: "/admin/audit-logs", icon: <FaHistory />, color: "red", title: "İşlem Logları", sub: "Audit trail & izleme" },
+                            ].map((item, i) => (
+                                <Link key={i} to={item.to} className="ap-quick">
+                                    <div className={`ap-quick-icon ap-quick-icon--${item.color}`}>{item.icon}</div>
+                                    <div>
+                                        <div className="ap-quick-title">{item.title}</div>
+                                        <div className="ap-quick-sub">{item.sub}</div>
                                     </div>
-                                    <span className="ap-badge ap-badge--red">Dev</span>
-                                </div>
-                                <div className="ap-row">
-                                    <div className="ap-row-left">
-                                        <div className="ap-kpi-icon ap-kpi-icon--yellow" style={{ width: 36, height: 36, borderRadius: 10, fontSize: 14 }}>
-                                            <FaSlidersH />
-                                        </div>
-                                        <div>
-                                            <div className="ap-row-title">Sistem Ayarları</div>
-                                            <div className="ap-row-sub">Pazaryeri anahtarları ve modüller</div>
-                                        </div>
-                                    </div>
-                                    <span className="ap-badge ap-badge--yellow">Yönetici</span>
-                                </div>
-                                <div className="ap-row">
-                                    <div className="ap-row-left">
-                                        <div className="ap-kpi-icon ap-kpi-icon--cyan" style={{ width: 36, height: 36, borderRadius: 10, fontSize: 14 }}>
-                                            <FaUserShield />
-                                        </div>
-                                        <div>
-                                            <div className="ap-row-title">Panel Erişimleri</div>
-                                            <div className="ap-row-sub">Kullanıcı paneline kontrollü erişim</div>
-                                        </div>
-                                    </div>
-                                    <span className="ap-badge ap-badge--cyan">Güvenlik</span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="ap-card">
-                            <div className="ap-card-head"><FaStore /> Pazaryeri Dağılımı</div>
-                            <div className="ap-list">
-                                {marketplaceStats.length === 0 && (
-                                    <div className="ap-empty">Henüz entegrasyon yok.</div>
-                                )}
-                                {marketplaceStats.map(item => (
-                                    <div key={item.name} className="ap-row">
-                                        <span className="ap-row-title">{item.name}</span>
-                                        <span className="ap-badge ap-badge--purple">{item.count}</span>
-                                    </div>
-                                ))}
-                            </div>
-
-                            {latestIntegrations.length > 0 && (
-                                <>
-                                    <div className="ap-divider" style={{ margin: "16px 0" }} />
-                                    <div className="ap-card-head" style={{ fontSize: 13, marginBottom: 12 }}>Son Entegrasyonlar</div>
-                                    <div className="ap-list">
-                                        {latestIntegrations.map(item => (
-                                            <div key={item._id} className="ap-row">
-                                                <div>
-                                                    <div className="ap-row-title">{item.marketplaceName}</div>
-                                                    <div className="ap-row-sub">{item.userName}</div>
-                                                </div>
-                                                <span className="ap-badge ap-badge--green">Aktif</span>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </>
-                            )}
-                        </div>
-                    </div>
-
-                    {/* ─── User Integration Summary ─── */}
-                    <div className="ap-card">
-                        <div className="ap-card-head"><FaUsers /> Kullanıcı Entegrasyon Özeti</div>
-                        <div className="ap-grid ap-grid--3">
-                            {userIntegrationSummary.map(item => (
-                                <div key={item.id} className="ap-stat-mini">
-                                    <div className="ap-stat-mini-val" style={{ color: item.count > 0 ? "var(--ap-green)" : "var(--ap-muted)" }}>
-                                        {item.count}
-                                    </div>
-                                    <div className="ap-stat-mini-label">{item.name}</div>
-                                    <div style={{ fontSize: 11, color: "var(--ap-muted)" }}>{item.email}</div>
-                                </div>
+                                    <FaArrowRight className="ap-quick-arrow" />
+                                </Link>
                             ))}
                         </div>
                     </div>
 
-                    {/* ─── System Status ─── */}
+                    {/* ═══ İKİ SÜTUN: Kayıt Trendi + Plan Dağılımı ═══ */}
+                    <div className="ap-grid ap-grid--2">
+                        {/* Kayıt Trendi */}
+                        <div className="ap-card">
+                            <div className="ap-card-head"><FaChartLine /> Son 7 Gün Kayıt Trendi</div>
+                            <div className="ap-chart-bars">
+                                {(data.users?.registrationTrend || []).map((day, i) => {
+                                    const max = Math.max(...(data.users?.registrationTrend || []).map(d => d.count), 1);
+                                    const pct = (day.count / max) * 100;
+                                    return (
+                                        <div key={i} className="ap-chart-bar-col">
+                                            <div className="ap-chart-bar-val">{day.count}</div>
+                                            <div className="ap-chart-bar-track">
+                                                <div
+                                                    className="ap-chart-bar-fill"
+                                                    style={{ height: `${Math.max(pct, 4)}%` }}
+                                                />
+                                            </div>
+                                            <div className="ap-chart-bar-label">{day.label}</div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                            <div className="ap-card-footer">
+                                <span>Bu hafta: <strong>{data.users?.weekRegistrations || 0}</strong></span>
+                                <span>Bu ay: <strong>{data.users?.monthRegistrations || 0}</strong></span>
+                            </div>
+                        </div>
+
+                        {/* Plan Dağılımı */}
+                        <div className="ap-card">
+                            <div className="ap-card-head"><FaCrown /> Plan Dağılımı</div>
+                            <div className="ap-list">
+                                {Object.entries(data.users?.planDistribution || {}).map(([plan, count]) => {
+                                    const total = data.users?.total || 1;
+                                    const pct = Math.round((count / total) * 100);
+                                    const colors = { free: "yellow", basic: "blue", pro: "purple", enterprise: "green" };
+                                    const labels = { free: "Ücretsiz / Trial", basic: "Basic", pro: "Pro", enterprise: "Enterprise" };
+                                    return (
+                                        <div key={plan} className="ap-row" style={{ flexDirection: "column", alignItems: "stretch", gap: 8 }}>
+                                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                                    <span className={`ap-badge ap-badge--${colors[plan] || "neutral"}`}>
+                                                        {(labels[plan] || plan).toUpperCase()}
+                                                    </span>
+                                                    <span className="ap-row-title">{count} firma</span>
+                                                </div>
+                                                <span style={{ fontSize: 13, fontWeight: 700, color: "var(--ap-text2)" }}>{pct}%</span>
+                                            </div>
+                                            <div className="ap-progress">
+                                                <div
+                                                    className={`ap-progress-bar ap-progress-bar--${colors[plan] || "purple"}`}
+                                                    style={{ width: `${pct}%` }}
+                                                />
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+
+                            {/* Rol Dağılımı */}
+                            <div className="ap-divider" style={{ margin: "16px 0" }} />
+                            <div className="ap-card-head" style={{ fontSize: 13, marginBottom: 12 }}>Rol Dağılımı</div>
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                                {Object.entries(data.users?.roleDistribution || {}).map(([role, count]) => {
+                                    const colors = { admin: "red", dev: "cyan", moderator: "yellow", seller: "green", user: "blue" };
+                                    return (
+                                        <div key={role} className={`ap-badge ap-badge--${colors[role] || "neutral"}`}>
+                                            {role}: {count}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* ═══ İKİ SÜTUN: Pazaryeri Dağılımı + Gelir Özeti ═══ */}
+                    <div className="ap-grid ap-grid--2">
+                        {/* Pazaryeri Dağılımı */}
+                        <div className="ap-card">
+                            <div className="ap-card-head"><FaPlug /> Pazaryeri Dağılımı</div>
+                            <div className="ap-list">
+                                {(data.integrations?.distribution || []).length === 0 && (
+                                    <div className="ap-empty">Henüz entegrasyon yok.</div>
+                                )}
+                                {(data.integrations?.distribution || []).map((mp, i) => {
+                                    const total = data.integrations?.total || 1;
+                                    const pct = Math.round((mp.count / total) * 100);
+                                    return (
+                                        <div key={i} className="ap-row">
+                                            <div className="ap-row-left">
+                                                <div className="ap-kpi-icon ap-kpi-icon--cyan" style={{ width: 32, height: 32, borderRadius: 8, fontSize: 12 }}>
+                                                    <FaPlug />
+                                                </div>
+                                                <div>
+                                                    <div className="ap-row-title">{mp.name || "Bilinmeyen"}</div>
+                                                    <div className="ap-row-sub">{mp.count} entegrasyon</div>
+                                                </div>
+                                            </div>
+                                            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                                                <div className="ap-progress" style={{ width: 80 }}>
+                                                    <div className="ap-progress-bar ap-progress-bar--blue" style={{ width: `${pct}%` }} />
+                                                </div>
+                                                <span className="ap-badge ap-badge--cyan">{pct}%</span>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        {/* Gelir Özeti */}
+                        <div className="ap-card">
+                            <div className="ap-card-head"><FaCreditCard /> Gelir Özeti</div>
+                            <div className="ap-list">
+                                <div className="ap-row">
+                                    <div className="ap-row-left">
+                                        <div className="ap-kpi-icon ap-kpi-icon--green" style={{ width: 32, height: 32, borderRadius: 8, fontSize: 12 }}>
+                                            <FaCreditCard />
+                                        </div>
+                                        <div>
+                                            <div className="ap-row-title">Toplam Platform Geliri</div>
+                                            <div className="ap-row-sub">Tüm zamanlar</div>
+                                        </div>
+                                    </div>
+                                    <span style={{ fontSize: 18, fontWeight: 800, color: "var(--ap-green)" }}>
+                                        {fmtMoney(data.payments?.platformRevenue)}
+                                    </span>
+                                </div>
+                                <div className="ap-row">
+                                    <div className="ap-row-left">
+                                        <div className="ap-kpi-icon ap-kpi-icon--blue" style={{ width: 32, height: 32, borderRadius: 8, fontSize: 12 }}>
+                                            <FaChartLine />
+                                        </div>
+                                        <div>
+                                            <div className="ap-row-title">Bu Ay Gelir</div>
+                                            <div className="ap-row-sub">Son 30 gün</div>
+                                        </div>
+                                    </div>
+                                    <span style={{ fontSize: 18, fontWeight: 800, color: "var(--ap-blue)" }}>
+                                        {fmtMoney(data.payments?.monthlyRevenue)}
+                                    </span>
+                                </div>
+                                <div className="ap-row">
+                                    <div className="ap-row-left">
+                                        <div className="ap-kpi-icon ap-kpi-icon--orange" style={{ width: 32, height: 32, borderRadius: 8, fontSize: 12 }}>
+                                            <FaClipboardList />
+                                        </div>
+                                        <div>
+                                            <div className="ap-row-title">Sipariş Geliri</div>
+                                            <div className="ap-row-sub">Firma siparişleri toplamı</div>
+                                        </div>
+                                    </div>
+                                    <span style={{ fontSize: 18, fontWeight: 800, color: "var(--ap-orange)" }}>
+                                        {fmtMoney(data.orders?.totalRevenue)}
+                                    </span>
+                                </div>
+                                <div className="ap-row">
+                                    <div className="ap-row-left">
+                                        <div className="ap-kpi-icon ap-kpi-icon--purple" style={{ width: 32, height: 32, borderRadius: 8, fontSize: 12 }}>
+                                            <FaCheckCircle />
+                                        </div>
+                                        <div>
+                                            <div className="ap-row-title">Tamamlanan Ödeme</div>
+                                            <div className="ap-row-sub">Başarılı işlem sayısı</div>
+                                        </div>
+                                    </div>
+                                    <span style={{ fontSize: 18, fontWeight: 800, color: "var(--ap-primary)" }}>
+                                        {data.payments?.totalCompleted || 0}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* ═══ SİSTEM DURUMU ═══ */}
                     <div className="ap-card">
                         <div className="ap-card-head"><FaServer /> Sistem Durumu</div>
-                        <div className="ap-grid ap-grid--3">
-                            <div className="ap-row" style={{ padding: 16 }}>
-                                <div className="ap-row-left">
-                                    <div className="ap-kpi-icon ap-kpi-icon--green" style={{ width: 36, height: 36, borderRadius: 10, fontSize: 14 }}>
-                                        <FaServer />
-                                    </div>
-                                    <div>
-                                        <div className="ap-row-title">API Sunucusu</div>
-                                        <div className="ap-row-sub">Stabil</div>
-                                    </div>
-                                </div>
-                                <span className="ap-dot ap-dot--green ap-dot--pulse" />
+                        <div className="ap-grid ap-grid--4">
+                            <div className="ap-stat-mini">
+                                <FaServer style={{ fontSize: 20, color: data.system?.dbConnected ? "var(--ap-green)" : "var(--ap-red)" }} />
+                                <div className="ap-stat-mini-label">Veritabanı</div>
+                                <span className={`ap-badge ap-badge--${data.system?.dbConnected ? "green" : "red"}`}>
+                                    {data.system?.dbConnected ? "Bağlı ✅" : "Bağlantı Yok ❌"}
+                                </span>
                             </div>
-                            <div className="ap-row" style={{ padding: 16 }}>
-                                <div className="ap-row-left">
-                                    <div className="ap-kpi-icon ap-kpi-icon--blue" style={{ width: 36, height: 36, borderRadius: 10, fontSize: 14 }}>
-                                        <FaChartLine />
-                                    </div>
-                                    <div>
-                                        <div className="ap-row-title">İşlem Yoğunluğu</div>
-                                        <div className="ap-row-sub">Orta</div>
-                                    </div>
+                            <div className="ap-stat-mini">
+                                <FaClock style={{ fontSize: 20, color: "var(--ap-blue)" }} />
+                                <div className="ap-stat-mini-label">Uptime</div>
+                                <div className="ap-stat-mini-val" style={{ fontSize: 16 }}>
+                                    {fmtUptime(data.system?.uptime)}
                                 </div>
-                                <span className="ap-dot ap-dot--yellow" />
                             </div>
-                            <div className="ap-row" style={{ padding: 16 }}>
-                                <div className="ap-row-left">
-                                    <div className="ap-kpi-icon ap-kpi-icon--purple" style={{ width: 36, height: 36, borderRadius: 10, fontSize: 14 }}>
-                                        <FaBolt />
-                                    </div>
-                                    <div>
-                                        <div className="ap-row-title">Uyarı Kuyruğu</div>
-                                        <div className="ap-row-sub">0 Kritik</div>
-                                    </div>
+                            <div className="ap-stat-mini">
+                                <FaMicrochip style={{ fontSize: 20, color: "var(--ap-yellow)" }} />
+                                <div className="ap-stat-mini-label">CPU Kullanımı</div>
+                                <div className="ap-stat-mini-val" style={{ fontSize: 16 }}>
+                                    %{data.system?.cpuUsage || 0}
                                 </div>
-                                <span className="ap-dot ap-dot--green ap-dot--pulse" />
+                                <div className="ap-progress" style={{ width: "100%" }}>
+                                    <div
+                                        className={`ap-progress-bar ap-progress-bar--${(data.system?.cpuUsage || 0) > 80 ? "red" : (data.system?.cpuUsage || 0) > 50 ? "yellow" : "green"}`}
+                                        style={{ width: `${data.system?.cpuUsage || 0}%` }}
+                                    />
+                                </div>
                             </div>
+                            <div className="ap-stat-mini">
+                                <FaMemory style={{ fontSize: 20, color: "var(--ap-purple)" }} />
+                                <div className="ap-stat-mini-label">RAM Kullanımı</div>
+                                <div className="ap-stat-mini-val" style={{ fontSize: 16 }}>
+                                    %{data.system?.memoryUsage || 0}
+                                </div>
+                                <div className="ap-progress" style={{ width: "100%" }}>
+                                    <div
+                                        className={`ap-progress-bar ap-progress-bar--${(data.system?.memoryUsage || 0) > 80 ? "red" : (data.system?.memoryUsage || 0) > 50 ? "yellow" : "green"}`}
+                                        style={{ width: `${data.system?.memoryUsage || 0}%` }}
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                        <div className="ap-divider" style={{ margin: "16px 0" }} />
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 12, fontSize: 12, color: "var(--ap-muted)" }}>
+                            <span>Node: <strong style={{ color: "var(--ap-text2)" }}>{data.system?.nodeVersion}</strong></span>
+                            <span>Platform: <strong style={{ color: "var(--ap-text2)" }}>{data.system?.platform}</strong></span>
+                            <span>CPU Çekirdek: <strong style={{ color: "var(--ap-text2)" }}>{data.system?.cpuCores}</strong></span>
+                            <span>RAM: <strong style={{ color: "var(--ap-text2)" }}>{data.system?.memoryTotal}</strong></span>
+                            <span>Ortam: <strong style={{ color: "var(--ap-text2)" }}>{data.system?.env}</strong></span>
+                            <span>PID: <strong style={{ color: "var(--ap-text2)" }}>{data.system?.pid}</strong></span>
                         </div>
                     </div>
                 </>

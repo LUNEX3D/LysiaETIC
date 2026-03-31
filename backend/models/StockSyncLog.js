@@ -80,7 +80,7 @@ const StockSyncLogSchema = new mongoose.Schema({
     // Etkilenen pazaryerleri
     affectedMarketplaces: [{
         name: { type: String },
-        syncStatus: { type: String, enum: ["pending", "success", "error"] },
+        syncStatus: { type: String, enum: ["pending", "success", "error", "skipped"] },
         syncedAt: { type: Date },
         error: { type: String }
     }],

@@ -98,6 +98,7 @@ const ProductMappingSchema = new mongoose.Schema({
         totalStock: { type: Number, default: 0 },
         reservedStock: { type: Number, default: 0 },
         availableStock: { type: Number, default: 0 },
+        safetyStock: { type: Number, default: 0 },       // 🛡️ Güvenlik stoğu — platformlara (total - safety) gönderilir
         lowStockThreshold: { type: Number, default: 10 },
         isLowStock: { type: Boolean, default: false },
         isOutOfStock: { type: Boolean, default: false }
@@ -136,13 +137,21 @@ ProductMappingSchema.index({ "marketplaceMappings.marketplaceName": 1, "marketpl
 
 // Stok durumunu güncelle
 ProductMappingSchema.methods.updateStockStatus = function() {
-    const totalStock = this.stockTracking.totalStock || 0;
+    const totalStock    = this.stockTracking.totalStock || 0;
     const reservedStock = this.stockTracking.reservedStock || 0;
     const availableStock = totalStock - reservedStock;
 
     this.stockTracking.availableStock = Math.max(0, availableStock);
     this.stockTracking.isOutOfStock = availableStock <= 0;
     this.stockTracking.isLowStock = availableStock > 0 && availableStock <= this.stockTracking.lowStockThreshold;
+};
+
+// 🛡️ Pazaryerlerine gönderilecek stok = totalStock - reservedStock - safetyStock
+ProductMappingSchema.methods.getMarketplaceStock = function() {
+    const total    = this.stockTracking.totalStock || 0;
+    const reserved = this.stockTracking.reservedStock || 0;
+    const safety   = this.stockTracking.safetyStock || 0;
+    return Math.max(0, total - reserved - safety);
 };
 
 // Sync geçmişi ekle

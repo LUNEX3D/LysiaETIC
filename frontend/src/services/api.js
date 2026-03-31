@@ -3,6 +3,7 @@ import axios from "axios";
 // Axios instance oluştur
 const API = axios.create({
     baseURL: (process.env.REACT_APP_API_URL || "http://13.51.158.124:5000") + "/api", // Backend URL'si
+    timeout: 120000, // 2 dakika — toplu dağıtım ve karşılaştırma uzun sürebilir
 });
 
 // 🔒 Her istekte Authorization header'ını otomatik ekle

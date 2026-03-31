@@ -29,6 +29,8 @@ router.post("/sync/bulk-distribute", authMiddleware, controller.bulkDistribute);
 router.post("/sync/stock", authMiddleware, controller.syncStock);
 router.post("/sync/price", authMiddleware, controller.syncPrice);
 router.post("/sync/auto", authMiddleware, controller.triggerAutoSync);
+router.post("/sync/base-price-sync", authMiddleware, controller.basePriceSync);
+router.post("/sync/check-pending",   authMiddleware, controller.checkPendingTasks);
 
 // ═══════════════════════════════════════════════════════════════
 // 📋 KATEGORİ YÖNETİMİ
@@ -36,6 +38,26 @@ router.post("/sync/auto", authMiddleware, controller.triggerAutoSync);
 router.get("/categories", authMiddleware, controller.getCategoryMappings);
 router.post("/categories", authMiddleware, controller.upsertCategoryMapping);
 router.put("/products/:productId/category", authMiddleware, controller.updateProductCategoryMapping);
+
+// ═══════════════════════════════════════════════════════════════
+// 🗂️ OTOMATİK KATEGORİ EŞLEŞTİRME MERKEZİ
+// ═══════════════════════════════════════════════════════════════
+router.get("/categories/all-platforms",      authMiddleware, controller.getAllPlatformCategories);
+router.post("/categories/auto-match",        authMiddleware, controller.autoCategoryMatch);
+router.post("/categories/auto-match-all",    authMiddleware, controller.autoCategoryMatchAll);
+router.post("/categories/save-mapping",      authMiddleware, controller.saveCategoryMappingManual);
+
+// ═══════════════════════════════════════════════════════════════
+// 🚀 ÜRÜN YÜKLE & DAĞIT
+// ═══════════════════════════════════════════════════════════════
+router.post("/products/create-and-distribute", authMiddleware, controller.createAndDistribute);
+router.post("/products/suggest-codes",         authMiddleware, controller.suggestBarcodeAndSku);
+router.post("/products/generate-description",  authMiddleware, controller.generateAIDescription);
+
+// ═══════════════════════════════════════════════════════════════
+// 🌳 KATEGORİ AĞACI (Hiyerarşik)
+// ═══════════════════════════════════════════════════════════════
+router.get("/categories/tree",                 authMiddleware, controller.getCategoryTree);
 
 // ═══════════════════════════════════════════════════════════════
 // 📢 BİLDİRİM & LOG
@@ -55,6 +77,14 @@ router.get("/dashboard",   authMiddleware, controller.getProductManagementDashbo
 router.post("/sync/all",                       authMiddleware, controller.syncAllMarketplaces);
 router.get("/comparison",                      authMiddleware, controller.getComparisonMatrix);
 router.post("/sync/bulk-distribute-selected",  authMiddleware, controller.bulkDistributeSelected);
+
+// ═══════════════════════════════════════════════════════════════
+// 📋 TOPLU ÜRÜN YÖNETİMİ (BULK OPERATIONS)
+// ═══════════════════════════════════════════════════════════════
+router.post("/bulk/update-prices",  authMiddleware, controller.bulkUpdatePrices);
+router.post("/bulk/update-stocks",  authMiddleware, controller.bulkUpdateStocks);
+router.post("/bulk/delete",         authMiddleware, controller.bulkDeleteProducts);
+router.post("/bulk/update-fields",  authMiddleware, controller.bulkUpdateFields);
 
 // ═══════════════════════════════════════════════════════════════
 // 🟠 N11 ÖZEL SERVİSLER
@@ -78,9 +108,10 @@ router.post("/n11/orders/split-by-quantity", authMiddleware, controller.n11Split
 router.put("/n11/orders/labor-costs",        authMiddleware, controller.n11AddLaborCost);
 
 // ═══════════════════════════════════════════════════════════════
-// 🔬 DEBUG (Geliştirme amaçlı — N11 ham API yanıtını göster)
+// 🔬 DEBUG (Geliştirme amaçlı)
 // ═══════════════════════════════════════════════════════════════
 router.get("/n11/debug/raw-products",        authMiddleware, controller.n11DebugRawProducts);
+router.get("/debug/platform-check",          authMiddleware, controller.debugPlatformCheck);
 
 // ═══════════════════════════════════════════════════════════════
 // 🏷️ TRENDYOL KATEGORİ ÇEK

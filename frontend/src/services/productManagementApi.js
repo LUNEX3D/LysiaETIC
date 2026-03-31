@@ -65,20 +65,42 @@ export const syncStock = async (productMappingId, newStock, priceUpdate = null) 
 };
 
 /**
- * Fiyat senkronizasyonu — tüm pazaryerlerine fiyat güncelle
+ * Fiyat senkronizasyonu — tüm veya belirli pazaryerine fiyat güncelle
  * @param {String} productMappingId
  * @param {Number} salePrice
  * @param {Number} listPrice - opsiyonel
+ * @param {String} targetMarketplace - opsiyonel (belirtilirse sadece o platforma push)
  */
-export const syncPrice = async (productMappingId, salePrice, listPrice = null) => {
+export const syncPrice = async (productMappingId, salePrice, listPrice = null, targetMarketplace = null) => {
     const payload = { productMappingId, salePrice };
     if (listPrice !== null) payload.listPrice = listPrice;
+    if (targetMarketplace) payload.targetMarketplace = targetMarketplace;
     const res = await API.post(`${BASE}/sync/price`, payload);
     return res.data;
 };
 
 export const triggerAutoSync = async () => {
     const res = await API.post(`${BASE}/sync/auto`);
+    return res.data;
+};
+
+/**
+ * Baz platform fiyat senkronizasyonu — server-side tüm ürünleri işler
+ * @param {String} baseMarketplace - Fiyat kaynağı platform
+ * @param {Array} targetMarketplaces - Hedef platformlar
+ * @param {Number} margin - Kar marjı (%)
+ * @param {String} roundTo - Yuvarlama kuralı (örn: "0.90")
+ */
+export const basePriceSync = async (baseMarketplace, targetMarketplaces, margin = 0, roundTo = "") => {
+    const res = await API.post(`${BASE}/sync/base-price-sync`, { baseMarketplace, targetMarketplaces, margin, roundTo });
+    return res.data;
+};
+
+/**
+ * N11 pending task kontrolü — henüz kesinleşmemiş ürünlerin durumunu kontrol et
+ */
+export const checkPendingTasks = async () => {
+    const res = await API.post(`${BASE}/sync/check-pending`);
     return res.data;
 };
 
@@ -288,6 +310,144 @@ export const n11AddLaborCost = async (laborCostDetails) => {
  */
 export const n11DebugRawProducts = async () => {
     const res = await API.get(`${BASE}/n11/debug/raw-products`);
+    return res.data;
+};
+
+// ═══════════════════════════════════════════════════════════════
+// 🗂️ OTOMATİK KATEGORİ EŞLEŞTİRME MERKEZİ
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Tüm platformlardan kategori ağaçlarını çek
+ * @param {Object} params - { search }
+ */
+export const getAllPlatformCategories = async (params = {}) => {
+    const res = await API.get(`${BASE}/categories/all-platforms`, { params });
+    return res.data;
+};
+
+/**
+ * Otomatik kategori eşleştirme — kaynak kategori adına göre tüm platformlarda eşleşme bul
+ * @param {string} sourceCategoryName - Kaynak kategori adı
+ * @param {string} sourcePlatform - Kaynak platform (opsiyonel, atlanacak)
+ */
+export const autoCategoryMatch = async (sourceCategoryName, sourcePlatform = null) => {
+    const res = await API.post(`${BASE}/categories/auto-match`, { sourceCategoryName, sourcePlatform });
+    return res.data;
+};
+
+/**
+ * Toplu otomatik kategori eşleştirme — tüm eşleştirilmemiş kategorileri otomatik eşleştir
+ */
+export const autoCategoryMatchAll = async () => {
+    const res = await API.post(`${BASE}/categories/auto-match-all`);
+    return res.data;
+};
+
+/**
+ * Kategori eşleştirmesini manuel kaydet
+ */
+export const saveCategoryMappingManual = async (data) => {
+    const res = await API.post(`${BASE}/categories/save-mapping`, data);
+    return res.data;
+};
+
+// ═══════════════════════════════════════════════════════════════
+// 🚀 ÜRÜN YÜKLE & DAĞIT
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Ürün oluştur ve platformlara dağıt (tek adımda)
+ */
+export const createAndDistribute = async (productData) => {
+    const res = await API.post(`${BASE}/products/create-and-distribute`, productData);
+    return res.data;
+};
+
+/**
+ * Barkod ve SKU önerisi al
+ * @param {string} productName - Ürün adı
+ * @param {string} brand - Marka (opsiyonel)
+ * @param {string} category - Kategori (opsiyonel)
+ */
+export const suggestCodes = async (productName, brand = "", category = "") => {
+    const res = await API.post(`${BASE}/products/suggest-codes`, { productName, brand, category });
+    return res.data;
+};
+
+/**
+ * AI ile ürün açıklaması üret
+ * @param {Object} data - { productName, category?, brand?, price?, attributes?, tone? }
+ */
+export const generateDescription = async (data) => {
+    const res = await API.post(`${BASE}/products/generate-description`, data);
+    return res.data;
+};
+
+/**
+ * Hiyerarşik kategori ağacı getir
+ * @param {string} platform - Platform adı (Trendyol, N11)
+ * @param {string} parentId - Üst kategori ID (0 = kök)
+ * @param {string} search - Arama (opsiyonel)
+ */
+export const getCategoryTree = async (platform, parentId = "0", search = "") => {
+    const params = { platform, parentId };
+    if (search) params.search = search;
+    const res = await API.get(`${BASE}/categories/tree`, { params });
+    return res.data;
+};
+
+// ═══════════════════════════════════════════════════════════════
+// 📋 TOPLU ÜRÜN YÖNETİMİ (BULK OPERATIONS)
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Toplu fiyat güncelleme
+ * @param {Array} productIds - Ürün ID'leri
+ * @param {String} mode - "fixed"|"percent"|"round"
+ * @param {Number} value - Sabit fiyat veya yüzde
+ * @param {Object} options - { roundTo, applyToListPrice, syncToMarketplaces }
+ */
+export const bulkUpdatePrices = async (productIds, mode, value, options = {}) => {
+    const res = await API.post(`${BASE}/bulk/update-prices`, {
+        productIds, mode, value,
+        roundTo: options.roundTo || "",
+        applyToListPrice: options.applyToListPrice !== false,
+        syncToMarketplaces: options.syncToMarketplaces || false
+    });
+    return res.data;
+};
+
+/**
+ * Toplu stok güncelleme
+ * @param {Array} productIds - Ürün ID'leri
+ * @param {String} mode - "fixed"|"increase"|"decrease"
+ * @param {Number} value - Stok değeri
+ * @param {Boolean} syncToMarketplaces - Platformlara push
+ */
+export const bulkUpdateStocks = async (productIds, mode, value, syncToMarketplaces = false) => {
+    const res = await API.post(`${BASE}/bulk/update-stocks`, {
+        productIds, mode, value, syncToMarketplaces
+    });
+    return res.data;
+};
+
+/**
+ * Toplu ürün silme
+ * @param {Array} productIds - Silinecek ürün ID'leri
+ */
+export const bulkDeleteProducts = async (productIds) => {
+    const res = await API.post(`${BASE}/bulk/delete`, { productIds });
+    return res.data;
+};
+
+/**
+ * Toplu alan güncelleme (kategori, marka, güvenlik stoğu vb.)
+ * @param {Array} productIds - Ürün ID'leri
+ * @param {Object} fields - { category?, brand?, safetyStock?, lowStockThreshold? }
+ */
+export const bulkUpdateFields = async (productIds, fields) => {
+    const res = await API.post(`${BASE}/bulk/update-fields`, { productIds, fields });
     return res.data;
 };
 
