@@ -16,12 +16,17 @@ const N11_BASE_URL = "https://api.n11.com";
 // ═══════════════════════════════════════════════════════════════
 
 /**
+ * HTTP header'ları sadece ASCII kabul eder — Türkçe karakterleri temizle
+ */
+const cleanAscii = (str) => String(str || "").replace(/[^\x20-\x7E]/g, "");
+
+/**
  * N11 API isteği için headers oluştur
  */
 const getN11Headers = (apiKey, secretKey) => {
     return {
-        appkey: apiKey,
-        appsecret: secretKey,
+        appkey: cleanAscii(apiKey),
+        appsecret: cleanAscii(secretKey),
         "Content-Type": "application/json",
         "User-Agent": "LysiaETIC"
     };

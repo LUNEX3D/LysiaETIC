@@ -276,8 +276,8 @@ const fetchN11Orders = async (credentials, start, end) => {
         method: "GET",
         params,
         headers: {
-            appkey: apiKey,
-            appsecret: secretKey,
+            appkey: String(apiKey || "").replace(/[^\x20-\x7E]/g, ""),
+            appsecret: String(secretKey || "").replace(/[^\x20-\x7E]/g, ""),
             "Content-Type": "application/json"
         }
     });

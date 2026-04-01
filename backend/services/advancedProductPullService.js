@@ -57,8 +57,8 @@ const fetchN11Categories = async (credentials) => {
             "https://api.n11.com/ms/categories",
             {
                 headers: {
-                    appkey: apiKey,
-                    appsecret: secretKey,
+                    appkey: String(apiKey || "").replace(/[^\x20-\x7E]/g, ""),
+                    appsecret: String(secretKey || "").replace(/[^\x20-\x7E]/g, ""),
                     "Content-Type": "application/json",
                     "User-Agent": "LysiaETIC"
                 },
@@ -243,8 +243,8 @@ const fetchN11ProductsAdvanced = async (credentials, jobId) => {
                 "https://api.n11.com/ms/product-query",
                 {
                     headers: {
-                        appkey: apiKey,
-                        appsecret: secretKey,
+                        appkey: String(apiKey || "").replace(/[^\x20-\x7E]/g, ""),
+                        appsecret: String(secretKey || "").replace(/[^\x20-\x7E]/g, ""),
                         "Content-Type": "application/json"
                     },
                     params: {

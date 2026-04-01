@@ -238,10 +238,12 @@ const fetchN11Orders = async (apiKey, secretKey, startDate, endDate) => {
             `&orderByField=true`;
 
         try {
+            // HTTP header'ları sadece ASCII kabul eder — Türkçe karakterleri temizle
+            const cleanAscii = (s) => String(s || "").replace(/[^\x20-\x7E]/g, "");
             const response = await axios.get(url, {
                 headers: {
-                    appkey: apiKey,
-                    appsecret: secretKey,
+                    appkey: cleanAscii(apiKey),
+                    appsecret: cleanAscii(secretKey),
                     "Content-Type": "application/json"
                 }
             });
