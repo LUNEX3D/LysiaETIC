@@ -1,8 +1,13 @@
+/**
+ * API Service — LysiaETIC
+ * ✅ FIX #20: 401 interceptor eklendi — token expire olunca login'e yönlendir
+ * ✅ FIX #21: baseURL environment'tan alınıyor
+ */
 import axios from "axios";
 
 // Axios instance oluştur
 const API = axios.create({
-    baseURL: (process.env.REACT_APP_API_URL || "http://13.51.158.124:5000") + "/api", // Backend URL'si
+    baseURL: (process.env.REACT_APP_API_URL || "http://localhost:5000") + "/api",
     timeout: 120000, // 2 dakika — toplu dağıtım ve karşılaştırma uzun sürebilir
 });
 
@@ -16,6 +21,27 @@ API.interceptors.request.use(
         return config;
     },
     (error) => Promise.reject(error)
+);
+
+// ✅ FIX #20: Response interceptor — 401 gelirse oturumu temizle ve login'e yönlendir
+API.interceptors.response.use(
+    (response) => response,
+    (error) => {
+        if (error.response?.status === 401) {
+            // Token geçersiz veya süresi dolmuş
+            const currentPath = window.location.pathname;
+            // Login sayfasındayken sonsuz döngü olmasın
+            if (currentPath !== "/login" && currentPath !== "/register" && currentPath !== "/") {
+                localStorage.removeItem("token");
+                localStorage.removeItem("userId");
+                localStorage.removeItem("userEmail");
+                localStorage.removeItem("userName");
+                localStorage.removeItem("userRole");
+                window.location.href = "/login";
+            }
+        }
+        return Promise.reject(error);
+    }
 );
 
 // Kategorileri çekmek için fonksiyon
@@ -41,7 +67,6 @@ export const uploadProduct = async (productData) => {
 };
 
 // Kullanıcı girişi fonksiyonu
-// ✅ FIX #15: /login → /auth/login olarak düzeltildi
 export const loginUser = async (credentials) => {
     try {
         const response = await API.post("/auth/login", credentials);
@@ -53,7 +78,6 @@ export const loginUser = async (credentials) => {
 };
 
 // Kullanıcı kaydı fonksiyonu
-// ✅ FIX #15: /register → /auth/register olarak düzeltildi
 export const registerUser = async (userData) => {
     try {
         const response = await API.post("/auth/register", userData);
@@ -63,7 +87,5 @@ export const registerUser = async (userData) => {
         throw error;
     }
 };
-
-// Diğer API fonksiyonları buraya eklenebilir...
 
 export default API;

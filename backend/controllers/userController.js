@@ -1,7 +1,12 @@
+/**
+ * User Controller — LysiaETIC
+ * ✅ FIX #18: console.log → logger
+ */
 const User = require("../models/User");
 const bcrypt = require("bcryptjs");
 const crypto = require("crypto");
 const Marketplace = require("../models/Marketplace");
+const logger = require("../config/logger");
 
 // Get user profile
 exports.getUserProfile = async (req, res) => {
@@ -9,12 +14,12 @@ exports.getUserProfile = async (req, res) => {
         // Use req.user._id (set by authMiddleware)
         const userId = req.user._id || req.userId;
 
-        console.log("📝 Profil getiriliyor, userId:", userId);
+        logger.info("📝 Profil getiriliyor, userId:", userId);
 
         const user = await User.findById(userId).select("-password");
 
         if (!user) {
-            console.error("❌ Kullanıcı bulunamadı:", userId);
+            logger.error("❌ Kullanıcı bulunamadı:", userId);
             return res.status(404).json({
                 success: false,
                 message: "Kullanıcı bulunamadı"
@@ -23,7 +28,7 @@ exports.getUserProfile = async (req, res) => {
 
         // Auto-fix invalid role 'users' -> 'user'
         if (user.role === 'users') {
-            console.log("🔧 Geçersiz role düzeltiliyor: 'users' -> 'user'");
+            logger.info("🔧 Geçersiz role düzeltiliyor: 'users' -> 'user'");
             await User.updateOne(
                 { _id: user._id },
                 { $set: { role: 'user' } }
@@ -31,7 +36,7 @@ exports.getUserProfile = async (req, res) => {
             user.role = 'user'; // Update in-memory object
         }
 
-        console.log("✅ Profil başarıyla getirildi:", user.email);
+        logger.info("✅ Profil başarıyla getirildi:", user.email);
 
         // Return user with success flag
         res.json({
@@ -39,7 +44,7 @@ exports.getUserProfile = async (req, res) => {
             ...user.toObject()
         });
     } catch (error) {
-        console.error("❌ Profil getirme hatası:", error);
+        logger.error("❌ Profil getirme hatası:", error);
         res.status(500).json({
             success: false,
             message: "Sunucu hatası",
@@ -54,12 +59,12 @@ exports.updateUserProfile = async (req, res) => {
         const userId = req.user._id || req.userId;
         const { name, email, phone, company, address, taxInfo, avatar } = req.body;
 
-        console.log("📝 Profil güncelleme isteği:", { userId, name, email, phone, company });
+        logger.info("📝 Profil güncelleme isteği:", { userId, name, email, phone, company });
 
         const user = await User.findById(userId);
 
         if (!user) {
-            console.error("❌ Kullanıcı bulunamadı:", userId);
+            logger.error("❌ Kullanıcı bulunamadı:", userId);
             return res.status(404).json({
                 success: false,
                 message: "Kullanıcı bulunamadı"
@@ -70,7 +75,7 @@ exports.updateUserProfile = async (req, res) => {
         if (email && email !== user.email) {
             const existingUser = await User.findOne({ email });
             if (existingUser && existingUser._id.toString() !== userId.toString()) {
-                console.error("❌ E-posta zaten kullanımda:", email);
+                logger.error("❌ E-posta zaten kullanımda:", email);
                 return res.status(400).json({
                     success: false,
                     message: "Bu e-posta adresi zaten kullanılıyor"
@@ -115,7 +120,7 @@ exports.updateUserProfile = async (req, res) => {
         // Save with validation, but skip role validation if it's already set
         await user.save({ validateModifiedOnly: true });
 
-        console.log("✅ Profil başarıyla güncellendi:", userId);
+        logger.info("✅ Profil başarıyla güncellendi:", userId);
 
         const updatedUser = await User.findById(userId).select("-password");
         res.json({
@@ -124,7 +129,7 @@ exports.updateUserProfile = async (req, res) => {
             user: updatedUser
         });
     } catch (error) {
-        console.error("❌ Profil güncelleme hatası:", error);
+        logger.error("❌ Profil güncelleme hatası:", error);
         res.status(500).json({
             success: false,
             message: "Profil güncellenirken bir hata oluştu",
@@ -139,7 +144,7 @@ exports.changePassword = async (req, res) => {
         const userId = req.user._id || req.userId;
         const { currentPassword, newPassword } = req.body;
 
-        console.log("🔒 Şifre değiştirme isteği:", userId);
+        logger.info("🔒 Şifre değiştirme isteği:", userId);
 
         if (!currentPassword || !newPassword) {
             return res.status(400).json({
@@ -168,7 +173,7 @@ exports.changePassword = async (req, res) => {
         // Verify current password
         const isMatch = await bcrypt.compare(currentPassword, user.password);
         if (!isMatch) {
-            console.error("❌ Mevcut şifre yanlış");
+            logger.error("❌ Mevcut şifre yanlış");
             return res.status(400).json({
                 success: false,
                 message: "Mevcut şifre yanlış"
@@ -185,14 +190,14 @@ exports.changePassword = async (req, res) => {
 
         await user.save();
 
-        console.log("✅ Şifre başarıyla değiştirildi");
+        logger.info("✅ Şifre başarıyla değiştirildi");
 
         res.json({
             success: true,
             message: "Şifre başarıyla değiştirildi"
         });
     } catch (error) {
-        console.error("❌ Şifre değiştirme hatası:", error);
+        logger.error("❌ Şifre değiştirme hatası:", error);
         res.status(500).json({
             success: false,
             message: "Şifre değiştirilirken bir hata oluştu",
@@ -207,7 +212,7 @@ exports.updateNotificationSettings = async (req, res) => {
         const userId = req.user._id || req.userId;
         const { email, sms, push, orderNotifications, stockNotifications, financeNotifications } = req.body;
 
-        console.log("🔔 Bildirim tercihleri güncelleme:", userId);
+        logger.info("🔔 Bildirim tercihleri güncelleme:", userId);
 
         const user = await User.findById(userId);
 
@@ -233,14 +238,14 @@ exports.updateNotificationSettings = async (req, res) => {
 
         await user.save();
 
-        console.log("✅ Bildirim tercihleri güncellendi");
+        logger.info("✅ Bildirim tercihleri güncellendi");
 
         res.json({
             success: true,
             message: "Bildirim tercihleri güncellendi"
         });
     } catch (error) {
-        console.error("❌ Bildirim güncelleme hatası:", error);
+        logger.error("❌ Bildirim güncelleme hatası:", error);
         res.status(500).json({
             success: false,
             message: "Bildirim tercihleri güncellenirken bir hata oluştu",
@@ -255,7 +260,7 @@ exports.generateApiKey = async (req, res) => {
         const userId = req.user._id || req.userId;
         const { name } = req.body;
 
-        console.log("🔑 API anahtarı oluşturma:", userId, name);
+        logger.info("🔑 API anahtarı oluşturma:", userId, name);
 
         if (!name || !name.trim()) {
             return res.status(400).json({
@@ -291,14 +296,14 @@ exports.generateApiKey = async (req, res) => {
 
         await user.save();
 
-        console.log("✅ API anahtarı oluşturuldu");
+        logger.info("✅ API anahtarı oluşturuldu");
 
         res.json({
             success: true,
             ...newApiKey
         });
     } catch (error) {
-        console.error("❌ API anahtarı oluşturma hatası:", error);
+        logger.error("❌ API anahtarı oluşturma hatası:", error);
         res.status(500).json({
             success: false,
             message: "API anahtarı oluşturulurken bir hata oluştu",
@@ -313,7 +318,7 @@ exports.revokeApiKey = async (req, res) => {
         const userId = req.user._id || req.userId;
         const { keyId } = req.params;
 
-        console.log("🗑️ API anahtarı iptal:", userId, keyId);
+        logger.info("🗑️ API anahtarı iptal:", userId, keyId);
 
         const user = await User.findById(userId);
 
@@ -344,14 +349,14 @@ exports.revokeApiKey = async (req, res) => {
 
         await user.save();
 
-        console.log("✅ API anahtarı iptal edildi");
+        logger.info("✅ API anahtarı iptal edildi");
 
         res.json({
             success: true,
             message: "API anahtarı iptal edildi"
         });
     } catch (error) {
-        console.error("❌ API anahtarı iptal hatası:", error);
+        logger.error("❌ API anahtarı iptal hatası:", error);
         res.status(500).json({
             success: false,
             message: "API anahtarı iptal edilirken bir hata oluştu",
@@ -366,7 +371,7 @@ exports.verifyPassword = async (req, res) => {
         const userId = req.user._id || req.userId;
         const { password } = req.body;
 
-        console.log("🔐 Şifre doğrulama isteği:", userId);
+        logger.info("🔐 Şifre doğrulama isteği:", userId);
 
         if (!password) {
             return res.status(400).json({
@@ -388,14 +393,14 @@ exports.verifyPassword = async (req, res) => {
         const isMatch = await bcrypt.compare(password, user.password);
 
         if (!isMatch) {
-            console.error("❌ Şifre yanlış");
+            logger.error("❌ Şifre yanlış");
             return res.status(400).json({
                 success: false,
                 message: "Şifre yanlış"
             });
         }
 
-        console.log("✅ Şifre doğrulandı");
+        logger.info("✅ Şifre doğrulandı");
 
         res.json({
             success: true,
@@ -403,7 +408,7 @@ exports.verifyPassword = async (req, res) => {
             verified: true
         });
     } catch (error) {
-        console.error("❌ Şifre doğrulama hatası:", error);
+        logger.error("❌ Şifre doğrulama hatası:", error);
         res.status(500).json({
             success: false,
             message: "Şifre doğrulanırken bir hata oluştu",
@@ -417,7 +422,7 @@ exports.getUserStats = async (req, res) => {
     try {
         const userId = req.user._id || req.userId;
 
-        console.log("📊 İstatistikler getiriliyor:", userId);
+        logger.info("📊 İstatistikler getiriliyor:", userId);
 
         // Get marketplace count
         const marketplaceCount = await Marketplace.countDocuments({ userId });
@@ -437,17 +442,17 @@ exports.getUserStats = async (req, res) => {
             ]);
             totalRevenue = revenueResult.length > 0 ? revenueResult[0].total : 0;
         } catch (err) {
-            console.log("⚠️ Order model bulunamadı, varsayılan değerler kullanılıyor");
+            logger.info("⚠️ Order model bulunamadı, varsayılan değerler kullanılıyor");
         }
 
         try {
             const Product = require("../models/Product");
             activeProducts = await Product.countDocuments({ userId, status: "active" });
         } catch (err) {
-            console.log("⚠️ Product model bulunamadı, varsayılan değerler kullanılıyor");
+            logger.info("⚠️ Product model bulunamadı, varsayılan değerler kullanılıyor");
         }
 
-        console.log("✅ İstatistikler:", { totalOrders, totalRevenue, activeProducts, marketplaceCount });
+        logger.info("✅ İstatistikler:", { totalOrders, totalRevenue, activeProducts, marketplaceCount });
 
         res.json({
             success: true,
@@ -457,7 +462,7 @@ exports.getUserStats = async (req, res) => {
             marketplaceCount
         });
     } catch (error) {
-        console.error("❌ İstatistik getirme hatası:", error);
+        logger.error("❌ İstatistik getirme hatası:", error);
         res.status(500).json({
             success: false,
             message: "İstatistikler getirilirken bir hata oluştu",

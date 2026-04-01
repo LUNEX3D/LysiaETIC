@@ -5,7 +5,10 @@
  * ✅ Terminal'de renkli HTTP istek / hata izleme
  * ✅ Sunucu durumu (uptime, bellek, DB) için /api/status endpoint'i
  * ✅ Global hata yakalama (unhandledRejection / uncaughtException)
- * ✅ Genel yapı korundu — sadece izleme & güvenlik katmanları eklendi
+ * ✅ FIX #5: CORS whitelist uygulandı
+ * ✅ FIX #11: Rate limiting eklendi
+ * ✅ FIX #18: Helmet.js güvenlik header'ları eklendi
+ * ✅ FIX #9: db.js kullanıma alındı (dead code düzeltildi)
  */
 
 // ─── 1. ENV — EN ÜSTTE yüklenmeli ────────────────────────────────────────────
@@ -14,9 +17,11 @@ require("dotenv").config();
 const express  = require("express");
 const mongoose = require("mongoose");
 const cors     = require("cors");
+const helmet   = require("helmet");
 const dns      = require("dns");
 const os       = require("os");
 const logger   = require("./config/logger");
+const { apiLimiter }  = require("./middlewares/rateLimiter");
 
 // ─── 2. Route'lar ─────────────────────────────────────────────────────────────
 const hepsiburadaRoutes       = require("./routes/hepsiburadaRoutes");
@@ -35,6 +40,8 @@ const analyticsRoutes         = require("./routes/analyticsRoutes");
 const productManagementRoutes = require("./routes/productManagementRoutes");
 const advancedProductRoutes   = require("./routes/advancedProductRoutes");
 const saasAdminRoutes         = require("./routes/saasAdminRoutes");
+const ciceksepetiRoutes       = require("./routes/ciceksepetiRoutes");
+const amazonRoutes            = require("./routes/amazonRoutes");
 
 // ─── 3. DNS & App ─────────────────────────────────────────────────────────────
 dns.setServers(["1.1.1.1", "8.8.8.8"]);
@@ -52,13 +59,42 @@ const stats = {
     routes   : {},  // endpoint bazlı sayaç
 };
 
-// ─── 6. CORS ──────────────────────────────────────────────────────────────────
-// Token-based auth (localStorage + Authorization header) kullanıldığı için
-// credentials gerekmez. Tüm origin'lere izin veriyoruz.
-app.use(cors());
+// ─── 6. GÜVENLİK — Helmet.js ─────────────────────────────────────────────────
+app.use(helmet({
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+    contentSecurityPolicy: false  // Frontend SPA ile uyumluluk
+}));
 
-// ─── 7. Body parser ───────────────────────────────────────────────────────────
-app.use(express.json());
+// ─── 7. CORS — Whitelist bazlı ───────────────────────────────────────────────
+const allowedOrigins = [
+    "http://localhost:3000",
+    "http://localhost:5000",
+    "http://13.51.158.124",
+    "http://13.51.158.124:3000",
+    "https://lunexetic.com",
+    "https://www.lunexetic.com"
+];
+
+app.use(cors({
+    origin: function (origin, callback) {
+        // Server-to-server istekler (origin yok) veya whitelist'teki origin'ler
+        if (!origin || allowedOrigins.includes(origin)) {
+            callback(null, true);
+        } else {
+            logger.warn(`CORS engellendi: ${origin}`);
+            callback(new Error("CORS policy: Bu origin'e izin verilmiyor."));
+        }
+    },
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"]
+}));
+
+// ─── 8. Body parser ──────────────────────────────────────────────────────────
+app.use(express.json({ limit: "10mb" }));
+
+// ─── 8.1 Genel API Rate Limiter ──────────────────────────────────────────────
+app.use("/api/", apiLimiter);
 
 // ─── 8. HTTP İSTEK LOGGER (her isteği terminale yazar) ───────────────────────
 app.use((req, res, next) => {
@@ -122,6 +158,8 @@ app.use("/api/analytics",          analyticsRoutes);
 app.use("/api/product-management", productManagementRoutes);
 app.use("/api/advanced-products",  advancedProductRoutes);
 app.use("/api/saas-admin",        saasAdminRoutes);
+app.use("/api/ciceksepeti",       ciceksepetiRoutes);
+app.use("/api/amazon",            amazonRoutes);
 
 // ─── 10. SUNUCU DURUM ENDPOINTİ (/api/status) ────────────────────────────────
 app.get("/api/status", (req, res) => {
@@ -176,10 +214,9 @@ app.use((err, req, res, next) => {
     });
 });
 
-// ─── 13. MongoDB bağlantısı ───────────────────────────────────────────────────
-mongoose.connect(process.env.MONGO_URI)
-    .then(() => logger.info("MongoDB bağlantısı başarılı ✅"))
-    .catch((err) => logger.error(`MongoDB bağlantı hatası: ${err.message}`));
+// ─── 13. MongoDB bağlantısı & Sunucu başlatma ─────────────────────────────────
+// ✅ FIX: Önce DB bağlantısı, sonra sunucu ve cron başlatılır
+const connectDB = require("./config/db");
 
 mongoose.connection.on("disconnected", () =>
     logger.warn("MongoDB bağlantısı kesildi!")
@@ -188,22 +225,36 @@ mongoose.connection.on("reconnected", () =>
     logger.info("MongoDB yeniden bağlandı ✅")
 );
 
-// ─── 14. Sunucuyu başlat ──────────────────────────────────────────────────────
-const PORT = process.env.PORT || 5000;
-const server = app.listen(PORT, '0.0.0.0', () => {
-    const line = "─".repeat(52);
-    logger.info(`\n${line}`);
-    logger.info(`  🚀  LysiaETIC Backend başlatıldı`);
-    logger.info(`  📡  Port     : ${PORT}`);
-    logger.info(`  🌍  Ortam    : ${process.env.NODE_ENV || "development"}`);
-    logger.info(`  📊  Durum    : http://localhost:${PORT}/api/status`);
-    logger.info(`  🕐  Başlangıç: ${new Date().toLocaleString("tr-TR")}`);
-    logger.info(`${line}\n`);
+let server; // global referans — graceful shutdown için
 
-    // ─── Otomatik Stok Senkronizasyon Cron'unu Başlat ────────────────────────
-    const { startStockCron } = require("./services/stockCronService");
-    startStockCron();
-});
+const startServer = async () => {
+    // ─── 13a. Önce MongoDB bağlantısını kur ────────────────────────────────────
+    await connectDB();
+
+    // ─── 14. Sunucuyu başlat (DB bağlantısı başarılı olduktan sonra) ───────────
+    const PORT = process.env.PORT || 5000;
+    server = app.listen(PORT, '0.0.0.0', () => {
+        const line = "─".repeat(52);
+        logger.info(`\n${line}`);
+        logger.info(`  🚀  LysiaETIC Backend başlatıldı`);
+        logger.info(`  📡  Port     : ${PORT}`);
+        logger.info(`  🌍  Ortam    : ${process.env.NODE_ENV || "development"}`);
+        logger.info(`  📊  Durum    : http://localhost:${PORT}/api/status`);
+        logger.info(`  🕐  Başlangıç: ${new Date().toLocaleString("tr-TR")}`);
+        logger.info(`${line}\n`);
+
+        // ─── Otomatik Stok Senkronizasyon Cron'unu Başlat ─────────────────────
+        try {
+            const { startStockCron } = require("./services/stockCronService");
+            startStockCron();
+            logger.info("Stok senkronizasyon cron'u başlatıldı ✅");
+        } catch (err) {
+            logger.warn(`Stok cron başlatılamadı: ${err.message}`);
+        }
+    });
+};
+
+startServer();
 
 // ─── 15. İşlem seviyesi hata yakalama ────────────────────────────────────────
 process.on("unhandledRejection", (reason, promise) => {
@@ -213,17 +264,22 @@ process.on("unhandledRejection", (reason, promise) => {
 process.on("uncaughtException", (err) => {
     logger.error(`Yakalanmamış İstisna: ${err.message}`, { stack: err.stack });
     // Kritik hatalarda sunucuyu düzgün kapat
-    server.close(() => process.exit(1));
+    if (server) server.close(() => process.exit(1));
+    else process.exit(1);
 });
 
 process.on("SIGTERM", () => {
     logger.info("SIGTERM alındı — sunucu kapatılıyor...");
     const { stopStockCron } = require("./services/stockCronService");
     stopStockCron();
-    server.close(() => {
-        mongoose.connection.close(false, () => {
-            logger.info("Sunucu ve DB bağlantısı kapatıldı.");
-            process.exit(0);
+    if (server) {
+        server.close(() => {
+            mongoose.connection.close(false, () => {
+                logger.info("Sunucu ve DB bağlantısı kapatıldı.");
+                process.exit(0);
+            });
         });
-    });
+    } else {
+        process.exit(0);
+    }
 });

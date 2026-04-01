@@ -55,6 +55,9 @@ import PriceSyncPage from "./pages/PriceSyncPage";
 // Email Doğrulama
 import VerifyEmail from "./pages/VerifyEmail";
 
+// ✅ FIX #19: Protected Route — Auth guard
+import ProtectedRoute from "./components/ProtectedRoute";
+
 // Tema ayarları
 const theme = createTheme({
     palette: {
@@ -83,44 +86,44 @@ const AppContent = () => {
             <Route path="/login" element={<LoginForm />} />
             <Route path="/verify-email" element={<VerifyEmail />} />
 
-            {/* Kullanıcı Paneli */}
-            <Route path="/dashboard" element={<UserDashboard />} />
+            {/* Kullanıcı Paneli — ProtectedRoute ile korunuyor */}
+            <Route path="/dashboard" element={<ProtectedRoute><UserDashboard /></ProtectedRoute>} />
 
-            {/* Admin Paneli */}
+            {/* Admin Paneli — Admin/Dev rolü gerekli */}
             <Route path="/admin/login" element={<AdminLogin />} />
-            <Route path="/admin" element={<AdminDashboard />} />
-            <Route path="/admin/servers" element={<AdminServers />} />
-            <Route path="/admin/user-access" element={<AdminUserAccess />} />
-            <Route path="/admin/users" element={<AdminUsers />} />
-            <Route path="/admin/products" element={<AdminProducts />} />
-            <Route path="/admin/orders" element={<AdminOrders />} />
-            <Route path="/admin/products/upload" element={<ProductWizard />} />
+            <Route path="/admin" element={<ProtectedRoute requiredRoles={["admin","dev"]}><AdminDashboard /></ProtectedRoute>} />
+            <Route path="/admin/servers" element={<ProtectedRoute requiredRoles={["admin","dev"]}><AdminServers /></ProtectedRoute>} />
+            <Route path="/admin/user-access" element={<ProtectedRoute requiredRoles={["admin","dev"]}><AdminUserAccess /></ProtectedRoute>} />
+            <Route path="/admin/users" element={<ProtectedRoute requiredRoles={["admin","dev"]}><AdminUsers /></ProtectedRoute>} />
+            <Route path="/admin/products" element={<ProtectedRoute requiredRoles={["admin","dev"]}><AdminProducts /></ProtectedRoute>} />
+            <Route path="/admin/orders" element={<ProtectedRoute requiredRoles={["admin","dev"]}><AdminOrders /></ProtectedRoute>} />
+            <Route path="/admin/products/upload" element={<ProtectedRoute requiredRoles={["admin","dev"]}><ProductWizard /></ProtectedRoute>} />
 
-            {/* SaaS Admin Panel */}
-            <Route path="/admin/tenants" element={<SaasTenants />} />
-            <Route path="/admin/subscriptions" element={<SaasSubscriptions />} />
-            <Route path="/admin/payments" element={<SaasPayments />} />
-            <Route path="/admin/integrations" element={<SaasIntegrations />} />
-            <Route path="/admin/usage" element={<SaasUsage />} />
-            <Route path="/admin/reports" element={<SaasReports />} />
-            <Route path="/admin/announcements" element={<SaasAnnouncements />} />
-            <Route path="/admin/tickets" element={<SaasTickets />} />
-            <Route path="/admin/audit-logs" element={<SaasAuditLogs />} />
-            <Route path="/admin/system-config" element={<SaasSystemConfig />} />
+            {/* SaaS Admin Panel — Admin/Dev rolü gerekli */}
+            <Route path="/admin/tenants" element={<ProtectedRoute requiredRoles={["admin","dev"]}><SaasTenants /></ProtectedRoute>} />
+            <Route path="/admin/subscriptions" element={<ProtectedRoute requiredRoles={["admin","dev"]}><SaasSubscriptions /></ProtectedRoute>} />
+            <Route path="/admin/payments" element={<ProtectedRoute requiredRoles={["admin","dev"]}><SaasPayments /></ProtectedRoute>} />
+            <Route path="/admin/integrations" element={<ProtectedRoute requiredRoles={["admin","dev"]}><SaasIntegrations /></ProtectedRoute>} />
+            <Route path="/admin/usage" element={<ProtectedRoute requiredRoles={["admin","dev"]}><SaasUsage /></ProtectedRoute>} />
+            <Route path="/admin/reports" element={<ProtectedRoute requiredRoles={["admin","dev"]}><SaasReports /></ProtectedRoute>} />
+            <Route path="/admin/announcements" element={<ProtectedRoute requiredRoles={["admin","dev"]}><SaasAnnouncements /></ProtectedRoute>} />
+            <Route path="/admin/tickets" element={<ProtectedRoute requiredRoles={["admin","dev"]}><SaasTickets /></ProtectedRoute>} />
+            <Route path="/admin/audit-logs" element={<ProtectedRoute requiredRoles={["admin","dev"]}><SaasAuditLogs /></ProtectedRoute>} />
+            <Route path="/admin/system-config" element={<ProtectedRoute requiredRoles={["admin","dev"]}><SaasSystemConfig /></ProtectedRoute>} />
 
-            {/* Pazaryeri Entegrasyonu */}
-            <Route path="/marketplace-integration" element={<MarketplaceIntegration />} />
+            {/* Pazaryeri Entegrasyonu — Giriş gerekli */}
+            <Route path="/marketplace-integration" element={<ProtectedRoute><MarketplaceIntegration /></ProtectedRoute>} />
 
-            {/* Finans Modülü */}
-            <Route path="/finance" element={<FinancePage />} />
+            {/* Finans Modülü — Giriş gerekli */}
+            <Route path="/finance" element={<ProtectedRoute><FinancePage /></ProtectedRoute>} />
 
-            {/* Ürün Yönetimi */}
-            <Route path="/product-management" element={<ProductManagementPage />} />
-            <Route path="/product-upload" element={<ProductUploadPage />} />
-            <Route path="/price-sync" element={<PriceSyncPage />} />
+            {/* Ürün Yönetimi — Giriş gerekli */}
+            <Route path="/product-management" element={<ProtectedRoute><ProductManagementPage /></ProtectedRoute>} />
+            <Route path="/product-upload" element={<ProtectedRoute><ProductUploadPage /></ProtectedRoute>} />
+            <Route path="/price-sync" element={<ProtectedRoute><PriceSyncPage /></ProtectedRoute>} />
 
-            {/* Kategori Eşleştirme */}
-            <Route path="/category-mapping" element={<CategoryMappingPage />} />
+            {/* Kategori Eşleştirme — Giriş gerekli */}
+            <Route path="/category-mapping" element={<ProtectedRoute><CategoryMappingPage /></ProtectedRoute>} />
         </Routes>
     );
 

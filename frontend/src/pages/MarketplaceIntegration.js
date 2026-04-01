@@ -46,8 +46,8 @@ const MarketplaceIntegration = () => {
                 { name: "Trendyol", fields: ["apiKey", "apiSecret", "sellerId"], description: "Trendyol Entegratör API - Supplier ID, API Key ve API Secret gereklidir" },
                 { name: "Hepsiburada", fields: ["merchantId", "apiKey"], fieldLabels: { merchantId: "Mağaza ID", apiKey: "Servis Anahtarı" }, description: "Hepsiburada Merchant API - Mağaza ID ve Servis Anahtarı gereklidir." },
                 { name: "n11", fields: ["apiKey", "secretKey", "shipmentTemplate"], fieldLabels: { apiKey: "App Key", secretKey: "App Secret", shipmentTemplate: "Kargo Şablon Adı" }, fieldDefaults: { shipmentTemplate: "STANDART" }, fieldHints: { shipmentTemplate: "N11 Paneli → Hesabım → Teslimat Bilgileri → Şablon Adı" }, description: "N11 REST API — App Key ve App Secret zorunludur." },
-                { name: "Amazon Türkiye", fields: ["sellerId", "mwsAuthToken", "accessKey", "secretKey", "marketplaceId"], description: "Amazon MWS API - Seller ID, MWS Auth Token, Access Key, Secret Key ve Marketplace ID gereklidir" },
-                { name: "ÇiçekSepeti", fields: ["apiKey", "apiPassword", "supplierId"], description: "ÇiçekSepeti Entegrasyon API - API Key, API Password ve Supplier ID gereklidir" },
+                { name: "Amazon Türkiye", fields: ["sellerId", "clientId", "clientSecret", "refreshToken", "accessKeyId", "secretAccessKey", "marketplaceId"], fieldLabels: { sellerId: "Seller ID", clientId: "LWA Client ID", clientSecret: "LWA Client Secret", refreshToken: "LWA Refresh Token", accessKeyId: "AWS Access Key ID", secretAccessKey: "AWS Secret Access Key", marketplaceId: "Marketplace ID" }, fieldDefaults: { marketplaceId: "A33AVAJ2PDY3EV" }, fieldHints: { sellerId: "Seller Central → Hesap Bilgileri → Satıcı ID", clientId: "Developer Central → LWA Credentials → Client ID", clientSecret: "Developer Central → LWA Credentials → Client Secret", refreshToken: "SP-API uygulaması yetkilendirildikten sonra alınan token", accessKeyId: "AWS IAM → Kullanıcı → Access Key ID", secretAccessKey: "AWS IAM → Kullanıcı → Secret Access Key", marketplaceId: "Türkiye: A33AVAJ2PDY3EV" }, description: "Amazon SP-API — Seller ID, LWA Credentials ve AWS IAM Keys gereklidir" },
+                { name: "ÇiçekSepeti", fields: ["apiKey", "sellerId", "integratorName"], fieldLabels: { apiKey: "API Key (x-api-key)", sellerId: "Satıcı ID", integratorName: "Entegratör Adı (opsiyonel)" }, fieldHints: { apiKey: "Satıcı Paneli → Hesap Yönetimi → Entegrasyon Bilgilerim", sellerId: "Satıcı Paneli → Entegrasyon Bilgilerim → Satıcı ID", integratorName: "Entegratör firma ile çalışıyorsanız doldurun, yoksa boş bırakın" }, fieldRequired: { apiKey: true, sellerId: true, integratorName: false }, description: "ÇiçekSepeti Marketplace API — API Key ve Satıcı ID zorunludur. Canlı ortam: apis.ciceksepeti.com" },
                 { name: "GittiGidiyor", fields: ["apiKey", "secretKey", "role", "nick"], description: "GittiGidiyor API (Kapatıldı) - Eski entegrasyonlar için" },
                 { name: "Morhipo", fields: ["supplierId", "apiKey", "apiSecret"], description: "Morhipo Entegrasyon API - Supplier ID, API Key ve API Secret gereklidir" },
                 { name: "PttAVM", fields: ["merchantCode", "apiKey", "apiSecret"], description: "PttAVM Entegrasyon API - Merchant Code, API Key ve API Secret gereklidir" },
@@ -58,7 +58,7 @@ const MarketplaceIntegration = () => {
         {
             name: "Avrupa",
             platforms: [
-                { name: "Amazon Europe", fields: ["sellerId", "mwsAuthToken", "accessKey", "secretKey", "marketplaceId"], description: "Amazon MWS/SP-API - Seller ID, MWS Auth Token, Access Key, Secret Key ve Marketplace ID gereklidir" },
+                { name: "Amazon Europe", fields: ["sellerId", "clientId", "clientSecret", "refreshToken", "accessKeyId", "secretAccessKey", "marketplaceId"], fieldLabels: { sellerId: "Seller ID", clientId: "LWA Client ID", clientSecret: "LWA Client Secret", refreshToken: "LWA Refresh Token", accessKeyId: "AWS Access Key ID", secretAccessKey: "AWS Secret Access Key", marketplaceId: "Marketplace ID" }, fieldDefaults: { marketplaceId: "A1PA6795UKMFR9" }, fieldHints: { sellerId: "Seller Central → Account Info → Merchant Token", clientId: "Developer Central → LWA Credentials", clientSecret: "Developer Central → LWA Credentials", refreshToken: "SP-API app authorization token", accessKeyId: "AWS IAM → User → Access Key", secretAccessKey: "AWS IAM → User → Secret Key", marketplaceId: "DE: A1PA6795UKMFR9, UK: A1F83G8C2ARO7P, FR: A13V1IB3VIYZZH, IT: APJ6JRA9NG5V4, ES: A1RKKUPIHCS9HS" }, description: "Amazon SP-API Europe — Seller ID, LWA Credentials ve AWS IAM Keys gereklidir" },
                 { name: "eBay", fields: ["appId", "devId", "certId", "userToken", "siteId"], description: "eBay Trading API - App ID, Dev ID, Cert ID, User Token ve Site ID gereklidir" },
                 { name: "Etsy", fields: ["apiKey", "sharedSecret", "shopId", "accessToken"], description: "Etsy API v3 - API Key, Shared Secret, Shop ID ve OAuth Access Token gereklidir" },
                 { name: "Allegro", fields: ["clientId", "clientSecret", "refreshToken"], description: "Allegro REST API - Client ID, Client Secret ve Refresh Token gereklidir" }
@@ -76,7 +76,7 @@ const MarketplaceIntegration = () => {
         {
             name: "Amerika",
             platforms: [
-                { name: "Amazon USA", fields: ["sellerId", "mwsAuthToken", "accessKey", "secretKey", "marketplaceId"], description: "Amazon SP-API - Seller ID, MWS Auth Token, Access Key, Secret Key ve Marketplace ID gereklidir" },
+                { name: "Amazon USA", fields: ["sellerId", "clientId", "clientSecret", "refreshToken", "accessKeyId", "secretAccessKey", "marketplaceId"], fieldLabels: { sellerId: "Seller ID", clientId: "LWA Client ID", clientSecret: "LWA Client Secret", refreshToken: "LWA Refresh Token", accessKeyId: "AWS Access Key ID", secretAccessKey: "AWS Secret Access Key", marketplaceId: "Marketplace ID" }, fieldDefaults: { marketplaceId: "ATVPDKIKX0DER" }, fieldHints: { sellerId: "Seller Central → Account Info → Merchant Token", clientId: "Developer Central → LWA Credentials", clientSecret: "Developer Central → LWA Credentials", refreshToken: "SP-API app authorization token", accessKeyId: "AWS IAM → User → Access Key", secretAccessKey: "AWS IAM → User → Secret Key", marketplaceId: "US: ATVPDKIKX0DER, CA: A2EUQ1WTGCTBG2, MX: A1AM78C64UM0Y8" }, description: "Amazon SP-API North America — Seller ID, LWA Credentials ve AWS IAM Keys gereklidir" },
                 { name: "Walmart", fields: ["clientId", "clientSecret", "consumerId"], description: "Walmart Marketplace API - Client ID, Client Secret ve Consumer ID gereklidir" },
                 { name: "Shopify", fields: ["shopName", "apiKey", "apiSecret", "accessToken"], description: "Shopify Admin API - Shop Name, API Key, API Secret ve Access Token gereklidir" }
             ]
@@ -112,11 +112,13 @@ const MarketplaceIntegration = () => {
             credentials[field] = platformFormData[field] || platform.fieldDefaults?.[field] || "";
         });
 
-        const hasEmptyFields = platform.fields.some(field => {
+        // Zorunlu alanları kontrol et (fieldRequired varsa onu kullan, yoksa tüm alanlar zorunlu)
+        const hasEmptyRequiredFields = platform.fields.some(field => {
+            const isRequired = platform.fieldRequired ? platform.fieldRequired[field] !== false : true;
             const val = credentials[field];
-            return !val || !val.trim();
+            return isRequired && (!val || !val.trim());
         });
-        if (hasEmptyFields) { alert(`❌ Lütfen ${platform.name} için tüm API bilgilerini doldurun!`); return; }
+        if (hasEmptyRequiredFields) { alert(`❌ Lütfen ${platform.name} için zorunlu API bilgilerini doldurun!`); return; }
 
         try {
             const response = await fetch(`${API_URL}/api/marketplace/integrate`, {
@@ -325,12 +327,13 @@ const MarketplaceIntegration = () => {
                                                             {platform.fields.map(field => {
                                                                 const label = platform.fieldLabels?.[field] || field.replace(/([A-Z])/g, ' $1').trim();
                                                                 const hint = platform.fieldHints?.[field];
+                                                                const isOptional = platform.fieldRequired && platform.fieldRequired[field] === false;
                                                                 const sensitive = ["apiKey","secretKey","appKey","appSecret","apiSecret","apiPassword","accessToken","sessionKey","clientSecret","mwsAuthToken","userToken","certId","partnerKey","licenseKey","serviceSecret"];
                                                                 const inputType = sensitive.includes(field) ? "password" : "text";
                                                                 const defaultVal = platform.fieldDefaults?.[field] || "";
                                                                 return (
                                                                     <div key={field} className="mi-field">
-                                                                        <label>{label}</label>
+                                                                        <label>{label}{isOptional && <span style={{ color: '#64748b', fontSize: '0.75rem', marginLeft: '0.4rem', fontWeight: 400 }}>(opsiyonel)</span>}</label>
                                                                         <input
                                                                             type={inputType}
                                                                             placeholder={hint || (defaultVal ? `Varsayılan: ${defaultVal}` : `${label} girin...`)}

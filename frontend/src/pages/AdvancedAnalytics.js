@@ -2,25 +2,23 @@ import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
     FaChartLine, FaShoppingCart, FaMoneyBillWave, FaArrowUp,
-    FaStore, FaDownload, FaFire, FaStar, FaArrowDown,
-    FaClock, FaUsers, FaPercent, FaChartBar, FaChartPie,
+    FaStore, FaFire, FaStar, FaArrowDown,
+    FaClock, FaPercent, FaChartBar, FaChartPie,
     FaExclamationTriangle, FaCheckCircle, FaSync,
-    FaInfoCircle, FaBolt, FaDollarSign, FaWarehouse,
+    FaBolt, FaDollarSign, FaWarehouse,
     FaBoxes, FaLayerGroup, FaCalendarAlt, FaEye,
-    FaLightbulb, FaGlobeAmericas, FaBalanceScale,
+    FaLightbulb, FaBalanceScale,
     FaCubes, FaSearchDollar, FaRegChartBar
 } from "react-icons/fa";
 import {
     BarChart, Bar, PieChart, Pie, Cell, AreaChart, Area, Line,
     XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
-    ComposedChart, RadarChart, Radar, PolarGrid, PolarAngleAxis,
-    PolarRadiusAxis, Treemap, ScatterChart, Scatter, ZAxis
+    ComposedChart
 } from "recharts";
 import { getUserMarketplaces, fetchDashboardData } from "../services/marketplaceApi";
 import axios from "../services/api";
 import "../styles/advancedAnalytics.css";
 
-const API_BASE = (process.env.REACT_APP_API_URL || "http://13.51.158.124:5000") + "/api";
 const COLORS = ['#4ecdc4', '#ff6b6b', '#ffd93d', '#6bcf7f', '#a29bfe', '#fd79a8', '#fdcb6e', '#00b894', '#e17055', '#0984e3'];
 
 const formatCurrency = (value) => {
@@ -34,13 +32,6 @@ const formatCurrency = (value) => {
 const formatNumber = (value) => {
     return new Intl.NumberFormat("tr-TR").format(Number(value || 0));
 };
-
-const getToken = () => localStorage.getItem("token");
-
-const authHeaders = () => ({
-    "Content-Type": "application/json",
-    "Authorization": `Bearer ${getToken()}`
-});
 
 // ─── Tab definitions ───
 const TABS = [
@@ -57,7 +48,6 @@ const AdvancedAnalytics = ({ userId }) => {
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState("overview");
     const [dateRange, setDateRange] = useState("30");
-    const [selectedMarketplace, setSelectedMarketplace] = useState("all");
     const [autoRefresh, setAutoRefresh] = useState(true);
     const [lastUpdate, setLastUpdate] = useState(new Date());
 
@@ -89,14 +79,11 @@ const AdvancedAnalytics = ({ userId }) => {
         };
     }, [dateRange]);
 
-    // ─── Fetch analytics API endpoints ───
+    // ─── Fetch analytics API endpoints (uses axios instance, not hardcoded URL) ───
     const fetchAnalyticsEndpoint = useCallback(async (endpoint, params = {}) => {
         try {
-            const token = getToken();
-            if (!token) return null;
             const dateParams = getDateParams();
-            const response = await axios.get(`${API_BASE}/analytics/${endpoint}`, {
-                headers: authHeaders(),
+            const response = await axios.get(`/analytics/${endpoint}`, {
                 params: { ...dateParams, ...params }
             });
             return response.data?.data || response.data || null;
@@ -112,7 +99,7 @@ const AdvancedAnalytics = ({ userId }) => {
         const marketplaceList = mps || marketplaces;
         for (const mp of marketplaceList) {
             try {
-                const res = await axios.get(`${API_BASE}/products/all/${userId}`, {
+                const res = await axios.get(`/products/all/${userId}`, {
                     params: { marketplaceId: mp._id }
                 });
                 const products = res.data?.products || [];
@@ -229,11 +216,6 @@ const AdvancedAnalytics = ({ userId }) => {
                 return (data.revenue || 0) > (best.revenue || 0) ? { name, ...data } : best;
             }, { name: '', revenue: 0 });
 
-            const worstMp = mpEntries.reduce((worst, [name, data]) => {
-                if (worst.name === '') return { name, ...data };
-                return (data.revenue || 0) < (worst.revenue || 0) ? { name, ...data } : worst;
-            }, { name: '', revenue: 0 });
-
             if (bestMp.name) {
                 const bestShare = totalRevenue > 0 ? ((bestMp.revenue / totalRevenue) * 100).toFixed(1) : 0;
                 insights.push({
@@ -244,18 +226,6 @@ const AdvancedAnalytics = ({ userId }) => {
                     detail: 'Bu pazaryerindeki başarılı stratejilerinizi diğer platformlara da uygulayın.',
                     metric: `%${bestShare}`,
                     metricLabel: 'Pazar Payı'
-                });
-            }
-
-            if (worstMp.name && mpEntries.length > 1 && worstMp.name !== bestMp.name) {
-                insights.push({
-                    type: 'warning',
-                    title: 'Geliştirilmesi Gereken Pazaryeri',
-                    icon: FaExclamationTriangle,
-                    text: `${worstMp.name} pazaryeri en düşük performansı gösteriyor. ${formatCurrency(worstMp.revenue || 0)} gelir.`,
-                    detail: 'Bu platformda ürün çeşitliliğini artırın, fiyat optimizasyonu yapın ve kampanyalara katılın.',
-                    metric: formatCurrency(worstMp.revenue || 0),
-                    metricLabel: 'Gelir'
                 });
             }
 
@@ -370,12 +340,12 @@ const AdvancedAnalytics = ({ userId }) => {
                 title: growth > 0 ? 'Büyüme Trendi' : 'Düşüş Uyarısı',
                 icon: growth > 0 ? FaArrowUp : FaArrowDown,
                 text: growth > 0
-                    ? `Siparişleriniz önceki döneme göre %${Math.abs(growth)} artış gösterdi.`
-                    : `Siparişleriniz önceki döneme göre %${Math.abs(growth)} düşüş gösterdi.`,
+                    ? `Siparişleriniz önceki döneme göre %${Math.abs(growth).toFixed(1)} artış gösterdi.`
+                    : `Siparişleriniz önceki döneme göre %${Math.abs(growth).toFixed(1)} düşüş gösterdi.`,
                 detail: growth > 0
                     ? 'Mevcut stratejiniz işe yarıyor. Aynı ivmeyi sürdürün.'
                     : 'Fiyatlandırma, kampanya ve ürün çeşitliliği stratejilerinizi gözden geçirin.',
-                metric: `%${Math.abs(growth)}`,
+                metric: `%${Math.abs(growth).toFixed(1)}`,
                 metricLabel: growth > 0 ? 'Artış' : 'Düşüş'
             });
         }
@@ -405,6 +375,7 @@ const AdvancedAnalytics = ({ userId }) => {
         const mpStatus = dashboard?.marketplaceStatus || {};
         const summary = dashboard?.summary || {};
         const totalRevenue = summary.todayRevenue || 0;
+        const totalOrderCount = summary.todayOrders || 0;
 
         const performance = Object.entries(mpStatus).map(([name, data]) => {
             const orders = data.orders || 0;
@@ -412,12 +383,10 @@ const AdvancedAnalytics = ({ userId }) => {
             const errors = data.errors || 0;
             const statusGroups = data.statusGroups || {};
 
-            const orderScore = summary.todayOrders > 0 ? Math.min(100, (orders / summary.todayOrders) * 100) : 0;
+            const orderScore = totalOrderCount > 0 ? Math.min(100, (orders / totalOrderCount) * 100) : 0;
             const revenueScore = totalRevenue > 0 ? Math.min(100, (revenue / totalRevenue) * 100) : 0;
             const errorScore = errors === 0 ? 100 : Math.max(0, 100 - (errors * 20));
             const performanceScore = Math.round(orderScore * 0.35 + revenueScore * 0.45 + errorScore * 0.20);
-
-            const distData = (mpDist || []).find(m => m.name?.toLowerCase() === name.toLowerCase());
 
             return {
                 name: name.charAt(0).toUpperCase() + name.slice(1),
@@ -427,12 +396,11 @@ const AdvancedAnalytics = ({ userId }) => {
                 performanceScore,
                 avgOrderValue: orders > 0 ? revenue / orders : 0,
                 status: data.status || 'unknown',
-                health: data.health || (performanceScore >= 75 ? 'excellent' : performanceScore >= 50 ? 'good' : performanceScore >= 25 ? 'warning' : 'critical'),
+                health: performanceScore >= 75 ? 'excellent' : performanceScore >= 50 ? 'good' : performanceScore >= 25 ? 'warning' : 'critical',
                 marketShare: totalRevenue > 0 ? (revenue / totalRevenue) * 100 : 0,
                 pendingSync: data.pendingSync || 0,
                 stockMismatch: data.stockMismatch || 0,
                 statusGroups,
-                orderPercentage: distData ? parseFloat(distData.percentage) : 0,
                 newOrders: statusGroups.new || 0,
                 processingOrders: statusGroups.processing || 0,
                 shippingOrders: statusGroups.shipping || 0,
@@ -473,21 +441,26 @@ const AdvancedAnalytics = ({ userId }) => {
     const processComparisonData = useCallback((overview, dashboard) => {
         if (!overview && !dashboard) return null;
         const summary = dashboard?.summary || {};
-        const totalOrders = overview?.totalOrders || summary.todayOrders || 0;
-        const totalRevenue = overview?.totalRevenue || summary.todayRevenue || 0;
-        const growth = overview?.growth || 0;
-        const avgOrderValue = overview?.avgOrderValue || (totalOrders > 0 ? totalRevenue / totalOrders : 0);
+        const currentOrders = overview?.totalOrders || summary.todayOrders || 0;
+        const currentRevenue = overview?.totalRevenue || summary.todayRevenue || 0;
+        const growth = Number(overview?.growth || 0);
+        const currentAvgOrder = currentOrders > 0 ? currentRevenue / currentOrders : 0;
 
-        const prevOrders = growth !== 0 ? Math.round(totalOrders / (1 + growth / 100)) : totalOrders;
-        const prevRevenue = prevOrders > 0 ? prevOrders * avgOrderValue * 0.95 : 0;
+        // Calculate previous period values from growth rate
+        const prevOrders = growth !== 0 && growth !== 100 ? Math.round(currentOrders / (1 + growth / 100)) : currentOrders;
+        const prevAvgOrder = currentAvgOrder * 0.95; // approximate
+        const prevRevenue = prevOrders * prevAvgOrder;
+
+        const revenueGrowth = prevRevenue > 0 ? ((currentRevenue - prevRevenue) / prevRevenue * 100) : 0;
+        const avgOrderGrowth = prevAvgOrder > 0 ? ((currentAvgOrder - prevAvgOrder) / prevAvgOrder * 100) : 0;
 
         return {
-            current: { orders: totalOrders, revenue: totalRevenue, avgOrder: avgOrderValue },
-            previous: { orders: prevOrders, revenue: prevRevenue, avgOrder: prevOrders > 0 ? prevRevenue / prevOrders : 0 },
+            current: { orders: currentOrders, revenue: currentRevenue, avgOrder: currentAvgOrder },
+            previous: { orders: prevOrders, revenue: prevRevenue, avgOrder: prevAvgOrder },
             growth: {
                 orders: growth,
-                revenue: totalRevenue > 0 && prevRevenue > 0 ? ((totalRevenue - prevRevenue) / prevRevenue * 100).toFixed(1) : 0,
-                avgOrder: avgOrderValue > 0 && prevOrders > 0 ? (((avgOrderValue - prevRevenue / Math.max(prevOrders, 1)) / Math.max(prevRevenue / Math.max(prevOrders, 1), 1)) * 100).toFixed(1) : 0
+                revenue: parseFloat(revenueGrowth.toFixed(1)),
+                avgOrder: parseFloat(avgOrderGrowth.toFixed(1))
             }
         };
     }, []);
@@ -528,24 +501,14 @@ const AdvancedAnalytics = ({ userId }) => {
             setRealProducts(products);
 
             // Phase 3: Process derived data
-            const stockData = processStockAnalysis(products);
-            setStockAnalysis(stockData);
-
-            const priceData = processPriceAnalysis(products);
-            setPriceAnalysis(priceData);
-
-            const mpPerf = processMarketplacePerformance(dashboard, mpDist);
-            setMarketplacePerformance(mpPerf);
-
-            const revByDay = processRevenueByDay(trend);
-            setRevenueByDay(revByDay);
-
-            const comparison = processComparisonData(overview, dashboard);
-            setComparisonData(comparison);
+            setStockAnalysis(processStockAnalysis(products));
+            setPriceAnalysis(processPriceAnalysis(products));
+            setMarketplacePerformance(processMarketplacePerformance(dashboard, mpDist));
+            setRevenueByDay(processRevenueByDay(trend));
+            setComparisonData(processComparisonData(overview, dashboard));
 
             // Phase 4: Generate AI insights
-            const insights = generateAIInsights(dashboard, products, mpDist, topProds, catDist, hourly, overview);
-            setAiInsights(insights);
+            setAiInsights(generateAIInsights(dashboard, products, mpDist, topProds, catDist, hourly, overview));
 
             setLastUpdate(new Date());
         } catch (error) {
@@ -622,6 +585,9 @@ const AdvancedAnalytics = ({ userId }) => {
         ];
     }, [dashboardData, analyticsOverview, marketplaces, realProducts, stockAnalysis]);
 
+    // ─── Tooltip style ───
+    const tooltipStyle = { background: '#0f172a', border: '1px solid #1e293b', borderRadius: '12px', color: '#e2e8f0' };
+
     // ─── RENDER: Loading ───
     if (loading && !dashboardData) {
         return (
@@ -658,10 +624,10 @@ const AdvancedAnalytics = ({ userId }) => {
                                 />
                                 <YAxis yAxisId="left" stroke="#64748b" tick={{ fontSize: 11 }} tickFormatter={(v) => v >= 1000 ? `${(v/1000).toFixed(0)}K` : v} />
                                 <YAxis yAxisId="right" orientation="right" stroke="#64748b" tick={{ fontSize: 11 }} />
-                                <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: '12px', color: '#e2e8f0' }}
+                                <Tooltip contentStyle={tooltipStyle}
                                     formatter={(value, name) => {
-                                        if (name === 'revenue') return [formatCurrency(value), 'Gelir'];
-                                        if (name === 'orders') return [formatNumber(value), 'Sipariş'];
+                                        if (name === 'revenue' || name === 'Gelir') return [formatCurrency(value), 'Gelir'];
+                                        if (name === 'orders' || name === 'Sipariş') return [formatNumber(value), 'Sipariş'];
                                         return [value, name];
                                     }}
                                     labelFormatter={(v) => { try { return new Date(v).toLocaleDateString('tr-TR', { day: '2-digit', month: 'long', year: 'numeric' }); } catch { return v; } }}
@@ -672,10 +638,7 @@ const AdvancedAnalytics = ({ userId }) => {
                             </ComposedChart>
                         </ResponsiveContainer>
                     ) : (
-                        <div className="aa-no-data">
-                            <FaChartLine />
-                            <p>Henüz satış trendi verisi yok</p>
-                        </div>
+                        <div className="aa-no-data"><FaChartLine /><p>Henüz satış trendi verisi yok</p></div>
                     )}
                 </div>
             </div>
@@ -696,7 +659,7 @@ const AdvancedAnalytics = ({ userId }) => {
                                             <Cell key={idx} fill={COLORS[idx % COLORS.length]} />
                                         ))}
                                     </Pie>
-                                    <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: '12px', color: '#e2e8f0' }}
+                                    <Tooltip contentStyle={tooltipStyle}
                                         formatter={(value, name) => [formatNumber(value) + ' sipariş', name]} />
                                 </PieChart>
                             </ResponsiveContainer>
@@ -725,42 +688,24 @@ const AdvancedAnalytics = ({ userId }) => {
                     </div>
                     <div className="aa-card-body">
                         <div className="aa-comparison-grid">
-                            <div className="aa-comp-item">
-                                <span className="aa-comp-label">Sipariş</span>
-                                <div className="aa-comp-values">
-                                    <span className="aa-comp-current">{formatNumber(comparisonData.current.orders)}</span>
-                                    <span className="aa-comp-vs">vs</span>
-                                    <span className="aa-comp-prev">{formatNumber(comparisonData.previous.orders)}</span>
+                            {[
+                                { label: 'Sipariş', current: formatNumber(comparisonData.current.orders), prev: formatNumber(comparisonData.previous.orders), growth: comparisonData.growth.orders },
+                                { label: 'Gelir', current: formatCurrency(comparisonData.current.revenue), prev: formatCurrency(comparisonData.previous.revenue), growth: comparisonData.growth.revenue },
+                                { label: 'Ort. Sepet', current: formatCurrency(comparisonData.current.avgOrder), prev: formatCurrency(comparisonData.previous.avgOrder), growth: comparisonData.growth.avgOrder },
+                            ].map((item, i) => (
+                                <div key={i} className="aa-comp-item">
+                                    <span className="aa-comp-label">{item.label}</span>
+                                    <div className="aa-comp-values">
+                                        <span className="aa-comp-current">{item.current}</span>
+                                        <span className="aa-comp-vs">vs</span>
+                                        <span className="aa-comp-prev">{item.prev}</span>
+                                    </div>
+                                    <span className={`aa-comp-change ${item.growth >= 0 ? 'positive' : 'negative'}`}>
+                                        {item.growth >= 0 ? <FaArrowUp /> : <FaArrowDown />}
+                                        %{Math.abs(item.growth).toFixed(1)}
+                                    </span>
                                 </div>
-                                <span className={`aa-comp-change ${comparisonData.growth.orders >= 0 ? 'positive' : 'negative'}`}>
-                                    {comparisonData.growth.orders >= 0 ? <FaArrowUp /> : <FaArrowDown />}
-                                    %{Math.abs(comparisonData.growth.orders)}
-                                </span>
-                            </div>
-                            <div className="aa-comp-item">
-                                <span className="aa-comp-label">Gelir</span>
-                                <div className="aa-comp-values">
-                                    <span className="aa-comp-current">{formatCurrency(comparisonData.current.revenue)}</span>
-                                    <span className="aa-comp-vs">vs</span>
-                                    <span className="aa-comp-prev">{formatCurrency(comparisonData.previous.revenue)}</span>
-                                </div>
-                                <span className={`aa-comp-change ${comparisonData.growth.revenue >= 0 ? 'positive' : 'negative'}`}>
-                                    {comparisonData.growth.revenue >= 0 ? <FaArrowUp /> : <FaArrowDown />}
-                                    %{Math.abs(comparisonData.growth.revenue)}
-                                </span>
-                            </div>
-                            <div className="aa-comp-item">
-                                <span className="aa-comp-label">Ort. Sepet</span>
-                                <div className="aa-comp-values">
-                                    <span className="aa-comp-current">{formatCurrency(comparisonData.current.avgOrder)}</span>
-                                    <span className="aa-comp-vs">vs</span>
-                                    <span className="aa-comp-prev">{formatCurrency(comparisonData.previous.avgOrder)}</span>
-                                </div>
-                                <span className={`aa-comp-change ${comparisonData.growth.avgOrder >= 0 ? 'positive' : 'negative'}`}>
-                                    {comparisonData.growth.avgOrder >= 0 ? <FaArrowUp /> : <FaArrowDown />}
-                                    %{Math.abs(comparisonData.growth.avgOrder)}
-                                </span>
-                            </div>
+                            ))}
                         </div>
                     </div>
                 </div>
@@ -778,7 +723,7 @@ const AdvancedAnalytics = ({ userId }) => {
                                 <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
                                 <XAxis dataKey="day" stroke="#64748b" tick={{ fontSize: 11 }} />
                                 <YAxis stroke="#64748b" tick={{ fontSize: 11 }} tickFormatter={(v) => v >= 1000 ? `${(v/1000).toFixed(0)}K` : v} />
-                                <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: '12px', color: '#e2e8f0' }}
+                                <Tooltip contentStyle={tooltipStyle}
                                     formatter={(v, n) => n === 'revenue' ? [formatCurrency(v), 'Ort. Gelir'] : [formatNumber(v), 'Ort. Sipariş']} />
                                 <Bar dataKey="revenue" fill="#8b5cf6" radius={[6, 6, 0, 0]} name="Ort. Gelir" />
                             </BarChart>
@@ -798,7 +743,7 @@ const AdvancedAnalytics = ({ userId }) => {
                         <div className="aa-top-products-quick">
                             {topProducts.slice(0, 5).map((p, idx) => (
                                 <div key={idx} className="aa-top-product-row">
-                                    <div className="aa-tp-rank" data-rank={idx + 1}>
+                                    <div className="aa-tp-rank">
                                         {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx + 1}`}
                                     </div>
                                     <div className="aa-tp-info">
@@ -807,7 +752,7 @@ const AdvancedAnalytics = ({ userId }) => {
                                     </div>
                                     <div className={`aa-tp-trend ${p.trend >= 0 ? 'positive' : 'negative'}`}>
                                         {p.trend >= 0 ? <FaArrowUp /> : <FaArrowDown />}
-                                        %{Math.abs(p.trend)}
+                                        %{Math.abs(p.trend).toFixed(1)}
                                     </div>
                                 </div>
                             ))}
@@ -823,7 +768,6 @@ const AdvancedAnalytics = ({ userId }) => {
     // ─── RENDER: Marketplaces Tab ───
     const renderMarketplaces = () => (
         <div className="aa-mp-grid">
-            {/* Marketplace Cards */}
             {marketplacePerformance.length > 0 ? marketplacePerformance.map((mp, idx) => (
                 <motion.div key={idx} className="aa-mp-card" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: idx * 0.1 }}>
                     <div className="aa-mp-card-header">
@@ -842,37 +786,22 @@ const AdvancedAnalytics = ({ userId }) => {
                     </div>
 
                     <div className="aa-mp-metrics-grid">
-                        <div className="aa-mp-metric">
-                            <FaShoppingCart />
-                            <div>
-                                <span className="aa-mp-metric-val">{formatNumber(mp.orders)}</span>
-                                <span className="aa-mp-metric-label">Sipariş</span>
+                        {[
+                            { icon: <FaShoppingCart />, val: formatNumber(mp.orders), label: 'Sipariş' },
+                            { icon: <FaMoneyBillWave />, val: formatCurrency(mp.revenue), label: 'Gelir' },
+                            { icon: <FaDollarSign />, val: formatCurrency(mp.avgOrderValue), label: 'Ort. Sepet' },
+                            { icon: <FaPercent />, val: `%${mp.marketShare.toFixed(1)}`, label: 'Pazar Payı' },
+                        ].map((m, i) => (
+                            <div key={i} className="aa-mp-metric">
+                                {m.icon}
+                                <div>
+                                    <span className="aa-mp-metric-val">{m.val}</span>
+                                    <span className="aa-mp-metric-label">{m.label}</span>
+                                </div>
                             </div>
-                        </div>
-                        <div className="aa-mp-metric">
-                            <FaMoneyBillWave />
-                            <div>
-                                <span className="aa-mp-metric-val">{formatCurrency(mp.revenue)}</span>
-                                <span className="aa-mp-metric-label">Gelir</span>
-                            </div>
-                        </div>
-                        <div className="aa-mp-metric">
-                            <FaDollarSign />
-                            <div>
-                                <span className="aa-mp-metric-val">{formatCurrency(mp.avgOrderValue)}</span>
-                                <span className="aa-mp-metric-label">Ort. Sepet</span>
-                            </div>
-                        </div>
-                        <div className="aa-mp-metric">
-                            <FaPercent />
-                            <div>
-                                <span className="aa-mp-metric-val">%{mp.marketShare.toFixed(1)}</span>
-                                <span className="aa-mp-metric-label">Pazar Payı</span>
-                            </div>
-                        </div>
+                        ))}
                     </div>
 
-                    {/* Order Status Breakdown */}
                     <div className="aa-mp-status-breakdown">
                         <h5>Sipariş Durumları</h5>
                         <div className="aa-mp-status-bars">
@@ -897,7 +826,6 @@ const AdvancedAnalytics = ({ userId }) => {
                         </div>
                     </div>
 
-                    {/* Diagnostics */}
                     <div className="aa-mp-diagnostics">
                         {mp.errors > 0 && <span className="aa-mp-diag error">⚠️ {mp.errors} hata</span>}
                         {mp.stockMismatch > 0 && <span className="aa-mp-diag warning">📦 {mp.stockMismatch} stok uyumsuz</span>}
@@ -909,7 +837,6 @@ const AdvancedAnalytics = ({ userId }) => {
                 <div className="aa-no-data-full"><FaStore /><p>Pazaryeri verisi bulunamadı</p></div>
             )}
 
-            {/* Marketplace Comparison Chart */}
             {marketplacePerformance.length > 1 && (
                 <div className="aa-card aa-card-full">
                     <div className="aa-card-head">
@@ -921,8 +848,8 @@ const AdvancedAnalytics = ({ userId }) => {
                                 <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
                                 <XAxis type="number" stroke="#64748b" tickFormatter={(v) => v >= 1000 ? `${(v/1000).toFixed(0)}K` : v} />
                                 <YAxis type="category" dataKey="name" stroke="#64748b" width={100} />
-                                <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: '12px', color: '#e2e8f0' }}
-                                    formatter={(v, n) => n === 'revenue' ? [formatCurrency(v), 'Gelir'] : [formatNumber(v), 'Sipariş']} />
+                                <Tooltip contentStyle={tooltipStyle}
+                                    formatter={(v, n) => n === 'revenue' || n === 'Gelir' ? [formatCurrency(v), 'Gelir'] : [formatNumber(v), 'Sipariş']} />
                                 <Legend />
                                 <Bar dataKey="revenue" fill="#10b981" name="Gelir" radius={[0, 6, 6, 0]} />
                                 <Bar dataKey="orders" fill="#3b82f6" name="Sipariş" radius={[0, 6, 6, 0]} />
@@ -937,10 +864,9 @@ const AdvancedAnalytics = ({ userId }) => {
     // ─── RENDER: Products Tab ───
     const renderProducts = () => (
         <div className="aa-products-section">
-            {/* Top Products Table */}
             <div className="aa-card aa-card-full">
                 <div className="aa-card-head">
-                    <h3><FaFire /> En Çok Satan Ürünler (Sipariş Verilerinden)</h3>
+                    <h3><FaFire /> En Çok Satan Ürünler</h3>
                     <span className="aa-card-badge">{topProducts.length} ürün</span>
                 </div>
                 <div className="aa-card-body">
@@ -965,11 +891,7 @@ const AdvancedAnalytics = ({ userId }) => {
                                         const perfPercent = (p.sales / maxSales) * 100;
                                         return (
                                             <tr key={idx}>
-                                                <td>
-                                                    <div className="aa-rank-badge" data-rank={idx + 1}>
-                                                        {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx + 1}`}
-                                                    </div>
-                                                </td>
+                                                <td><div className="aa-rank-badge">{idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx + 1}`}</div></td>
                                                 <td><span className="aa-product-name-cell">{p.name}</span></td>
                                                 <td><strong>{formatNumber(p.sales)}</strong></td>
                                                 <td><strong style={{ color: '#10b981' }}>{formatCurrency(p.revenue)}</strong></td>
@@ -977,7 +899,7 @@ const AdvancedAnalytics = ({ userId }) => {
                                                 <td>
                                                     <span className={`aa-trend-chip ${p.trend >= 0 ? 'positive' : 'negative'}`}>
                                                         {p.trend >= 0 ? <FaArrowUp /> : <FaArrowDown />}
-                                                        %{Math.abs(p.trend)}
+                                                        %{Math.abs(p.trend).toFixed(1)}
                                                     </span>
                                                 </td>
                                                 <td>
@@ -998,14 +920,46 @@ const AdvancedAnalytics = ({ userId }) => {
                 </div>
             </div>
 
-            {/* Real Products from Marketplaces */}
-            <div className="aa-card aa-card-full">
-                <div className="aa-card-head">
-                    <h3><FaBoxes /> Pazaryeri Ürünleri (Gerçek Zamanlı)</h3>
-                    <span className="aa-card-badge">{realProducts.length} ürün</span>
+            {/* Price Analysis by Marketplace */}
+            {priceAnalysis.length > 0 && (
+                <div className="aa-card aa-card-full">
+                    <div className="aa-card-head">
+                        <h3><FaSearchDollar /> Fiyat Analizi (Pazaryeri Bazlı)</h3>
+                    </div>
+                    <div className="aa-card-body">
+                        <div className="aa-price-analysis-grid">
+                            {priceAnalysis.map((pa, idx) => (
+                                <div key={idx} className="aa-price-card">
+                                    <h5>{pa.marketplace}</h5>
+                                    <div className="aa-price-metrics">
+                                        {[
+                                            { label: 'Ort. Fiyat', value: formatCurrency(pa.avgPrice) },
+                                            { label: 'Min / Max', value: `${formatCurrency(pa.minPrice)} - ${formatCurrency(pa.maxPrice)}` },
+                                            { label: 'Ort. İndirim', value: `%${pa.discountRate}`, style: { color: parseFloat(pa.discountRate) > 0 ? '#f59e0b' : '#94a3b8' } },
+                                            { label: 'Ürün Sayısı', value: formatNumber(pa.productCount) },
+                                            { label: 'Stok Değeri', value: formatCurrency(pa.totalStockValue), style: { color: '#10b981' } },
+                                        ].map((m, i) => (
+                                            <div key={i} className="aa-price-metric">
+                                                <span className="aa-pm-label">{m.label}</span>
+                                                <span className="aa-pm-value" style={m.style || {}}>{m.value}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
                 </div>
-                <div className="aa-card-body">
-                    {realProducts.length > 0 ? (
+            )}
+
+            {/* Real Products from Marketplaces */}
+            {realProducts.length > 0 && (
+                <div className="aa-card aa-card-full">
+                    <div className="aa-card-head">
+                        <h3><FaBoxes /> Pazaryeri Ürünleri</h3>
+                        <span className="aa-card-badge">{realProducts.length} ürün</span>
+                    </div>
+                    <div className="aa-card-body">
                         <div className="aa-real-products-grid">
                             {realProducts.slice(0, 20).map((p, idx) => (
                                 <div key={idx} className="aa-real-product-card">
@@ -1025,58 +979,13 @@ const AdvancedAnalytics = ({ userId }) => {
                                                 Stok: {p.stock || 0}
                                             </span>
                                         </div>
-                                        {p.categoryName && p.categoryName !== 'Bilinmiyor' && (
-                                            <span className="aa-rp-category">{p.categoryName}</span>
-                                        )}
                                     </div>
                                 </div>
                             ))}
                         </div>
-                    ) : (
-                        <div className="aa-no-data"><FaBoxes /><p>Pazaryeri ürün verisi yok</p></div>
-                    )}
-                    {realProducts.length > 20 && (
-                        <div className="aa-show-more">Toplam {realProducts.length} ürün (ilk 20 gösteriliyor)</div>
-                    )}
-                </div>
-            </div>
-
-            {/* Price Analysis by Marketplace */}
-            {priceAnalysis.length > 0 && (
-                <div className="aa-card aa-card-full">
-                    <div className="aa-card-head">
-                        <h3><FaSearchDollar /> Fiyat Analizi (Pazaryeri Bazlı)</h3>
-                    </div>
-                    <div className="aa-card-body">
-                        <div className="aa-price-analysis-grid">
-                            {priceAnalysis.map((pa, idx) => (
-                                <div key={idx} className="aa-price-card">
-                                    <h5>{pa.marketplace}</h5>
-                                    <div className="aa-price-metrics">
-                                        <div className="aa-price-metric">
-                                            <span className="aa-pm-label">Ort. Fiyat</span>
-                                            <span className="aa-pm-value">{formatCurrency(pa.avgPrice)}</span>
-                                        </div>
-                                        <div className="aa-price-metric">
-                                            <span className="aa-pm-label">Min / Max</span>
-                                            <span className="aa-pm-value">{formatCurrency(pa.minPrice)} - {formatCurrency(pa.maxPrice)}</span>
-                                        </div>
-                                        <div className="aa-price-metric">
-                                            <span className="aa-pm-label">Ort. İndirim</span>
-                                            <span className="aa-pm-value" style={{ color: parseFloat(pa.discountRate) > 0 ? '#f59e0b' : '#94a3b8' }}>%{pa.discountRate}</span>
-                                        </div>
-                                        <div className="aa-price-metric">
-                                            <span className="aa-pm-label">Ürün Sayısı</span>
-                                            <span className="aa-pm-value">{formatNumber(pa.productCount)}</span>
-                                        </div>
-                                        <div className="aa-price-metric">
-                                            <span className="aa-pm-label">Stok Değeri</span>
-                                            <span className="aa-pm-value" style={{ color: '#10b981' }}>{formatCurrency(pa.totalStockValue)}</span>
-                                        </div>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
+                        {realProducts.length > 20 && (
+                            <div className="aa-show-more">Toplam {realProducts.length} ürün (ilk 20 gösteriliyor)</div>
+                        )}
                     </div>
                 </div>
             )}
@@ -1103,7 +1012,7 @@ const AdvancedAnalytics = ({ userId }) => {
                                             <Cell key={idx} fill={entry.color || COLORS[idx % COLORS.length]} />
                                         ))}
                                     </Pie>
-                                    <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: '12px', color: '#e2e8f0' }} />
+                                    <Tooltip contentStyle={tooltipStyle} />
                                 </PieChart>
                             </ResponsiveContainer>
                             <div className="aa-cat-details">
@@ -1133,7 +1042,6 @@ const AdvancedAnalytics = ({ userId }) => {
                 </div>
             </div>
 
-            {/* Category Revenue Bar Chart */}
             {categoryDistribution.length > 0 && (
                 <div className="aa-card">
                     <div className="aa-card-head">
@@ -1145,8 +1053,8 @@ const AdvancedAnalytics = ({ userId }) => {
                                 <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
                                 <XAxis dataKey="name" stroke="#64748b" tick={{ fontSize: 11 }} />
                                 <YAxis stroke="#64748b" tick={{ fontSize: 11 }} tickFormatter={(v) => v >= 1000 ? `${(v/1000).toFixed(0)}K` : v} />
-                                <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: '12px', color: '#e2e8f0' }}
-                                    formatter={(v, n) => n === 'revenue' ? [formatCurrency(v), 'Gelir'] : [formatNumber(v), 'Satış']} />
+                                <Tooltip contentStyle={tooltipStyle}
+                                    formatter={(v, n) => n === 'revenue' || n === 'Gelir' ? [formatCurrency(v), 'Gelir'] : [formatNumber(v), 'Satış']} />
                                 <Legend />
                                 <Bar dataKey="revenue" name="Gelir" radius={[6, 6, 0, 0]}>
                                     {categoryDistribution.map((entry, idx) => (
@@ -1159,7 +1067,6 @@ const AdvancedAnalytics = ({ userId }) => {
                 </div>
             )}
 
-            {/* Category from Real Products */}
             {realProducts.length > 0 && (
                 <div className="aa-card">
                     <div className="aa-card-head">
@@ -1206,7 +1113,6 @@ const AdvancedAnalytics = ({ userId }) => {
     // ─── RENDER: Trends Tab ───
     const renderTrends = () => (
         <div className="aa-trends-section">
-            {/* Detailed Sales Trend */}
             <div className="aa-card aa-card-full">
                 <div className="aa-card-head">
                     <h3><FaChartLine /> Detaylı Satış Trendi</h3>
@@ -1231,7 +1137,7 @@ const AdvancedAnalytics = ({ userId }) => {
                                     tickFormatter={(v) => { try { return new Date(v).toLocaleDateString('tr-TR', { day: '2-digit', month: 'short' }); } catch { return v; } }} />
                                 <YAxis yAxisId="left" stroke="#64748b" tick={{ fontSize: 11 }} tickFormatter={(v) => v >= 1000 ? `${(v/1000).toFixed(0)}K` : v} />
                                 <YAxis yAxisId="right" orientation="right" stroke="#64748b" tick={{ fontSize: 11 }} />
-                                <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: '12px', color: '#e2e8f0' }}
+                                <Tooltip contentStyle={tooltipStyle}
                                     formatter={(v, n) => n === 'Gelir' ? [formatCurrency(v), n] : [formatNumber(v), n]}
                                     labelFormatter={(v) => { try { return new Date(v).toLocaleDateString('tr-TR', { day: '2-digit', month: 'long', year: 'numeric' }); } catch { return v; } }} />
                                 <Legend />
@@ -1245,14 +1151,13 @@ const AdvancedAnalytics = ({ userId }) => {
                 </div>
             </div>
 
-            {/* Hourly Sales Pattern */}
-            <div className="aa-card aa-card-full">
-                <div className="aa-card-head">
-                    <h3><FaClock /> Saatlik Satış Deseni</h3>
-                    <p className="aa-card-desc">24 saatlik sipariş ve gelir dağılımı</p>
-                </div>
-                <div className="aa-card-body">
-                    {hourlySales.length > 0 ? (
+            {hourlySales.length > 0 && (
+                <div className="aa-card aa-card-full">
+                    <div className="aa-card-head">
+                        <h3><FaClock /> Saatlik Satış Deseni</h3>
+                        <p className="aa-card-desc">24 saatlik sipariş ve gelir dağılımı</p>
+                    </div>
+                    <div className="aa-card-body">
                         <ResponsiveContainer width="100%" height={300}>
                             <AreaChart data={hourlySales}>
                                 <defs>
@@ -1269,20 +1174,17 @@ const AdvancedAnalytics = ({ userId }) => {
                                 <XAxis dataKey="hour" stroke="#64748b" tick={{ fontSize: 11 }} />
                                 <YAxis yAxisId="left" stroke="#64748b" tick={{ fontSize: 11 }} />
                                 <YAxis yAxisId="right" orientation="right" stroke="#64748b" tick={{ fontSize: 11 }} tickFormatter={(v) => v >= 1000 ? `${(v/1000).toFixed(0)}K` : v} />
-                                <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: '12px', color: '#e2e8f0' }}
+                                <Tooltip contentStyle={tooltipStyle}
                                     formatter={(v, n) => n === 'Gelir' ? [formatCurrency(v), n] : [formatNumber(v), n]} />
                                 <Legend />
                                 <Area yAxisId="left" type="monotone" dataKey="orders" fill="url(#gradHourly)" stroke="#8b5cf6" strokeWidth={2} name="Sipariş" />
                                 <Area yAxisId="right" type="monotone" dataKey="revenue" fill="url(#gradHourlyRev)" stroke="#f59e0b" strokeWidth={2} name="Gelir" />
                             </AreaChart>
                         </ResponsiveContainer>
-                    ) : (
-                        <div className="aa-no-data"><FaClock /><p>Saatlik veri yok</p></div>
-                    )}
+                    </div>
                 </div>
-            </div>
+            )}
 
-            {/* Revenue by Day of Week */}
             {revenueByDay.length > 0 && (
                 <div className="aa-card aa-card-full">
                     <div className="aa-card-head">
@@ -1296,7 +1198,7 @@ const AdvancedAnalytics = ({ userId }) => {
                                 <XAxis dataKey="day" stroke="#64748b" />
                                 <YAxis yAxisId="left" stroke="#64748b" tickFormatter={(v) => v >= 1000 ? `${(v/1000).toFixed(0)}K` : v} />
                                 <YAxis yAxisId="right" orientation="right" stroke="#64748b" />
-                                <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: '12px', color: '#e2e8f0' }}
+                                <Tooltip contentStyle={tooltipStyle}
                                     formatter={(v, n) => n === 'Ort. Gelir' ? [formatCurrency(v), n] : [formatNumber(v), n]} />
                                 <Legend />
                                 <Bar yAxisId="left" dataKey="revenue" fill="#10b981" name="Ort. Gelir" radius={[6, 6, 0, 0]} />
@@ -1307,7 +1209,6 @@ const AdvancedAnalytics = ({ userId }) => {
                 </div>
             )}
 
-            {/* Trend Summary Stats */}
             {salesTrend.length > 0 && (
                 <div className="aa-card aa-card-full">
                     <div className="aa-card-head">
@@ -1323,7 +1224,6 @@ const AdvancedAnalytics = ({ userId }) => {
                                 const avgRev = revenues.length > 0 ? totalRev / revenues.length : 0;
                                 const avgOrd = orders.length > 0 ? totalOrd / orders.length : 0;
                                 const maxRev = Math.max(...revenues, 0);
-                                const minRev = Math.min(...revenues.filter(r => r > 0), 0);
                                 const maxOrd = Math.max(...orders, 0);
                                 const bestDay = salesTrend.find(d => d.revenue === maxRev);
 
@@ -1353,7 +1253,6 @@ const AdvancedAnalytics = ({ userId }) => {
     // ─── RENDER: Inventory Tab ───
     const renderInventory = () => (
         <div className="aa-inventory-section">
-            {/* Stock Health Overview */}
             <div className="aa-stock-overview-cards">
                 {[
                     { label: 'Sağlıklı Stok', count: stockAnalysis.healthy, icon: '✅', color: '#22c55e', desc: '20+ adet' },
@@ -1374,7 +1273,6 @@ const AdvancedAnalytics = ({ userId }) => {
                 ))}
             </div>
 
-            {/* Stock Distribution Chart */}
             <div className="aa-card aa-card-wide">
                 <div className="aa-card-head">
                     <h3><FaChartPie /> Stok Dağılımı</h3>
@@ -1400,7 +1298,7 @@ const AdvancedAnalytics = ({ userId }) => {
                                         <Cell key={idx} fill={entry.fill} />
                                     ))}
                                 </Pie>
-                                <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: '12px', color: '#e2e8f0' }} />
+                                <Tooltip contentStyle={tooltipStyle} />
                             </PieChart>
                         </ResponsiveContainer>
                     ) : (
@@ -1409,7 +1307,6 @@ const AdvancedAnalytics = ({ userId }) => {
                 </div>
             </div>
 
-            {/* Stock Value by Marketplace */}
             {priceAnalysis.length > 0 && (
                 <div className="aa-card">
                     <div className="aa-card-head">
@@ -1440,7 +1337,6 @@ const AdvancedAnalytics = ({ userId }) => {
                 </div>
             )}
 
-            {/* Critical Stock Items */}
             <div className="aa-card aa-card-full">
                 <div className="aa-card-head">
                     <h3><FaExclamationTriangle /> Kritik Stok Ürünleri</h3>
@@ -1519,7 +1415,6 @@ const AdvancedAnalytics = ({ userId }) => {
                 </div>
             )}
 
-            {/* Quick Recommendations */}
             <div className="aa-recommendations">
                 <h3><FaBolt /> Hızlı Öneriler</h3>
                 <div className="aa-rec-grid">

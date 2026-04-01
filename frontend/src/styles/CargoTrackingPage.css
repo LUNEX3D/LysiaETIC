@@ -1,461 +1,719 @@
-/* ========================================
-   🚚 KARGO YÖNETİM SİSTEMİ - MODERN CSS
-   ======================================== */
+/* ============================================
+   🚚 KARGO YÖNETİM SİSTEMİ - DARK THEME
+   Dashboard ile uyumlu liste görünümü
+   ============================================ */
 
-/* Container */
-.cargo-container {
-    padding: 2rem;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+/* ─── Container ─── */
+.cargo-page {
     min-height: 100vh;
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: linear-gradient(145deg, #060a13 0%, #0c1220 40%, #111827 100%);
+    padding: 1.5rem 2rem;
+    color: #e2e8f0;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
-/* Header */
-.cargo-header {
-    text-align: center;
-    margin-bottom: 2rem;
-    color: white;
+/* ─── Header ─── */
+.cargo-page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.25rem 1.5rem;
+    background: linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(30, 41, 59, 0.8) 100%);
+    border-radius: 16px;
+    border: 1px solid rgba(78, 205, 196, 0.12);
+    margin-bottom: 1.25rem;
+    backdrop-filter: blur(12px);
 }
 
-.cargo-header h1 {
-    font-size: 2.5rem;
-    margin-bottom: 0.5rem;
-    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.2);
-}
-
-.cargo-subtitle {
-    font-size: 1.1rem;
-    opacity: 0.9;
-    margin: 0;
-}
-
-/* İstatistik Kartları */
-.cargo-stats {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 1.5rem;
-    margin-bottom: 2rem;
-}
-
-.stat-card {
-    background: white;
-    border-radius: 15px;
-    padding: 1.5rem;
+.cargo-page-header-left h1 {
+    font-size: 1.4rem;
+    font-weight: 700;
+    background: linear-gradient(135deg, #4ecdc4 0%, #44a08d 50%, #3b82f6 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin: 0 0 0.3rem 0;
     display: flex;
     align-items: center;
-    gap: 1rem;
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
-    transition: transform 0.3s, box-shadow 0.3s;
+    gap: 0.6rem;
 }
 
-.stat-card:hover {
-    transform: translateY(-5px);
-    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+.cargo-page-header-left h1 svg {
+    -webkit-text-fill-color: #4ecdc4;
+    font-size: 1.2rem;
 }
 
-.stat-icon {
-    font-size: 3rem;
-    line-height: 1;
-}
-
-.stat-info h3 {
-    font-size: 2rem;
+.cargo-page-header-left p {
+    color: #64748b;
+    font-size: 0.82rem;
     margin: 0;
-    color: #333;
 }
 
-.stat-info p {
-    margin: 0;
-    color: #666;
-    font-size: 0.9rem;
-}
-
-.stat-total { border-left: 4px solid #667eea; }
-.stat-shipped { border-left: 4px solid #f59e0b; }
-.stat-delivered { border-left: 4px solid #10b981; }
-.stat-returned { border-left: 4px solid #ef4444; }
-
-/* Filtreler */
-.cargo-filters {
-    background: white;
-    border-radius: 15px;
-    padding: 1.5rem;
-    margin-bottom: 2rem;
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 1rem;
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
-}
-
-.filter-group {
+.cargo-page-header-right {
     display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
+    gap: 0.75rem;
+    align-items: center;
 }
 
-.filter-group label {
-    font-weight: 600;
-    color: #333;
-    font-size: 0.9rem;
-}
-
-.filter-select,
-.filter-input {
-    padding: 0.75rem;
-    border: 2px solid #e5e7eb;
-    border-radius: 8px;
-    font-size: 0.95rem;
-    transition: all 0.3s;
-    background: white;
-}
-
-.filter-select:focus,
-.filter-input:focus {
-    outline: none;
-    border-color: #667eea;
-    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-}
-
-/* Tarih input'ları için özel stil */
-.filter-input[type="date"] {
-    color: #333;
-    font-weight: 500;
-    background: linear-gradient(to right, #f8f9fa 0%, #ffffff 100%);
-    border: 2px solid #667eea;
-}
-
-.filter-input[type="date"]:focus {
-    background: white;
-    border-color: #764ba2;
-    box-shadow: 0 0 0 3px rgba(118, 75, 162, 0.15);
-}
-
-/* Arama input'u için özel stil */
-.filter-search .filter-input {
-    background: linear-gradient(to right, #f0f4ff 0%, #ffffff 100%);
-    border: 2px solid #667eea;
-    font-weight: 500;
-    color: #000000;
-}
-
-.filter-search .filter-input:focus {
-    background: white;
-    border-color: #764ba2;
-    box-shadow: 0 0 0 3px rgba(118, 75, 162, 0.15);
-    color: #000000;
-}
-
-.filter-search .filter-input::placeholder {
-    color: #9ca3af;
-    font-weight: 400;
-}
-
-.filter-search {
-    grid-column: span 2;
-}
-
-.refresh-button {
-    padding: 0.75rem 1.5rem;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
+.cargo-refresh-btn {
+    padding: 0.5rem 1rem;
+    background: linear-gradient(135deg, #4ecdc4 0%, #44a08d 100%);
     border: none;
-    border-radius: 8px;
-    font-weight: 600;
+    border-radius: 10px;
+    color: white;
     cursor: pointer;
-    transition: transform 0.2s, box-shadow 0.2s;
-    align-self: flex-end;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.82rem;
+    font-weight: 600;
+    transition: all 0.3s ease;
 }
 
-.refresh-button:hover:not(:disabled) {
+.cargo-refresh-btn:hover:not(:disabled) {
     transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+    box-shadow: 0 4px 15px rgba(78, 205, 196, 0.3);
 }
 
-.refresh-button:disabled {
+.cargo-refresh-btn:disabled {
     opacity: 0.6;
     cursor: not-allowed;
 }
 
-/* Kargo Grid */
-.cargo-grid {
+@keyframes cargo-spin-anim {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.cargo-spin {
+    animation: cargo-spin-anim 1s linear infinite;
+}
+
+/* ─── Stat Cards ─── */
+.cargo-stat-row {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
-    gap: 1.5rem;
-    margin-bottom: 2rem;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1rem;
+    margin-bottom: 1.25rem;
 }
 
-/* Kargo Kartı */
-.cargo-card {
-    background: white;
-    border-radius: 15px;
-    overflow: hidden;
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
-    transition: transform 0.3s, box-shadow 0.3s;
-    display: flex;
-    flex-direction: column;
-}
-
-.cargo-card:hover {
-    transform: translateY(-5px);
-    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
-}
-
-/* Kart Header */
-.cargo-card-header {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    padding: 1rem;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-
-.marketplace-badge {
-    background: rgba(255, 255, 255, 0.2);
-    padding: 0.4rem 0.8rem;
-    border-radius: 20px;
-    color: white;
-    font-weight: 600;
-    font-size: 0.85rem;
-}
-
-.status-badge {
-    padding: 0.4rem 0.8rem;
-    border-radius: 20px;
-    font-weight: 600;
-    font-size: 0.85rem;
-}
-
-.status-shipped {
-    background: #fef3c7;
-    color: #92400e;
-}
-
-.status-delivered {
-    background: #d1fae5;
-    color: #065f46;
-}
-
-.status-returned {
-    background: #fee2e2;
-    color: #991b1b;
-}
-
-.status-default {
-    background: #e5e7eb;
-    color: #374151;
-}
-
-/* Kart Body */
-.cargo-card-body {
-    padding: 1.5rem;
-    flex: 1;
-}
-
-.order-info h3 {
-    margin: 0 0 0.5rem 0;
-    color: #333;
-    font-size: 1.1rem;
-}
-
-.order-date {
-    color: #666;
-    font-size: 0.9rem;
-    margin: 0 0 1rem 0;
-}
-
-.customer-info,
-.cargo-info {
-    margin-bottom: 1rem;
-}
-
-.customer-info p,
-.cargo-info p {
-    margin: 0.3rem 0;
-    color: #555;
-    font-size: 0.95rem;
-}
-
-/* Ürün Önizleme */
-.products-preview {
-    margin-top: 1rem;
-    padding-top: 1rem;
-    border-top: 1px solid #e5e7eb;
-}
-
-.products-preview p {
-    margin: 0 0 0.5rem 0;
-    color: #333;
-    font-weight: 600;
-}
-
-.product-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-}
-
-.product-item {
+.cargo-stat-card {
+    background: linear-gradient(145deg, rgba(15, 23, 42, 0.9) 0%, rgba(30, 41, 59, 0.5) 100%);
+    border-radius: 14px;
+    padding: 1rem 1.25rem;
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    font-size: 0.85rem;
-    color: #666;
+    gap: 0.75rem;
+    border: 1px solid rgba(255, 255, 255, 0.04);
+    transition: all 0.3s ease;
 }
 
-.product-thumb {
-    width: 40px;
-    height: 40px;
-    object-fit: cover;
-    border-radius: 5px;
-    border: 1px solid #e5e7eb;
-    background: #f9fafb;
+.cargo-stat-card:hover {
+    border-color: rgba(78, 205, 196, 0.12);
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
 }
 
-.product-thumb-placeholder {
-    width: 40px;
-    height: 40px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 5px;
-    border: 1px solid #e5e7eb;
-    background: #f9fafb;
+.cargo-stat-icon {
     font-size: 1.5rem;
 }
 
-.more-products {
-    color: #667eea;
-    font-weight: 600;
-    font-size: 0.85rem;
+.cargo-stat-info {
+    display: flex;
+    flex-direction: column;
 }
 
-/* Kart Footer */
-.cargo-card-footer {
-    padding: 1rem 1.5rem;
-    background: #f9fafb;
-    border-top: 1px solid #e5e7eb;
+.cargo-stat-val {
+    font-size: 1.6rem;
+    font-weight: 800;
+    line-height: 1.1;
 }
 
-.tracking-button {
-    display: block;
-    width: 100%;
-    padding: 0.75rem;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: white;
-    text-align: center;
-    text-decoration: none;
+.cargo-stat-label {
+    font-size: 0.75rem;
+    color: #94a3b8;
+    font-weight: 500;
+}
+
+/* ─── Filter Bar ─── */
+.cargo-filter-bar {
+    background: linear-gradient(145deg, rgba(15, 23, 42, 0.9) 0%, rgba(30, 41, 59, 0.5) 100%);
+    border-radius: 14px;
+    padding: 1rem 1.25rem;
+    border: 1px solid rgba(255, 255, 255, 0.04);
+    margin-bottom: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.cargo-filter-tabs {
+    display: flex;
+    gap: 0.3rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    padding-bottom: 0.75rem;
+}
+
+.cargo-filter-tab {
+    padding: 0.4rem 0.85rem;
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: 8px;
-    font-weight: 600;
-    transition: transform 0.2s, box-shadow 0.2s;
-    border: none;
+    color: #64748b;
     cursor: pointer;
+    font-size: 0.78rem;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    transition: all 0.2s ease;
 }
 
-.tracking-button:hover:not(.disabled) {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+.cargo-filter-tab:hover {
+    color: #94a3b8;
+    background: rgba(255, 255, 255, 0.03);
 }
 
-.tracking-button.disabled {
-    background: #9ca3af;
-    cursor: not-allowed;
+.cargo-filter-tab.active {
+    background: rgba(78, 205, 196, 0.12);
+    color: #4ecdc4;
+    border-color: rgba(78, 205, 196, 0.3);
 }
 
-/* Veri Yok */
-.no-data {
-    grid-column: 1 / -1;
+.cargo-filter-count {
+    background: rgba(255, 255, 255, 0.06);
+    padding: 0.1rem 0.35rem;
+    border-radius: 4px;
+    font-size: 0.68rem;
+    font-weight: 700;
+}
+
+.cargo-filter-tab.active .cargo-filter-count {
+    background: rgba(78, 205, 196, 0.2);
+    color: #4ecdc4;
+}
+
+.cargo-filter-inputs {
+    display: flex;
+    gap: 0.6rem;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.cargo-search-wrap {
+    position: relative;
+    flex: 1;
+    min-width: 200px;
+}
+
+.cargo-search-icon {
+    position: absolute;
+    left: 0.75rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #475569;
+    font-size: 0.8rem;
+}
+
+.cargo-search-input {
+    width: 100%;
+    padding: 0.5rem 0.75rem 0.5rem 2rem;
+    background: rgba(15, 23, 42, 0.8);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    color: #e2e8f0;
+    font-size: 0.82rem;
+    transition: border-color 0.2s ease;
+    outline: none;
+    box-sizing: border-box;
+}
+
+.cargo-search-input:focus {
+    border-color: rgba(78, 205, 196, 0.4);
+}
+
+.cargo-search-input::placeholder {
+    color: #475569;
+}
+
+.cargo-date-input {
+    padding: 0.5rem 0.6rem;
+    background: rgba(15, 23, 42, 0.8);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    color: #e2e8f0;
+    font-size: 0.78rem;
+    outline: none;
+    transition: border-color 0.2s ease;
+    min-width: 130px;
+}
+
+.cargo-date-input:focus {
+    border-color: rgba(78, 205, 196, 0.4);
+}
+
+.cargo-apply-btn {
+    padding: 0.5rem 0.85rem;
+    background: rgba(59, 130, 246, 0.12);
+    border: 1px solid rgba(59, 130, 246, 0.25);
+    border-radius: 8px;
+    color: #3b82f6;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.78rem;
+    font-weight: 600;
+    transition: all 0.2s ease;
+}
+
+.cargo-apply-btn:hover {
+    background: rgba(59, 130, 246, 0.2);
+    transform: translateY(-1px);
+}
+
+/* ─── Table ─── */
+.cargo-table-wrap {
+    background: linear-gradient(145deg, rgba(15, 23, 42, 0.9) 0%, rgba(30, 41, 59, 0.5) 100%);
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.04);
+    overflow: hidden;
+    margin-bottom: 1.25rem;
+}
+
+.cargo-table-header {
+    display: grid;
+    grid-template-columns: 1.5fr 1.3fr 1fr 1.2fr 1.2fr 1fr 0.8fr;
+    gap: 0.5rem;
+    padding: 0.75rem 1.25rem;
+    border-bottom: 2px solid rgba(78, 205, 196, 0.1);
+    background: rgba(15, 23, 42, 0.5);
+}
+
+.cargo-th {
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    cursor: pointer;
+    user-select: none;
+    transition: color 0.2s ease;
+}
+
+.cargo-th:hover {
+    color: #94a3b8;
+}
+
+.cargo-table-body {
+    max-height: calc(100vh - 420px);
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.06) transparent;
+}
+
+.cargo-table-body::-webkit-scrollbar {
+    width: 4px;
+}
+
+.cargo-table-body::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.cargo-table-body::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 4px;
+}
+
+.cargo-table-row {
+    display: grid;
+    grid-template-columns: 1.5fr 1.3fr 1fr 1.2fr 1.2fr 1fr 0.8fr;
+    gap: 0.5rem;
+    padding: 0.65rem 1.25rem;
+    align-items: center;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.cargo-table-row:hover {
+    background: rgba(78, 205, 196, 0.04) !important;
+}
+
+.cargo-table-row.expanded {
+    background: rgba(78, 205, 196, 0.06) !important;
+    border-bottom-color: rgba(78, 205, 196, 0.1);
+}
+
+.cargo-td {
+    font-size: 0.82rem;
+    color: #cbd5e1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cargo-order-num {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 600;
+    color: #f1f5f9;
+    font-size: 0.8rem;
+}
+
+.cargo-tracking-num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.78rem;
+    color: #94a3b8;
+}
+
+.cargo-status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.25rem 0.6rem;
+    border-radius: 6px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.cargo-status-badge svg {
+    font-size: 0.65rem;
+}
+
+.cargo-track-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.25rem 0.55rem;
+    background: rgba(78, 205, 196, 0.1);
+    border: 1px solid rgba(78, 205, 196, 0.25);
+    border-radius: 6px;
+    color: #4ecdc4;
+    text-decoration: none;
+    font-size: 0.72rem;
+    font-weight: 600;
+    transition: all 0.2s ease;
+}
+
+.cargo-track-link:hover {
+    background: rgba(78, 205, 196, 0.2);
+    transform: translateY(-1px);
+}
+
+.cargo-track-link svg {
+    font-size: 0.6rem;
+}
+
+.cargo-no-link {
+    color: #334155;
+    font-size: 0.8rem;
+}
+
+.cargo-td-action {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.cargo-expand-icon {
+    font-size: 0.6rem;
+    color: #475569;
+    transition: transform 0.2s ease;
+    flex-shrink: 0;
+}
+
+.cargo-expand-icon.rotated {
+    transform: rotate(180deg);
+    color: #4ecdc4;
+}
+
+/* ─── Expanded Row ─── */
+.cargo-expanded-row {
+    overflow: hidden;
+    background: rgba(15, 23, 42, 0.6);
+    border-bottom: 1px solid rgba(78, 205, 196, 0.08);
+}
+
+.cargo-detail-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1rem;
+    padding: 1rem 1.5rem;
+}
+
+.cargo-detail-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+}
+
+.cargo-detail-label {
+    font-size: 0.7rem;
+    color: #475569;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.cargo-detail-value {
+    font-size: 0.85rem;
+    color: #e2e8f0;
+    font-weight: 500;
+}
+
+.cargo-products-section {
+    padding: 0 1.5rem 1rem;
+}
+
+.cargo-products-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.cargo-product-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 0.6rem;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.04);
+    border-radius: 8px;
+    max-width: 300px;
+}
+
+.cargo-product-img {
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    object-fit: cover;
+    flex-shrink: 0;
+}
+
+.cargo-product-img-placeholder {
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    background: rgba(30, 41, 59, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+    flex-shrink: 0;
+}
+
+.cargo-product-name {
+    font-size: 0.78rem;
+    color: #94a3b8;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ─── Loading ─── */
+.cargo-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 4rem 2rem;
+    gap: 1rem;
+    color: #64748b;
+}
+
+.cargo-loading-spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid rgba(78, 205, 196, 0.15);
+    border-top: 3px solid #4ecdc4;
+    border-radius: 50%;
+    animation: cargo-spin-anim 0.8s linear infinite;
+}
+
+.cargo-loading span {
+    font-size: 0.88rem;
+}
+
+/* ─── Empty State ─── */
+.cargo-empty {
     text-align: center;
     padding: 4rem 2rem;
-    background: white;
-    border-radius: 15px;
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+    color: #475569;
 }
 
-.no-data-icon {
-    font-size: 5rem;
-    margin-bottom: 1rem;
+.cargo-empty-icon {
+    font-size: 3.5rem;
+    display: block;
+    margin-bottom: 0.75rem;
 }
 
-.no-data h3 {
-    color: #333;
-    margin: 0 0 0.5rem 0;
+.cargo-empty h3 {
+    color: #94a3b8;
+    font-size: 1.1rem;
+    margin: 0 0 0.4rem 0;
 }
 
-.no-data p {
-    color: #666;
+.cargo-empty p {
+    color: #475569;
+    font-size: 0.88rem;
     margin: 0;
 }
 
-/* Sayfalama */
-.pagination {
+/* ─── Pagination ─── */
+.cargo-pagination {
     display: flex;
     justify-content: center;
     align-items: center;
-    gap: 1rem;
-    padding: 2rem 0;
+    gap: 0.75rem;
+    padding: 1rem 0;
 }
 
-.pagination-btn {
-    padding: 0.75rem 1.5rem;
-    background: white;
-    color: #667eea;
-    border: 2px solid #667eea;
+.cargo-page-btn {
+    padding: 0.45rem 0.85rem;
+    background: rgba(15, 23, 42, 0.8);
+    border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 8px;
-    font-weight: 600;
+    color: #94a3b8;
     cursor: pointer;
-    transition: all 0.3s;
+    font-size: 0.78rem;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    transition: all 0.2s ease;
 }
 
-.pagination-btn:hover:not(:disabled) {
-    background: #667eea;
-    color: white;
-    transform: translateY(-2px);
+.cargo-page-btn:hover:not(:disabled) {
+    background: rgba(78, 205, 196, 0.1);
+    color: #4ecdc4;
+    border-color: rgba(78, 205, 196, 0.25);
 }
 
-.pagination-btn:disabled {
-    opacity: 0.4;
+.cargo-page-btn:disabled {
+    opacity: 0.3;
     cursor: not-allowed;
 }
 
-.pagination-info {
-    color: white;
+.cargo-page-numbers {
+    display: flex;
+    gap: 0.25rem;
+}
+
+.cargo-page-num {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 8px;
+    color: #64748b;
+    cursor: pointer;
+    font-size: 0.78rem;
     font-weight: 600;
-    font-size: 1rem;
+    transition: all 0.2s ease;
 }
 
-.pagination-total {
-    opacity: 0.8;
-    font-size: 0.9rem;
+.cargo-page-num:hover {
+    background: rgba(255, 255, 255, 0.04);
+    color: #94a3b8;
 }
 
-/* Responsive */
+.cargo-page-num.active {
+    background: rgba(78, 205, 196, 0.15);
+    color: #4ecdc4;
+    border-color: rgba(78, 205, 196, 0.3);
+}
+
+.cargo-page-info {
+    color: #475569;
+    font-size: 0.78rem;
+    font-weight: 500;
+    padding: 0 0.5rem;
+}
+
+/* ─── Responsive ─── */
+@media (max-width: 1200px) {
+    .cargo-table-header,
+    .cargo-table-row {
+        grid-template-columns: 1.5fr 1.2fr 1fr 1.2fr 1fr 0.8fr;
+    }
+    .cargo-th-cargo,
+    .cargo-td-cargo {
+        display: none;
+    }
+    .cargo-detail-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
 @media (max-width: 768px) {
-    .cargo-container {
+    .cargo-page {
         padding: 1rem;
     }
 
-    .cargo-header h1 {
-        font-size: 1.8rem;
+    .cargo-page-header {
+        flex-direction: column;
+        gap: 0.75rem;
+        align-items: flex-start;
     }
 
-    .cargo-stats {
+    .cargo-stat-row {
         grid-template-columns: repeat(2, 1fr);
     }
 
-    .cargo-filters {
-        grid-template-columns: 1fr;
-    }
-
-    .filter-search {
-        grid-column: span 1;
-    }
-
-    .cargo-grid {
-        grid-template-columns: 1fr;
-    }
-
-    .pagination {
+    .cargo-filter-inputs {
         flex-direction: column;
-        gap: 0.5rem;
+    }
+
+    .cargo-search-wrap {
+        width: 100%;
+    }
+
+    .cargo-table-header,
+    .cargo-table-row {
+        grid-template-columns: 1.5fr 1fr 1fr 0.6fr;
+    }
+
+    .cargo-th-customer,
+    .cargo-td-customer,
+    .cargo-th-cargo,
+    .cargo-td-cargo,
+    .cargo-th-tracking,
+    .cargo-td-tracking {
+        display: none;
+    }
+
+    .cargo-detail-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .cargo-pagination {
+        flex-wrap: wrap;
+    }
+}
+
+@media (max-width: 480px) {
+    .cargo-stat-row {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .cargo-filter-tabs {
+        flex-wrap: wrap;
+    }
+
+    .cargo-table-header,
+    .cargo-table-row {
+        grid-template-columns: 1fr 1fr 0.6fr;
+        padding: 0.5rem 0.75rem;
+    }
+
+    .cargo-th-date,
+    .cargo-td-date {
+        display: none;
     }
 }

@@ -1,20 +1,14 @@
 const axios = require("axios");
+const logger = require("../config/logger");
 const mongoose = require("mongoose");
 const Marketplace = require("../models/Marketplace");
 
 exports.getUserTrendyolProducts = async (req, res) => {
     try {
-        let { userId } = req.params;
+        // ✅ FIX #2: IDOR — URL'deki userId yerine token'dan gelen kullanıcı ID'si
+        const userId = req.user._id;
 
-        // 🔹 `userId`'yi temizle (boşluklar ve yeni satır karakterleri)
-        userId = userId.trim();
-
-        // 🔹 `userId` geçerli bir MongoDB ObjectId mi kontrol et
-        if (!mongoose.Types.ObjectId.isValid(userId)) {
-            return res.status(400).json({ error: "❌ Geçersiz Kullanıcı ID!" });
-        }
-
-        console.log(`📢 Kullanıcının Ürünleri Çekiliyor - Kullanıcı ID: ${userId}`);
+        logger.info(`Kullanıcının Trendyol ürünleri çekiliyor - Kullanıcı ID: ${userId}`);
 
         // 🔹 Kullanıcının Trendyol API bilgilerini çek
         const userIntegration = await Marketplace.findOne({ userId, marketplaceName: "Trendyol" });
@@ -43,7 +37,7 @@ exports.getUserTrendyolProducts = async (req, res) => {
 
         res.status(200).json(response.data);
     } catch (error) {
-        console.error("❌ Ürün çekme hatası:", error.response ? error.response.data : error.message);
+        logger.error("❌ Ürün çekme hatası:", error.response ? error.response.data : error.message);
         res.status(500).json({ error: "Sunucu hatası!", details: error.response ? error.response.data : error.message });
     }
 };

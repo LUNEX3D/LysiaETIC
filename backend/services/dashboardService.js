@@ -442,6 +442,81 @@ const fetchAmazonOrders = async (credentials, start, end) => {
     return { ...summary, errorCount: 0, healthStatus: "healthy", pendingSync: 0 };
 };
 
+// ─── ÇiçekSepeti Dashboard Sipariş Çekme ───
+const fetchCiceksepetiOrders = async (credentials, start, end) => {
+    const { apiKey, sellerId, integratorName } = credentials || {};
+
+    if (!apiKey) {
+        const error = new Error("ÇiçekSepeti API Key eksik");
+        error.status = 401;
+        throw error;
+    }
+
+    // HTTP header'ları sadece ASCII kabul eder — Türkçe karakterleri temizle
+    const cleanSellerId = String(sellerId || '').replace(/[^\x00-\x7F]/g, '');
+    const cleanIntegrator = integratorName ? String(integratorName).replace(/[^\x00-\x7F]/g, '') : '';
+    const userAgent = cleanIntegrator ? `${cleanSellerId} - ${cleanIntegrator}` : cleanSellerId;
+
+    const headers = {
+        "x-api-key": apiKey,
+        "user-agent": userAgent || "CicekSepetiIntegration",
+        "Content-Type": "application/json"
+    };
+
+    const allOrders = [];
+    let page = 0;
+    const pageSize = 100;
+
+    // ÇiçekSepeti max 2 hafta tarih aralığı destekliyor
+    const startDate = new Date(start).toISOString();
+    const endDate = new Date(end).toISOString();
+
+    try {
+        while (true) {
+            const result = await requestWithControls({
+                method: "POST",
+                url: `https://apis.ciceksepeti.com/api/v1/Order/GetOrders`,
+                headers,
+                data: { startDate, endDate, pageSize, page }
+            });
+
+            if (!result.ok) {
+                if (result.status === 401) {
+                    const error = new Error("ÇiçekSepeti API Key geçersiz");
+                    error.status = 401;
+                    throw error;
+                }
+                break;
+            }
+
+            const items = result.response.data?.supplierOrderListWithBranch || [];
+            if (!items.length) break;
+
+            allOrders.push(...items.map(order => ({
+                orderNumber: order.orderId?.toString(),
+                orderDate: order.orderCreateDate && order.orderCreateTime
+                    ? `${order.orderCreateDate} ${order.orderCreateTime}`
+                    : order.orderCreateDate,
+                totalPrice: Number(order.totalPrice || 0),
+                status: order.orderProductStatus || "Bilinmiyor"
+            })));
+
+            if (items.length < pageSize) break;
+            page++;
+
+            // Rate limit: 5 saniyede 1 istek
+            await sleep(5000);
+        }
+    } catch (err) {
+        if (err.status) throw err;
+        logger.error("[ÇiçekSepeti Dashboard] Sipariş çekme hatası", { error: err.message });
+        throw err;
+    }
+
+    const summary = summarizeOrders(allOrders);
+    return { ...summary, errorCount: 0, healthStatus: "healthy", pendingSync: 0 };
+};
+
 // Pending sync placeholders — can be wired to real queues later
 const fetchPendingSync = async (normalizedName, credentials) => {
     try {
@@ -568,6 +643,10 @@ const collectMarketplaceMetrics = async (marketplace, windowStart, windowEnd, pr
                 break;
             case "amazon":
                 metrics = await fetchAmazonOrders(marketplace.credentials, windowStart, windowEnd);
+                break;
+            case "çiçeksepeti":
+            case "ciceksepeti":
+                metrics = await fetchCiceksepetiOrders(marketplace.credentials, windowStart, windowEnd);
                 break;
             default: {
                 logger.warn(`Unsupported marketplace: ${name}`);

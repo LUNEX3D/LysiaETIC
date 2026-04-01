@@ -10,6 +10,7 @@
  */
 
 const Marketplace = require("../models/Marketplace");
+const logger = require("../config/logger");
 const Product = require("../models/Product");
 const Order = require("../models/Order");
 const AIService = require("../../ai/advancedAIService");
@@ -25,7 +26,7 @@ exports.getAIDecisions = async (req, res) => {
             return res.status(401).json({ error: "Kullanıcı kimliği doğrulanamadı!" });
         }
 
-        console.log(`🤖 [AI DECISION] Başlatılıyor - Kullanıcı: ${userId}`);
+        logger.info(`🤖 [AI DECISION] Başlatılıyor - Kullanıcı: ${userId}`);
 
         // 1️⃣ VERİ TOPLAMA - Tüm sistem verilerini çek
         const [marketplaces, products, dashboardData] = await Promise.all([
@@ -34,7 +35,7 @@ exports.getAIDecisions = async (req, res) => {
             getDashboardData(userId)
         ]);
 
-        console.log(`📊 [AI] Veri toplandı: ${marketplaces.length} pazaryeri, ${products.length} ürün`);
+        logger.info(`📊 [AI] Veri toplandı: ${marketplaces.length} pazaryeri, ${products.length} ürün`);
 
         if (marketplaces.length === 0) {
             return res.status(200).json({
@@ -59,11 +60,11 @@ exports.getAIDecisions = async (req, res) => {
                     allOrders.push(...orders.map(o => ({ ...o, marketplace: marketplace.marketplaceName })));
                 }
             } catch (error) {
-                console.error(`❌ [AI] ${marketplace.marketplaceName} siparişleri alınamadı:`, error.message);
+                logger.error(`❌ [AI] ${marketplace.marketplaceName} siparişleri alınamadı:`, error.message);
             }
         }
 
-        console.log(`📦 [AI] Toplam ${allOrders.length} sipariş analiz ediliyor`);
+        logger.info(`📦 [AI] Toplam ${allOrders.length} sipariş analiz ediliyor`);
 
         // 3️⃣ AI ANALİZ - Kapsamlı değerlendirme
         const analysis = await performComprehensiveAnalysis(allOrders, products, dashboardData, marketplaces);
@@ -94,12 +95,12 @@ exports.getAIDecisions = async (req, res) => {
             performanceScore: calculateOverallPerformanceScore(analysis)
         };
 
-        console.log(`✅ [AI DECISION] Tamamlandı - ${decisions.length} karar, ${prioritizedActions.length} aksiyon`);
+        logger.info(`✅ [AI DECISION] Tamamlandı - ${decisions.length} karar, ${prioritizedActions.length} aksiyon`);
 
         return res.status(200).json(response);
 
     } catch (error) {
-        console.error("❌ [AI DECISION] Hata:", error);
+        logger.error("❌ [AI DECISION] Hata:", error);
         return res.status(500).json({
             error: "AI analizi tamamlanamadı!",
             details: process.env.NODE_ENV === "development" ? error.message : undefined
@@ -861,7 +862,7 @@ exports.applyAction = async (req, res) => {
             return res.status(400).json({ error: "Geçersiz istek!" });
         }
 
-        console.log(`🚀 [AI ACTION] Uygulanıyor: ${actionId}`);
+        logger.info(`🚀 [AI ACTION] Uygulanıyor: ${actionId}`);
 
         // Aksiyon tipine göre işlem yap
         let result = {
@@ -900,7 +901,7 @@ exports.applyAction = async (req, res) => {
         return res.status(200).json(result);
 
     } catch (error) {
-        console.error("❌ [AI ACTION] Hata:", error);
+        logger.error("❌ [AI ACTION] Hata:", error);
         return res.status(500).json({
             error: "Aksiyon uygulanamadı!",
             details: process.env.NODE_ENV === "development" ? error.message : undefined
@@ -918,7 +919,7 @@ exports.optimizeStore = async (req, res) => {
             return res.status(401).json({ error: "Kullanıcı kimliği doğrulanamadı!" });
         }
 
-        console.log(`⚡ [AI OPTIMIZE] Mağaza optimizasyonu başlatılıyor - Kullanıcı: ${userId}`);
+        logger.info(`⚡ [AI OPTIMIZE] Mağaza optimizasyonu başlatılıyor - Kullanıcı: ${userId}`);
 
         // Tüm analizi yap
         const decisionsResponse = await exports.getAIDecisions(req, res);
@@ -934,7 +935,7 @@ exports.optimizeStore = async (req, res) => {
         });
 
     } catch (error) {
-        console.error("❌ [AI OPTIMIZE] Hata:", error);
+        logger.error("❌ [AI OPTIMIZE] Hata:", error);
         return res.status(500).json({
             error: "Optimizasyon tamamlanamadı!",
             details: process.env.NODE_ENV === "development" ? error.message : undefined

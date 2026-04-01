@@ -228,18 +228,10 @@ h3 {
         padding: 1rem;
     }
 
-    /* ── Sidebar — Full overlay on mobile ── */
+    /* ── Sidebar — Full overlay on mobile (width & transform Framer Motion kontrolünde) ── */
     .sidebar {
         position: fixed;
         z-index: 9999;
-        width: 280px;
-        transform: translateX(0);
-        transition: transform 0.3s ease, width 0.3s ease;
-    }
-
-    .sidebar.closed {
-        width: 280px;
-        transform: translateX(-100%);
     }
 
     .sidebar.closed + .content-area {

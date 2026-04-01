@@ -6,7 +6,7 @@
    ═══════════════════════════════════════════════════════════ */
 
 // ✅ Auto-versioning: build tarihine göre cache versiyonu (hardcoded "v2" yerine)
-const CACHE_VERSION = '20250629';
+const CACHE_VERSION = '20250702';
 const CACHE_NAME = `lysiaetic-${CACHE_VERSION}`;
 const STATIC_CACHE = `lysiaetic-static-${CACHE_VERSION}`;
 const DYNAMIC_CACHE = `lysiaetic-dynamic-${CACHE_VERSION}`;

@@ -1,3 +1,4 @@
+const logger = require("../config/logger");
 const Marketplace = require("../models/Marketplace");
 const axios = require("axios");
 
@@ -91,7 +92,7 @@ exports.getTrendyolSettlements = async (req, res) => {
         });
 
     } catch (err) {
-        console.error("Trendyol settlements hatası:", err.message);
+        logger.error("Trendyol settlements hatası:", err.message);
 
         const status = err.response?.status || 500;
         const message = err.message || "Trendyol settlements çekilirken hata oluştu!";
@@ -167,7 +168,7 @@ exports.getTrendyolOtherFinancials = async (req, res) => {
         });
 
     } catch (err) {
-        console.error("Trendyol otherfinancials hatası:", err.message);
+        logger.error("Trendyol otherfinancials hatası:", err.message);
 
         const status = err.response?.status || 500;
         const message = err.message || "Trendyol otherfinancials çekilirken hata oluştu!";
@@ -231,7 +232,7 @@ exports.getTrendyolCargoInvoiceItems = async (req, res) => {
         });
 
     } catch (err) {
-        console.error("Kargo faturası detay hatası:", err.message);
+        logger.error("Kargo faturası detay hatası:", err.message);
 
         const status = err.response?.status || 500;
         const message = err.message || "Kargo faturası detayları çekilirken hata oluştu!";

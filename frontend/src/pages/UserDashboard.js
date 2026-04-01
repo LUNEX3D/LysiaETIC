@@ -203,11 +203,8 @@ const UserDashboard = () => {
     const [dashboardError, setDashboardError] = useState("");
     const [pmDashboard, setPmDashboard] = useState(null);
 
-    const [showOrdersSubmenu, setShowOrdersSubmenu] = useState(false);
-    const [showInventorySubmenu, setShowInventorySubmenu] = useState(false);
-    const [showShippingSubmenu, setShowShippingSubmenu] = useState(false);
-    const [showFinanceSubmenu, setShowFinanceSubmenu] = useState(false);
-    const [showIntegrationSubmenu, setShowIntegrationSubmenu] = useState(false);
+    // Tek bir state ile tüm submenu'leri yönet — aynı anda sadece 1 submenu açık
+    const [openSubmenu, setOpenSubmenu] = useState(null);
 
     const [showOrderDetailsModal, setShowOrderDetailsModal] = useState(false);
     const [selectedOrderTab, setSelectedOrderTab] = useState("all");
@@ -943,9 +940,10 @@ const UserDashboard = () => {
                             style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem", background: "rgba(0,0,0,0.8)", backdropFilter: "blur(8px)" }}>
                             <motion.div initial={{ scale: 0.92, y: 40 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.92, y: 40 }}
                                 onClick={e => e.stopPropagation()}
-                                style={{ background: `linear-gradient(135deg, ${C.card} 0%, rgba(15,20,25,0.95) 100%)`, border: `1px solid ${C.border}`, borderRadius: 20, padding: "clamp(1rem, 3vw, 2rem)", maxWidth: 1100, width: "100%", maxHeight: "90vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+                                style={{ background: `linear-gradient(135deg, ${C.card} 0%, rgba(15,20,25,0.95) 100%)`, border: `1px solid ${C.border}`, borderRadius: 20, padding: "clamp(1rem, 3vw, 2rem)", maxWidth: 900, width: "100%", maxHeight: "90vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
 
-                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+                                {/* Modal Header */}
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", flexShrink: 0 }}>
                                     <h2 style={{ background: `linear-gradient(135deg, ${C.accent}, ${C.purple})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", fontSize: "1.3rem", fontWeight: 800, margin: 0 }}>
                                         📦 Siparişler ({allOrders.total})
                                     </h2>
@@ -956,7 +954,8 @@ const UserDashboard = () => {
                                     </motion.button>
                                 </div>
 
-                                <div style={{ display: "flex", gap: "0.4rem", marginBottom: "1rem", flexWrap: "wrap", borderBottom: `1px solid ${C.glassBr}`, paddingBottom: "0.75rem", overflowX: "auto" }}>
+                                {/* Status Tabs */}
+                                <div style={{ display: "flex", gap: "0.35rem", marginBottom: "1rem", flexWrap: "nowrap", borderBottom: `1px solid ${C.glassBr}`, paddingBottom: "0.75rem", overflowX: "auto", flexShrink: 0 }}>
                                     {[
                                         { id: "all", label: "Tümü", count: allOrders.total, color: C.accent },
                                         { id: "new", label: "Yeni", count: allOrders.statusCounts.new, color: C.accent },
@@ -971,40 +970,39 @@ const UserDashboard = () => {
                                             style={{
                                                 background: selectedOrderTab === tab.id ? `${tab.color}20` : C.glass,
                                                 border: selectedOrderTab === tab.id ? `2px solid ${tab.color}` : `1px solid ${C.glassBr}`,
-                                                borderRadius: 10, padding: "0.45rem 0.85rem", cursor: "pointer", display: "flex", alignItems: "center", gap: "0.35rem",
+                                                borderRadius: 10, padding: "0.4rem 0.7rem", cursor: "pointer", display: "flex", alignItems: "center", gap: "0.3rem", flexShrink: 0,
                                             }}>
-                                            <span style={{ color: selectedOrderTab === tab.id ? tab.color : C.muted, fontSize: "0.78rem", fontWeight: 700 }}>{tab.label}</span>
-                                            <span style={{ background: selectedOrderTab === tab.id ? tab.color : `${C.muted}30`, color: selectedOrderTab === tab.id ? "#000" : "#fff", padding: "0.12rem 0.35rem", borderRadius: 6, fontSize: "0.68rem", fontWeight: 800 }}>{tab.count}</span>
+                                            <span style={{ color: selectedOrderTab === tab.id ? tab.color : C.muted, fontSize: "0.75rem", fontWeight: 700 }}>{tab.label}</span>
+                                            <span style={{ background: selectedOrderTab === tab.id ? tab.color : `${C.muted}30`, color: selectedOrderTab === tab.id ? "#000" : "#fff", padding: "0.1rem 0.3rem", borderRadius: 6, fontSize: "0.65rem", fontWeight: 800, minWidth: 20, textAlign: "center" }}>{tab.count}</span>
                                         </motion.button>
                                     ))}
                                 </div>
 
-                                <div style={{ flex: 1, overflowY: "auto", paddingRight: "0.5rem" }}>
+                                {/* Table Header */}
+                                <div style={{ display: "grid", gridTemplateColumns: "2fr 1.2fr 1fr 1.2fr 1fr", gap: "0.75rem", padding: "0.5rem 1rem", borderBottom: `2px solid ${C.accent}20`, marginBottom: "0.5rem", flexShrink: 0 }}>
+                                    <span style={{ color: C.muted, fontSize: "0.68rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>Sipariş No</span>
+                                    <span style={{ color: C.muted, fontSize: "0.68rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>Pazaryeri</span>
+                                    <span style={{ color: C.muted, fontSize: "0.68rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", textAlign: "right" }}>Tutar</span>
+                                    <span style={{ color: C.muted, fontSize: "0.68rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", textAlign: "center" }}>Tarih</span>
+                                    <span style={{ color: C.muted, fontSize: "0.68rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", textAlign: "center" }}>Durum</span>
+                                </div>
+
+                                {/* Order Rows */}
+                                <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
                                     {(allOrders.byStatus[selectedOrderTab] || []).length > 0 ? (
-                                        <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+                                        <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
                                             {allOrders.byStatus[selectedOrderTab].map((order, idx) => (
                                                 <motion.div key={`${order.orderNumber}-${idx}`}
-                                                    initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: idx * 0.015 }}
-                                                    style={{ background: C.glass, border: `1px solid ${C.glassBr}`, borderRadius: 10, padding: "0.7rem 1rem", display: "grid", gridTemplateColumns: "1.5fr 1fr 1fr 1fr 1fr", gap: "0.5rem", alignItems: "center" }}>
-                                                    <div>
-                                                        <p style={{ color: C.dim, fontSize: "0.6rem", margin: 0 }}>Sipariş No</p>
-                                                        <p style={{ color: "#fff", fontSize: "0.78rem", fontWeight: 700, margin: 0, fontFamily: "monospace" }}>{order.orderNumber || "N/A"}</p>
-                                                    </div>
-                                                    <div>
-                                                        <p style={{ color: C.dim, fontSize: "0.6rem", margin: 0 }}>Pazaryeri</p>
-                                                        <p style={{ color: C.accent, fontSize: "0.78rem", fontWeight: 700, margin: 0 }}>{order.marketplace || "N/A"}</p>
-                                                    </div>
-                                                    <div>
-                                                        <p style={{ color: C.dim, fontSize: "0.6rem", margin: 0 }}>Tutar</p>
-                                                        <p style={{ color: C.green, fontSize: "0.78rem", fontWeight: 700, margin: 0 }}>{fmtCurrency(order.totalPrice || 0)}</p>
-                                                    </div>
-                                                    <div>
-                                                        <p style={{ color: C.dim, fontSize: "0.6rem", margin: 0 }}>Tarih</p>
-                                                        <p style={{ color: C.muted, fontSize: "0.72rem", fontWeight: 600, margin: 0 }}>
-                                                            {order.orderDate ? new Date(order.orderDate).toLocaleString("tr-TR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "N/A"}
-                                                        </p>
-                                                    </div>
-                                                    <div>
+                                                    initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: Math.min(idx * 0.01, 0.3) }}
+                                                    style={{ display: "grid", gridTemplateColumns: "2fr 1.2fr 1fr 1.2fr 1fr", gap: "0.75rem", alignItems: "center", padding: "0.6rem 1rem", borderRadius: 8, background: idx % 2 === 0 ? C.glass : "transparent", border: `1px solid transparent`, transition: "background 0.15s ease, border-color 0.15s ease", cursor: "default" }}
+                                                    whileHover={{ backgroundColor: `rgba(78,205,196,0.06)`, borderColor: `rgba(78,205,196,0.12)` }}>
+                                                    <span style={{ color: "#fff", fontSize: "0.8rem", fontWeight: 600, fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{order.orderNumber || "N/A"}</span>
+                                                    <span style={{ color: C.accent, fontSize: "0.8rem", fontWeight: 600 }}>{order.marketplace || "N/A"}</span>
+                                                    <span style={{ color: C.green, fontSize: "0.82rem", fontWeight: 700, textAlign: "right" }}>{fmtCurrency(order.totalPrice || 0)}</span>
+                                                    <span style={{ color: C.muted, fontSize: "0.75rem", fontWeight: 500, textAlign: "center" }}>
+                                                        {order.orderDate ? new Date(order.orderDate).toLocaleString("tr-TR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "N/A"}
+                                                    </span>
+                                                    <div style={{ textAlign: "center" }}>
                                                         <Pill color={
                                                             String(order.status || "").toLowerCase().includes("deliver") || String(order.status || "").toLowerCase().includes("teslim") ? C.green :
                                                             String(order.status || "").toLowerCase().includes("ship") || String(order.status || "").toLowerCase().includes("kargo") ? C.purple :
@@ -1022,6 +1020,18 @@ const UserDashboard = () => {
                                             <p style={{ fontSize: "1rem", fontWeight: 600, margin: 0 }}>Bu kategoride sipariş bulunamadı</p>
                                         </div>
                                     )}
+                                </div>
+
+                                {/* Modal Footer */}
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: "0.75rem", borderTop: `1px solid ${C.glassBr}`, marginTop: "0.5rem", flexShrink: 0 }}>
+                                    <span style={{ color: C.dim, fontSize: "0.75rem" }}>
+                                        {(allOrders.byStatus[selectedOrderTab] || []).length} sipariş gösteriliyor
+                                    </span>
+                                    <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+                                        onClick={() => { setShowOrderDetailsModal(false); handlePanelChange("orders"); }}
+                                        style={{ background: `${C.accent}15`, border: `1px solid ${C.accent}30`, borderRadius: 8, padding: "0.4rem 0.8rem", cursor: "pointer", color: C.accent, fontSize: "0.78rem", fontWeight: 600 }}>
+                                        Sipariş Yönetimine Git →
+                                    </motion.button>
                                 </div>
                             </motion.div>
                         </motion.div>
@@ -1085,11 +1095,11 @@ const UserDashboard = () => {
     const menuItems = [
         { id: "dashboard", icon: <FaChartLine />, text: t("sidebar.home") },
         { type: "divider", label: t("sidebar.marketplace") },
-        { id: "integration", icon: <FaPlug />, text: t("sidebar.integrations") },
-        { id: "orders", icon: <FaClipboardList />, text: t("sidebar.orders") },
-        { id: "inventory", icon: <FaBoxOpen />, text: t("sidebar.inventory") },
-        { id: "shipping", icon: <FaTruck />, text: t("sidebar.shipping") },
-        { id: "finance", icon: <FaMoneyBillWave />, text: t("sidebar.finance") },
+        { id: "integration", icon: <FaPlug />, text: t("sidebar.integrations"), hasSubmenu: true },
+        { id: "orders", icon: <FaClipboardList />, text: t("sidebar.orders"), hasSubmenu: true },
+        { id: "inventory", icon: <FaBoxOpen />, text: t("sidebar.inventory"), hasSubmenu: true },
+        { id: "shipping", icon: <FaTruck />, text: t("sidebar.shipping"), hasSubmenu: true },
+        { id: "finance", icon: <FaMoneyBillWave />, text: t("sidebar.finance"), hasSubmenu: true },
         { type: "divider", label: t("sidebar.productMgmt") },
         { id: "pm-center", icon: <FaCubes />, text: t("sidebar.productCenter") },
         { id: "pm-categories", icon: <FaSitemap />, text: t("sidebar.categoryMapping") },
@@ -1106,28 +1116,24 @@ const UserDashboard = () => {
         ] : []),
     ];
 
-    const renderMarketplaceSubmenu = type => (
-        <motion.div
-            initial={{ opacity: 0, height: 0, overflow: "hidden" }}
-            animate={{ opacity: 1, height: "auto", overflow: "hidden", transition: { height: { duration: 0.28, ease: [0.4, 0, 0.2, 1] }, opacity: { duration: 0.2, delay: 0.06 } } }}
-            exit={{ opacity: 0, height: 0, overflow: "hidden", transition: { height: { duration: 0.22, ease: [0.4, 0, 0.2, 1] }, opacity: { duration: 0.12 } } }}
-            className="submenu"
-        >
-            {marketplaces.map((m, idx) => (
-                <motion.div
-                    key={m._id}
-                    className={`menu-item submenu-item ${activePanel === `${type}-${m._id}` ? "active" : ""}`}
-                    onClick={() => handlePanelChange(`${type}-${m._id}`)}
-                    initial={{ opacity: 0, x: -10 }}
-                    animate={{ opacity: 1, x: 0, transition: { delay: idx * 0.04, duration: 0.22, ease: [0.4, 0, 0.2, 1] } }}
-                >
-                    <div className="icon-wrapper">
-                        {m.logo ? <img src={m.logo} alt={m.name} style={{ width: 20, height: 20 }} /> : <FaBox />}
+    /* ── Submenu render ── */
+    const renderMarketplaceSubmenu = (type, isOpen) => (
+        <div className={`submenu ${isOpen ? "submenu--open" : ""}`}>
+            <div className="submenu-inner">
+                {marketplaces.map((m) => (
+                    <div
+                        key={m._id}
+                        className={`submenu-item ${activePanel === `${type}-${m._id}` ? "active" : ""}`}
+                        onClick={(e) => { e.stopPropagation(); handlePanelChange(`${type}-${m._id}`); }}
+                    >
+                        <div className="submenu-item-icon">
+                            {m.logo ? <img src={m.logo} alt={m.name} /> : <FaBox />}
+                        </div>
+                        <span className="submenu-item-text">{m.name || "Bilinmeyen Pazaryeri"}</span>
                     </div>
-                    <span className="menu-text">{m.name || "Bilinmeyen Pazaryeri"}</span>
-                </motion.div>
-            ))}
-        </motion.div>
+                ))}
+            </div>
+        </div>
     );
 
     const handleLogout = () => {
@@ -1206,11 +1212,11 @@ const UserDashboard = () => {
             <motion.aside
                 className={`sidebar ${menuOpen ? "open" : "closed"}`}
                 animate={{ width: isMobile ? (menuOpen ? 280 : 0) : (menuOpen ? 260 : 72) }}
-                transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
+                transition={{ duration: 0.25, ease: [0.25, 0.1, 0.25, 1] }}
                 style={isMobile ? { transform: menuOpen ? "translateX(0)" : "translateX(-100%)" } : {}}
             >
                 <div className="sidebar-header">
-                    <motion.div className="logo-container" animate={{ opacity: menuOpen ? 1 : 0 }} transition={{ duration: 0.15 }}>
+                    <motion.div className="logo-container" animate={{ opacity: menuOpen ? 1 : 0 }} transition={{ duration: 0.12 }}>
                         <h1 className="logo">
                             <span className="logo-main">LUNEX</span>
                             <span className="logo-sub">ETİC</span>
@@ -1232,43 +1238,33 @@ const UserDashboard = () => {
                             );
                         }
 
-                        const hasSubmenu = ["inventory", "shipping", "finance"].includes(item.id);
-                        const isSubmenuOpen = (item.id === "orders" && showOrdersSubmenu) ||
-                            (item.id === "inventory" && showInventorySubmenu) ||
-                            (item.id === "shipping" && showShippingSubmenu) ||
-                            (item.id === "finance" && showFinanceSubmenu) ||
-                            (false);
+                        const hasSubmenu = !!item.hasSubmenu;
+                        const isSubmenuOpen = openSubmenu === item.id;
 
                         return (
                             <React.Fragment key={item.id}>
                                 <div
-                                    className={`menu-item ${activePanel === item.id ? "active" : ""} ${hasSubmenu && isSubmenuOpen ? "submenu-open" : ""}`}
+                                    className={`menu-item ${activePanel === item.id || activePanel.startsWith(item.id + "-") ? "active" : ""} ${hasSubmenu && isSubmenuOpen ? "submenu-open" : ""}`}
                                     onClick={() => {
-                                        setShowOrdersSubmenu(false);
-                                        setShowInventorySubmenu(false);
-                                        setShowShippingSubmenu(false);
-                                        setShowFinanceSubmenu(false);
-                                        setShowIntegrationSubmenu(false);
-                                        if (item.id === "inventory") setShowInventorySubmenu(!showInventorySubmenu);
-                                        else if (item.id === "shipping") setShowShippingSubmenu(!showShippingSubmenu);
-                                        else if (item.id === "finance") setShowFinanceSubmenu(!showFinanceSubmenu);
-                                        else handlePanelChange(item.id);
+                                        if (hasSubmenu) {
+                                            setOpenSubmenu(isSubmenuOpen ? null : item.id);
+                                        } else {
+                                            setOpenSubmenu(null);
+                                            handlePanelChange(item.id);
+                                        }
                                     }}
                                 >
                                     <div className="icon-wrapper">{item.icon}</div>
                                     <span className="menu-text">{item.text}</span>
                                     {hasSubmenu && (
-                                        <motion.span className="menu-chevron" animate={{ rotate: isSubmenuOpen ? 180 : 0 }} transition={{ duration: 0.25, ease: "easeInOut" }}>
+                                        <span className={`menu-chevron ${isSubmenuOpen ? "menu-chevron--open" : ""}`}>
                                             <FaChevronDown />
-                                        </motion.span>
+                                        </span>
                                     )}
                                     <span className="sidebar-tooltip">{item.text}</span>
                                 </div>
 
-
-                                {item.id === "inventory" && <AnimatePresence>{showInventorySubmenu && renderMarketplaceSubmenu("inventory")}</AnimatePresence>}
-                                {item.id === "shipping" && <AnimatePresence>{showShippingSubmenu && renderMarketplaceSubmenu("shipping")}</AnimatePresence>}
-                                {item.id === "finance" && <AnimatePresence>{showFinanceSubmenu && renderMarketplaceSubmenu("finance")}</AnimatePresence>}
+                                {hasSubmenu && renderMarketplaceSubmenu(item.id, isSubmenuOpen)}
                             </React.Fragment>
                         );
                     })}

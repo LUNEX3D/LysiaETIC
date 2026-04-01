@@ -1,14 +1,44 @@
+/**
+ * Product Controller — LysiaETIC
+ * ✅ FIX #2: IDOR düzeltildi — req.user._id kullanılıyor
+ * ✅ FIX #18: console.log → logger
+ * ✅ Stok verileri düzeltildi — tüm marketplace'ler tutarlı veri döner
+ */
 const axios = require("axios");
 const Marketplace = require("../models/Marketplace");
+const logger = require("../config/logger");
+
+/**
+ * Normalize product data — ensures every marketplace returns the same shape
+ */
+const normalizeProduct = (raw, marketplace) => ({
+    marketplace:    marketplace,
+    productId:      raw.productId      || "",
+    productName:    raw.productName    || "İsimsiz Ürün",
+    productImage:   raw.productImage   || "",
+    stock:          Number(raw.stock)  || 0,
+    price:          Number(raw.price)  || 0,
+    listPrice:      Number(raw.listPrice) || Number(raw.price) || 0,
+    barcode:        raw.barcode        || "",
+    stockCode:      raw.stockCode      || "",
+    categoryName:   raw.categoryName   || "",
+    brand:          raw.brand          || "",
+    commissionRate: raw.commissionRate || "",
+    status:         raw.status         || "",
+    deliveryTime:   raw.deliveryTime   || "",
+    productUrl:     raw.productUrl     || "",
+    description:    raw.description    || "",
+    color:          raw.color          || "",
+    size:           raw.size           || "",
+    attributes:     raw.attributes     || [],
+    isActive:       raw.isActive ?? true,
+});
 
 exports.getAllProducts = async (req, res) => {
     try {
-        const { userId } = req.params;
+        // ✅ FIX #2: IDOR — URL'deki userId yerine token'dan gelen kullanıcı ID'si
+        const userId = req.user._id;
         const { marketplaceId } = req.query;
-
-        if (!userId) {
-            return res.status(400).json({ error: "❌ Kullanıcı ID eksik!" });
-        }
 
         const integration = await Marketplace.findOne({ _id: marketplaceId, userId });
         if (!integration) {
@@ -43,26 +73,27 @@ exports.getAllProducts = async (req, res) => {
                     });
                 }
 
-                products = apiData.map(product => ({
-                    marketplace: marketplaceName,
-                    productId: product?.productId || product?.merchantSku || "Bilinmiyor",
-                    productName: product?.productName || "Bilinmiyor",
-                    productImage: product?.imageUrl || "https://via.placeholder.com/300",
-                    stock: product?.stock || 0,
-                    price: product?.price || 0,
-                    barcode: product?.barcode || "Bilinmiyor",
-                    categoryName: product?.categoryName || "Bilinmiyor",
-                    brand: product?.brand || "Bilinmiyor",
-                    commissionRate: product?.commissionRate || "Bilinmiyor",
-                    status: product?.status || "UNKNOWN",
-                    deliveryTime: product?.deliveryTime || "Bilinmiyor",
-                    productUrl: product?.productUrl || "#",
-                    color: product?.color || "Bilinmiyor",
-                    size: product?.size || "Bilinmiyor",
-                    attributes: product?.attributes || []
-                }));
+                products = apiData.map(product => normalizeProduct({
+                    productId:      product?.productId || product?.merchantSku,
+                    productName:    product?.productName,
+                    productImage:   product?.imageUrl,
+                    stock:          product?.stock ?? product?.availableStock ?? 0,
+                    price:          product?.price ?? product?.salePrice ?? 0,
+                    listPrice:      product?.listPrice ?? product?.price ?? 0,
+                    barcode:        product?.barcode,
+                    stockCode:      product?.merchantSku || product?.sku,
+                    categoryName:   product?.categoryName,
+                    brand:          product?.brand,
+                    commissionRate: product?.commissionRate,
+                    status:         product?.status,
+                    deliveryTime:   product?.deliveryTime,
+                    productUrl:     product?.productUrl,
+                    color:          product?.color,
+                    size:           product?.size,
+                    attributes:     product?.attributes,
+                }, marketplaceName));
             } catch (err) {
-                console.error("❌ Hepsiburada API hatası:", err.message);
+                logger.error(`Hepsiburada API hatası: ${err.message}`);
                 return res.status(500).json({ error: "❌ Hepsiburada ürünleri alınamadı!" });
             }
         }
@@ -83,24 +114,30 @@ exports.getAllProducts = async (req, res) => {
 
                     if (!response.data?.content) break;
 
-                    products.push(...response.data.content.map(product => ({
-                        marketplace: "Trendyol",
-                        productName: product.title || product.name || "Bilinmiyor",
-                        productImage: product.images?.[0]?.url || "https://via.placeholder.com/300",
-                        stock: product.quantity || 0,
-                        price: product.salePrice || product.listPrice || 0,
-                        barcode: product.barcode || "Bilinmiyor",
-                        categoryName: product.category?.name || "Bilinmiyor",
-                        deliveryTime: product.deliveryDuration || "Bilinmiyor",
-                        productUrl: product.url || "#",
-                        color: product.attributes?.find(a => a.attributeName === "Renk")?.attributeValue || "Bilinmiyor",
-                        size: product.attributes?.find(a => a.attributeName === "Beden")?.attributeValue || "Bilinmiyor"
-                    })));
+                    products.push(...response.data.content.map(product => normalizeProduct({
+                        productId:      product.productCode || product.stockCode || product.barcode,
+                        productName:    product.title || product.name,
+                        productImage:   product.images?.[0]?.url,
+                        stock:          product.quantity ?? product.stockQuantity ?? 0,
+                        price:          product.salePrice ?? product.listPrice ?? 0,
+                        listPrice:      product.listPrice ?? product.salePrice ?? 0,
+                        barcode:        product.barcode,
+                        stockCode:      product.stockCode || product.productCode,
+                        categoryName:   product.category?.name || product.categoryName,
+                        brand:          product.brand?.name || product.brandName,
+                        commissionRate: product.commissionRate,
+                        status:         product.approved ? "active" : (product.onSale ? "active" : "passive"),
+                        deliveryTime:   product.deliveryDuration ? `${product.deliveryDuration} gün` : "",
+                        productUrl:     product.productUrl || product.url,
+                        color:          product.attributes?.find(a => a.attributeName === "Renk")?.attributeValue,
+                        size:           product.attributes?.find(a => a.attributeName === "Beden")?.attributeValue,
+                        attributes:     product.attributes,
+                    }, marketplaceName)));
 
                     totalPages = response.data.totalPages;
                     page++;
                 } catch (err) {
-                    console.error("❌ Trendyol API hatası:", err.message);
+                    logger.error(`Trendyol API hatası: ${err.message}`);
                     return res.status(500).json({ error: "❌ Trendyol ürünleri alınamadı!" });
                 }
             }
@@ -126,27 +163,30 @@ exports.getAllProducts = async (req, res) => {
                     const apiData = response?.data?.content || [];
                     if (!apiData.length) break;
 
-                    products.push(...apiData.map(p => ({
-                        marketplace: "n11",
-                        productName: p.title || "Bilinmiyor",
-                        productImage: p.imageUrls?.[0] || "https://via.placeholder.com/300",
-                        stock: p.quantity || 0,
-                        price: p.salePrice || 0,
-                        barcode: p.barcode || "Bilinmiyor",
-                        categoryName: p.categoryId || "Bilinmiyor",
-                        commissionRate: p.commissionRate || "Bilinmiyor",
-                        status: p.status || "UNKNOWN",
-                        deliveryTime: p.preparingDay || "Bilinmiyor",
-                        productUrl: "#",
-                        color: p.attributes?.find(attr => attr.attributeName === "Renk")?.attributeValue || "Bilinmiyor",
-                        size: p.attributes?.find(attr => attr.attributeName === "Beden")?.attributeValue || "Bilinmiyor",
-                        attributes: p.attributes || []
-                    })));
+                    products.push(...apiData.map(p => normalizeProduct({
+                        productId:      p.id || p.productSellerCode,
+                        productName:    p.title,
+                        productImage:   p.imageUrls?.[0] || p.images?.[0],
+                        stock:          p.quantity ?? p.stockQuantity ?? 0,
+                        price:          p.salePrice ?? p.displayPrice ?? 0,
+                        listPrice:      p.listPrice ?? p.salePrice ?? 0,
+                        barcode:        p.barcode || p.stockCode,
+                        stockCode:      p.stockCode || p.productSellerCode,
+                        categoryName:   p.categoryName || p.categoryId,
+                        brand:          p.brandName || p.brand,
+                        commissionRate: p.commissionRate,
+                        status:         p.status,
+                        deliveryTime:   p.preparingDay ? `${p.preparingDay} gün` : "",
+                        productUrl:     p.productUrl || p.url,
+                        color:          p.attributes?.find(attr => attr.attributeName === "Renk")?.attributeValue,
+                        size:           p.attributes?.find(attr => attr.attributeName === "Beden")?.attributeValue,
+                        attributes:     p.attributes,
+                    }, marketplaceName)));
 
                     totalPages = response.data.totalPages;
                     page++;
                 } catch (err) {
-                    console.error("❌ N11 API hatası:", err.message);
+                    logger.error(`N11 API hatası: ${err.message}`);
                     return res.status(500).json({ error: "❌ N11 ürünleri alınamadı!" });
                 }
             }
@@ -175,25 +215,27 @@ exports.getAllProducts = async (req, res) => {
                     const apiData = response?.data?.products || [];
                     if (!apiData.length) break;
 
-                    products.push(...apiData.map(p => ({
-                        marketplace: "ÇiçekSepeti",
-                        productId: p.productCode || "Bilinmiyor",
-                        productName: p.productName || "Bilinmiyor",
-                        productImage: p.images?.[0] || "https://via.placeholder.com/300",
-                        stock: p.StockQuantity || p.stock || 0,
-                        price: p.TotalPrice || p.salesPrice || 0,
-                        barcode: p.barcode || "Bilinmiyor",
-                        categoryName: p.categoryName || "Bilinmiyor",
-                        status: p.productStatusType || "UNKNOWN",
-                        deliveryTime: p.deliveryMessageType || "Bilinmiyor",
-                        productUrl: p.link || "#",
-                        description: p.description || "",
-                        color: p.attributes?.find(attr => attr.name === "Renk")?.value || "Bilinmiyor",
-                        size: p.attributes?.find(attr => attr.name === "Beden")?.value || "Bilinmiyor",
-                        attributes: p.attributes || [],
-                        isActive: p.isActive ?? true,
-                        stockCode: p.stockCode || "Yok"
-                    })));
+                    products.push(...apiData.map(p => normalizeProduct({
+                        productId:      p.productCode,
+                        productName:    p.productName,
+                        productImage:   p.images?.[0],
+                        stock:          p.stockQuantity ?? p.StockQuantity ?? p.stock ?? 0,
+                        price:          p.salesPrice ?? p.TotalPrice ?? 0,
+                        listPrice:      p.listPrice ?? p.salesPrice ?? p.TotalPrice ?? 0,
+                        barcode:        p.barcode,
+                        stockCode:      p.stockCode,
+                        categoryName:   p.categoryName,
+                        brand:          p.brandName || p.brand,
+                        commissionRate: p.commissionRate,
+                        status:         p.productStatusType,
+                        deliveryTime:   p.deliveryMessageType,
+                        productUrl:     p.link,
+                        description:    p.description,
+                        color:          p.attributes?.find(attr => attr.name === "Renk")?.value,
+                        size:           p.attributes?.find(attr => attr.name === "Beden")?.value,
+                        attributes:     p.attributes,
+                        isActive:       p.isActive,
+                    }, marketplaceName)));
 
                     if (response.data.totalCount) {
                         totalPages = Math.ceil(response.data.totalCount / pageSize);
@@ -203,10 +245,12 @@ exports.getAllProducts = async (req, res) => {
                     if (page <= totalPages) await new Promise(resolve => setTimeout(resolve, 5000)); // API rate limit
                 }
             } catch (err) {
-                console.error("❌ ÇiçekSepeti API hatası:", err.message);
+                logger.error(`ÇiçekSepeti API hatası: ${err.message}`);
                 return res.status(500).json({ error: "❌ ÇiçekSepeti ürünleri alınamadı!" });
             }
         }
+
+        logger.info(`${marketplaceName} — ${products.length} ürün başarıyla çekildi (user: ${userId})`);
 
         return res.status(200).json({
             success: true,
@@ -216,10 +260,11 @@ exports.getAllProducts = async (req, res) => {
         });
 
     } catch (error) {
-        console.error("❌ Ürünleri alırken hata oluştu:", error.message);
+        logger.error(`Ürünleri alırken hata: ${error.message}`);
         return res.status(500).json({
-            error: "❌ Ürünler alınamadı!",
-            details: error.message
+            success: false,
+            error: "Ürünler alınamadı!",
+            details: process.env.NODE_ENV === "development" ? error.message : undefined
         });
     }
 };

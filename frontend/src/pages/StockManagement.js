@@ -1,98 +1,525 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import axios from "../services/api";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+    FaBoxOpen, FaSearch, FaTimes, FaChevronLeft, FaChevronRight,
+    FaSortAmountDown, FaSortAmountUp, FaExclamationTriangle,
+    FaCheckCircle, FaTimesCircle, FaExternalLinkAlt, FaBarcode,
+    FaTag, FaPalette, FaRuler, FaTruck, FaPercent, FaInfoCircle,
+    FaBoxes, FaFilter, FaSyncAlt
+} from "react-icons/fa";
 import "../styles/StockManagement.css";
+
+/* ── Color Palette (matches dashboard) ── */
+const C = {
+    bg:      "#0f1419",
+    card:    "rgba(26, 31, 53, 0.85)",
+    border:  "rgba(78, 205, 196, 0.18)",
+    accent:  "#4ecdc4",
+    green:   "#22c55e",
+    red:     "#ef4444",
+    yellow:  "#f59e0b",
+    purple:  "#8b5cf6",
+    blue:    "#06b6d4",
+    text:    "#e2e8f0",
+    muted:   "#94a3b8",
+    dim:     "#64748b",
+    glass:   "rgba(255,255,255,0.03)",
+    glassBr: "rgba(255,255,255,0.06)",
+};
+
+/* ── Stock Status Helper ── */
+const getStockStatus = (stock) => {
+    const qty = Number(stock) || 0;
+    if (qty === 0) return { label: "Tükendi", color: C.red, bg: "rgba(239,68,68,0.12)", icon: <FaTimesCircle /> };
+    if (qty <= 5)  return { label: "Kritik", color: "#f97316", bg: "rgba(249,115,22,0.12)", icon: <FaExclamationTriangle /> };
+    if (qty <= 20) return { label: "Düşük", color: C.yellow, bg: "rgba(245,158,11,0.12)", icon: <FaExclamationTriangle /> };
+    return { label: "Yeterli", color: C.green, bg: "rgba(34,197,94,0.10)", icon: <FaCheckCircle /> };
+};
+
+/* ── Format Price ── */
+const formatPrice = (price) => {
+    const num = Number(price);
+    if (!num && num !== 0) return "—";
+    return num.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " ₺";
+};
 
 const StockManagement = ({ userId, marketplaceId, marketplace }) => {
     const [products, setProducts] = useState([]);
-    const [currentPage, setCurrentPage] = useState(1);
-    const [modalImage, setModalImage] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
-    const productsPerPage = 12;
-    const token = localStorage.getItem("token");
+    const [error, setError] = useState(null);
+    const [searchTerm, setSearchTerm] = useState("");
+    const [stockFilter, setStockFilter] = useState("all");
+    const [sortField, setSortField] = useState("productName");
+    const [sortDir, setSortDir] = useState("asc");
+    const [currentPage, setCurrentPage] = useState(1);
+    const [selectedProduct, setSelectedProduct] = useState(null);
+    const productsPerPage = 25;
 
-    useEffect(() => {
-        fetchProducts();
-    }, [marketplaceId]);
-
-    const fetchProducts = async () => {
+    /* ── Fetch Products ── */
+    const fetchProducts = useCallback(async () => {
         setIsLoading(true);
+        setError(null);
         try {
-            const response = await axios.get(`/products/all/${userId}?marketplaceId=${marketplaceId}`, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
-            setProducts(response.data.products);
-        } catch (error) {
-            alert(`❌ ${marketplace?.name || ''} ürünleri çekerken hata oluştu!`);
+            const response = await axios.get(`/products/all/${userId}?marketplaceId=${marketplaceId}`);
+            const data = response.data?.products || response.data || [];
+            setProducts(Array.isArray(data) ? data : []);
+        } catch (err) {
+            console.error("Stok verileri alınamadı:", err);
+            setError("Ürünler yüklenirken bir hata oluştu. Lütfen tekrar deneyin.");
+            setProducts([]);
         } finally {
             setIsLoading(false);
         }
+    }, [userId, marketplaceId]);
+
+    useEffect(() => {
+        if (marketplaceId) {
+            fetchProducts();
+            setCurrentPage(1);
+        }
+    }, [marketplaceId, fetchProducts]);
+
+    /* ── Summary Stats ── */
+    const stats = useMemo(() => {
+        const total = products.length;
+        let inStock = 0, lowStock = 0, critical = 0, outOfStock = 0, totalValue = 0;
+        products.forEach(p => {
+            const qty = Number(p.stock) || 0;
+            const price = Number(p.price) || 0;
+            totalValue += qty * price;
+            if (qty === 0) outOfStock++;
+            else if (qty <= 5) critical++;
+            else if (qty <= 20) lowStock++;
+            else inStock++;
+        });
+        return { total, inStock, lowStock, critical, outOfStock, totalValue };
+    }, [products]);
+
+    /* ── Filter & Sort ── */
+    const filteredProducts = useMemo(() => {
+        let result = [...products];
+
+        // Search
+        if (searchTerm.trim()) {
+            const term = searchTerm.toLowerCase();
+            result = result.filter(p =>
+                (p.productName || "").toLowerCase().includes(term) ||
+                (p.barcode || "").toLowerCase().includes(term) ||
+                (p.categoryName || "").toLowerCase().includes(term) ||
+                (p.brand || "").toLowerCase().includes(term) ||
+                (p.stockCode || "").toLowerCase().includes(term) ||
+                (p.productId || "").toString().toLowerCase().includes(term)
+            );
+        }
+
+        // Stock filter
+        if (stockFilter !== "all") {
+            result = result.filter(p => {
+                const qty = Number(p.stock) || 0;
+                switch (stockFilter) {
+                    case "inStock":    return qty > 20;
+                    case "low":        return qty > 5 && qty <= 20;
+                    case "critical":   return qty > 0 && qty <= 5;
+                    case "outOfStock": return qty === 0;
+                    default: return true;
+                }
+            });
+        }
+
+        // Sort
+        result.sort((a, b) => {
+            let valA, valB;
+            switch (sortField) {
+                case "stock":
+                    valA = Number(a.stock) || 0;
+                    valB = Number(b.stock) || 0;
+                    break;
+                case "price":
+                    valA = Number(a.price) || 0;
+                    valB = Number(b.price) || 0;
+                    break;
+                case "productName":
+                default:
+                    valA = (a.productName || "").toLowerCase();
+                    valB = (b.productName || "").toLowerCase();
+                    return sortDir === "asc" ? valA.localeCompare(valB, "tr") : valB.localeCompare(valA, "tr");
+            }
+            return sortDir === "asc" ? valA - valB : valB - valA;
+        });
+
+        return result;
+    }, [products, searchTerm, stockFilter, sortField, sortDir]);
+
+    /* ── Pagination ── */
+    const totalPages = Math.ceil(filteredProducts.length / productsPerPage);
+    const paginatedProducts = filteredProducts.slice(
+        (currentPage - 1) * productsPerPage,
+        currentPage * productsPerPage
+    );
+
+    useEffect(() => { setCurrentPage(1); }, [searchTerm, stockFilter, sortField, sortDir]);
+
+    const handleSort = (field) => {
+        if (sortField === field) {
+            setSortDir(prev => prev === "asc" ? "desc" : "asc");
+        } else {
+            setSortField(field);
+            setSortDir("asc");
+        }
     };
 
-    const indexOfLastProduct = currentPage * productsPerPage;
-    const indexOfFirstProduct = indexOfLastProduct - productsPerPage;
-    const currentProducts = products.slice(indexOfFirstProduct, indexOfLastProduct);
+    const SortIcon = ({ field }) => {
+        if (sortField !== field) return null;
+        return sortDir === "asc" ? <FaSortAmountUp className="sm-sort-icon" /> : <FaSortAmountDown className="sm-sort-icon" />;
+    };
 
+    /* ═══════════════════════════════════════════════════════
+       RENDER
+       ═══════════════════════════════════════════════════════ */
     return (
-        <div className="stock-container">
-            <h1>
-                📦 Stok Yönetimi - {marketplace?.name || 'Tüm Pazaryerleri'}
-                <span className="total-products">Toplam Ürün: {products.length}</span>
-            </h1>
+        <div className="sm-container">
+            {/* ── Header ── */}
+            <div className="sm-header">
+                <div className="sm-header-left">
+                    <FaBoxOpen className="sm-header-icon" />
+                    <div>
+                        <h1 className="sm-title">Stok Yönetimi</h1>
+                        <p className="sm-subtitle">{marketplace?.name || "Pazaryeri"} • {stats.total} ürün</p>
+                    </div>
+                </div>
+                <button className="sm-refresh-btn" onClick={fetchProducts} disabled={isLoading}>
+                    <FaSyncAlt className={isLoading ? "sm-spin" : ""} />
+                    <span>Yenile</span>
+                </button>
+            </div>
 
+            {/* ── Summary Cards ── */}
+            <div className="sm-stats-row">
+                {[
+                    { label: "Toplam Ürün", value: stats.total, icon: <FaBoxes />, color: C.accent },
+                    { label: "Yeterli Stok", value: stats.inStock, icon: <FaCheckCircle />, color: C.green },
+                    { label: "Düşük Stok", value: stats.lowStock, icon: <FaExclamationTriangle />, color: C.yellow },
+                    { label: "Kritik Stok", value: stats.critical, icon: <FaExclamationTriangle />, color: "#f97316" },
+                    { label: "Tükendi", value: stats.outOfStock, icon: <FaTimesCircle />, color: C.red },
+                ].map((s, i) => (
+                    <motion.div key={i} className="sm-stat-card" whileHover={{ y: -2 }}
+                        style={{ borderColor: `${s.color}22` }}
+                        onClick={() => {
+                            const filters = ["all", "inStock", "low", "critical", "outOfStock"];
+                            setStockFilter(stockFilter === filters[i] && i !== 0 ? "all" : filters[i]);
+                        }}
+                    >
+                        <div className="sm-stat-icon" style={{ color: s.color, background: `${s.color}15` }}>{s.icon}</div>
+                        <div className="sm-stat-info">
+                            <span className="sm-stat-value" style={{ color: s.color }}>{s.value}</span>
+                            <span className="sm-stat-label">{s.label}</span>
+                        </div>
+                    </motion.div>
+                ))}
+            </div>
+
+            {/* ── Toolbar: Search + Filters ── */}
+            <div className="sm-toolbar">
+                <div className="sm-search-box">
+                    <FaSearch className="sm-search-icon" />
+                    <input
+                        type="text"
+                        placeholder="Ürün adı, barkod, kategori ara..."
+                        value={searchTerm}
+                        onChange={e => setSearchTerm(e.target.value)}
+                        className="sm-search-input"
+                    />
+                    {searchTerm && (
+                        <button className="sm-search-clear" onClick={() => setSearchTerm("")}><FaTimes /></button>
+                    )}
+                </div>
+                <div className="sm-filter-group">
+                    <FaFilter className="sm-filter-icon" />
+                    <select value={stockFilter} onChange={e => setStockFilter(e.target.value)} className="sm-select">
+                        <option value="all">Tüm Stok</option>
+                        <option value="inStock">Yeterli (20+)</option>
+                        <option value="low">Düşük (6-20)</option>
+                        <option value="critical">Kritik (1-5)</option>
+                        <option value="outOfStock">Tükendi (0)</option>
+                    </select>
+                </div>
+                <span className="sm-result-count">{filteredProducts.length} sonuç</span>
+            </div>
+
+            {/* ── Error State ── */}
+            {error && (
+                <div className="sm-error">
+                    <FaExclamationTriangle />
+                    <span>{error}</span>
+                    <button onClick={fetchProducts}>Tekrar Dene</button>
+                </div>
+            )}
+
+            {/* ── Loading State ── */}
             {isLoading ? (
-                <div className="loading-spinner">Yükleniyor...</div>
+                <div className="sm-loading">
+                    <div className="sm-loading-spinner" />
+                    <p>Ürünler yükleniyor...</p>
+                </div>
+            ) : filteredProducts.length === 0 ? (
+                <div className="sm-empty">
+                    <FaBoxOpen className="sm-empty-icon" />
+                    <h3>{products.length === 0 ? "Henüz ürün bulunamadı" : "Filtreye uygun ürün yok"}</h3>
+                    <p>{products.length === 0 ? "Bu pazaryerinde kayıtlı ürün bulunmuyor." : "Arama veya filtre kriterlerinizi değiştirin."}</p>
+                </div>
             ) : (
                 <>
-                    <div className="product-grid">
-                        {currentProducts.map((product, index) => (
-                            <div key={index} className="product-card">
-                                <img
-                                    src={product.productImage}
-                                    alt={product.productName}
-                                    className="product-img"
-                                    onClick={() => setModalImage(product.productImage)}
-                                />
-                                <div className="product-info">
-                                    <h3 className="product-title">{product.productName}</h3>
-                                    <p><strong>Pazaryeri:</strong> {product.marketplace}</p>
-                                    <p><strong>Barkod:</strong> {product.barcode}</p>
-                                    <p><strong>Kategori:</strong> {product.categoryName}</p>
-                                    <p><strong>Renk:</strong> {product.color} | <strong>Beden:</strong> {product.size}</p>
-                                    <p><strong>Fiyat:</strong> {product.price} ₺</p>
-                                    <p><strong>Komisyon:</strong> {product.commissionRate}</p>
-                                    <p><strong>Termin Süresi:</strong> {product.deliveryTime}</p>
-                                </div>
-                            </div>
-                        ))}
+                    {/* ── Product List Table ── */}
+                    <div className="sm-table-wrapper">
+                        <table className="sm-table">
+                            <thead>
+                                <tr>
+                                    <th className="sm-th-img">Görsel</th>
+                                    <th className="sm-th-name sm-sortable" onClick={() => handleSort("productName")}>
+                                        Ürün Adı <SortIcon field="productName" />
+                                    </th>
+                                    <th className="sm-th-barcode">Barkod</th>
+                                    <th className="sm-th-category">Kategori</th>
+                                    <th className="sm-th-variant">Renk / Beden</th>
+                                    <th className="sm-th-price sm-sortable" onClick={() => handleSort("price")}>
+                                        Fiyat <SortIcon field="price" />
+                                    </th>
+                                    <th className="sm-th-stock sm-sortable" onClick={() => handleSort("stock")}>
+                                        Stok <SortIcon field="stock" />
+                                    </th>
+                                    <th className="sm-th-status">Durum</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {paginatedProducts.map((product, idx) => {
+                                    const stockStatus = getStockStatus(product.stock);
+                                    const qty = Number(product.stock) || 0;
+                                    return (
+                                        <motion.tr
+                                            key={product.productId || product.barcode || idx}
+                                            className="sm-row"
+                                            onClick={() => setSelectedProduct(product)}
+                                            initial={{ opacity: 0, y: 8 }}
+                                            animate={{ opacity: 1, y: 0 }}
+                                            transition={{ delay: idx * 0.015, duration: 0.2 }}
+                                            whileHover={{ backgroundColor: "rgba(78,205,196,0.04)" }}
+                                        >
+                                            <td className="sm-td-img">
+                                                <div className="sm-product-thumb">
+                                                    {product.productImage && product.productImage !== "https://via.placeholder.com/300" ? (
+                                                        <img src={product.productImage} alt="" loading="lazy" />
+                                                    ) : (
+                                                        <div className="sm-no-img"><FaBoxOpen /></div>
+                                                    )}
+                                                </div>
+                                            </td>
+                                            <td className="sm-td-name">
+                                                <span className="sm-product-name">{product.productName || "İsimsiz Ürün"}</span>
+                                                {product.brand && product.brand !== "Bilinmiyor" && (
+                                                    <span className="sm-product-brand">{product.brand}</span>
+                                                )}
+                                            </td>
+                                            <td className="sm-td-barcode">
+                                                <code className="sm-barcode">{product.barcode || "—"}</code>
+                                            </td>
+                                            <td className="sm-td-category">{product.categoryName || "—"}</td>
+                                            <td className="sm-td-variant">
+                                                {product.color && product.color !== "Bilinmiyor" ? product.color : "—"}
+                                                {" / "}
+                                                {product.size && product.size !== "Bilinmiyor" ? product.size : "—"}
+                                            </td>
+                                            <td className="sm-td-price">{formatPrice(product.price)}</td>
+                                            <td className="sm-td-stock">
+                                                <span className="sm-stock-qty" style={{ color: stockStatus.color }}>{qty}</span>
+                                            </td>
+                                            <td className="sm-td-status">
+                                                <span className="sm-stock-badge" style={{ color: stockStatus.color, background: stockStatus.bg }}>
+                                                    {stockStatus.icon}
+                                                    <span>{stockStatus.label}</span>
+                                                </span>
+                                            </td>
+                                        </motion.tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
                     </div>
 
-                    {/* Sayfalama Butonları */}
-                    <div className="pagination">
-                        <button
-                            className="pagination-btn"
-                            onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-                            disabled={currentPage === 1}
-                        >
-                            ⬅
-                        </button>
-                        <span>Sayfa {currentPage} / {Math.ceil(products.length / productsPerPage)}</span>
-                        <button
-                            className="pagination-btn"
-                            onClick={() => setCurrentPage(prev => prev + 1)}
-                            disabled={currentPage >= Math.ceil(products.length / productsPerPage)}
-                        >
-                            ➡
-                        </button>
-                    </div>
+                    {/* ── Pagination ── */}
+                    {totalPages > 1 && (
+                        <div className="sm-pagination">
+                            <button
+                                className="sm-page-btn"
+                                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                                disabled={currentPage === 1}
+                            >
+                                <FaChevronLeft />
+                            </button>
+
+                            <div className="sm-page-numbers">
+                                {Array.from({ length: totalPages }, (_, i) => i + 1)
+                                    .filter(p => p === 1 || p === totalPages || Math.abs(p - currentPage) <= 2)
+                                    .reduce((acc, p, i, arr) => {
+                                        if (i > 0 && p - arr[i - 1] > 1) acc.push("...");
+                                        acc.push(p);
+                                        return acc;
+                                    }, [])
+                                    .map((p, i) =>
+                                        p === "..." ? (
+                                            <span key={`dots-${i}`} className="sm-page-dots">…</span>
+                                        ) : (
+                                            <button
+                                                key={p}
+                                                className={`sm-page-num ${currentPage === p ? "active" : ""}`}
+                                                onClick={() => setCurrentPage(p)}
+                                            >
+                                                {p}
+                                            </button>
+                                        )
+                                    )}
+                            </div>
+
+                            <button
+                                className="sm-page-btn"
+                                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                                disabled={currentPage === totalPages}
+                            >
+                                <FaChevronRight />
+                            </button>
+
+                            <span className="sm-page-info">
+                                {(currentPage - 1) * productsPerPage + 1}–{Math.min(currentPage * productsPerPage, filteredProducts.length)} / {filteredProducts.length}
+                            </span>
+                        </div>
+                    )}
                 </>
             )}
 
-            {/* Modal Popup */}
-            {modalImage && (
-                <div className="modal" onClick={() => setModalImage(null)}>
-                    <img src={modalImage} alt="Ürün Büyük" />
-                </div>
-            )}
+            {/* ═══════════════════════════════════════════════════════
+               PRODUCT DETAIL MODAL
+               ═══════════════════════════════════════════════════════ */}
+            <AnimatePresence>
+                {selectedProduct && (
+                    <motion.div
+                        className="sm-modal-overlay"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        onClick={() => setSelectedProduct(null)}
+                    >
+                        <motion.div
+                            className="sm-modal"
+                            initial={{ scale: 0.92, opacity: 0, y: 30 }}
+                            animate={{ scale: 1, opacity: 1, y: 0 }}
+                            exit={{ scale: 0.92, opacity: 0, y: 30 }}
+                            transition={{ type: "spring", damping: 25, stiffness: 350 }}
+                            onClick={e => e.stopPropagation()}
+                        >
+                            {/* Modal Header */}
+                            <div className="sm-modal-header">
+                                <h2>Ürün Detayı</h2>
+                                <button className="sm-modal-close" onClick={() => setSelectedProduct(null)}>
+                                    <FaTimes />
+                                </button>
+                            </div>
+
+                            {/* Modal Body */}
+                            <div className="sm-modal-body">
+                                {/* Top Section: Image + Key Info */}
+                                <div className="sm-modal-top">
+                                    <div className="sm-modal-image">
+                                        {selectedProduct.productImage && selectedProduct.productImage !== "https://via.placeholder.com/300" ? (
+                                            <img src={selectedProduct.productImage} alt={selectedProduct.productName} />
+                                        ) : (
+                                            <div className="sm-modal-no-img"><FaBoxOpen /><span>Görsel Yok</span></div>
+                                        )}
+                                    </div>
+                                    <div className="sm-modal-key-info">
+                                        <h3 className="sm-modal-product-name">{selectedProduct.productName || "İsimsiz Ürün"}</h3>
+                                        <span className="sm-modal-marketplace">{selectedProduct.marketplace || marketplace?.name}</span>
+
+                                        {/* Stock Status Big Badge */}
+                                        {(() => {
+                                            const ss = getStockStatus(selectedProduct.stock);
+                                            return (
+                                                <div className="sm-modal-stock-badge" style={{ color: ss.color, background: ss.bg, borderColor: `${ss.color}33` }}>
+                                                    {ss.icon}
+                                                    <span className="sm-modal-stock-qty">{Number(selectedProduct.stock) || 0}</span>
+                                                    <span className="sm-modal-stock-label">adet — {ss.label}</span>
+                                                </div>
+                                            );
+                                        })()}
+
+                                        <div className="sm-modal-price-row">
+                                            <span className="sm-modal-price">{formatPrice(selectedProduct.price)}</span>
+                                            {selectedProduct.commissionRate && selectedProduct.commissionRate !== "Bilinmiyor" && (
+                                                <span className="sm-modal-commission">
+                                                    <FaPercent /> Komisyon: {selectedProduct.commissionRate}
+                                                </span>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Detail Grid */}
+                                <div className="sm-modal-details">
+                                    {[
+                                        { icon: <FaBarcode />, label: "Barkod", value: selectedProduct.barcode },
+                                        { icon: <FaTag />, label: "Ürün ID", value: selectedProduct.productId },
+                                        { icon: <FaTag />, label: "Stok Kodu", value: selectedProduct.stockCode },
+                                        { icon: <FaBoxes />, label: "Kategori", value: selectedProduct.categoryName },
+                                        { icon: <FaPalette />, label: "Renk", value: selectedProduct.color },
+                                        { icon: <FaRuler />, label: "Beden", value: selectedProduct.size },
+                                        { icon: <FaTruck />, label: "Termin Süresi", value: selectedProduct.deliveryTime },
+                                        { icon: <FaInfoCircle />, label: "Durum", value: selectedProduct.status },
+                                        { icon: <FaTag />, label: "Marka", value: selectedProduct.brand },
+                                    ]
+                                        .filter(d => d.value && d.value !== "Bilinmiyor" && d.value !== "UNKNOWN" && d.value !== "Yok")
+                                        .map((d, i) => (
+                                            <div key={i} className="sm-detail-item">
+                                                <span className="sm-detail-icon">{d.icon}</span>
+                                                <span className="sm-detail-label">{d.label}</span>
+                                                <span className="sm-detail-value">{d.value}</span>
+                                            </div>
+                                        ))
+                                    }
+                                </div>
+
+                                {/* Description */}
+                                {selectedProduct.description && (
+                                    <div className="sm-modal-desc">
+                                        <h4>Açıklama</h4>
+                                        <p>{selectedProduct.description}</p>
+                                    </div>
+                                )}
+
+                                {/* Attributes */}
+                                {selectedProduct.attributes && selectedProduct.attributes.length > 0 && (
+                                    <div className="sm-modal-attrs">
+                                        <h4>Özellikler</h4>
+                                        <div className="sm-attrs-grid">
+                                            {selectedProduct.attributes.map((attr, i) => (
+                                                <div key={i} className="sm-attr-chip">
+                                                    <span className="sm-attr-name">{attr.attributeName || attr.name || `Özellik ${i + 1}`}</span>
+                                                    <span className="sm-attr-val">{attr.attributeValue || attr.value || "—"}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Product Link */}
+                                {selectedProduct.productUrl && selectedProduct.productUrl !== "#" && (
+                                    <a href={selectedProduct.productUrl} target="_blank" rel="noopener noreferrer" className="sm-modal-link">
+                                        <FaExternalLinkAlt /> Pazaryerinde Görüntüle
+                                    </a>
+                                )}
+                            </div>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
         </div>
     );
 };

@@ -1,4 +1,5 @@
 const Product = require("../../models/Product");
+const logger = require("../../config/logger");
 const Order = require("../../models/Order");
 
 exports.getAllProductsAdmin = async (req, res) => {
@@ -6,7 +7,7 @@ exports.getAllProductsAdmin = async (req, res) => {
         const products = await Product.find().select("name price");
         res.json(products || []);
     } catch (error) {
-        console.error("Admin ürün listesi hatası:", error);
+        logger.error("Admin ürün listesi hatası:", error);
         res.status(500).json({ message: "Sunucu hatası" });
     }
 };
@@ -19,7 +20,7 @@ exports.deleteProductAdmin = async (req, res) => {
         }
         res.json({ message: "Ürün silindi." });
     } catch (error) {
-        console.error("Admin ürün silme hatası:", error);
+        logger.error("Admin ürün silme hatası:", error);
         res.status(500).json({ message: "Sunucu hatası" });
     }
 };
@@ -35,7 +36,7 @@ exports.getAllOrdersAdmin = async (req, res) => {
         }));
         res.json(mapped);
     } catch (error) {
-        console.error("Admin sipariş listesi hatası:", error);
+        logger.error("Admin sipariş listesi hatası:", error);
         res.status(500).json({ message: "Sunucu hatası" });
     }
 };

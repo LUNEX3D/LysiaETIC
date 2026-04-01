@@ -2,9 +2,10 @@
     const logger = require("../config/logger");
 
     // ✅ Kullanıcının tüm pazaryeri entegrasyonlarını getir
+    // ✅ FIX #2: IDOR — req.user._id kullanılıyor
     exports.getUserMarketplaces = async (req, res) => {
         try {
-            const marketplaces = await Marketplace.find({ userId: req.params.userId });
+            const marketplaces = await Marketplace.find({ userId: req.user._id });
 
             // Entegrasyon yoksa boş array döndür (404 yerine)
             if (!marketplaces || marketplaces.length === 0) {
@@ -19,12 +20,14 @@
     };
 
     // ✅ Yeni pazaryeri ekleme veya güncelleme (POST)
+    // ✅ FIX #2: IDOR — body'deki userId yerine req.user._id
     exports.addMarketplace = async (req, res) => {
         try {
-            const { userId, marketplaceName, credentials } = req.body;
+            const userId = req.user._id;
+            const { marketplaceName, credentials } = req.body;
 
             // **Zorunlu alan kontrolü**
-            if (!userId || !marketplaceName || !credentials || Object.keys(credentials).length === 0) {
+            if (!marketplaceName || !credentials || Object.keys(credentials).length === 0) {
                 return res.status(400).json({ message: "❌ Lütfen tüm alanları doldurun! API bilgileri eksik olabilir." });
             }
 
@@ -37,7 +40,7 @@
                 existingMarketplace.updatedAt = Date.now();
                 await existingMarketplace.save();
 
-                console.log("✅ Mevcut entegrasyon güncellendi:", existingMarketplace);
+                logger.info(`Mevcut entegrasyon güncellendi: ${marketplaceName} — kullanıcı: ${userId}`);
                 return res.status(200).json({
                     message: "✅ Entegrasyon güncellendi!",
                     marketplace: existingMarketplace,
@@ -54,6 +57,7 @@
 
             await newMarketplace.save();
 
+            logger.info(`Yeni entegrasyon eklendi: ${marketplaceName} — kullanıcı: ${userId}`);
             res.status(201).json({
                 message: "✅ Entegrasyon başarılı!",
                 marketplace: newMarketplace,
@@ -167,7 +171,7 @@
             }
 
         } catch (error) {
-            console.error("❌ Test hatası:", error);
+            logger.error(`Hepsiburada test hatası: ${error.message}`);
             res.status(500).json({
                 success: false,
                 message: "❌ Sunucu hatası!"

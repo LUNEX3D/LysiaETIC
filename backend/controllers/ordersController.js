@@ -5,6 +5,7 @@ const {
     fetchCicekSepetiOrders
 } = require("../services/ordersService");
 
+const amazonService = require("../services/amazon/amazonSpApiService");
 const Marketplace = require("../models/Marketplace");
 const logger = require("../config/logger");
 
@@ -20,7 +21,8 @@ const convertToGMT3Timestamp = (dateStr, isStart = true) => {
 
 exports.getAllOrders = async (req, res) => {
     try {
-        const { userId } = req.params;
+        // ✅ FIX #2: IDOR — URL'deki userId yerine token'dan gelen kullanıcı ID'si
+        const userId = req.user._id;
         let { startDate, endDate, marketplaceId } = req.query;
 
         const now = getIstanbulTimestamp();
@@ -73,18 +75,37 @@ exports.getAllOrders = async (req, res) => {
             case "çiçeksepeti":
             case "ciceksepeti":
                 rawOrders = await fetchCicekSepetiOrders(
-                    credentials.supplierId,
-                    credentials.apiSecret,
-                    convertedStartDate,
-                    convertedEndDate
+                    credentials.apiKey,
+                    credentials.sellerId,
+                    credentials.integratorName
                 );
+                break;
+
+            case "amazon":
+            case "amazon türkiye":
+            case "amazon europe":
+            case "amazon usa":
+                const amazonResult = await amazonService.getAllOrders(credentials, {
+                    createdAfter: new Date(convertedStartDate).toISOString(),
+                    createdBefore: new Date(convertedEndDate).toISOString()
+                });
+                rawOrders = (amazonResult.orders || []).map(order => ({
+                    orderNumber: order.AmazonOrderId,
+                    orderDate: new Date(order.PurchaseDate).toLocaleString("tr-TR"),
+                    customerName: order.BuyerInfo?.BuyerName || "Amazon Müşteri",
+                    totalPrice: order.OrderTotal?.Amount || "0.00",
+                    status: order.OrderStatus,
+                    trackingNumber: order.FulfillmentInstruction?.FulfillmentSupplySourceId || "Yok",
+                    cargoCompany: order.ShipServiceLevel || "Amazon",
+                    products: []
+                }));
                 break;
 
             default:
                 logger.warn(`Unsupported marketplace: ${marketplaceName}`);
                 return res.status(400).json({
                     error: "Unsupported marketplace!",
-                    supportedMarketplaces: ["trendyol", "hepsiburada", "n11", "çiçeksepeti"]
+                    supportedMarketplaces: ["trendyol", "hepsiburada", "n11", "çiçeksepeti", "amazon"]
                 });
         }
 

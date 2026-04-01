@@ -282,121 +282,111 @@ const fetchN11Orders = async (apiKey, secretKey, startDate, endDate) => {
     return orders;
 };
 
-const fetchCicekSepetiOrders = async (supplierId, apiKey) => {
+/**
+ * ÇiçekSepeti Sipariş Çekme
+ * Resmi API: POST /api/v1/Order/GetOrders
+ * Header: x-api-key + user-agent (SatıcıID - EntegratörAdı)
+ * NOT: Aynı parametrelerle dakikada 1 istek, tarih aralığı max 2 hafta
+ * @param {string} apiKey - ÇiçekSepeti API Key (x-api-key)
+ * @param {string} sellerId - Satıcı ID (user-agent için)
+ * @param {string} integratorName - Entegratör adı (opsiyonel, user-agent için)
+ */
+const fetchCicekSepetiOrders = async (apiKey, sellerId, integratorName) => {
     const orders = [];
     let page = 0;
     const pageSize = 100;
-    let requestCount = 0;
     let lastRequestTime = 0;
 
     try {
         const endDate = moment().endOf("day");
         const startDate = moment().subtract(14, "days").startOf("day");
 
-        const checkRateLimit = () => {
+        // Rate limit: farklı request body ile 5 saniyede 1 kez
+        const enforceRateLimit = async () => {
             const now = Date.now();
-            if (now - lastRequestTime < 5000) {
-                const waitTime = 5000 - (now - lastRequestTime);
-                return waitTime;
+            const elapsed = now - lastRequestTime;
+            if (lastRequestTime > 0 && elapsed < 5000) {
+                await new Promise(resolve => setTimeout(resolve, 5000 - elapsed));
             }
-            lastRequestTime = now;
-            return 0;
+            lastRequestTime = Date.now();
         };
 
-        const getHeaders = () => ({
-            apiKey: apiKey,
-            supplierId: supplierId.toString(),
-            "Content-Type": "application/json",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-            "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7",
-            "X-Requested-With": "XMLHttpRequest"
-        });
+        // HTTP header'ları sadece ASCII kabul eder — Türkçe karakterleri temizle
+        const cleanSellerId = String(sellerId || '').replace(/[^\x00-\x7F]/g, '');
+        const cleanIntegrator = integratorName ? String(integratorName).replace(/[^\x00-\x7F]/g, '') : '';
+        const userAgent = cleanIntegrator ? `${cleanSellerId} - ${cleanIntegrator}` : cleanSellerId;
+
+        const headers = {
+            "x-api-key": apiKey,
+            "user-agent": userAgent || "CicekSepetiIntegration",
+            "Content-Type": "application/json"
+        };
 
         while (true) {
-            const waitTime = checkRateLimit();
-            if (waitTime > 0) await new Promise(resolve => setTimeout(resolve, waitTime));
+            await enforceRateLimit();
 
             const payload = {
                 startDate: startDate.toISOString(),
                 endDate: endDate.toISOString(),
                 pageSize,
-                page,
-                statusId: 1
+                page
             };
 
             try {
                 const response = await axios.post(
-                    "https://api.ciceksepeti.com/api/v1/Order/GetOrders",
+                    "https://apis.ciceksepeti.com/api/v1/Order/GetOrders",
                     payload,
-                    {
-                        headers: getHeaders(),
-                        timeout: 15000,
-                        httpsAgent: new (require("https").Agent)({
-                            rejectUnauthorized: false,
-                            keepAlive: true
-                        })
-                    }
+                    { headers, timeout: 30000 }
                 );
 
-                requestCount++;
-                // ✅ FIX #14: % 1 her zaman 0 dönerdi — her istekte 60sn bekliyordu!
-                // Şimdi her 10 istekte bir 3 saniye bekleniyor (rate limit koruması)
-                if (requestCount % 10 === 0) {
-                    logger.info(`[CicekSepeti] Rate limit koruması: ${requestCount}. istek, 3sn bekleniyor...`);
-                    await new Promise(resolve => setTimeout(resolve, 3000));
-                }
-
                 const items = response.data?.supplierOrderListWithBranch || [];
+                const totalCount = response.data?.orderListCount || 0;
+
                 if (!items.length) break;
 
                 orders.push(...items.map(order => ({
-                    orderId: order.orderId,
+                    orderNumber: order.orderId?.toString(),
                     orderItemId: order.orderItemId,
-                    orderDate: moment(`${order.orderCreateDate} ${order.orderCreateTime}`, "DD/MM/YYYY HH:mm").format(),
-                    customer: {
-                        name: order.receiverName,
-                        phone: order.receiverPhone,
-                        address: order.receiverAddress
-                    },
+                    orderDate: moment(`${order.orderCreateDate} ${order.orderCreateTime}`, "DD/MM/YYYY HH:mm").isValid()
+                        ? moment(`${order.orderCreateDate} ${order.orderCreateTime}`, "DD/MM/YYYY HH:mm").format("DD-MM-YYYY HH:mm")
+                        : order.orderCreateDate,
+                    customerName: order.receiverName || order.senderName || "Bilinmiyor",
+                    totalPrice: (order.totalPrice || 0).toFixed(2),
+                    status: order.orderProductStatus || "Bilinmiyor",
+                    trackingNumber: order.cargoNumber || "",
+                    cargoCompany: order.cargoCompany || "",
                     products: [{
-                        name: order.name,
-                        code: order.code,
-                        quantity: order.quantity,
-                        price: order.itemPrice,
-                        barcode: order.barcode
-                    }],
-                    payment: {
-                        total: order.totalPrice,
-                        tax: order.tax,
-                        discount: order.discount,
-                        cargoPrice: order.cargoPrice
-                    },
-                    shipment: {
-                        trackingNumber: order.cargoNumber,
-                        company: order.cargoCompany,
-                        trackingUrl: order.shipmentTrackingUrl
-                    },
-                    status: {
-                        id: order.orderItemStatusId,
-                        text: order.orderProductStatus,
-                        isActive: order.isOrderStatusActive
-                    }
+                        productName: order.name || "Ürün",
+                        quantity: order.quantity || 1,
+                        price: (order.itemPrice || 0).toFixed(2),
+                        imageUrl: "/default-product.jpg",
+                        barcode: order.barcode || "",
+                        productCode: order.productCode || order.code || ""
+                    }]
                 })));
+
+                logger.info(`[ÇiçekSepeti] Sayfa ${page}: ${items.length} sipariş çekildi (toplam: ${totalCount})`);
 
                 if (items.length < pageSize) break;
                 page++;
             } catch (err) {
-                if (err.response?.status === 403) {
-                    logger.warn("CicekSepeti Cloudflare block detected - Check IP whitelist");
+                if (err.response?.status === 401) {
+                    logger.error("[ÇiçekSepeti] API Key geçersiz (401 Unauthorized)");
                     break;
+                }
+                if (err.response?.status === 429) {
+                    logger.warn("[ÇiçekSepeti] Rate limit aşıldı, 60sn bekleniyor...");
+                    await new Promise(resolve => setTimeout(resolve, 60000));
+                    continue;
                 }
                 throw err;
             }
         }
 
+        logger.info(`✅ [ÇiçekSepeti] Toplam ${orders.length} sipariş çekildi`);
         return orders;
     } catch (err) {
-        logger.error("CicekSepeti error", { error: err.message });
+        logger.error("[ÇiçekSepeti] Sipariş çekme hatası", { error: err.message });
         return [];
     }
 };

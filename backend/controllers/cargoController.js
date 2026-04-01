@@ -204,6 +204,48 @@ exports.getCargoTrackingOrders = async (req, res) => {
             return [];
         };
 
+        // ÇiçekSepeti için kargo çekme fonksiyonu
+        const fetchCiceksepetiCargo = async (apiKey, sellerId, integratorName, startDate, endDate) => {
+            try {
+                const ciceksepetiService = require("../services/ciceksepeti/ciceksepetiService");
+                const credentials = { apiKey, sellerId, integratorName, isTestMode: false };
+
+                // Sipariş listesini çek (kargoya verilmiş siparişler: statusId=5 veya 11)
+                const result = await ciceksepetiService.getOrders(credentials, {
+                    startDate: new Date(startDate).toISOString(),
+                    endDate: new Date(endDate).toISOString(),
+                    pageSize: 100,
+                    page: 0,
+                    statusId: 5 // 5: Kargoya Verildi, 11: Kargoya Verilecek
+                });
+
+                if (!result.success || !result.orders) {
+                    logger.warn("ÇiçekSepeti kargo verisi alınamadı");
+                    return [];
+                }
+
+                return result.orders.map(order => ({
+                    orderNumber: order.orderId?.toString() || order.orderItemId?.toString(),
+                    customerName: order.receiverName || "Bilinmiyor",
+                    cargoCompany: order.cargoCompany || "Bilinmiyor",
+                    trackingNumber: order.cargoNumber || order.partialNumber || "",
+                    trackingUrl: order.shipmentTrackingUrl || "",
+                    status: order.orderProductStatus || "Kargoda",
+                    date: order.orderCreateDate || new Date().toLocaleDateString("tr-TR"),
+                    timestamp: order.orderModifyDate ? new Date(order.orderModifyDate).getTime() : Date.now(),
+                    marketplace: "ÇiçekSepeti",
+                    products: [{
+                        name: order.name || "Ürün",
+                        quantity: order.quantity || 1
+                    }]
+                }));
+
+            } catch (error) {
+                logger.error("ÇiçekSepeti Cargo API error", { error: error.message });
+                return [];
+            }
+        };
+
         let allCargoOrders = [];
         for (const integration of integrations) {
             const marketplaceName = integration.marketplaceName.toLowerCase();
@@ -230,6 +272,47 @@ exports.getCargoTrackingOrders = async (req, res) => {
                         const { merchantId, apiKey: hbApiKey } = integration.credentials;
                         if (merchantId && hbApiKey) {
                             cargoOrders = await fetchHepsiburadaCargo(merchantId, hbApiKey, startDate, endDate);
+                        }
+                        break;
+
+                    case "çiçeksepeti":
+                    case "ciceksepeti":
+                        const { apiKey: csApiKey, sellerId: csSellerId, integratorName: csIntName } = integration.credentials;
+                        if (csApiKey) {
+                            cargoOrders = await fetchCiceksepetiCargo(csApiKey, csSellerId, csIntName, startDate, endDate);
+                        }
+                        break;
+
+                    case "amazon":
+                    case "amazon türkiye":
+                    case "amazon europe":
+                    case "amazon usa":
+                        try {
+                            const amazonService = require("../services/amazon/amazonSpApiService");
+                            const amzResult = await amazonService.getAllOrders(integration.credentials, {
+                                createdAfter: new Date(startDate).toISOString(),
+                                createdBefore: new Date(endDate).toISOString(),
+                                orderStatuses: "Shipped,Delivered,Unshipped"
+                            });
+                            if (amzResult.success && amzResult.orders) {
+                                cargoOrders = amzResult.orders
+                                    .filter(o => o.OrderStatus === "Shipped" || o.OrderStatus === "Delivered")
+                                    .map(order => ({
+                                        uniqueId: order.AmazonOrderId,
+                                        orderNumber: order.AmazonOrderId,
+                                        timestamp: new Date(order.PurchaseDate).getTime(),
+                                        orderDate: new Date(order.PurchaseDate).toLocaleString("tr-TR", { timeZone: "Europe/Istanbul" }),
+                                        customerName: order.BuyerInfo?.BuyerName || "Amazon Müşteri",
+                                        status: order.OrderStatus,
+                                        trackingNumber: order.FulfillmentInstruction?.FulfillmentSupplySourceId || "",
+                                        cargoProviderName: order.ShipServiceLevel || "Amazon Kargo",
+                                        cargoTrackingLink: "",
+                                        marketplace: "Amazon",
+                                        products: []
+                                    }));
+                            }
+                        } catch (amzErr) {
+                            logger.error("Amazon kargo çekme hatası", { error: amzErr.message });
                         }
                         break;
 

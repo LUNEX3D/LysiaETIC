@@ -1,6 +1,8 @@
 const Order = require("../models/Order");
 const Product = require("../models/Product");
 const Marketplace = require("../models/Marketplace");
+const logger = require("../config/logger");
+
 
 // Get analytics overview (KPI data)
 exports.getAnalyticsOverview = async (req, res) => {
@@ -8,7 +10,7 @@ exports.getAnalyticsOverview = async (req, res) => {
         const userId = req.user._id || req.userId;
         const { startDate, endDate } = req.query;
 
-        console.log("📊 Analytics overview isteği:", {
+        logger.info("📊 Analytics overview isteği:", {
             userId: userId.toString(),
             startDate,
             endDate,
@@ -25,15 +27,15 @@ exports.getAnalyticsOverview = async (req, res) => {
             query.orderDate = { $gte: start, $lte: end };
         }
 
-        console.log("🔍 Query:", JSON.stringify(query, null, 2));
+        logger.info("🔍 Query:", JSON.stringify(query, null, 2));
 
         // Check if any orders exist for this user
         const allUserOrders = await Order.countDocuments({ user: userId });
-        console.log(`📦 Kullanıcının toplam siparişi: ${allUserOrders}`);
+        logger.info(`📦 Kullanıcının toplam siparişi: ${allUserOrders}`);
 
         // Get total orders
         const totalOrders = await Order.countDocuments(query);
-        console.log(`📊 Filtrelenmiş sipariş sayısı: ${totalOrders}`);
+        logger.info(`📊 Filtrelenmiş sipariş sayısı: ${totalOrders}`);
 
         // Get total revenue - Order model uses 'totalPrice' field
         const revenueData = await Order.aggregate([
@@ -63,7 +65,7 @@ exports.getAnalyticsOverview = async (req, res) => {
         // Mock conversion rate (would need visitor data in real scenario)
         const conversionRate = 3.8;
 
-        console.log("✅ Analytics overview başarılı:", { totalOrders, totalRevenue, activeProducts, growth });
+        logger.info("✅ Analytics overview başarılı:", { totalOrders, totalRevenue, activeProducts, growth });
 
         res.json({
             success: true,
@@ -78,7 +80,7 @@ exports.getAnalyticsOverview = async (req, res) => {
         });
 
     } catch (error) {
-        console.error("❌ Analytics overview hatası:", error);
+        logger.error("❌ Analytics overview hatası:", error);
         res.status(500).json({
             success: false,
             message: "Analytics verileri alınamadı",
@@ -93,7 +95,7 @@ exports.getSalesTrend = async (req, res) => {
         const userId = req.user._id || req.userId;
         const { startDate, endDate } = req.query;
 
-        console.log("📈 Sales trend isteği:", { userId, startDate, endDate });
+        logger.info("📈 Sales trend isteği:", { userId, startDate, endDate });
 
         const start = startDate ? new Date(startDate) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
         const end = endDate ? new Date(endDate) : new Date();
@@ -115,7 +117,7 @@ exports.getSalesTrend = async (req, res) => {
             { $sort: { _id: 1 } }
         ]);
 
-        console.log("✅ Sales trend başarılı:", trendData.length, "gün");
+        logger.info("✅ Sales trend başarılı:", trendData.length, "gün");
 
         res.json({
             success: true,
@@ -127,7 +129,7 @@ exports.getSalesTrend = async (req, res) => {
         });
 
     } catch (error) {
-        console.error("❌ Sales trend hatası:", error);
+        logger.error("❌ Sales trend hatası:", error);
         res.status(500).json({
             success: false,
             message: "Satış trendi alınamadı",
@@ -142,7 +144,7 @@ exports.getMarketplaceDistribution = async (req, res) => {
         const userId = req.user._id || req.userId;
         const { startDate, endDate } = req.query;
 
-        console.log("🏪 Marketplace distribution isteği:", { userId, startDate, endDate });
+        logger.info("🏪 Marketplace distribution isteği:", { userId, startDate, endDate });
 
         const start = startDate ? new Date(startDate) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
         const end = endDate ? new Date(endDate) : new Date();
@@ -177,7 +179,7 @@ exports.getMarketplaceDistribution = async (req, res) => {
             percentage: ((mp.orders / totalOrders) * 100).toFixed(1)
         }));
 
-        console.log("✅ Marketplace distribution başarılı:", distribution.length, "pazaryeri");
+        logger.info("✅ Marketplace distribution başarılı:", distribution.length, "pazaryeri");
 
         res.json({
             success: true,
@@ -185,7 +187,7 @@ exports.getMarketplaceDistribution = async (req, res) => {
         });
 
     } catch (error) {
-        console.error("❌ Marketplace distribution hatası:", error);
+        logger.error("❌ Marketplace distribution hatası:", error);
         res.status(500).json({
             success: false,
             message: "Pazaryeri dağılımı alınamadı",
@@ -200,7 +202,7 @@ exports.getTopProducts = async (req, res) => {
         const userId = req.user._id || req.userId;
         const { limit = 5, startDate, endDate } = req.query;
 
-        console.log("🔥 Top products isteği:", { userId, limit, startDate, endDate });
+        logger.info("🔥 Top products isteği:", { userId, limit, startDate, endDate });
 
         const start = startDate ? new Date(startDate) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
         const end = endDate ? new Date(endDate) : new Date();
@@ -247,7 +249,7 @@ exports.getTopProducts = async (req, res) => {
             };
         }));
 
-        console.log("✅ Top products başarılı:", productsWithTrend.length, "ürün");
+        logger.info("✅ Top products başarılı:", productsWithTrend.length, "ürün");
 
         res.json({
             success: true,
@@ -255,7 +257,7 @@ exports.getTopProducts = async (req, res) => {
         });
 
     } catch (error) {
-        console.error("❌ Top products hatası:", error);
+        logger.error("❌ Top products hatası:", error);
         res.status(500).json({
             success: false,
             message: "En çok satan ürünler alınamadı",
@@ -270,7 +272,7 @@ exports.getCategoryDistribution = async (req, res) => {
         const userId = req.user._id || req.userId;
         const { startDate, endDate } = req.query;
 
-        console.log("📊 Category distribution isteği:", { userId, startDate, endDate });
+        logger.info("📊 Category distribution isteği:", { userId, startDate, endDate });
 
         const start = startDate ? new Date(startDate) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
         const end = endDate ? new Date(endDate) : new Date();
@@ -304,7 +306,7 @@ exports.getCategoryDistribution = async (req, res) => {
             color: colors[index % colors.length]
         }));
 
-        console.log("✅ Category distribution başarılı:", formattedData.length, "kategori");
+        logger.info("✅ Category distribution başarılı:", formattedData.length, "kategori");
 
         res.json({
             success: true,
@@ -312,7 +314,7 @@ exports.getCategoryDistribution = async (req, res) => {
         });
 
     } catch (error) {
-        console.error("❌ Category distribution hatası:", error);
+        logger.error("❌ Category distribution hatası:", error);
         res.status(500).json({
             success: false,
             message: "Kategori dağılımı alınamadı",
@@ -327,7 +329,7 @@ exports.getHourlySales = async (req, res) => {
         const userId = req.user._id || req.userId;
         const { startDate, endDate } = req.query;
 
-        console.log("⏰ Hourly sales isteği:", { userId, startDate, endDate });
+        logger.info("⏰ Hourly sales isteği:", { userId, startDate, endDate });
 
         const start = startDate ? new Date(startDate) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
         const end = endDate ? new Date(endDate) : new Date();
@@ -358,7 +360,7 @@ exports.getHourlySales = async (req, res) => {
             });
         }
 
-        console.log("✅ Hourly sales başarılı");
+        logger.info("✅ Hourly sales başarılı");
 
         res.json({
             success: true,
@@ -366,7 +368,7 @@ exports.getHourlySales = async (req, res) => {
         });
 
     } catch (error) {
-        console.error("❌ Hourly sales hatası:", error);
+        logger.error("❌ Hourly sales hatası:", error);
         res.status(500).json({
             success: false,
             message: "Saatlik satış verileri alınamadı",

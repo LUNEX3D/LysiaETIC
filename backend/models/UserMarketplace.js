@@ -1,4 +1,8 @@
-import mongoose from "mongoose";
+/**
+ * UserMarketplace Model — LysiaETIC
+ * ✅ FIX #5: ESM import/export → CommonJS require/module.exports
+ */
+const mongoose = require("mongoose");
 
 const UserMarketplaceSchema = new mongoose.Schema({
     userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
@@ -8,4 +12,4 @@ const UserMarketplaceSchema = new mongoose.Schema({
     connectedAt: { type: Date, default: Date.now },
 });
 
-export default mongoose.model("UserMarketplace", UserMarketplaceSchema);
+module.exports = mongoose.model("UserMarketplace", UserMarketplaceSchema);

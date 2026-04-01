@@ -29,6 +29,7 @@ const logger            = require("../config/logger");
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Kullanıcının tüm pazaryeri entegrasyonlarını getir
+// ✅ FIX #2: :userId artık controller'da req.user._id'den alınıyor (geriye uyumluluk için route korundu)
 router.get("/user-marketplaces/:userId", authMiddleware, getUserMarketplaces);
 
 // Yeni entegrasyon ekle
@@ -42,6 +43,26 @@ router.delete("/:id", authMiddleware, deleteMarketplace);
 
 // Hepsiburada credential test
 router.post("/test-hepsiburada", authMiddleware, testHepsiburadaCredentials);
+
+// ÇiçekSepeti credential test
+router.post("/test-ciceksepeti", authMiddleware, async (req, res) => {
+    try {
+        const ciceksepetiController = require("../controllers/ciceksepetiController");
+        return ciceksepetiController.testCredentials(req, res);
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
+
+// Amazon SP-API credential test
+router.post("/test-amazon", authMiddleware, async (req, res) => {
+    try {
+        const amazonController = require("../controllers/amazonController");
+        return amazonController.testCredentials(req, res);
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message });
+    }
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // N11 KATEGORİ AĞACI & ATTRIBUTE ENDPOİNT'LERİ

@@ -1,4 +1,5 @@
 const axios = require("axios");
+const logger = require("../config/logger");
 const Marketplace = require("../models/Marketplace");
 
 exports.uploadProduct = async (req, res) => {
@@ -68,7 +69,7 @@ exports.uploadProduct = async (req, res) => {
         return res.status(200).json({ success: true, data: response.data });
 
     } catch (error) {
-        console.error("Ürün yükleme hatası:", error);
+        logger.error("Ürün yükleme hatası:", error);
         return res.status(500).json({ error: "Ürün yükleme başarısız!" });
     }
 };

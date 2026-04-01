@@ -1,4 +1,5 @@
 const Brand = require("../models/Brand");
+const logger = require("../config/logger");
 
 // ✅ Markaları Getir
 exports.getBrands = async (req, res) => {
@@ -6,7 +7,7 @@ exports.getBrands = async (req, res) => {
         const brands = await Brand.find();
         res.status(200).json(brands);
     } catch (error) {
-        console.error("❌ Marka getirme hatası:", error);
+        logger.error("❌ Marka getirme hatası:", error);
         res.status(500).json({ error: "Markalar alınamadı!" });
     }
 };
@@ -24,7 +25,7 @@ exports.addBrand = async (req, res) => {
 
         res.status(201).json({ message: "Marka başarıyla eklendi!", brand: newBrand });
     } catch (error) {
-        console.error("❌ Marka ekleme hatası:", error);
+        logger.error("❌ Marka ekleme hatası:", error);
         res.status(500).json({ error: "Marka eklenemedi!" });
     }
 };
