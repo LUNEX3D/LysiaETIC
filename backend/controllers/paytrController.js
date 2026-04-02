@@ -1,0 +1,640 @@
+/**
+ * PayTR Controller — LysiaETIC
+ *
+ * PayTR iFrame API ödeme yönetimi.
+ * - Token oluşturma (iframe açmak için)
+ * - Callback işleme (ödeme sonucu)
+ * - Abonelik durumu sorgulama
+ * - Admin: Kullanıcıya demo/abonelik verme
+ *
+ * ✅ FIX: Mongoose subdocument spread sorunu düzeltildi (toObject)
+ * ✅ FIX: PayTR credentials kontrolü paytrService üzerinden yapılıyor
+ * ✅ FIX: Callback handler güçlendirildi
+ * ✅ FIX: Detaylı hata loglaması eklendi
+ * ✅ FIX: expire_date reset hatası — aktif kullanıcının kalan süresi korunuyor
+ * ✅ FIX: Race condition — atomik findOneAndUpdate ile DB lock
+ * ✅ FIX: Payment→Plan fiyat doğrulama — amount manipulation koruması
+ * ✅ FIX: Fail case güçlendirme — failReason, errorCode, failedAt
+ * ✅ FIX: Subscription değişim log'u eklendi
+ */
+
+const User = require("../models/User");
+const Payment = require("../models/Payment");
+const Subscription = require("../models/Subscription");
+const paytrService = require("../services/paytrService");
+const logger = require("../config/logger");
+
+// ─── PAKET TANIMLARI (fiyat-plan mapping dahil) ─────────────────────────────────
+const PLANS = {
+    basic: {
+        name: "Basic",
+        monthlyPrice: 299,
+        yearlyPrice: 2990,
+        durationDays: { monthly: 30, yearly: 365 },
+        limits: { maxProducts: 500, maxOrders: 5000, maxMarketplaces: 3, maxApiCalls: 50000, maxUsers: 2 }
+    },
+    pro: {
+        name: "Pro",
+        monthlyPrice: 599,
+        yearlyPrice: 5990,
+        durationDays: { monthly: 30, yearly: 365 },
+        limits: { maxProducts: 5000, maxOrders: 50000, maxMarketplaces: 10, maxApiCalls: 500000, maxUsers: 5 }
+    },
+    enterprise: {
+        name: "Enterprise",
+        monthlyPrice: 1299,
+        yearlyPrice: 12990,
+        durationDays: { monthly: 30, yearly: 365 },
+        limits: { maxProducts: -1, maxOrders: -1, maxMarketplaces: -1, maxApiCalls: -1, maxUsers: -1 }
+    }
+};
+
+// ─── FİYAT → PLAN REVERSE MAPPING (callback'te doğrulama için) ──────────────────
+// Kuruş cinsinden fiyat → { plan, billingCycle }
+const PRICE_TO_PLAN = {};
+for (const [planId, planInfo] of Object.entries(PLANS)) {
+    PRICE_TO_PLAN[Math.round(planInfo.monthlyPrice * 100)] = { plan: planId, billingCycle: "monthly" };
+    PRICE_TO_PLAN[Math.round(planInfo.yearlyPrice * 100)]  = { plan: planId, billingCycle: "yearly" };
+}
+
+// ─── 1. PAKET BİLGİLERİNİ GETİR ────────────────────────────────────────────────
+exports.getPlans = async (req, res) => {
+    try {
+        res.json({
+            success: true,
+            plans: Object.entries(PLANS).map(([key, plan]) => ({
+                id: key,
+                ...plan
+            }))
+        });
+    } catch (error) {
+        logger.error(`Plan bilgileri hatası: ${error.message}`);
+        res.status(500).json({ success: false, message: "Plan bilgileri alınamadı" });
+    }
+};
+
+// ─── 2. ABONELİK DURUMU ─────────────────────────────────────────────────────────
+exports.getSubscriptionStatus = async (req, res) => {
+    try {
+        const user = await User.findById(req.user._id).select("subscription name email");
+        if (!user) {
+            return res.status(404).json({ success: false, message: "Kullanıcı bulunamadı" });
+        }
+
+        const sub = user.subscription ? user.subscription.toObject() : {};
+        const now = new Date();
+
+        let isActive = false;
+        let daysLeft = 0;
+        let trialDaysLeft = 0;
+        let isTrialActive = false;
+
+        // 1) Trial durumu kontrol — trialEndDate VEYA endDate'e bak
+        if (sub.plan === "trial" || sub.status === "trial") {
+            const trialEnd = sub.trialEndDate ? new Date(sub.trialEndDate)
+                           : sub.endDate ? new Date(sub.endDate)
+                           : null;
+            if (trialEnd && trialEnd > now) {
+                isTrialActive = true;
+                isActive = true;
+                trialDaysLeft = Math.ceil((trialEnd - now) / (1000 * 60 * 60 * 24));
+                daysLeft = trialDaysLeft;
+            }
+        }
+
+        // 2) Aktif abonelik durumu (basic, pro, enterprise)
+        if (!isActive && sub.status === "active" && sub.endDate) {
+            const endDate = new Date(sub.endDate);
+            if (endDate > now) {
+                isActive = true;
+                daysLeft = Math.ceil((endDate - now) / (1000 * 60 * 60 * 24));
+            }
+        }
+
+        // Süresi dolmuşsa durumu güncelle
+        if (!isActive && sub.status && sub.status !== "expired") {
+            user.subscription.status = "expired";
+            await user.save();
+        }
+
+        // Ödeme geçmişi
+        let payments = [];
+        try {
+            payments = await Payment.find({ userId: req.user._id })
+                .sort({ createdAt: -1 })
+                .limit(10)
+                .lean();
+        } catch (payErr) {
+            logger.warn(`Ödeme geçmişi alınamadı: ${payErr.message}`);
+        }
+
+        res.json({
+            success: true,
+            subscription: {
+                plan: sub.plan || "trial",
+                status: sub.status || "trial",
+                startDate: sub.startDate,
+                endDate: sub.endDate || sub.trialEndDate,
+                trialEndDate: sub.trialEndDate,
+                trialDaysLeft,
+                isTrialActive,
+                isActive,
+                daysLeft,
+                autoRenew: sub.autoRenew || false,
+                grantedBy: sub.grantedBy ? true : false,
+                grantNote: sub.grantNote
+            },
+            payments,
+            plans: PLANS
+        });
+    } catch (error) {
+        logger.error(`Abonelik durumu hatası: ${error.message}`);
+        res.status(500).json({ success: false, message: "Abonelik durumu alınamadı" });
+    }
+};
+
+// ─── PLAN SEVİYE SIRASI (yükseltme/düşürme kontrolü için) ────────────────────
+const PLAN_RANK = { trial: 0, free: 0, basic: 1, pro: 2, enterprise: 3 };
+
+// ─── 3. PAYTR İFRAME TOKEN OLUŞTUR ──────────────────────────────────────────────
+exports.createPayment = async (req, res) => {
+    try {
+        const { plan, billingCycle = "monthly" } = req.body;
+        const user = req.user;
+
+        if (!plan || !PLANS[plan]) {
+            return res.status(400).json({ success: false, message: "Geçersiz paket seçimi" });
+        }
+
+        if (!["monthly", "yearly"].includes(billingCycle)) {
+            return res.status(400).json({ success: false, message: "Geçersiz ödeme periyodu" });
+        }
+
+        // ── Mevcut abonelik kontrolü ─────────────────────────────────────────
+        const userDoc = await User.findById(user._id);
+        if (!userDoc) {
+            return res.status(404).json({ success: false, message: "Kullanıcı bulunamadı" });
+        }
+
+        const currentSub = userDoc.subscription ? userDoc.subscription.toObject() : {};
+        const now = new Date();
+
+        // Aktif abonelik var mı kontrol et (trial hariç)
+        const hasActivePaid = currentSub.status === "active"
+            && currentSub.plan !== "trial"
+            && currentSub.plan !== "free"
+            && currentSub.endDate
+            && new Date(currentSub.endDate) > now;
+
+        if (hasActivePaid) {
+            const currentRank = PLAN_RANK[currentSub.plan] || 0;
+            const newRank = PLAN_RANK[plan] || 0;
+
+            // Aynı paketi tekrar satın alamaz
+            if (currentSub.plan === plan) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Zaten ${PLANS[plan].name} paketiniz aktif. Süreniz dolmadan aynı paketi tekrar satın alamazsınız.`
+                });
+            }
+
+            // Düşük pakete geçemez
+            if (newRank <= currentRank) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Aktif ${PLANS[currentSub.plan]?.name || currentSub.plan} paketiniz var. Daha düşük veya aynı seviye pakete geçemezsiniz. Mevcut paketinizin süresi dolmasını bekleyin.`
+                });
+            }
+        }
+
+        // ── PayTR credentials kontrolü ───────────────────────────────────────
+        if (!paytrService.hasValidCredentials()) {
+            logger.warn(`PayTR credentials eksik — ödeme yapılamıyor. Kullanıcı: ${user.email}, Plan: ${plan}`);
+            return res.status(503).json({
+                success: false,
+                demoMode: true,
+                activated: false,
+                message: "Ödeme sistemi henüz yapılandırılmamış. Lütfen daha sonra tekrar deneyin veya yönetici ile iletişime geçin."
+            });
+        }
+
+        const planInfo = PLANS[plan];
+        const amount = billingCycle === "yearly" ? planInfo.yearlyPrice : planInfo.monthlyPrice;
+        const amountKurus = Math.round(amount * 100);
+
+        // Benzersiz sipariş ID oluştur (PayTR max 64 karakter, alfanumerik)
+        const orderId = `LE${user._id.toString().slice(-8)}${Date.now()}`.replace(/[^a-zA-Z0-9]/g, "");
+
+        // Kullanıcı IP'si
+        const userIp = req.headers["x-forwarded-for"]?.split(",")[0]?.trim()
+            || req.socket?.remoteAddress?.replace("::ffff:", "")
+            || "85.34.78.112";
+
+        // ✅ Payment kaydı oluştur — expectedPlan, expectedAmount, expectedBillingCycle dahil
+        const payment = new Payment({
+            userId: user._id,
+            amount,
+            currency: "TRY",
+            status: "pending",
+            paymentMethod: "paytr",
+            transactionId: orderId,
+            description: `LysiaETIC ${planInfo.name} - ${billingCycle === "yearly" ? "Yıllık" : "Aylık"}`,
+            expectedPlan: plan,
+            expectedAmount: amountKurus,
+            expectedBillingCycle: billingCycle,
+            metadata: {
+                plan,
+                billingCycle,
+                paytrOrderId: orderId,
+                userEmail: user.email,
+                userName: user.name
+            }
+        });
+        await payment.save();
+
+        logger.info(`💳 Ödeme kaydı oluşturuldu: ${orderId} — ${user.email} — ${planInfo.name} ${billingCycle} — ${amount} TL (${amountKurus} kuruş)`);
+
+        // PayTR token al
+        const tokenResult = await paytrService.getIframeToken({
+            userId: user._id.toString(),
+            userEmail: user.email,
+            userName: user.name || "Müşteri",
+            userPhone: user.profile?.phone || "",
+            userAddress: user.profile?.address?.city || "Türkiye",
+            userIp,
+            amount,
+            orderId,
+            plan,
+            currency: "TL"
+        });
+
+        if (!tokenResult.success) {
+            // PayTR token alınamadı — ödeme başlatılamadı
+            payment.status = "failed";
+            payment.failReason = tokenResult.error;
+            payment.failedAt = new Date();
+            payment.metadata.error = tokenResult.error;
+            await payment.save();
+
+            logger.error(`PayTR token alınamadı: ${tokenResult.error} — Kullanıcı: ${user.email}, OrderId: ${orderId}`);
+
+            return res.status(502).json({
+                success: false,
+                message: `Ödeme sistemi şu anda kullanılamıyor. Hata: ${tokenResult.error}. Lütfen daha sonra tekrar deneyin.`
+            });
+        }
+
+        logger.info(`PayTR iframe token hazır: ${orderId} — ${user.email}`);
+
+        res.json({
+            success: true,
+            token: tokenResult.token,
+            iframeUrl: tokenResult.iframeUrl,
+            paymentId: payment._id,
+            orderId,
+            amount,
+            plan: planInfo.name,
+            billingCycle
+        });
+    } catch (error) {
+        logger.error(`Ödeme oluşturma hatası: ${error.message}`, { stack: error.stack });
+        res.status(500).json({ success: false, message: "Ödeme oluşturulamadı" });
+    }
+};
+
+// ─── 4. PAYTR CALLBACK (Ödeme sonucu) ───────────────────────────────────────────
+/**
+ * PayTR sunucusu ödeme sonucunu bu endpoint'e POST eder.
+ * Content-Type: application/x-www-form-urlencoded
+ * ⚠️ express.urlencoded() middleware'i server.js'de aktif olmalı!
+ *
+ * GÜVENLİK:
+ * 1. HMAC-SHA256 hash doğrulama (timing-safe) → paytrService.processCallback
+ * 2. Fiyat-plan doğrulama → expectedAmount vs totalAmount
+ * 3. Atomik DB update → findOneAndUpdate (race condition koruması)
+ * 4. İdempotency → zaten işlenmiş ödeme tekrar işlenmez
+ */
+exports.paytrCallback = async (req, res) => {
+    const callbackStartTime = Date.now();
+    try {
+        logger.info(`📨 PayTR callback geldi — Body keys: ${Object.keys(req.body || {}).join(", ")}`);
+
+        // ── 1. Hash doğrulama (paytrService içinde timing-safe) ──────────────
+        const result = paytrService.processCallback(req.body);
+
+        if (!result.success) {
+            logger.error(`🚫 PayTR callback REDDEDILDI: ${result.error}`);
+            return res.status(200).send("OK");
+        }
+
+        const { orderId, status, totalAmount, totalAmountKurus, failReasonCode, failReasonMsg } = result;
+
+        // ── 2. Atomik Payment güncelleme (Race condition koruması) ────────────
+        // findOneAndUpdate ile "pending" → "processing" atomik geçiş
+        // Eğer başka bir callback aynı anda gelirse, ikincisi null alır
+        const payment = await Payment.findOneAndUpdate(
+            { transactionId: orderId, status: "pending" },
+            { $set: { status: "processing", processedAt: new Date() } },
+            { new: true }
+        );
+
+        if (!payment) {
+            // Ya bulunamadı ya da zaten işleniyor/işlenmiş
+            const existing = await Payment.findOne({ transactionId: orderId }).lean();
+            if (existing) {
+                logger.warn(`⚡ PayTR callback: Ödeme zaten işleniyor/işlenmiş — ${orderId} (mevcut status: ${existing.status})`);
+            } else {
+                logger.error(`❌ PayTR callback: Ödeme kaydı bulunamadı — ${orderId}`);
+            }
+            return res.status(200).send("OK");
+        }
+
+        // ── 3. Fiyat-plan doğrulama (amount manipulation koruması) ───────────
+        if (status === "success" && payment.expectedAmount) {
+            if (totalAmountKurus !== payment.expectedAmount) {
+                logger.error(`💀 TUTAR UYUŞMAZLIĞI! Beklenen: ${payment.expectedAmount} kuruş, Gelen: ${totalAmountKurus} kuruş — OrderId: ${orderId}`);
+                // Tutarı kaydet ama abonelik aktifleştirme — manuel inceleme gerekli
+                payment.status = "failed";
+                payment.failReason = `Tutar uyuşmazlığı: beklenen ${payment.expectedAmount}, gelen ${totalAmountKurus}`;
+                payment.errorCode = "AMOUNT_MISMATCH";
+                payment.failedAt = new Date();
+                payment.metadata.paytrResponse = result.rawData;
+                await payment.save();
+                logger.error(`💀 Ödeme AMOUNT_MISMATCH nedeniyle reddedildi — ${orderId}. Manuel inceleme gerekli!`);
+                return res.status(200).send("OK");
+            }
+        }
+
+        if (status === "success") {
+            // ── 4. Ödeme başarılı ────────────────────────────────────────────
+            payment.status = "completed";
+            payment.paidAt = new Date();
+            payment.metadata.paytrResponse = result.rawData;
+            await payment.save();
+
+            logger.info(`✅ Ödeme başarılı: ${orderId} — ${totalAmount} TL — İşlem süresi: ${Date.now() - callbackStartTime}ms`);
+
+            // ── 5. Kullanıcı aboneliğini güncelle ────────────────────────────
+            const user = await User.findById(payment.userId);
+            if (user) {
+                const plan = payment.expectedPlan || payment.metadata.plan;
+                const billingCycle = payment.expectedBillingCycle || payment.metadata.billingCycle || "monthly";
+                const now = new Date();
+
+                // ✅ KRİTİK FIX: expire_date reset hatası
+                // Aktif aboneliği varsa kalan süreyi koru, üzerine ekle
+                // Yoksa şimdiden başlat
+                const existingSub = user.subscription ? user.subscription.toObject() : {};
+                const existingEndDate = existingSub.endDate ? new Date(existingSub.endDate) : null;
+                const isCurrentlyActive = existingEndDate && existingEndDate > now
+                    && existingSub.status === "active"
+                    && existingSub.plan === plan;
+
+                // Başlangıç noktası: aktif ve aynı plan ise mevcut bitiş tarihi, değilse şimdi
+                const baseDate = isCurrentlyActive ? existingEndDate : now;
+                const endDate = new Date(baseDate);
+
+                if (billingCycle === "yearly") {
+                    endDate.setFullYear(endDate.getFullYear() + 1);
+                } else {
+                    endDate.setMonth(endDate.getMonth() + 1);
+                }
+
+                // Önceki durumu logla (subscription değişim log'u)
+                logger.info(`📋 Abonelik değişimi — ${user.email}:`, {
+                    onceki: {
+                        plan: existingSub.plan || "yok",
+                        status: existingSub.status || "yok",
+                        endDate: existingSub.endDate ? new Date(existingSub.endDate).toISOString() : "yok"
+                    },
+                    yeni: {
+                        plan,
+                        status: "active",
+                        baseDate: baseDate.toISOString(),
+                        endDate: endDate.toISOString(),
+                        sureEklendi: isCurrentlyActive ? "mevcut süreye eklendi" : "şimdiden başlatıldı"
+                    }
+                });
+
+                // ✅ FIX: Mongoose subdocument'ı düzgün güncelle (toObject ile spread)
+                user.subscription = {
+                    ...existingSub,
+                    plan,
+                    status: "active",
+                    startDate: isCurrentlyActive ? existingSub.startDate : now,
+                    endDate,
+                    trialUsed: true,
+                    lastPaymentId: payment._id.toString(),
+                    autoRenew: true
+                };
+                await user.save();
+
+                // Subscription model'i de güncelle
+                const subDoc = await Subscription.findOneAndUpdate(
+                    { userId: user._id },
+                    {
+                        plan,
+                        status: "active",
+                        startDate: isCurrentlyActive ? existingSub.startDate : now,
+                        endDate,
+                        price: totalAmount,
+                        billingCycle,
+                        lastPaymentDate: now,
+                        nextPaymentDate: endDate,
+                        paymentMethod: "paytr",
+                        limits: PLANS[plan]?.limits || {}
+                    },
+                    { upsert: true, new: true }
+                );
+
+                // Payment'a subscription ID bağla
+                payment.subscriptionId = subDoc._id;
+                await payment.save();
+
+                logger.info(`🎉 Abonelik aktifleştirildi: ${user.email} → ${plan} (${billingCycle}) — Bitiş: ${endDate.toISOString()} — Toplam işlem: ${Date.now() - callbackStartTime}ms`);
+            } else {
+                logger.error(`❌ PayTR callback: Kullanıcı bulunamadı — userId: ${payment.userId}, orderId: ${orderId}`);
+            }
+        } else {
+            // ── 6. Ödeme başarısız — detaylı hata kaydı ──────────────────────
+            payment.status = "failed";
+            payment.failReason = failReasonMsg || req.body.failed_reason_msg || "Bilinmeyen hata";
+            payment.errorCode = failReasonCode || req.body.failed_reason_code || "UNKNOWN";
+            payment.failedAt = new Date();
+            payment.metadata.paytrResponse = result.rawData;
+            await payment.save();
+
+            logger.warn(`❌ Ödeme başarısız: ${orderId} — Sebep: ${payment.failReason} — Kod: ${payment.errorCode} — İşlem süresi: ${Date.now() - callbackStartTime}ms`);
+        }
+
+        // PayTR'a OK yanıtı gönder (zorunlu — aksi halde tekrar dener)
+        res.status(200).send("OK");
+    } catch (error) {
+        logger.error(`💥 PayTR callback İŞLEME HATASI: ${error.message}`, {
+            stack: error.stack,
+            body: req.body ? { merchant_oid: req.body.merchant_oid, status: req.body.status } : "empty",
+            duration: `${Date.now() - callbackStartTime}ms`
+        });
+        // Hata olsa bile OK dönmemiz gerekiyor (PayTR tekrar denemesini önlemek için)
+        res.status(200).send("OK");
+    }
+};
+
+// ─── 5. ADMIN: KULLANICIYA DEMO/ABONELİK VER ────────────────────────────────────
+exports.adminGrantSubscription = async (req, res) => {
+    try {
+        const { userId, plan, days, note } = req.body;
+        const adminUser = req.user;
+
+        if (!userId || !plan || !days) {
+            return res.status(400).json({ success: false, message: "userId, plan ve days zorunludur" });
+        }
+
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ success: false, message: "Kullanıcı bulunamadı" });
+        }
+
+        const now = new Date();
+        const isPlanTrial = plan === "trial";
+
+        // ✅ FIX: Mongoose subdocument'ı düzgün oku
+        const existingSub = user.subscription ? user.subscription.toObject() : {};
+
+        // ✅ FIX: Admin grant'te de expire_date koruması
+        const existingEndDate = existingSub.endDate ? new Date(existingSub.endDate) : null;
+        const isCurrentlyActive = existingEndDate && existingEndDate > now
+            && existingSub.status === "active"
+            && existingSub.plan === plan;
+
+        const baseDate = isCurrentlyActive ? existingEndDate : now;
+        const endDate = new Date(baseDate);
+        endDate.setDate(endDate.getDate() + parseInt(days));
+
+        logger.info(`📋 Admin grant — ${user.email}: önceki plan=${existingSub.plan || "yok"}, yeni plan=${plan}, base=${baseDate.toISOString()}, end=${endDate.toISOString()}`);
+
+        user.subscription = {
+            plan: isPlanTrial ? "trial" : plan,
+            status: isPlanTrial ? "trial" : "active",
+            startDate: isCurrentlyActive ? existingSub.startDate : now,
+            endDate,
+            trialStartDate: isPlanTrial ? now : existingSub.trialStartDate,
+            trialEndDate: isPlanTrial ? endDate : existingSub.trialEndDate,
+            trialUsed: !isPlanTrial ? true : existingSub.trialUsed,
+            grantedBy: adminUser._id,
+            grantedAt: now,
+            grantNote: note || `Admin tarafından ${days} günlük ${plan} verildi`
+        };
+        await user.save();
+
+        // Subscription model'i de güncelle
+        await Subscription.findOneAndUpdate(
+            { userId: user._id },
+            {
+                plan: isPlanTrial ? "trial" : plan,
+                status: isPlanTrial ? "trial" : "active",
+                startDate: isCurrentlyActive ? existingSub.startDate : now,
+                endDate,
+                trialEndDate: isPlanTrial ? endDate : undefined,
+                notes: note || `Admin ${adminUser.email} tarafından verildi`,
+                limits: PLANS[plan]?.limits || {}
+            },
+            { upsert: true, new: true }
+        );
+
+        logger.info(`👑 Admin ${adminUser.email} → ${user.email} kullanıcısına ${days} gün ${plan} verdi (bitiş: ${endDate.toISOString()})`);
+
+        res.json({
+            success: true,
+            message: `${user.name} kullanıcısına ${days} günlük ${plan} paketi verildi`,
+            subscription: user.subscription
+        });
+    } catch (error) {
+        logger.error(`Admin abonelik verme hatası: ${error.message}`);
+        res.status(500).json({ success: false, message: "Abonelik verilemedi" });
+    }
+};
+
+// ─── 6. ADMIN: TÜM ABONELİKLERİ LİSTELE ────────────────────────────────────────
+exports.adminListSubscriptions = async (req, res) => {
+    try {
+        const users = await User.find({})
+            .select("name email role subscription createdAt")
+            .sort({ createdAt: -1 })
+            .lean();
+
+        const now = new Date();
+        const enriched = users.map(u => {
+            const sub = u.subscription || {};
+            const trialEnd = sub.trialEndDate ? new Date(sub.trialEndDate) : null;
+            const endDate = sub.endDate ? new Date(sub.endDate) : null;
+
+            let daysLeft = 0;
+            let isExpired = false;
+            let isExpiringSoon = false;
+
+            if (sub.status === "trial" && trialEnd) {
+                daysLeft = Math.ceil((trialEnd - now) / (1000 * 60 * 60 * 24));
+                isExpired = daysLeft <= 0;
+                isExpiringSoon = daysLeft > 0 && daysLeft <= 3;
+            } else if (sub.status === "active" && endDate) {
+                daysLeft = Math.ceil((endDate - now) / (1000 * 60 * 60 * 24));
+                isExpired = daysLeft <= 0;
+                isExpiringSoon = daysLeft > 0 && daysLeft <= 7;
+            }
+
+            return {
+                ...u,
+                daysLeft: Math.max(0, daysLeft),
+                isExpired,
+                isExpiringSoon
+            };
+        });
+
+        res.json({ success: true, users: enriched });
+    } catch (error) {
+        logger.error(`Admin abonelik listesi hatası: ${error.message}`);
+        res.status(500).json({ success: false, message: "Abonelik listesi alınamadı" });
+    }
+};
+
+// ─── 7. MEVCUT KULLANICILARA DEMO VER (Toplu) ───────────────────────────────────
+exports.adminGrantDemoToAll = async (req, res) => {
+    try {
+        const { days = 1 } = req.body; // Default 1 gün
+        const now = new Date();
+        const trialEnd = new Date(now);
+        trialEnd.setDate(trialEnd.getDate() + parseInt(days));
+
+        // TÜM kullanıcıları bul (admin/dev hariç) — trial olanlar dahil
+        const result = await User.updateMany(
+            {
+                role: { $nin: ["admin", "dev"] }
+            },
+            {
+                $set: {
+                    "subscription.plan": "trial",
+                    "subscription.status": "trial",
+                    "subscription.startDate": now,
+                    "subscription.trialStartDate": now,
+                    "subscription.trialEndDate": trialEnd,
+                    "subscription.trialUsed": false,
+                    "subscription.grantedBy": req.user._id,
+                    "subscription.grantedAt": now,
+                    "subscription.grantNote": `Toplu demo: ${days} gün`
+                }
+            }
+        );
+
+        logger.info(`👑 Toplu demo verildi: ${result.modifiedCount} kullanıcıya ${days} gün`);
+
+        res.json({
+            success: true,
+            message: `${result.modifiedCount} kullanıcıya ${days} günlük demo verildi`,
+            modifiedCount: result.modifiedCount
+        });
+    } catch (error) {
+        logger.error(`Toplu demo verme hatası: ${error.message}`);
+        res.status(500).json({ success: false, message: "Toplu demo verilemedi" });
+    }
+};

@@ -42,6 +42,10 @@ const advancedProductRoutes   = require("./routes/advancedProductRoutes");
 const saasAdminRoutes         = require("./routes/saasAdminRoutes");
 const ciceksepetiRoutes       = require("./routes/ciceksepetiRoutes");
 const amazonRoutes            = require("./routes/amazonRoutes");
+const eInvoiceRoutes          = require("./routes/eInvoiceRoutes");
+const paytrRoutes             = require("./routes/paytrRoutes");
+const aiEngineRoutes          = require("./routes/aiEngineRoutes");
+const categorySmartRoutes     = require("./routes/categorySmartRoutes");
 
 // ─── 3. DNS & App ─────────────────────────────────────────────────────────────
 dns.setServers(["1.1.1.1", "8.8.8.8"]);
@@ -92,9 +96,16 @@ app.use(cors({
 
 // ─── 8. Body parser ──────────────────────────────────────────────────────────
 app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: "10mb" })); // ✅ PayTR callback application/x-www-form-urlencoded gönderir
 
 // ─── 8.1 Genel API Rate Limiter ──────────────────────────────────────────────
-app.use("/api/", apiLimiter);
+// ✅ PayTR callback endpoint'ini rate limiter'dan muaf tut (PayTR sunucusu erişmeli)
+app.use("/api/", (req, res, next) => {
+    if (req.originalUrl === "/api/paytr/callback" && req.method === "POST") {
+        return next(); // Rate limiter atla
+    }
+    apiLimiter(req, res, next);
+});
 
 // ─── 8. HTTP İSTEK LOGGER (her isteği terminale yazar) ───────────────────────
 app.use((req, res, next) => {
@@ -160,6 +171,10 @@ app.use("/api/advanced-products",  advancedProductRoutes);
 app.use("/api/saas-admin",        saasAdminRoutes);
 app.use("/api/ciceksepeti",       ciceksepetiRoutes);
 app.use("/api/amazon",            amazonRoutes);
+app.use("/api/e-invoice",        eInvoiceRoutes);
+app.use("/api/paytr",            paytrRoutes);
+app.use("/api/ai-engine",       aiEngineRoutes);
+app.use("/api/category-smart", categorySmartRoutes);
 
 // ─── 10. SUNUCU DURUM ENDPOINTİ (/api/status) ────────────────────────────────
 app.get("/api/status", (req, res) => {

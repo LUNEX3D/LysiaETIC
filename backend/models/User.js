@@ -81,10 +81,18 @@ const UserSchema = new mongoose.Schema({
 
     // Subscription Info
     subscription: {
-        plan: { type: String, enum: ["free", "basic", "pro", "enterprise"], default: "free" },
-        status: { type: String, enum: ["active", "cancelled", "expired"], default: "active" },
-        startDate: Date,
-        endDate: Date
+        plan: { type: String, enum: ["free", "trial", "basic", "pro", "enterprise"], default: "trial" },
+        status: { type: String, enum: ["active", "trial", "cancelled", "expired", "suspended"], default: "trial" },
+        startDate: { type: Date, default: Date.now },
+        endDate: Date,
+        trialStartDate: { type: Date },
+        trialEndDate: { type: Date },
+        trialUsed: { type: Boolean, default: false },
+        lastPaymentId: String,
+        autoRenew: { type: Boolean, default: false },
+        grantedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" }, // admin tarafından verildi mi
+        grantedAt: Date,
+        grantNote: String
     },
 
     // Trendyol Bilgileri (Legacy - will be moved to Marketplace model)

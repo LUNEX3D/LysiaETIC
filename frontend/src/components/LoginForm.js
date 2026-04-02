@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useCallback } from "react";
 import axios from "../services/api";
 import { useNavigate } from "react-router-dom";
 import { useGoogleLogin, GoogleOAuthProvider } from "@react-oauth/google";
@@ -12,6 +12,7 @@ import {
     FaArrowLeft,
     FaKey
 } from "react-icons/fa";
+import LandingSection from "./LandingSection";
 import "../styles/login.css";
 
 const GOOGLE_CLIENT_ID = process.env.REACT_APP_GOOGLE_CLIENT_ID || "";
@@ -21,7 +22,6 @@ const LoginFormInner = () => {
     const [message, setMessage] = useState({ text: "", type: "" });
     const [isLoading, setIsLoading] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
-    // ✅ FIX #14: rememberMe artık localStorage ile çalışıyor
     const [rememberMe, setRememberMe] = useState(() => {
         return localStorage.getItem("rememberMe") !== "false";
     });
@@ -35,6 +35,13 @@ const LoginFormInner = () => {
     const [newPassword, setNewPassword] = useState("");
     const [newPasswordConfirm, setNewPasswordConfirm] = useState("");
     const [showNewPassword, setShowNewPassword] = useState(false);
+
+    // Sağ panel scroll ref — landing'den "Giriş Yap" tıklanınca sağ panele focus
+    const scrollToLogin = useCallback(() => {
+        // Zaten login formu görünür durumda, sadece focus ver
+        const emailInput = document.querySelector('.auth-input[name="email"]');
+        if (emailInput) emailInput.focus();
+    }, []);
 
     const navigate = useNavigate();
 
@@ -67,7 +74,6 @@ const LoginFormInner = () => {
             localStorage.setItem("userName", userResponse.data.name || "Bilinmiyor");
             localStorage.setItem("userRole", userResponse.data.role || "user");
 
-            // ✅ FIX #14: rememberMe false ise token'ı sessionStorage'a taşı
             if (!rememberMe) {
                 sessionStorage.setItem("token", response.data.token);
                 localStorage.removeItem("token");
@@ -564,171 +570,43 @@ const LoginFormInner = () => {
         </div>
     );
 
+    // ═══════════════════════════════════════════════════════════
+    // RENDER — Sol: Sekmeli Landing | Sağ: Login Formu
+    // Sayfa tam ekran, landing login formunun yanına kadar gelir
+    // ═══════════════════════════════════════════════════════════
     return (
-            <div className="auth-page">
-                {/* ═══ LEFT PANEL ═══ */}
-                <div className="auth-left">
-                    <div className="auth-left-grid" />
-                    <div className="auth-orb auth-orb--1" />
-                    <div className="auth-orb auth-orb--2" />
-                    <div className="auth-orb auth-orb--3" />
+        <div className="auth-page">
+            {/* ═══ SOL PANEL — Sekmeli Landing İçeriği ═══ */}
+            <div className="auth-left">
+                <LandingSection onScrollToLogin={scrollToLogin} />
+            </div>
 
-                    {/* Logo */}
-                    <div className="auth-logo auth-fade-in">
-                        <div className="auth-logo-icon">
-                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M12 2L2 7l10 5 10-5-10-5z"/>
-                                <path d="M2 17l10 5 10-5"/>
-                                <path d="M2 12l10 5 10-5"/>
-                            </svg>
-                        </div>
-                        <span className="auth-logo-text">LUNEXETIC</span>
+            {/* ═══ SAĞ PANEL — Login Formu ═══ */}
+            <div className="auth-right">
+                {/* Mobile logo */}
+                <div className="auth-mobile-logo">
+                    <div className="auth-logo-icon">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+                            <path d="M2 17l10 5 10-5"/>
+                            <path d="M2 12l10 5 10-5"/>
+                        </svg>
                     </div>
-
-                    {/* Hero */}
-                    <div className="auth-hero auth-slide-up">
-                        <h1>
-                            İşinizi tek panelden<br />
-                            yönetin, <span className="auth-highlight">büyütün.</span>
-                        </h1>
-                        <p>
-                            Pazaryeri entegrasyonu, stok, sipariş ve daha fazlası.
-                            Lunexetic ile e-ticarette bir adım önde olun.
-                        </p>
-                    </div>
-
-                    {/* Dashboard Mockup */}
-                    <div className="auth-mockup-area auth-fade-in-delay">
-                        {/* Floating marketplace badges */}
-                        <div className="auth-float-badge auth-float-badge--trendyol">trendyol</div>
-                        <div className="auth-float-badge auth-float-badge--hepsiburada">hepsiburada</div>
-                        <div className="auth-float-badge auth-float-badge--amazon">
-                            <span style={{ fontSize: 20, fontWeight: 900 }}>a</span>
-                        </div>
-                        <div className="auth-float-badge auth-float-badge--n11">n11</div>
-
-                        {/* Laptop */}
-                        <div className="auth-laptop">
-                            <div className="auth-laptop-topbar">
-                                <div className="auth-laptop-dot" />
-                                <div className="auth-laptop-dot" />
-                                <div className="auth-laptop-dot" />
-                            </div>
-                            <div className="auth-laptop-body">
-                                {/* Stats */}
-                                <div className="auth-mock-stats">
-                                    <div className="auth-mock-stat">
-                                        <div className="auth-mock-stat-label">Toplam Sipariş</div>
-                                        <div className="auth-mock-stat-row">
-                                            <span className="auth-mock-stat-value">1,245</span>
-                                            <span className="auth-mock-stat-badge">↑ 12.5%</span>
-                                        </div>
-                                    </div>
-                                    <div className="auth-mock-stat">
-                                        <div className="auth-mock-stat-label">Toplam Ciro</div>
-                                        <div className="auth-mock-stat-row">
-                                            <span className="auth-mock-stat-value">₺125,430</span>
-                                            <span className="auth-mock-stat-badge">↑ 8.2%</span>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Chart */}
-                                <div className="auth-mock-chart">
-                                    <div className="auth-mock-chart-title">Satış Grafiği</div>
-                                    <svg className="auth-mock-chart-svg" viewBox="0 0 460 60" fill="none">
-                                        <defs>
-                                            <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
-                                                <stop offset="0%" stopColor="#6366f1" stopOpacity="0.3" />
-                                                <stop offset="100%" stopColor="#6366f1" stopOpacity="0" />
-                                            </linearGradient>
-                                        </defs>
-                                        <path
-                                            d="M0,45 C30,42 60,38 90,30 C120,22 150,35 180,28 C210,21 240,15 270,18 C300,21 330,12 360,8 C390,4 420,10 460,5"
-                                            stroke="#6366f1"
-                                            strokeWidth="2.5"
-                                            fill="none"
-                                        />
-                                        <path
-                                            d="M0,45 C30,42 60,38 90,30 C120,22 150,35 180,28 C210,21 240,15 270,18 C300,21 330,12 360,8 C390,4 420,10 460,5 L460,60 L0,60 Z"
-                                            fill="url(#chartGrad)"
-                                        />
-                                    </svg>
-                                </div>
-
-                                {/* Integrations */}
-                                <div className="auth-mock-integrations">
-                                    <span className="auth-mock-int-title">Entegrasyonlar</span>
-                                    <div className="auth-mock-int-logo ty">T</div>
-                                    <div className="auth-mock-int-logo hb">HB</div>
-                                    <div className="auth-mock-int-logo az">a</div>
-                                    <div className="auth-mock-int-logo n1">n11</div>
-                                    <div className="auth-mock-int-logo plus">+</div>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Phone */}
-                        <div className="auth-phone">
-                            <div className="auth-phone-notch" />
-                            <div className="auth-phone-body">
-                                <div className="auth-phone-title">Siparişler</div>
-                                <div className="auth-phone-order">
-                                    <div className="auth-phone-order-left">
-                                        <span className="auth-phone-order-id">#10254</span>
-                                        <span className="auth-phone-order-date">Bugün</span>
-                                    </div>
-                                    <span className="auth-phone-order-price">₺1,249.90</span>
-                                </div>
-                                <div className="auth-phone-order">
-                                    <div className="auth-phone-order-left">
-                                        <span className="auth-phone-order-id">#10233</span>
-                                        <span className="auth-phone-order-date">Dün</span>
-                                    </div>
-                                    <span className="auth-phone-order-price">₺799.90</span>
-                                </div>
-                                <div className="auth-phone-order">
-                                    <div className="auth-phone-order-left">
-                                        <span className="auth-phone-order-id">#10232</span>
-                                        <span className="auth-phone-order-date">2 gün</span>
-                                    </div>
-                                    <span className="auth-phone-order-price">₺1,099.90</span>
-                                </div>
-                                <div className="auth-phone-btn">Tümünü Gör</div>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Plant decoration */}
-                    <div className="auth-plant" />
+                    <span className="auth-logo-text">LUNEXETIC</span>
                 </div>
 
-                {/* ═══ RIGHT PANEL ═══ */}
-                <div className="auth-right">
-                    {/* Mobile logo */}
-                    <div className="auth-mobile-logo">
-                        <div className="auth-logo-icon">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M12 2L2 7l10 5 10-5-10-5z"/>
-                                <path d="M2 17l10 5 10-5"/>
-                                <path d="M2 12l10 5 10-5"/>
-                            </svg>
-                        </div>
-                        <span className="auth-logo-text">LUNEXETIC</span>
-                    </div>
+                {forgotMode ? renderForgotForm() : renderLoginForm()}
 
-                    {forgotMode ? renderForgotForm() : renderLoginForm()}
-
-                    {/* Footer */}
-                    <div className="auth-footer">
-                        <span>© 2024 Lunexetic. Tüm hakları saklıdır.</span>
-                        <span className="auth-footer-dot" />
-                        <a href="/privacy">Gizlilik Politikası</a>
-                        <span className="auth-footer-dot" />
-                        <a href="/terms">Kullanım Şartları</a>
-                    </div>
+                {/* Footer */}
+                <div className="auth-footer">
+                    <span>© 2024 Lunexetic. Tüm hakları saklıdır.</span>
+                    <span className="auth-footer-dot" />
+                    <a href="/privacy">Gizlilik Politikası</a>
+                    <span className="auth-footer-dot" />
+                    <a href="/terms">Kullanım Şartları</a>
                 </div>
             </div>
+        </div>
     );
 };
 

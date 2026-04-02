@@ -44,6 +44,7 @@ const AdminLayout = ({ title, subtitle, actions, children }) => {
         {
             label: "Finans & Abonelik",
             items: [
+                { to: "/admin/subscription-manager", label: "Abonelik Yönetimi", icon: <FaCrown /> },
                 { to: "/admin/subscriptions", label: "Paket & Abonelik", icon: <FaCrown /> },
                 { to: "/admin/payments", label: "Ödeme & Fatura", icon: <FaCreditCard /> },
             ]

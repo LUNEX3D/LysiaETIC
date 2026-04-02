@@ -55,6 +55,11 @@ import PriceSyncPage from "./pages/PriceSyncPage";
 // Email Doğrulama
 import VerifyEmail from "./pages/VerifyEmail";
 
+// Abonelik & Ödeme
+import SubscriptionPage from "./pages/SubscriptionPage";
+import PaymentResult from "./pages/PaymentResult";
+import AdminSubscriptionManager from "./pages/AdminSubscriptionManager";
+
 // ✅ FIX #19: Protected Route — Auth guard
 import ProtectedRoute from "./components/ProtectedRoute";
 
@@ -76,7 +81,7 @@ const theme = createTheme({
 const AppContent = () => {
     const location = useLocation();
     const isAdminRoute = location.pathname.startsWith("/admin");
-    const isAuthRoute = ["/" , "/login", "/register", "/verify-email", "/forgot-password"].includes(location.pathname);
+    const isAuthRoute = ["/" , "/login", "/register", "/verify-email", "/forgot-password", "/payment/success", "/payment/failed", "/subscription"].includes(location.pathname);
 
     const routes = (
         <Routes>
@@ -124,6 +129,14 @@ const AppContent = () => {
 
             {/* Kategori Eşleştirme — Giriş gerekli */}
             <Route path="/category-mapping" element={<ProtectedRoute><CategoryMappingPage /></ProtectedRoute>} />
+
+            {/* Abonelik & Ödeme */}
+            <Route path="/subscription" element={<ProtectedRoute><SubscriptionPage /></ProtectedRoute>} />
+            <Route path="/payment/success" element={<PaymentResult />} />
+            <Route path="/payment/failed" element={<PaymentResult />} />
+
+            {/* Admin Abonelik Yönetimi */}
+            <Route path="/admin/subscription-manager" element={<ProtectedRoute requiredRoles={["admin","dev"]}><AdminSubscriptionManager /></ProtectedRoute>} />
         </Routes>
     );
 

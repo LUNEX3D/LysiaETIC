@@ -4,26 +4,26 @@ const { authMiddleware } = require("../middlewares/authMiddleware");
 const analyticsController = require("../controllers/analyticsController");
 
 /**
- * Analytics Routes
+ * Analytics Routes — LysiaETIC
+ * ✅ Tam yeniden yazım — 13 endpoint
  * All routes require authentication
  */
 
-// GET /api/analytics/overview - Get KPI data
+// ── Temel Analiz ──
 router.get("/overview", authMiddleware, analyticsController.getAnalyticsOverview);
-
-// GET /api/analytics/sales-trend - Get sales trend data
 router.get("/sales-trend", authMiddleware, analyticsController.getSalesTrend);
-
-// GET /api/analytics/marketplace-distribution - Get marketplace distribution
 router.get("/marketplace-distribution", authMiddleware, analyticsController.getMarketplaceDistribution);
-
-// GET /api/analytics/top-products - Get top selling products
 router.get("/top-products", authMiddleware, analyticsController.getTopProducts);
-
-// GET /api/analytics/category-distribution - Get category distribution
 router.get("/category-distribution", authMiddleware, analyticsController.getCategoryDistribution);
-
-// GET /api/analytics/hourly-sales - Get hourly sales data
 router.get("/hourly-sales", authMiddleware, analyticsController.getHourlySales);
+
+// ── Gelişmiş Analiz (YENİ) ──
+router.get("/profit-overview", authMiddleware, analyticsController.getProfitOverview);
+router.get("/product-performance", authMiddleware, analyticsController.getProductPerformance);
+router.get("/marketplace-comparison", authMiddleware, analyticsController.getMarketplaceComparison);
+router.get("/commission-analysis", authMiddleware, analyticsController.getCommissionAnalysis);
+router.get("/stock-velocity", authMiddleware, analyticsController.getStockVelocity);
+router.get("/actions", authMiddleware, analyticsController.getActions);
+router.get("/daily-summary", authMiddleware, analyticsController.getDailySummary);
 
 module.exports = router;

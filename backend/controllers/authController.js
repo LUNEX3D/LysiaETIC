@@ -36,6 +36,12 @@ exports.register = async (req, res) => {
         const verificationTokenExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 saat
 
         const hashedPassword = await bcrypt.hash(password, 10);
+
+        // 14 günlük demo süresi hesapla
+        const trialStart = new Date();
+        const trialEnd = new Date(trialStart);
+        trialEnd.setDate(trialEnd.getDate() + 14);
+
         const newUser = new User({
             name : name.trim(),
             email: email.toLowerCase().trim(),
@@ -43,7 +49,15 @@ exports.register = async (req, res) => {
             emailVerified: false,
             authProvider: "local",
             verificationToken,
-            verificationTokenExpires
+            verificationTokenExpires,
+            subscription: {
+                plan: "trial",
+                status: "trial",
+                startDate: trialStart,
+                trialStartDate: trialStart,
+                trialEndDate: trialEnd,
+                trialUsed: false
+            }
         });
 
         await newUser.save();
@@ -181,6 +195,19 @@ exports.login = async (req, res) => {
             });
         }
 
+        // Abonelik durumu kontrolü — süresi dolmuşsa güncelle
+        if (user.subscription) {
+            const now = new Date();
+            const sub = user.subscription;
+            if (sub.status === "trial" && sub.trialEndDate && new Date(sub.trialEndDate) < now) {
+                user.subscription.status = "expired";
+                await user.save();
+            } else if (sub.status === "active" && sub.endDate && new Date(sub.endDate) < now) {
+                user.subscription.status = "expired";
+                await user.save();
+            }
+        }
+
         const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: "7d" });
 
         // Şifre hash'i response'dan çıkarıldı
@@ -249,7 +276,11 @@ exports.googleAuth = async (req, res) => {
                 await user.save();
             }
         } else {
-            // Yeni kullanıcı oluştur
+            // Yeni kullanıcı oluştur — 14 günlük demo süresi ile
+            const trialStart = new Date();
+            const trialEnd = new Date(trialStart);
+            trialEnd.setDate(trialEnd.getDate() + 14);
+
             user = new User({
                 name: name || email.split("@")[0],
                 email: email.toLowerCase().trim(),
@@ -258,10 +289,18 @@ exports.googleAuth = async (req, res) => {
                 emailVerified: true, // Google hesabı zaten doğrulanmış
                 profile: {
                     avatar: picture || undefined
+                },
+                subscription: {
+                    plan: "trial",
+                    status: "trial",
+                    startDate: trialStart,
+                    trialStartDate: trialStart,
+                    trialEndDate: trialEnd,
+                    trialUsed: false
                 }
             });
             await user.save();
-            logger.info(`Yeni Google kullanıcısı kaydedildi: ${user.email}`);
+            logger.info(`Yeni Google kullanıcısı kaydedildi: ${user.email} (14 gün demo)`);
         }
 
         const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: "7d" });

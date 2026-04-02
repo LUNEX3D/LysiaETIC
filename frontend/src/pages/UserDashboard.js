@@ -9,16 +9,18 @@ import FinancePage from "../pages/FinancePage";
 import CargoTrackingPage from "../pages/CargoTrackingPage";
 import UserProfilePage from "../pages/UserProfilePage";
 import AdvancedAnalytics from "../pages/AdvancedAnalytics";
-import AdvancedAIAssistant from "../pages/AdvancedAIAssistant";
+import AICommandCenter from "../pages/AICommandCenter";
 import ProductManagementCenter from "../pages/ProductManagementCenter";
 import CategoryMappingPage from "../pages/CategoryMappingPage";
 import SettingsPage from "../pages/SettingsPage";
 import AdminPanelPage from "../pages/AdminPanelPage";
+import BillingPage from "../pages/BillingPage";
+import SubscriptionPage from "../pages/SubscriptionPage";
 import {
     FaBars, FaTimes, FaClipboardList, FaCog,
     FaChartLine, FaBoxOpen, FaMoneyBillWave,
     FaTruck, FaUsers, FaFileInvoice, FaPlug,
-    FaChevronDown, FaBox,
+    FaChevronDown, FaBox, FaCrown,
     FaBrain, FaChartBar, FaBell,
     FaCubes, FaSitemap, FaSignOutAlt, FaUserShield
 } from "react-icons/fa";
@@ -1095,7 +1097,7 @@ const UserDashboard = () => {
     const menuItems = [
         { id: "dashboard", icon: <FaChartLine />, text: t("sidebar.home") },
         { type: "divider", label: t("sidebar.marketplace") },
-        { id: "integration", icon: <FaPlug />, text: t("sidebar.integrations"), hasSubmenu: true },
+        { id: "integration", icon: <FaPlug />, text: t("sidebar.integrations") },
         { id: "orders", icon: <FaClipboardList />, text: t("sidebar.orders"), hasSubmenu: true },
         { id: "inventory", icon: <FaBoxOpen />, text: t("sidebar.inventory"), hasSubmenu: true },
         { id: "shipping", icon: <FaTruck />, text: t("sidebar.shipping"), hasSubmenu: true },
@@ -1109,6 +1111,7 @@ const UserDashboard = () => {
         { type: "divider", label: t("sidebar.management") },
         { id: "users", icon: <FaUsers />, text: t("sidebar.userMgmt") },
         { id: "billing", icon: <FaFileInvoice />, text: t("sidebar.billing") },
+        { id: "subscription", icon: <FaCrown />, text: "Abonelik & Paket" },
         { id: "settings", icon: <FaCog />, text: t("sidebar.settings") },
         ...(isAdmin ? [
             { type: "divider", label: "Admin" },
@@ -1175,10 +1178,12 @@ const UserDashboard = () => {
             case "integration": return <MarketplaceIntegration userId={userId} />;
             case "users": return <UserProfilePage userId={userId} marketplaces={marketplaces} />;
             case "advanced-analytics": return <AdvancedAnalytics userId={userId} />;
-            case "advanced-ai": return <AdvancedAIAssistant userId={userId} />;
+            case "advanced-ai": return <AICommandCenter userId={userId} />;
             case "pm-center": return <ProductManagementCenter userId={userId} />;
             case "pm-categories": return <CategoryMappingPage userId={userId} />;
             case "settings": return <SettingsPage userId={userId} />;
+            case "billing": return <BillingPage userId={userId} />;
+            case "subscription": return <SubscriptionPage />;
             case "admin-panel": return isAdmin ? <AdminPanelPage userId={userId} /> : null;
             case "dashboard": return renderDashboard();
             default: return null;
