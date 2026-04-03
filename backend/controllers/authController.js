@@ -245,14 +245,25 @@ exports.googleAuth = async (req, res) => {
             name     = payload.name;
             picture  = payload.picture;
         } else if (credential) {
-            // GoogleLogin bileşeni ile gelen JWT credential
-            const payload = JSON.parse(
-                Buffer.from(credential.split(".")[1], "base64").toString()
-            );
-            googleId = payload.sub;
-            email    = payload.email;
-            name     = payload.name;
-            picture  = payload.picture;
+            // ✅ FIX H4: GoogleLogin bileşeni ile gelen JWT credential — google-auth-library ile doğrula
+            try {
+                const { OAuth2Client } = require("google-auth-library");
+                const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+
+                const ticket = await client.verifyIdToken({
+                    idToken: credential,
+                    audience: process.env.GOOGLE_CLIENT_ID
+                });
+
+                const payload = ticket.getPayload();
+                googleId = payload.sub;
+                email    = payload.email;
+                name     = payload.name;
+                picture  = payload.picture;
+            } catch (verifyError) {
+                logger.error(`Google JWT doğrulama hatası: ${verifyError.message}`);
+                return res.status(401).json({ message: "❌ Google token doğrulanamadı!" });
+            }
         } else {
             return res.status(400).json({ message: "❌ Google credential veya access_token gerekli!" });
         }

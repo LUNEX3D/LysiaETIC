@@ -40,10 +40,16 @@ const fetchTrendyolOrders = async (sellerId, apiKey, apiSecret, startDate, endDa
                     totalPrice: pkg.grossAmount ? pkg.grossAmount.toFixed(2) : "0.00",
                     status: pkg.status,
                     orderDate: new Date(pkg.orderDate).toLocaleString("tr-TR", { timeZone: "Europe/Istanbul" }),
+                    orderDateRaw: pkg.orderDate, // epoch ms — sync için
                     products: pkg.lines.map(line => ({
                         productName: line.productName,
                         quantity: line.quantity,
-                        imageUrl: line.imageUrl || "/default-product.jpg"
+                        price: line.amount || line.price || 0,
+                        barcode: line.barcode || line.productBarcode || "",
+                        merchantSku: line.merchantSku || line.sku || "",
+                        productCode: line.productCode || "",
+                        imageUrl: line.imageUrl || "/default-product.jpg",
+                        commissionAmount: line.commissionFee || 0
                     }))
                 })));
 
@@ -259,6 +265,7 @@ const fetchN11Orders = async (apiKey, secretKey, startDate, endDate) => {
                     orderDate: pkg.packageHistories?.[0]?.createdDate
                         ? moment(pkg.packageHistories[0].createdDate).format("DD-MM-YYYY HH:mm")
                         : "Bilinmiyor",
+                    orderDateRaw: pkg.packageHistories?.[0]?.createdDate || null,
                     customerName: pkg.customerfullName,
                     totalPrice: totalAmount.toFixed(2),
                     status: pkg.shipmentPackageStatus,
@@ -267,7 +274,10 @@ const fetchN11Orders = async (apiKey, secretKey, startDate, endDate) => {
                     products: pkg.lines.map(line => ({
                         productName: line.productName,
                         quantity: line.quantity,
-                        price: Number(line.price || 0).toFixed(2),
+                        price: Number(line.sellerInvoiceAmount || line.price || 0),
+                        barcode: line.barcode || line.productBarcode || "",
+                        merchantSku: line.merchantSku || line.sku || "",
+                        productCode: line.productCode || "",
                         imageUrl: "/default-product.jpg"
                     }))
                 });

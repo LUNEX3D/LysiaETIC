@@ -91,16 +91,40 @@ const AdvancedAnalytics = ({ userId }) => {
             const response = await axios.get(`/analytics/${endpoint}`, { params: { ...dateParams, ...params } });
             return response.data?.data || null;
         } catch (err) {
-            console.warn(`Analytics ${endpoint} failed:`, err.message);
+            console.warn(`Analytics ${endpoint} failed:`, err.response?.data?.message || err.message);
             return null;
+        }
+    }, [getDateParams]);
+
+    // ─── Siparis Sync — Pazaryerlerinden siparisleri DB'ye kaydet ───
+    const syncOrders = useCallback(async () => {
+        try {
+            const dateParams = getDateParams();
+            console.log("🔄 [Analytics] Sipariş sync başlatılıyor...");
+            const resp = await axios.get("/orders/sync-all", { params: dateParams, timeout: 180000 });
+            if (resp.data?.success) {
+                console.log("✅ [Analytics] Sync tamamlandı:", resp.data.message);
+            }
+        } catch (err) {
+            // Sync hatasi analytics'i engellemez — sadece logla
+            console.warn("⚠️ [Analytics] Sipariş sync hatası (analiz yine de yükleniyor):", err.message);
         }
     }, [getDateParams]);
 
     // ─── ANA VERİ YÜKLE ───
     const loadAllData = useCallback(async () => {
-        if (!userId) return;
+        if (!userId) {
+            console.warn("[AdvancedAnalytics] userId yok, veri yüklenemiyor.");
+            setLoading(false);
+            return;
+        }
         setLoading(true);
         try {
+            // 1. Önce siparisleri pazaryerlerinden cekip DB'ye kaydet
+            //    Bu sayede analyticsController.js'deki Order.aggregate() sorgulari veri bulur
+            await syncOrders();
+
+            // 2. Sonra analytics verilerini yukle
             const [
                 overviewData, trendData, mpDistData, topProdData, catDistData,
                 hourlyData, profitData, prodPerfData, mpCompData, commData,
@@ -140,7 +164,7 @@ const AdvancedAnalytics = ({ userId }) => {
         } finally {
             setLoading(false);
         }
-    }, [userId, fetchEndpoint]);
+    }, [userId, fetchEndpoint, syncOrders]);
 
     useEffect(() => {
         loadAllData();

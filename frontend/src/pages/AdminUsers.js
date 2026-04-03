@@ -36,7 +36,7 @@ const AdminUsers = () => {
                 users.map(async user => {
                     try {
                         const res = await axios.get(
-                            `/marketplace/user-marketplaces/${user._id}`,
+                            `/admin/marketplace/user-marketplaces/${user._id}`,
                             { headers: { Authorization: `Bearer ${localStorage.getItem("token")}` } }
                         );
                         return [user._id, res.data || []];

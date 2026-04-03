@@ -10,18 +10,21 @@ import CargoTrackingPage from "../pages/CargoTrackingPage";
 import UserProfilePage from "../pages/UserProfilePage";
 import AdvancedAnalytics from "../pages/AdvancedAnalytics";
 import AICommandCenter from "../pages/AICommandCenter";
+import AIOperatorPanel from "../pages/AIOperatorPanel";
+import AIChatWidget from "../components/AIChatWidget";
 import ProductManagementCenter from "../pages/ProductManagementCenter";
 import CategoryMappingPage from "../pages/CategoryMappingPage";
 import SettingsPage from "../pages/SettingsPage";
 import AdminPanelPage from "../pages/AdminPanelPage";
 import BillingPage from "../pages/BillingPage";
 import SubscriptionPage from "../pages/SubscriptionPage";
+import RoketfyPanel from "../pages/RoketfyPanel";
 import {
     FaBars, FaTimes, FaClipboardList, FaCog,
     FaChartLine, FaBoxOpen, FaMoneyBillWave,
     FaTruck, FaUsers, FaFileInvoice, FaPlug,
     FaChevronDown, FaBox, FaCrown,
-    FaBrain, FaChartBar, FaBell,
+    FaBrain, FaChartBar, FaBell, FaRocket,
     FaCubes, FaSitemap, FaSignOutAlt, FaUserShield
 } from "react-icons/fa";
 import { motion, AnimatePresence } from "framer-motion";
@@ -243,7 +246,7 @@ const UserDashboard = () => {
         if (!userId) return;
         (async () => {
             try {
-                const data = await getUserMarketplaces(userId);
+                const data = await getUserMarketplaces();
                 setMarketplaces(data.map(m => ({ ...m, name: m.marketplaceName })));
             } catch (e) { console.error("Pazar yerleri yüklenirken hata:", e); }
         })();
@@ -306,7 +309,7 @@ const UserDashboard = () => {
             setDashboardLoading(true);
             setDashboardError("");
             try {
-                const data = await fetchDashboardData(userId);
+                const data = await fetchDashboardData();
                 setDashboardData(data);
                 checkForNewOrders(data);
             } catch (e) {
@@ -1107,7 +1110,9 @@ const UserDashboard = () => {
         { id: "pm-categories", icon: <FaSitemap />, text: t("sidebar.categoryMapping") },
         { type: "divider", label: t("sidebar.analytics") },
         { id: "advanced-analytics", icon: <FaChartBar />, text: t("sidebar.advancedAnalytics") },
+        { id: "ai-operator", icon: <FaBrain />, text: "AI Operatör" },
         { id: "advanced-ai", icon: <FaBrain />, text: t("sidebar.aiAssistant") },
+        { id: "roketfy", icon: <FaRocket />, text: t("sidebar.roketfy") },
         { type: "divider", label: t("sidebar.management") },
         { id: "users", icon: <FaUsers />, text: t("sidebar.userMgmt") },
         { id: "billing", icon: <FaFileInvoice />, text: t("sidebar.billing") },
@@ -1178,12 +1183,14 @@ const UserDashboard = () => {
             case "integration": return <MarketplaceIntegration userId={userId} />;
             case "users": return <UserProfilePage userId={userId} marketplaces={marketplaces} />;
             case "advanced-analytics": return <AdvancedAnalytics userId={userId} />;
+            case "ai-operator": return <AIOperatorPanel userId={userId} />;
             case "advanced-ai": return <AICommandCenter userId={userId} />;
             case "pm-center": return <ProductManagementCenter userId={userId} />;
             case "pm-categories": return <CategoryMappingPage userId={userId} />;
             case "settings": return <SettingsPage userId={userId} />;
             case "billing": return <BillingPage userId={userId} />;
             case "subscription": return <SubscriptionPage />;
+            case "roketfy": return <RoketfyPanel />;
             case "admin-panel": return isAdmin ? <AdminPanelPage userId={userId} /> : null;
             case "dashboard": return renderDashboard();
             default: return null;
@@ -1358,6 +1365,9 @@ const UserDashboard = () => {
                     {renderActivePanel()}
                 </motion.main>
             </AnimatePresence>
+
+            {/* AI Operatör Chat Widget — Her sayfada görünür */}
+            <AIChatWidget />
         </div>
     );
 };

@@ -212,16 +212,18 @@ const toN11 = async (master, userId, credentials) => {
     }
 
     // ── Attribute transform ───────────────────────────────────────────────────
-    // transformProductForN11 içinde mapCategoryToN11 tekrar çağrılır ama
-    // bu sefer CategoryMapping'de kesinlikle bulunur (catResult zaten doğruladı)
-    // categoryId olarak catResult.categoryId'yi override ederek kullan
+    // catResult.categoryId'yi doğrudan transformProductForN11'e geçir
+    // Böylece mapCategoryToN11 tekrar çağrılmaz, UnifiedMap/Resolver sonucu korunur
     const mapping = await n11MappingService.transformProductForN11(
         userId,
         credentials,
-        master
+        master,
+        {
+            resolvedCategoryId:   catResult.categoryId,
+            resolvedCategoryName: catResult.categoryName
+        }
     );
 
-    // catResult'tan gelen categoryId'yi kullan (transformProductForN11 da aynısını bulur)
     const resolvedCategoryId = catResult.categoryId || mapping.categoryId;
 
     const shipmentTemplate = (

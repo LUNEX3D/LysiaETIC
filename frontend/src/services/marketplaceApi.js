@@ -3,8 +3,8 @@ import axios from "axios";
 const BASE_URL = (process.env.REACT_APP_API_URL || "http://13.51.158.124:5000") + "/api"; // Backend API'nizin temel URL'si
 
 // Kullanıcının entegre ettiği pazar yerlerini çekme
-export const getUserMarketplaces = async (userId) => {
-    const token = localStorage.getItem("token");
+export const getUserMarketplaces = async () => {
+    const token = localStorage.getItem("token") || sessionStorage.getItem("token");
 
     if (!token) {
         console.error("❌ Token eksik!");
@@ -12,7 +12,7 @@ export const getUserMarketplaces = async (userId) => {
     }
 
     try {
-        const response = await axios.get(`${BASE_URL}/marketplace/user-marketplaces/${userId}`, {
+        const response = await axios.get(`${BASE_URL}/marketplace/user-marketplaces`, {
             headers: {
                 "Content-Type": "application/json",
                 "Authorization": `Bearer ${token}`,
@@ -31,8 +31,8 @@ export const getUserMarketplaces = async (userId) => {
 };
 
 // Genel bakış verilerini çekme
-export const fetchDashboardData = async (userId) => {
-    const token = localStorage.getItem("token");
+export const fetchDashboardData = async () => {
+    const token = localStorage.getItem("token") || sessionStorage.getItem("token");
 
     if (!token) {
         console.error("❌ Token eksik!");
@@ -40,7 +40,7 @@ export const fetchDashboardData = async (userId) => {
     }
 
     try {
-        const response = await axios.get(`${BASE_URL}/dashboard/${userId}`, {
+        const response = await axios.get(`${BASE_URL}/dashboard`, {
             headers: {
                 "Content-Type": "application/json",
                 "Authorization": `Bearer ${token}`,
@@ -59,8 +59,8 @@ export const fetchDashboardData = async (userId) => {
 };
 
 // Diğer API çağrıları için örnek fonksiyonlar
-export const fetchOrders = async (userId, marketplaceId) => {
-    const token = localStorage.getItem("token");
+export const fetchOrders = async (marketplaceId) => {
+    const token = localStorage.getItem("token") || sessionStorage.getItem("token");
 
     if (!token) {
         console.error("❌ Token eksik!");
@@ -68,7 +68,7 @@ export const fetchOrders = async (userId, marketplaceId) => {
     }
 
     try {
-        const response = await axios.get(`${BASE_URL}/orders/${userId}/${marketplaceId}`, {
+        const response = await axios.get(`${BASE_URL}/orders/all${marketplaceId ? `?marketplace=${marketplaceId}` : ''}`, {
             headers: {
                 "Content-Type": "application/json",
                 "Authorization": `Bearer ${token}`,
@@ -86,8 +86,8 @@ export const fetchOrders = async (userId, marketplaceId) => {
     }
 };
 
-export const fetchInventory = async (userId, marketplaceId) => {
-    const token = localStorage.getItem("token");
+export const fetchInventory = async (marketplaceId) => {
+    const token = localStorage.getItem("token") || sessionStorage.getItem("token");
 
     if (!token) {
         console.error("❌ Token eksik!");
@@ -95,7 +95,7 @@ export const fetchInventory = async (userId, marketplaceId) => {
     }
 
     try {
-        const response = await axios.get(`${BASE_URL}/inventory/${userId}/${marketplaceId}`, {
+        const response = await axios.get(`${BASE_URL}/inventory/all${marketplaceId ? `?marketplace=${marketplaceId}` : ''}`, {
             headers: {
                 "Content-Type": "application/json",
                 "Authorization": `Bearer ${token}`,

@@ -1,4 +1,5 @@
 const axios = require("axios");
+const logger = require("../config/logger");
 
 const MAX_RETRY = 3;
 const PAGE_SIZE = 200;
@@ -49,7 +50,7 @@ const fetchTrendyolOrders = async (sellerId, apiKey, apiSecret, startDate, endDa
                     `&startDate=${currentStart}` +
                     `&endDate=${currentEnd}`;
 
-                console.log(`🌐 [${sellerId}] API İsteği (sayfa ${page}): ${apiUrl}`);
+                logger.debug(`🌐 [${sellerId}] API İsteği (sayfa ${page}): ${apiUrl}`);
 
                 try {
                     // API İsteği
@@ -86,7 +87,7 @@ const fetchTrendyolOrders = async (sellerId, apiKey, apiSecret, startDate, endDa
 
                     page++;
                 } catch (error) {
-                    console.error(`🚫 [${sellerId}] API Hatası (sayfa ${page}):`, error.response?.data || error.message);
+                    logger.error(`🚫 [${sellerId}] API Hatası (sayfa ${page}):`, { error: error.response?.data || error.message });
                     retryCount++;
                     if (retryCount >= MAX_RETRY) break;
                 }
@@ -96,11 +97,11 @@ const fetchTrendyolOrders = async (sellerId, apiKey, apiSecret, startDate, endDa
             currentStart = currentEnd + 1;
         }
 
-        console.log(`✅ [${sellerId}] Toplam ${ordersFetched.length} sipariş paketi çekildi.`);
+        logger.info(`✅ [${sellerId}] Toplam ${ordersFetched.length} sipariş paketi çekildi.`);
         return ordersFetched;
 
     } catch (error) {
-        console.error(`🚫 [${sellerId}] Kritik Hata:`, error);
+        logger.error(`🚫 [${sellerId}] Kritik Hata:`, { error: error.message });
         return [];
     }
 };

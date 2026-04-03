@@ -9,6 +9,10 @@ const mongoose = require("mongoose");
  *   Telefon → Trendyol: "Cep Telefonu" (ID: 293)
  *   Telefon → N11: "Akıllı Telefon" (ID: 1002345)
  *   Ayakkabı → Trendyol: "Spor Ayakkabı" (ID: 442)
+ *
+ * Ürün dağıtımında bu merkez baz alınır:
+ *   Kullanıcı "X ürünü Y platformuna gönder" dediğinde
+ *   ürünün dahili kategorisi → bu tablodan hedef platform kategorisi bulunur
  */
 const InternalCategoryMappingSchema = new mongoose.Schema({
     // Dahili kategori referansı
@@ -44,6 +48,28 @@ const InternalCategoryMappingSchema = new mongoose.Schema({
     marketplaceCategoryPath: {
         type: String,
         default: ""
+    },
+
+    // Güven skoru (0.0 - 1.0) — otomatik eşleştirmede üretilir
+    confidenceScore: {
+        type: Number,
+        default: 1.0,
+        min: 0,
+        max: 1
+    },
+
+    // Kullanıcı manuel override yaptı mı?
+    // true ise otomatik eşleştirme bu kaydı DEĞİŞTİRMEZ
+    isManualOverride: {
+        type: Boolean,
+        default: false
+    },
+
+    // Eşleştirme kaynağı
+    matchSource: {
+        type: String,
+        enum: ["manual", "manual_unmapped_resolve", "auto_fuzzy", "auto_ai", "auto_keyword", "auto_cross_platform", "auto_batch_resolve", "bulk_auto"],
+        default: "manual"
     },
 
     // Aktif mi?

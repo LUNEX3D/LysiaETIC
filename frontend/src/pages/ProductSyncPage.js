@@ -227,7 +227,7 @@ const ProductSyncPage = ({ userId, marketplaces: propMarketplaces }) => {
         if (!propMarketplaces || propMarketplaces.length === 0) {
             const uid = userId || localStorage.getItem("userId");
             if (uid) {
-                getUserMarketplaces(uid).then(data => {
+                getUserMarketplaces().then(data => {
                     const list = Array.isArray(data) ? data : (data.marketplaces || data.data || []);
                     setMarketplaces(list.map(m => ({ ...m, name: m.marketplaceName || m.name || "" })));
                 }).catch(err => console.error("Pazaryerleri yüklenemedi:", err));

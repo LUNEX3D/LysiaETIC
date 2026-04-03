@@ -13,11 +13,13 @@ exports.getBrands = async (req, res) => {
 };
 
 // ✅ Yeni Marka Ekle
+// ✅ FIX H8: userId artık req.user._id'den alınıyor
 exports.addBrand = async (req, res) => {
     try {
-        const { name, userId } = req.body;
-        if (!name || !userId) {
-            return res.status(400).json({ error: "Marka adı ve kullanıcı ID gereklidir." });
+        const { name } = req.body;
+        const userId = req.user._id;
+        if (!name) {
+            return res.status(400).json({ error: "Marka adı gereklidir." });
         }
 
         const newBrand = new Brand({ name, userId });

@@ -720,6 +720,40 @@ function buildProfitHeatmap(analyzedProducts) {
 // 7. SIMULATION ENGINE
 // ═════════════════════════════════════════════════════════════════════════════
 
+// ── Price Elasticity by Category (Bug #8 fix — was hardcoded at -1.2) ──
+const CATEGORY_ELASTICITY = {
+    "Elektronik":     -0.8,   // Low elasticity — people need electronics
+    "Telefon":        -0.7,
+    "Bilgisayar":     -0.8,
+    "Giyim":          -1.5,   // High elasticity — fashion is price-sensitive
+    "Ayakkabı":       -1.4,
+    "Kozmetik":       -1.3,
+    "Kişisel Bakım":  -1.2,
+    "Ev & Yaşam":     -1.1,
+    "Mutfak":         -1.0,
+    "Spor":           -1.2,
+    "Oyuncak":        -1.3,
+    "Kitap":          -0.6,   // Very low elasticity
+    "Gıda":           -0.9,
+    "Bebek":          -0.7,   // Parents buy regardless
+    "Otomotiv":       -0.8,
+    "Bahçe":          -1.1,
+    "Pet":            -0.9,
+    "Takı":           -1.6,   // Luxury = high elasticity
+    "Saat":           -1.4,
+    "default":        -1.1,   // Balanced default
+};
+
+function getElasticity(category) {
+    if (!category) return CATEGORY_ELASTICITY.default;
+    const cat = category.toLowerCase();
+    for (const [key, val] of Object.entries(CATEGORY_ELASTICITY)) {
+        if (key === "default") continue;
+        if (cat.includes(key.toLowerCase())) return val;
+    }
+    return CATEGORY_ELASTICITY.default;
+}
+
 function simulate(analyzedProducts, params) {
     const { barcode, priceChangePct, stockChange, campaignDiscountPct } = params;
 
@@ -732,7 +766,8 @@ function simulate(analyzedProducts, params) {
         const newPrice = p.price * priceMult;
         const discountedPrice = campaignDiscountPct ? newPrice * (1 - campaignDiscountPct / 100) : newPrice;
 
-        const elasticity = -1.2;
+        // Category-based elasticity instead of hardcoded -1.2
+        const elasticity = getElasticity(p.category);
         const salesMult = 1 + (elasticity * (priceChangePct || 0) / 100);
         const campaignBoost = campaignDiscountPct ? 1 + (campaignDiscountPct / 100) * 0.8 : 1;
         const newDailySales = Math.max(0, p.avgDailySales * salesMult * campaignBoost);
@@ -1118,12 +1153,33 @@ async function executeRecommendation(recId, userId) {
                 break;
             }
             case "create_stock_order": {
-                result = { success: true, message: `${rec.actionPayload.targetName} için ${params.restockQuantity} adet stok siparişi kaydedildi`, data: params };
+                // Log the stock order request — actual ordering requires manual action
+                logger.info(`🤖 [AI ACTION] Stok siparişi talebi: ${rec.actionPayload.targetName} — ${params.restockQuantity} adet`);
+                result = {
+                    success: true,
+                    message: `${rec.actionPayload.targetName} için ${params.restockQuantity} adet stok siparişi notu oluşturuldu. ⚠️ Tedarikçiye manuel sipariş vermeniz gerekiyor.`,
+                    data: { ...params, requiresManualAction: true },
+                };
                 break;
             }
-            case "review_strategy":
+            case "review_strategy": {
+                // Mark as reviewed — no automated action possible
+                logger.info(`🤖 [AI ACTION] Strateji inceleme notu: ${rec.actionPayload.targetName}`);
+                result = {
+                    success: true,
+                    message: `${rec.actionPayload.targetName} strateji inceleme notu kaydedildi. Büyüme: %${params.growthPct?.toFixed(1) || "N/A"}. ⚠️ Manuel strateji değerlendirmesi önerilir.`,
+                    data: { ...params, requiresManualAction: true },
+                };
+                break;
+            }
             case "investigate": {
-                result = { success: true, message: `${rec.actionPayload.targetName} inceleme notu kaydedildi` };
+                // Mark as investigated — no automated action possible
+                logger.info(`🤖 [AI ACTION] İnceleme notu: ${rec.actionPayload.targetName} — düşüş %${params.dropPct?.toFixed(1) || "N/A"}`);
+                result = {
+                    success: true,
+                    message: `${rec.actionPayload.targetName} inceleme notu kaydedildi. Satış düşüşü: %${params.dropPct?.toFixed(1) || "N/A"}. ⚠️ Fiyat, stok ve rekabet durumunu manuel kontrol edin.`,
+                    data: { ...params, requiresManualAction: true },
+                };
                 break;
             }
             default:

@@ -1,180 +1,203 @@
-    const Marketplace = require("../models/Marketplace");
-    const logger = require("../config/logger");
+/**
+ * Marketplace Controller — LysiaETIC
+ * ✅ FIX H11: Indentation düzeltildi (fazla 4 boşluk kaldırıldı)
+ * ✅ FIX H5: Credential şifreleme aktifleştirildi
+ */
+const Marketplace = require("../models/Marketplace");
+const logger = require("../config/logger");
+const { encryptCredentials, decryptCredentials } = require("../utils/encryption");
 
-    // ✅ Kullanıcının tüm pazaryeri entegrasyonlarını getir
-    // ✅ FIX #2: IDOR — req.user._id kullanılıyor
-    exports.getUserMarketplaces = async (req, res) => {
-        try {
-            const marketplaces = await Marketplace.find({ userId: req.user._id });
+// ✅ Kullanıcının tüm pazaryeri entegrasyonlarını getir
+// ✅ FIX #2: IDOR — req.user._id kullanılıyor
+// ✅ FIX H5: Credential'lar decrypt edilerek döndürülüyor
+exports.getUserMarketplaces = async (req, res) => {
+    try {
+        const marketplaces = await Marketplace.find({ userId: req.user._id });
 
-            // Entegrasyon yoksa boş array döndür (404 yerine)
-            if (!marketplaces || marketplaces.length === 0) {
-                return res.status(200).json([]);
-            }
-
-            res.status(200).json(marketplaces);
-        } catch (error) {
-            logger.error("Pazaryeri bilgileri alınırken hata", { error: error.message });
-            res.status(500).json({ message: "❌ Sunucu hatası!" });
+        // Entegrasyon yoksa boş array döndür (404 yerine)
+        if (!marketplaces || marketplaces.length === 0) {
+            return res.status(200).json([]);
         }
-    };
 
-    // ✅ Yeni pazaryeri ekleme veya güncelleme (POST)
-    // ✅ FIX #2: IDOR — body'deki userId yerine req.user._id
-    exports.addMarketplace = async (req, res) => {
-        try {
-            const userId = req.user._id;
-            const { marketplaceName, credentials } = req.body;
-
-            // **Zorunlu alan kontrolü**
-            if (!marketplaceName || !credentials || Object.keys(credentials).length === 0) {
-                return res.status(400).json({ message: "❌ Lütfen tüm alanları doldurun! API bilgileri eksik olabilir." });
+        // Credential'ları decrypt et
+        const decryptedMarketplaces = marketplaces.map(mp => {
+            const mpObj = mp.toObject();
+            if (mpObj.credentials) {
+                mpObj.credentials = decryptCredentials(mpObj.credentials);
             }
+            return mpObj;
+        });
 
-            // Aynı kullanıcı ve pazaryeri için mevcut entegrasyon var mı kontrol et
-            const existingMarketplace = await Marketplace.findOne({ userId, marketplaceName });
+        res.status(200).json(decryptedMarketplaces);
+    } catch (error) {
+        logger.error("Pazaryeri bilgileri alınırken hata", { error: error.message });
+        res.status(500).json({ message: "❌ Sunucu hatası!" });
+    }
+};
 
-            if (existingMarketplace) {
-                // Mevcut entegrasyonu güncelle
-                existingMarketplace.credentials = credentials;
-                existingMarketplace.updatedAt = Date.now();
-                await existingMarketplace.save();
+// ✅ Yeni pazaryeri ekleme veya güncelleme (POST)
+// ✅ FIX #2: IDOR — body'deki userId yerine req.user._id
+// ✅ FIX H5: Credential'lar encrypt edilerek kaydediliyor
+exports.addMarketplace = async (req, res) => {
+    try {
+        const userId = req.user._id;
+        const { marketplaceName, credentials } = req.body;
 
-                logger.info(`Mevcut entegrasyon güncellendi: ${marketplaceName} — kullanıcı: ${userId}`);
-                return res.status(200).json({
-                    message: "✅ Entegrasyon güncellendi!",
-                    marketplace: existingMarketplace,
-                    isUpdate: true
-                });
-            }
+        // **Zorunlu alan kontrolü**
+        if (!marketplaceName || !credentials || Object.keys(credentials).length === 0) {
+            return res.status(400).json({ message: "❌ Lütfen tüm alanları doldurun! API bilgileri eksik olabilir." });
+        }
 
-            // Yeni entegrasyon oluştur
-            const newMarketplace = new Marketplace({
-                userId,
-                marketplaceName,
-                credentials
+        // Credential'ları şifrele
+        const encryptedCreds = encryptCredentials(credentials);
+
+        // Aynı kullanıcı ve pazaryeri için mevcut entegrasyon var mı kontrol et
+        const existingMarketplace = await Marketplace.findOne({ userId, marketplaceName });
+
+        if (existingMarketplace) {
+            // Mevcut entegrasyonu güncelle
+            existingMarketplace.credentials = encryptedCreds;
+            existingMarketplace.updatedAt = Date.now();
+            await existingMarketplace.save();
+
+            logger.info(`Mevcut entegrasyon güncellendi: ${marketplaceName} — kullanıcı: ${userId}`);
+            return res.status(200).json({
+                message: "✅ Entegrasyon güncellendi!",
+                marketplace: existingMarketplace,
+                isUpdate: true
             });
-
-            await newMarketplace.save();
-
-            logger.info(`Yeni entegrasyon eklendi: ${marketplaceName} — kullanıcı: ${userId}`);
-            res.status(201).json({
-                message: "✅ Entegrasyon başarılı!",
-                marketplace: newMarketplace,
-                isUpdate: false
-            });
-        } catch (error) {
-            logger.error("Pazaryeri eklenirken hata", { error: error.message });
-            res.status(500).json({ message: "❌ Sunucu hatası!" });
         }
-    };
 
+        // Yeni entegrasyon oluştur
+        const newMarketplace = new Marketplace({
+            userId,
+            marketplaceName,
+            credentials: encryptedCreds
+        });
 
-    // ✅ Pazaryeri Güncelleme (PUT)
-    exports.updateMarketplace = async (req, res) => {
-        try {
-            const { credentials } = req.body;
+        await newMarketplace.save();
 
-            // Gerekli alanların kontrolü
-            if (!credentials || Object.keys(credentials).length === 0) {
-                return res.status(400).json({ message: "❌ Lütfen API bilgilerini doldurun!" });
-            }
+        logger.info(`Yeni entegrasyon eklendi: ${marketplaceName} — kullanıcı: ${userId}`);
+        res.status(201).json({
+            message: "✅ Entegrasyon başarılı!",
+            marketplace: newMarketplace,
+            isUpdate: false
+        });
+    } catch (error) {
+        logger.error("Pazaryeri eklenirken hata", { error: error.message });
+        res.status(500).json({ message: "❌ Sunucu hatası!" });
+    }
+};
 
-            // ✅ FIX #4: IDOR kapatıldı — sadece kendi kaydını güncelleyebilir
-            const updatedMarketplace = await Marketplace.findOneAndUpdate(
-                { _id: req.params.id, userId: req.user._id },
-                { credentials, updatedAt: Date.now() },
-                { new: true }
-            );
+// ✅ Pazaryeri Güncelleme (PUT)
+// ✅ FIX H5: Credential'lar encrypt edilerek güncelleniyor
+exports.updateMarketplace = async (req, res) => {
+    try {
+        const { credentials } = req.body;
 
-            if (!updatedMarketplace) {
-                return res.status(404).json({ message: "❌ Pazaryeri bulunamadı veya yetkiniz yok!" });
-            }
-
-            logger.info(`Pazaryeri güncellendi: ${updatedMarketplace.marketplaceName} — kullanıcı: ${req.user._id}`);
-            res.status(200).json({ message: "✅ Güncelleme başarılı!", marketplace: updatedMarketplace });
-        } catch (error) {
-            logger.error("Pazaryeri güncelleme hatası", { error: error.message });
-            res.status(500).json({ message: "❌ Sunucu hatası!" });
+        // Gerekli alanların kontrolü
+        if (!credentials || Object.keys(credentials).length === 0) {
+            return res.status(400).json({ message: "❌ Lütfen API bilgilerini doldurun!" });
         }
-    };
 
-    // ✅ Pazaryeri Silme (DELETE)
-    exports.deleteMarketplace = async (req, res) => {
-        try {
-            // ✅ FIX #4: IDOR kapatıldı — sadece kendi kaydını silebilir
-            const deletedMarketplace = await Marketplace.findOneAndDelete({
-                _id    : req.params.id,
-                userId : req.user._id
-            });
+        // Credential'ları şifrele
+        const encryptedCreds = encryptCredentials(credentials);
 
-            if (!deletedMarketplace) {
-                return res.status(404).json({ message: "❌ Pazaryeri bulunamadı veya yetkiniz yok!" });
-            }
+        // ✅ FIX #4: IDOR kapatıldı — sadece kendi kaydını güncelleyebilir
+        const updatedMarketplace = await Marketplace.findOneAndUpdate(
+            { _id: req.params.id, userId: req.user._id },
+            { credentials: encryptedCreds, updatedAt: Date.now() },
+            { new: true }
+        );
 
-            logger.info(`Pazaryeri silindi: ${deletedMarketplace.marketplaceName} — kullanıcı: ${req.user._id}`);
-            res.status(200).json({ message: "✅ Entegrasyon başarıyla silindi!" });
-        } catch (error) {
-            logger.error("Pazaryeri silme hatası", { error: error.message });
-            res.status(500).json({ message: "❌ Sunucu hatası!" });
+        if (!updatedMarketplace) {
+            return res.status(404).json({ message: "❌ Pazaryeri bulunamadı veya yetkiniz yok!" });
         }
-    };
 
-    // 🧪 Hepsiburada Credential Test (POST)
-    exports.testHepsiburadaCredentials = async (req, res) => {
-        try {
-            const { merchantId, serviceKey } = req.body;
+        logger.info(`Pazaryeri güncellendi: ${updatedMarketplace.marketplaceName} — kullanıcı: ${req.user._id}`);
+        res.status(200).json({ message: "✅ Güncelleme başarılı!", marketplace: updatedMarketplace });
+    } catch (error) {
+        logger.error("Pazaryeri güncelleme hatası", { error: error.message });
+        res.status(500).json({ message: "❌ Sunucu hatası!" });
+    }
+};
 
-            if (!merchantId || !serviceKey) {
-                return res.status(400).json({
-                    success: false,
-                    message: "❌ MerchantId ve ServiceKey gerekli!"
-                });
-            }
+// ✅ Pazaryeri Silme (DELETE)
+exports.deleteMarketplace = async (req, res) => {
+    try {
+        // ✅ FIX #4: IDOR kapatıldı — sadece kendi kaydını silebilir
+        const deletedMarketplace = await Marketplace.findOneAndDelete({
+            _id    : req.params.id,
+            userId : req.user._id
+        });
 
-            const axios = require("axios");
-            const credentials = `${merchantId}:${serviceKey}`;
-            const authHeader = `Basic ${Buffer.from(credentials).toString("base64")}`;
+        if (!deletedMarketplace) {
+            return res.status(404).json({ message: "❌ Pazaryeri bulunamadı veya yetkiniz yok!" });
+        }
 
-            // Test endpoint: Basit bir API çağrısı yap
-            const testUrl = `https://listing-external.hepsiburada.com/listings/merchantid/${merchantId}?offset=0&limit=1`;
+        logger.info(`Pazaryeri silindi: ${deletedMarketplace.marketplaceName} — kullanıcı: ${req.user._id}`);
+        res.status(200).json({ message: "✅ Entegrasyon başarıyla silindi!" });
+    } catch (error) {
+        logger.error("Pazaryeri silme hatası", { error: error.message });
+        res.status(500).json({ message: "❌ Sunucu hatası!" });
+    }
+};
 
-            try {
-                const response = await axios.get(testUrl, {
-                    headers: {
-                        "Authorization": authHeader,
-                        "User-Agent": "LysiaETIC",
-                        "Content-Type": "application/json"
-                    },
-                    timeout: 10000
-                });
+// 🧪 Hepsiburada Credential Test (POST)
+exports.testHepsiburadaCredentials = async (req, res) => {
+    try {
+        const { merchantId, serviceKey } = req.body;
 
-                return res.status(200).json({
-                    success: true,
-                    message: "✅ Credential'lar geçerli!",
-                    status: response.status,
-                    endpoint: "listing-external.hepsiburada.com"
-                });
-
-            } catch (error) {
-                logger.warn("Hepsiburada credential test failed", { status: error.response?.status });
-
-                return res.status(200).json({
-                    success: false,
-                    message: "❌ Credential'lar geçersiz!",
-                    error: {
-                        status: error.response?.status,
-                        statusText: error.response?.statusText,
-                        message: error.response?.data || error.message
-                    }
-                });
-            }
-
-        } catch (error) {
-            logger.error(`Hepsiburada test hatası: ${error.message}`);
-            res.status(500).json({
+        if (!merchantId || !serviceKey) {
+            return res.status(400).json({
                 success: false,
-                message: "❌ Sunucu hatası!"
+                message: "❌ MerchantId ve ServiceKey gerekli!"
             });
         }
-    };
+
+        const axios = require("axios");
+        const credentials = `${merchantId}:${serviceKey}`;
+        const authHeader = `Basic ${Buffer.from(credentials).toString("base64")}`;
+
+        // Test endpoint: Basit bir API çağrısı yap
+        const testUrl = `https://listing-external.hepsiburada.com/listings/merchantid/${merchantId}?offset=0&limit=1`;
+
+        try {
+            const response = await axios.get(testUrl, {
+                headers: {
+                    "Authorization": authHeader,
+                    "User-Agent": "LysiaETIC",
+                    "Content-Type": "application/json"
+                },
+                timeout: 10000
+            });
+
+            return res.status(200).json({
+                success: true,
+                message: "✅ Credential'lar geçerli!",
+                status: response.status,
+                endpoint: "listing-external.hepsiburada.com"
+            });
+
+        } catch (error) {
+            logger.warn("Hepsiburada credential test failed", { status: error.response?.status });
+
+            return res.status(200).json({
+                success: false,
+                message: "❌ Credential'lar geçersiz!",
+                error: {
+                    status: error.response?.status,
+                    statusText: error.response?.statusText,
+                    message: error.response?.data || error.message
+                }
+            });
+        }
+
+    } catch (error) {
+        logger.error(`Hepsiburada test hatası: ${error.message}`);
+        res.status(500).json({
+            success: false,
+            message: "❌ Sunucu hatası!"
+        });
+    }
+};

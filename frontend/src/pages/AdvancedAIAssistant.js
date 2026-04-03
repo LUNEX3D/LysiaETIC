@@ -633,7 +633,7 @@ const AdvancedAIAssistant = ({ userId }) => {
         const allProducts = [];
         for (const mp of mps) {
             try {
-                const res = await API.get(`/products/all/${userId}?marketplaceId=${mp._id}`);
+                const res = await API.get(`/products/all?marketplaceId=${mp._id}`);
                 if (res.data?.products) {
                     allProducts.push(...res.data.products.map(p => ({ ...p, marketplace: mp.marketplaceName || mp.name })));
                 }
@@ -667,8 +667,8 @@ const AdvancedAIAssistant = ({ userId }) => {
         setAnalyzing(true);
         try {
             const [mpData, dashData, topProds, catData] = await Promise.all([
-                getUserMarketplaces(userId).catch(() => []),
-                fetchDashboardData(userId).catch(() => null),
+                getUserMarketplaces().catch(() => []),
+                fetchDashboardData().catch(() => null),
                 fetchTopProducts().catch(() => []),
                 fetchCategoryDistribution().catch(() => [])
             ]);
@@ -822,7 +822,7 @@ const AdvancedAIAssistant = ({ userId }) => {
     const refreshData = async () => {
         try {
             const [dashData, topProds, catData] = await Promise.all([
-                fetchDashboardData(userId).catch(() => null),
+                fetchDashboardData().catch(() => null),
                 fetchTopProducts().catch(() => []),
                 fetchCategoryDistribution().catch(() => [])
             ]);

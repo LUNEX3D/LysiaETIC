@@ -7,6 +7,7 @@
 const axios = require("axios");
 const Marketplace = require("../models/Marketplace");
 const logger = require("../config/logger");
+const { decryptCredentials } = require("../utils/encryption");
 
 /**
  * Normalize product data — ensures every marketplace returns the same shape
@@ -46,11 +47,13 @@ exports.getAllProducts = async (req, res) => {
         }
 
         const marketplaceName = integration.marketplaceName;
+        // ✅ FIX H5: Credential'ları decrypt et
+        const credentials = decryptCredentials(integration.credentials);
         let products = [];
 
         // ✅ Hepsiburada
         if (marketplaceName === "Hepsiburada") {
-            const { merchantId, apiKey } = integration.credentials;
+            const { merchantId, apiKey } = credentials;
             try {
                 const apiUrl = `https://mpop-sit.hepsiburada.com/product/api/products/all-products-of-merchant/${merchantId}`;
                 const response = await axios.get(apiUrl, {
@@ -100,7 +103,7 @@ exports.getAllProducts = async (req, res) => {
 
         // ✅ Trendyol
         else if (marketplaceName === "Trendyol") {
-            const { apiKey, apiSecret, sellerId } = integration.credentials;
+            const { apiKey, apiSecret, sellerId } = credentials;
             let page = 0, totalPages = 1;
             const authHeader = Buffer.from(`${apiKey}:${apiSecret}`).toString("base64");
 
@@ -145,7 +148,7 @@ exports.getAllProducts = async (req, res) => {
 
         // ✅ N11
         else if (marketplaceName === "n11") {
-            const { apiKey, secretKey } = integration.credentials;
+            const { apiKey, secretKey } = credentials;
             let page = 0, totalPages = 1;
 
             while (page < totalPages) {
@@ -194,7 +197,7 @@ exports.getAllProducts = async (req, res) => {
 
         // ✅ ÇiçekSepeti
         else if (marketplaceName === "ÇiçekSepeti") {
-            const { apiSecret, supplierId } = integration.credentials;
+            const { apiSecret, supplierId } = credentials;
             const pageSize = 60;
             let page = 1;
             let totalPages = 1;

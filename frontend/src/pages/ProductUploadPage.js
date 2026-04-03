@@ -49,7 +49,7 @@ const ProductUploadPage = () => {
     useEffect(() => {
         const loadMarketplaces = async () => {
             try {
-                const res = await API.get("/marketplace/user-marketplaces/" + localStorage.getItem("userId"));
+                const res = await API.get("/marketplace/user-marketplaces");
                 setMarketplaces(res.data || []);
             } catch {
                 setMarketplaces([]);

@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const User = require("../models/User");
+const Marketplace = require("../models/Marketplace");
 const { authMiddleware, adminMiddleware } = require("../middlewares/authMiddleware");
 
 // Controllers
@@ -26,6 +27,16 @@ router.get("/system/servers", authMiddleware, adminMiddleware, adminSystemContro
 router.get("/system/logs", authMiddleware, adminMiddleware, adminSystemController.getSystemLogs);
 router.get("/system/settings", authMiddleware, adminMiddleware, adminSystemController.getSystemSettings);
 router.post("/system/impersonate/:userId", authMiddleware, adminMiddleware, adminSystemController.impersonateUser);
+
+// ─── Pazaryeri (Admin — başka kullanıcının entegrasyonlarını görüntüleme) ───
+router.get("/marketplace/user-marketplaces/:userId", authMiddleware, adminMiddleware, async (req, res) => {
+    try {
+        const marketplaces = await Marketplace.find({ userId: req.params.userId });
+        res.status(200).json(marketplaces || []);
+    } catch (error) {
+        res.status(500).json({ message: "Sunucu hatası", error: error.message });
+    }
+});
 
 // ─── Rol Düzeltme (Legacy) ──────────────────────────────────────────────────
 router.get("/fix-user-roles", authMiddleware, async (req, res) => {

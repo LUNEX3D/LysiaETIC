@@ -1,3 +1,14 @@
+/**
+ * ⚠️ DEPRECATED — FIX H13
+ *
+ * Bu model User.subscription embedded field ile ÇAKIŞIYOR.
+ * Tek doğru kaynak (Single Source of Truth) User.subscription olmalıdır.
+ * Bu dosya geriye uyumluluk için korunuyor ancak yeni kodda KULLANILMAMALIDIR.
+ *
+ * Taşıma planı:
+ *   1. saasAdminController.js ve paytrController.js → User.subscription kullanacak şekilde güncellenmeli
+ *   2. Bu model tamamen kaldırılmalı
+ */
 const mongoose = require("mongoose");
 
 const SubscriptionSchema = new mongoose.Schema({

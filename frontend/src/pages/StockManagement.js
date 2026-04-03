@@ -61,7 +61,7 @@ const StockManagement = ({ userId, marketplaceId, marketplace }) => {
         setIsLoading(true);
         setError(null);
         try {
-            const response = await axios.get(`/products/all/${userId}?marketplaceId=${marketplaceId}`);
+            const response = await axios.get(`/products/all?marketplaceId=${marketplaceId}`);
             const data = response.data?.products || response.data || [];
             setProducts(Array.isArray(data) ? data : []);
         } catch (err) {

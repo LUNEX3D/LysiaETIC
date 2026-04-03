@@ -1,162 +1,207 @@
 /**
- * CATEGORY MAPPING SERVİSİ
+ * CATEGORY MAPPING SERVİSİ — v2
  *
  * Sorumluluklar:
- *   1. suggestN11Category()      — Ürün başlığı/kategorisine göre N11 kategori önerisi üret
- *   2. saveUnmappedCategory()    — Eşleştirilemeyen kategoriyi DB'ye kaydet (duplicate yok)
- *   3. getUnmappedCategories()   — Kullanıcının çözülmemiş kategorilerini listele
- *   4. resolveUnmappedCategory() — Kullanıcı mapping yaptıktan sonra çözüldü olarak işaretle
- *   5. skipProduct()             — Ürünü atla ve structured log yaz
+ *   1. suggestCategory()           — DB'den dinamik kategori önerisi üret (hardcoded kural YOK)
+ *   2. saveUnmappedCategory()      — Eşleştirilemeyen kategoriyi DB'ye kaydet (duplicate yok)
+ *   3. getUnmappedCategories()     — Kullanıcının çözülmemiş kategorilerini listele
+ *   4. resolveUnmappedCategory()   — Kullanıcı mapping yaptıktan sonra çözüldü olarak işaretle
+ *   5. skipProduct()               — Ürünü atla ve structured log yaz
+ *   6. mapCategoryWithFallback()   — Tam mapping pipeline (eski + yeni sistem)
+ *   7. resolveForMarketplace()     — Platform-agnostik InternalCategoryMapping çözümleme
+ *   8. getInternalCategoriesCached() — In-memory cache ile InternalCategory listesi
+ *   9. invalidateCategoryCache()   — Cache temizle (CRUD sonrası)
+ *
+ * v2 Değişiklikler:
+ *   - Hardcoded RULES tablosu kaldırıldı → InternalCategory.keywords'den dinamik öneri
+ *   - InternalCategory in-memory cache (5dk TTL) → her sorgu DB'ye gitmez
+ *   - resolveForMarketplace() → tüm platformlar için ortak fallback
+ *   - normalize() → shared utils/textNormalize.js'den
  */
 
-const UnmappedCategory = require("../models/UnmappedCategory");
-const CategoryMapping  = require("../models/CategoryMapping");
-const logger           = require("../config/logger");
+const UnmappedCategory   = require("../models/UnmappedCategory");
+const CategoryMapping    = require("../models/CategoryMapping");
+const InternalCategory   = require("../models/InternalCategory");
+const UnifiedCategoryMap = require("../models/UnifiedCategoryMap");
+const logger             = require("../config/logger");
+const { normalize }      = require("../utils/textNormalize");
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 1. ÖNERI SİSTEMİ
-//    Ürün başlığı ve kategori adına göre N11 kategori önerisi üretir
+// IN-MEMORY CACHE — InternalCategory (5 dakika TTL)
+// Ürün dağıtımında 100 ürün gönderildiğinde her seferinde DB sorgusu yapılmaz
+// ─────────────────────────────────────────────────────────────────────────────
+let _internalCatCache = null;
+let _cacheTime = 0;
+const CACHE_TTL = 5 * 60 * 1000; // 5 dakika
+
+/**
+ * InternalCategory listesini cache'den veya DB'den getir.
+ * @returns {Promise<Array>}
+ */
+const getInternalCategoriesCached = async () => {
+    if (_internalCatCache && (Date.now() - _cacheTime) < CACHE_TTL) {
+        return _internalCatCache;
+    }
+    _internalCatCache = await InternalCategory.find({ isActive: true }).lean();
+    _cacheTime = Date.now();
+    logger.debug(`[CATEGORY CACHE] ${_internalCatCache.length} dahili kategori cache'lendi`);
+    return _internalCatCache;
+};
+
+/**
+ * Cache'i temizle — kategori CRUD işlemlerinden sonra çağrılır.
+ */
+const invalidateCategoryCache = () => {
+    _internalCatCache = null;
+    _cacheTime = 0;
+    logger.debug("[CATEGORY CACHE] Cache temizlendi");
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 1. DİNAMİK ÖNERİ SİSTEMİ
+//    InternalCategory.keywords'den otomatik öneri üretir (hardcoded kural YOK)
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Kural tabanlı N11 kategori öneri sistemi.
- *
- * Kural sırası (öncelik sırasıyla):
- *   1. Kategori adı tam eşleşmesi
- *   2. Kategori adı kısmi eşleşmesi
- *   3. Ürün başlığı keyword eşleşmesi
- *   4. Marka bazlı öneri
+ * Ürün bilgisine göre dahili kategori önerisi üret.
+ * InternalCategory.keywords veritabanından dinamik çalışır.
  *
  * @param {Object} product - { title, category, brand, attributes }
- * @returns {{ suggestions: Array<{ name, categoryId, score, matchReason }> }}
+ * @returns {Promise<{ suggestions: Array<{ name, categoryId, icon, score, matchReason }> }>}
  */
-const suggestN11Category = (product) => {
-    const title    = (product.title    || product.name || "").toLowerCase();
-    const category = (product.category || "").toLowerCase();
-    const brand    = (product.brand    || "").toLowerCase();
+const suggestCategory = async (product) => {
+    const title    = normalize(product.title    || product.name || "");
+    const category = normalize(product.category || "");
+    const brand    = normalize(product.brand    || "");
 
     const suggestions = [];
+    const internalCats = await getInternalCategoriesCached();
 
-    // ── Kural tablosu ────────────────────────────────────────────────────────
-    // Her kural: { keywords, name, categoryId, baseScore }
-    // keywords: başlık VEYA kategori adında bu kelimelerden biri geçiyorsa eşleşir
-    const RULES = [
-        // Takı & Aksesuar
-        { keywords: ["küpe", "küpesi", "earring"],          name: "Takı > Küpe",          categoryId: null, baseScore: 0.90 },
-        { keywords: ["kolye", "necklace", "kolyesi"],       name: "Takı > Kolye",         categoryId: null, baseScore: 0.90 },
-        { keywords: ["bileklik", "bilezik", "bracelet"],    name: "Takı > Bileklik",      categoryId: null, baseScore: 0.90 },
-        { keywords: ["yüzük", "ring", "yüzüğü"],           name: "Takı > Yüzük",         categoryId: null, baseScore: 0.90 },
-        { keywords: ["broş", "brooch", "iğne"],             name: "Takı > Broş",          categoryId: null, baseScore: 0.85 },
-        { keywords: ["set", "takım", "kombin"],             name: "Takı > Set",           categoryId: null, baseScore: 0.85 },
-        { keywords: ["aksesuar", "accessory"],              name: "Aksesuar",             categoryId: null, baseScore: 0.70 },
-        { keywords: ["takı", "jewelry", "jewellery"],       name: "Takı",                 categoryId: null, baseScore: 0.75 },
+    for (const ic of internalCats) {
+        const icName = normalize(ic.name || "");
+        const icKeywords = (ic.keywords || []).map(k => normalize(k));
+        if (icKeywords.length === 0 && !icName) continue;
 
-        // Giyim
-        { keywords: ["elbise", "dress"],                    name: "Kadın > Elbise",       categoryId: null, baseScore: 0.88 },
-        { keywords: ["bluz", "blouse", "gömlek", "shirt"],  name: "Kadın > Bluz & Gömlek",categoryId: null, baseScore: 0.85 },
-        { keywords: ["pantolon", "trouser", "pant"],        name: "Kadın > Pantolon",     categoryId: null, baseScore: 0.85 },
-        { keywords: ["etek", "skirt"],                      name: "Kadın > Etek",         categoryId: null, baseScore: 0.85 },
-        { keywords: ["ceket", "jacket", "blazer"],          name: "Kadın > Ceket",        categoryId: null, baseScore: 0.85 },
-        { keywords: ["kazak", "sweater", "sweatshirt"],     name: "Kadın > Kazak",        categoryId: null, baseScore: 0.85 },
-        { keywords: ["t-shirt", "tişört", "tshirt"],        name: "Kadın > T-Shirt",      categoryId: null, baseScore: 0.85 },
-
-        // Çanta
-        { keywords: ["çanta", "bag", "purse"],              name: "Çanta > El Çantası",   categoryId: null, baseScore: 0.88 },
-        { keywords: ["sırt çantası", "backpack"],           name: "Çanta > Sırt Çantası", categoryId: null, baseScore: 0.90 },
-        { keywords: ["cüzdan", "wallet", "portföy"],        name: "Çanta > Cüzdan",       categoryId: null, baseScore: 0.88 },
-
-        // Ayakkabı
-        { keywords: ["ayakkabı", "shoe", "sneaker"],        name: "Ayakkabı",             categoryId: null, baseScore: 0.88 },
-        { keywords: ["topuklu", "heel", "stiletto"],        name: "Ayakkabı > Topuklu",   categoryId: null, baseScore: 0.90 },
-        { keywords: ["bot", "boot", "çizme"],               name: "Ayakkabı > Bot",       categoryId: null, baseScore: 0.90 },
-
-        // Ev & Yaşam
-        { keywords: ["mum", "candle", "oda kokusu"],        name: "Ev > Dekorasyon",      categoryId: null, baseScore: 0.80 },
-        { keywords: ["tablo", "poster", "çerçeve"],         name: "Ev > Tablo & Poster",  categoryId: null, baseScore: 0.82 },
-        { keywords: ["yastık", "pillow", "kırlent"],        name: "Ev > Yastık",          categoryId: null, baseScore: 0.82 },
-    ];
-
-    for (const rule of RULES) {
-        let score      = 0;
+        let bestScore = 0;
         let matchReason = "";
 
-        // Kategori adı tam eşleşmesi (en yüksek skor)
-        const categoryExact = rule.keywords.some(kw => category === kw);
-        if (categoryExact) {
-            score       = Math.min(rule.baseScore + 0.08, 1.0);
+        // Kategori adı tam eşleşmesi (en yüksek)
+        if (category && (category === icName || icKeywords.includes(category))) {
+            bestScore = 0.95;
             matchReason = "category_exact";
         }
 
         // Kategori adı kısmi eşleşmesi
-        if (!score) {
-            const categoryPartial = rule.keywords.some(kw => category.includes(kw));
-            if (categoryPartial) {
-                score       = rule.baseScore;
-                matchReason = "category_keyword";
+        if (!bestScore && category) {
+            for (const kw of icKeywords) {
+                if (category.includes(kw) || kw.includes(category)) {
+                    bestScore = 0.85;
+                    matchReason = "category_keyword";
+                    break;
+                }
+            }
+            if (!bestScore && (category.includes(icName) || icName.includes(category))) {
+                bestScore = 0.82;
+                matchReason = "category_name_partial";
             }
         }
 
         // Başlık keyword eşleşmesi
-        if (!score) {
-            const titleMatch = rule.keywords.some(kw => title.includes(kw));
-            if (titleMatch) {
-                score       = Math.max(rule.baseScore - 0.05, 0.5);
-                matchReason = "title_keyword";
+        if (!bestScore && title) {
+            for (const kw of icKeywords) {
+                if (title.includes(kw)) {
+                    bestScore = 0.75;
+                    matchReason = "title_keyword";
+                    break;
+                }
+            }
+            if (!bestScore && title.includes(icName)) {
+                bestScore = 0.70;
+                matchReason = "title_name";
             }
         }
 
-        if (score > 0) {
-            // Aynı öneri zaten varsa daha yüksek skoru koru
-            const existing = suggestions.find(s => s.name === rule.name);
-            if (existing) {
-                if (score > existing.score) {
-                    existing.score       = score;
-                    existing.matchReason = matchReason;
+        // Marka eşleşmesi
+        if (!bestScore && brand) {
+            for (const kw of icKeywords) {
+                if (brand.includes(kw) || kw.includes(brand)) {
+                    bestScore = 0.55;
+                    matchReason = "brand_keyword";
+                    break;
                 }
-            } else {
-                suggestions.push({
-                    name:        rule.name,
-                    categoryId:  rule.categoryId,
-                    score:       parseFloat(score.toFixed(2)),
-                    matchReason
-                });
             }
+        }
+
+        if (bestScore > 0) {
+            suggestions.push({
+                name:        ic.name,
+                categoryId:  ic._id.toString(),
+                icon:        ic.icon || "📁",
+                score:       parseFloat(bestScore.toFixed(2)),
+                matchReason
+            });
         }
     }
 
-    // Skora göre sırala (en yüksek önce)
     suggestions.sort((a, b) => b.score - a.score);
-
-    // En fazla 5 öneri döndür
     return { suggestions: suggestions.slice(0, 5) };
+};
+
+// Eski API uyumluluğu — sync wrapper (cache zaten yüklüyse hızlı)
+const suggestN11Category = (product) => {
+    // Eski çağrılar sync beklediği için cache'den dene, yoksa boş döndür
+    if (_internalCatCache) {
+        const title    = normalize(product.title    || product.name || "");
+        const category = normalize(product.category || "");
+        const suggestions = [];
+
+        for (const ic of _internalCatCache) {
+            const icName = normalize(ic.name || "");
+            const icKeywords = (ic.keywords || []).map(k => normalize(k));
+            let score = 0;
+            let matchReason = "";
+
+            if (category && (category === icName || icKeywords.includes(category))) {
+                score = 0.95; matchReason = "category_exact";
+            } else if (category) {
+                for (const kw of icKeywords) {
+                    if (category.includes(kw) || kw.includes(category)) {
+                        score = 0.85; matchReason = "category_keyword"; break;
+                    }
+                }
+            }
+            if (!score && title) {
+                for (const kw of icKeywords) {
+                    if (title.includes(kw)) {
+                        score = 0.75; matchReason = "title_keyword"; break;
+                    }
+                }
+            }
+            if (score > 0) {
+                suggestions.push({ name: ic.name, categoryId: ic._id.toString(), score: parseFloat(score.toFixed(2)), matchReason });
+            }
+        }
+        suggestions.sort((a, b) => b.score - a.score);
+        return { suggestions: suggestions.slice(0, 5) };
+    }
+    return { suggestions: [] };
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 2. UNMAPPED CATEGORY KAYDET
-//    Eşleştirilemeyen kategoriyi DB'ye kaydet — duplicate yok
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
  * Eşleştirilemeyen kategoriyi UnmappedCategory koleksiyonuna kaydet.
  * Aynı kategori tekrar gelirse hitCount artar, lastSeenAt güncellenir.
- *
- * @param {string} userId
- * @param {string} categoryName       - Eşleştirilemeyen kategori adı
- * @param {Object} product            - Ürün verisi (öneri için)
- * @param {string} [targetMarketplace="N11"]
- * @returns {Promise<Object>}         - Kaydedilen/güncellenen döküman
  */
 const saveUnmappedCategory = async (userId, categoryName, product = {}, targetMarketplace = "N11") => {
     if (!userId || !categoryName) return null;
 
     try {
-        // Öneri üret
-        const { suggestions } = suggestN11Category(product);
-
-        // Örnek ürün başlığı
+        const { suggestions } = await suggestCategory(product);
         const sampleTitle = (product.title || product.name || "").trim();
 
-        // Upsert — aynı userId + categoryName + targetMarketplace kombinasyonu varsa güncelle
         const doc = await UnmappedCategory.findOneAndUpdate(
             { userId, categoryName, targetMarketplace },
             {
@@ -168,9 +213,7 @@ const saveUnmappedCategory = async (userId, categoryName, product = {}, targetMa
                 },
                 $inc: { hitCount: 1 },
                 $setOnInsert: { detectedAt: new Date() },
-                $addToSet: sampleTitle
-                    ? { sampleProducts: sampleTitle }
-                    : {}
+                $addToSet: sampleTitle ? { sampleProducts: sampleTitle } : {}
             },
             { upsert: true, new: true }
         );
@@ -179,10 +222,8 @@ const saveUnmappedCategory = async (userId, categoryName, product = {}, targetMa
             `[UNMAPPED] Kategori kaydedildi: "${categoryName}" ` +
             `(hitCount: ${doc.hitCount}, öneriler: ${suggestions.length})`
         );
-
         return doc;
     } catch (err) {
-        // Duplicate key hatası — zaten kayıtlı, sorun değil
         if (err.code === 11000) {
             logger.debug(`[UNMAPPED] Zaten kayıtlı: "${categoryName}"`);
             return null;
@@ -196,14 +237,6 @@ const saveUnmappedCategory = async (userId, categoryName, product = {}, targetMa
 // 3. UNMAPPED KATEGORİLERİ LİSTELE
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Kullanıcının çözülmemiş (isResolved: false) kategorilerini listele.
- *
- * @param {string} userId
- * @param {string} [targetMarketplace="N11"]
- * @param {boolean} [includeResolved=false]
- * @returns {Promise<Array>}
- */
 const getUnmappedCategories = async (userId, targetMarketplace = "N11", includeResolved = false) => {
     const filter = { userId, targetMarketplace };
     if (!includeResolved) filter.isResolved = false;
@@ -232,21 +265,8 @@ const getUnmappedCategories = async (userId, targetMarketplace = "N11", includeR
 // 4. UNMAPPED KATEGORİYİ ÇÖZÜLDÜ OLARAK İŞARETLE
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Kullanıcı mapping yaptıktan sonra bu kategoriyi çözüldü olarak işaretle.
- *
- * @param {string} userId
- * @param {string} categoryName
- * @param {string} n11CategoryId
- * @param {string} n11CategoryName
- * @param {string} [targetMarketplace="N11"]
- */
 const resolveUnmappedCategory = async (
-    userId,
-    categoryName,
-    n11CategoryId,
-    n11CategoryName,
-    targetMarketplace = "N11"
+    userId, categoryName, platformCategoryId, platformCategoryName, targetMarketplace = "N11"
 ) => {
     await UnmappedCategory.findOneAndUpdate(
         { userId, categoryName, targetMarketplace },
@@ -255,15 +275,15 @@ const resolveUnmappedCategory = async (
                 isResolved:  true,
                 resolvedAt:  new Date(),
                 resolvedWith: {
-                    categoryId:   String(n11CategoryId),
-                    categoryName: n11CategoryName
+                    categoryId:   String(platformCategoryId),
+                    categoryName: platformCategoryName
                 }
             }
         }
     );
 
     logger.info(
-        `[UNMAPPED] Çözüldü: "${categoryName}" → N11 ${n11CategoryId} (${n11CategoryName})`
+        `[UNMAPPED] Çözüldü: "${categoryName}" → ${targetMarketplace} ${platformCategoryId} (${platformCategoryName})`
     );
 };
 
@@ -271,21 +291,10 @@ const resolveUnmappedCategory = async (
 // 5. ÜRÜN ATLAMA — Structured Log
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Ürünü atla ve structured log yaz.
- * Aynı zamanda UnmappedCategory'ye kaydeder.
- *
- * @param {Object} product   - Ürün verisi
- * @param {string} reason    - "CATEGORY_MAPPING_MISSING" | "NO_IMAGES" | "NO_SKU" vb.
- * @param {string} userId
- * @param {Array}  [suggestions=[]]
- * @returns {{ skipped: true, reason, category, suggestions }}
- */
 const skipProduct = async (product, reason, userId = null, suggestions = []) => {
     const productName = product.title || product.name || product.sku || "?";
     const category    = product.category || product.categoryName || "";
 
-    // Structured log
     const logPayload = {
         status:      "SKIPPED",
         reason,
@@ -297,62 +306,238 @@ const skipProduct = async (product, reason, userId = null, suggestions = []) => 
 
     logger.warn(`[SKIP] ${JSON.stringify(logPayload)}`);
 
-    // Kategori mapping eksikse UnmappedCategory'ye kaydet
     if (reason === "CATEGORY_MAPPING_MISSING" && userId && category) {
         await saveUnmappedCategory(userId, category, product);
     }
 
-    return {
-        skipped:     true,
-        reason,
-        product:     productName,
-        category,
-        suggestions
-    };
+    return { skipped: true, reason, product: productName, category, suggestions };
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 6. TAM MAPPING PIPELINE
-//    mapCategory() — mapping varsa döndür, yoksa öneri üret + kaydet + null döndür
+//    mapCategoryWithFallback() — mapping varsa döndür, yoksa öneri üret + kaydet + null döndür
 // ─────────────────────────────────────────────────────────────────────────────
 
-/**
- * Kategori mapping pipeline.
- * n11MappingService.mapCategoryToN11() ile entegre çalışır.
- *
- * @param {string} userId
- * @param {Object} product   - { title, category, brand, ... }
- * @param {Function} mapFn   - n11MappingService.mapCategoryToN11 referansı
- * @returns {Promise<{ categoryId, categoryName, source } | null>}
- */
-const mapCategoryWithFallback = async (userId, product, mapFn) => {
+const mapCategoryWithFallback = async (userId, product, mapFn, marketplace = "N11") => {
     const categoryName = (product.category || product.categoryName || "").trim();
 
-    // ── 1. Mapping dene ──────────────────────────────────────────────────────
-    const result = await mapFn(userId, categoryName);
-
-    if (result.categoryId) {
-        return result; // ✅ Bulundu
+    // ── 0. UnifiedCategoryMap'ten çözümle (Ortak Kategori Merkezi) ──
+    try {
+        const unifiedResult = await resolveFromUnifiedMap(categoryName, marketplace);
+        if (unifiedResult && unifiedResult.categoryId) {
+            return unifiedResult;
+        }
+    } catch (err) {
+        logger.debug(`[CATEGORY MAPPING] UnifiedCategoryMap hatası (fallback devam): ${err.message}`);
     }
 
-    // ── 2. Bulunamadı — öneri üret + kaydet ─────────────────────────────────
-    const { suggestions } = suggestN11Category(product);
+    // ── 1. Platform-spesifik mapping sistemi ile dene ──
+    const result = await mapFn(userId, categoryName);
 
-    await saveUnmappedCategory(userId, categoryName, product);
+    if (result && result.categoryId) {
+        return result;
+    }
+
+    // ── 2. Smart Resolver Pipeline ile dene (Exact → Learned → Hybrid AI → Fallback) ──
+    try {
+        const { resolveCategory } = require("./categoryResolverService");
+        const resolved = await resolveCategory(userId, product, marketplace, {
+            autoApply: true,
+            saveLearning: true
+        });
+
+        if (resolved && resolved.resolved && resolved.marketplaceCategory) {
+            logger.info(
+                `[CATEGORY MAPPING] ✅ Smart Resolver çözdü: "${categoryName}" → ` +
+                `${resolved.marketplaceCategory.name} (source: ${resolved.source}, güven: ${(resolved.confidence * 100).toFixed(0)}%)`
+            );
+            return {
+                categoryId:   resolved.marketplaceCategory.id,
+                categoryName: resolved.marketplaceCategory.name,
+                source:       `resolver_${resolved.source}`
+            };
+        }
+    } catch (err) {
+        logger.debug(`[CATEGORY MAPPING] Smart Resolver hatası (fallback devam): ${err.message}`);
+    }
+
+    // ── 3. Bulunamadı — dinamik öneri üret + kaydet ──
+    const { suggestions } = await suggestCategory(product);
+
+    await saveUnmappedCategory(userId, categoryName, product, marketplace);
 
     logger.warn(
         `[CATEGORY MAPPING] ❌ Bulunamadı: "${categoryName}" | ` +
-        `Öneriler: ${suggestions.map(s => `${s.name}(${s.score})`).join(", ") || "yok"}`
+        `Öneriler: ${suggestions.map(s => `${s.name}(${s.score})`).join(", ") || "yok"} | ` +
+        `Çözüm: Kategori Eşleştirme Merkezi'nden bu kategoriyi eşleştirin.`
     );
 
-    return null; // Çağıran skipProduct() çağırır
+    return null;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 7. PLATFORM-AGNOSTİK KATEGORİ ÇÖZÜMLEME
+//    Tüm platformlar için ortak InternalCategoryMapping fallback
+//    N11, Hepsiburada, ÇiçekSepeti, Amazon hepsi bu fonksiyonu kullanabilir
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Kategori adından InternalCategoryMapping üzerinden platform kategorisini çözümle.
+ * n11MappingService'deki Step 3 mantığının genel versiyonu.
+ *
+ * @param {string} categoryName      — Ürün kategori adı
+ * @param {string} marketplace       — Hedef platform ("N11", "Hepsiburada", vb.)
+ * @returns {Promise<{ categoryId, categoryName, source } | null>}
+ */
+const resolveForMarketplace = async (categoryName, marketplace) => {
+    if (!categoryName || !marketplace) return null;
+
+    try {
+        const InternalCategoryMapping = require("../models/InternalCategoryMapping");
+
+        const normalizedLower = normalize(categoryName).replace(/[>]/g, " ").replace(/\s+/g, " ").trim();
+        const inputWords = normalizedLower.split(/\s+/).filter(w => w.length > 1);
+
+        const internalCats = await getInternalCategoriesCached();
+
+        let bestMatch = null;
+        let bestScore = 0;
+
+        for (const ic of internalCats) {
+            const icName = normalize(ic.name || "");
+            const icKeywords = (ic.keywords || []).map(k => normalize(k));
+
+            // Tam isim eşleşmesi
+            if (normalizedLower === icName || normalizedLower.includes(icName) || icName.includes(normalizedLower)) {
+                const score = normalizedLower === icName ? 1.0 : 0.85;
+                if (score > bestScore) { bestScore = score; bestMatch = ic; }
+                continue;
+            }
+
+            // Keyword eşleşmesi
+            let kwScore = 0;
+            for (const kw of icKeywords) {
+                if (normalizedLower.includes(kw) || inputWords.some(w => w === kw || kw.includes(w) || w.includes(kw))) {
+                    kwScore += 1;
+                }
+            }
+            if (icKeywords.length > 0 && kwScore > 0) {
+                const score = Math.min(kwScore / Math.max(icKeywords.length, 1), 1.0) * 0.8;
+                if (score > bestScore) { bestScore = score; bestMatch = ic; }
+            }
+        }
+
+        if (bestMatch && bestScore >= 0.3) {
+            const mapping = await InternalCategoryMapping.findOne({
+                internalCategoryId: bestMatch._id,
+                marketplace,
+                isActive: true
+            }).lean();
+
+            if (mapping && mapping.marketplaceCategoryId) {
+                logger.info(
+                    `[RESOLVE] ✅ InternalCategoryMapping: "${categoryName}" → ` +
+                    `dahili: "${bestMatch.name}" → ${marketplace} ID: ${mapping.marketplaceCategoryId} ` +
+                    `(${mapping.marketplaceCategoryName}) [skor: ${bestScore.toFixed(2)}]`
+                );
+                return {
+                    categoryId:   mapping.marketplaceCategoryId,
+                    categoryName: mapping.marketplaceCategoryName,
+                    source:       "InternalCategoryMapping"
+                };
+            }
+        }
+    } catch (err) {
+        logger.warn(`[RESOLVE] ${marketplace} InternalCategoryMapping hatası: ${err.message}`);
+    }
+
+    return null;
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 8. UNIFIED CATEGORY MAP ÇÖZÜMLEME
+//    Ortak Kategori Merkezi'nden (3 platform birleşik harita) platform kategorisini çözümle.
+//    Ürün yükleme/dağıtımda ilk adım olarak kullanılır.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Kategori adını UnifiedCategoryMap'te arayıp hedef platformun categoryId'sini döndürür.
+ *
+ * @param {string} categoryName — Ürün kategori adı (örn: "Altın Bileklik")
+ * @param {string} marketplace  — Hedef platform ("Trendyol" | "N11" | "ÇiçekSepeti")
+ * @returns {Promise<{ categoryId, categoryName, source } | null>}
+ */
+const resolveFromUnifiedMap = async (categoryName, marketplace) => {
+    if (!categoryName || !marketplace) return null;
+
+    // Platform field adını belirle
+    const platformField = marketplace === "Trendyol" ? "trendyol"
+        : marketplace === "N11" ? "n11"
+        : (marketplace === "ÇiçekSepeti" || marketplace === "Ciceksepeti") ? "ciceksepeti"
+        : null;
+
+    if (!platformField) return null;
+
+    try {
+        // Normalize et (Türkçe karakter + lowercase)
+        const normalizedInput = normalize(categoryName)
+            .replace(/[>]/g, " ").replace(/\s+/g, " ").trim();
+
+        if (!normalizedInput) return null;
+
+        // 1. Exact normalizedKey eşleşmesi
+        const { normalizeKey } = require("./unifiedCategoryImportService");
+        const key = normalizeKey(categoryName);
+
+        let unified = null;
+        if (key) {
+            unified = await UnifiedCategoryMap.findOne({
+                normalizedKey: key,
+                [`${platformField}.categoryId`]: { $ne: null }
+            }).lean();
+        }
+
+        // 2. Regex arama (kısmi eşleşme)
+        if (!unified) {
+            const searchRegex = new RegExp(normalizedInput.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+            unified = await UnifiedCategoryMap.findOne({
+                [`${platformField}.categoryId`]: { $ne: null },
+                $or: [
+                    { canonicalName: searchRegex },
+                    { normalizedKey: searchRegex }
+                ]
+            }).lean();
+        }
+
+        if (unified && unified[platformField]?.categoryId) {
+            logger.info(
+                `[UNIFIED MAP] ✅ "${categoryName}" → ${marketplace}: ` +
+                `${unified[platformField].categoryName} (ID: ${unified[platformField].categoryId})`
+            );
+            return {
+                categoryId:   unified[platformField].categoryId,
+                categoryName: unified[platformField].categoryName,
+                categoryPath: unified[platformField].categoryPath || "",
+                source:       "UnifiedCategoryMap"
+            };
+        }
+    } catch (err) {
+        logger.warn(`[UNIFIED MAP] ${marketplace} çözümleme hatası: ${err.message}`);
+    }
+
+    return null;
 };
 
 module.exports = {
     suggestN11Category,
+    suggestCategory,
     saveUnmappedCategory,
     getUnmappedCategories,
     resolveUnmappedCategory,
     skipProduct,
-    mapCategoryWithFallback
+    mapCategoryWithFallback,
+    resolveForMarketplace,
+    resolveFromUnifiedMap,
+    getInternalCategoriesCached,
+    invalidateCategoryCache
 };

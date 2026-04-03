@@ -13,7 +13,6 @@
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import CategoryMappingPage from "./CategoryMappingPage";
 import {
     FaBoxOpen, FaChartBar, FaExchangeAlt, FaListAlt,
     FaSearch, FaSync, FaBell, FaSpinner, FaBox, FaStore,
@@ -54,7 +53,7 @@ const TABS = [
     { key: "stock",           icon: <FaWarehouse />,     label: "Stok Takibi"          },
     { key: "distribution",   icon: <FaExchangeAlt />,   label: "Ürün Dağıtımı"       },
     { key: "pricing",        icon: <FaMoneyBillWave />, label: "Fiyat & Kampanya"     },
-    { key: "categorymapping",icon: <FaLayerGroup />,    label: "Kategori Eşleştirme" },
+
     { key: "comparison",     icon: <FaTable />,         label: "Karşılaştırma"        },
     { key: "logs",           icon: <FaListAlt />,       label: "Loglar"               },
 ];
@@ -203,9 +202,7 @@ const ProductManagementPageV3 = () => {
 
     const loadMarketplaces = useCallback(async () => {
         try {
-            const uid = localStorage.getItem("userId");
-            if (!uid) return;
-            const res = await getUserMarketplaces(uid);
+            const res = await getUserMarketplaces();
             const list = Array.isArray(res) ? res : (res.marketplaces || res.data || []);
             setMarketplaces(list.map(m => ({ ...m, name: m.marketplaceName || m.name || "" })));
         } catch { /* sessiz */ }
@@ -2666,17 +2663,7 @@ const ProductManagementPageV3 = () => {
                     {activeTab === "stock"           && renderStock()}
                     {activeTab === "distribution"    && renderDistribution()}
                     {activeTab === "pricing"         && renderPricing()}
-                    {activeTab === "categorymapping" && (
-                        <motion.div key="categorymapping"
-                            initial={{ opacity: 0, y: 16 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: -16 }}
-                            transition={{ duration: 0.2 }}
-                            style={{ padding: 0 }}
-                        >
-                            <CategoryMappingPage />
-                        </motion.div>
-                    )}
+
                     {activeTab === "comparison"      && renderComparison()}
                     {activeTab === "logs"            && renderLogs()}
                 </AnimatePresence>

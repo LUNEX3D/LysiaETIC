@@ -5,6 +5,8 @@ const Order = require("../models/Order");
 const logger = require("../config/logger");
 const axios = require("axios");
 const n11Service = require("./n11Service");
+// ✅ FIX H5: Credential'ları decrypt ederek kullan
+const { decryptCredentials } = require("../utils/encryption");
 
 // Pazaryeri isimlerini normalize et
 const normalizeMarketplaceName = (name) => {
@@ -408,7 +410,8 @@ const syncStockToAllMarketplaces = async (userId, productMapping, newStock, excl
 // Pazaryerinde stok VE fiyat güncelle
 const updateStockOnMarketplace = async (marketplace, productId, newStock, priceUpdate = null) => {
     const marketplaceName = normalizeMarketplaceName(marketplace.marketplaceName);
-    const credentials = marketplace.credentials;
+    // ✅ FIX H5: Credential'ları decrypt et
+    const credentials = decryptCredentials(marketplace.credentials);
 
     try {
         switch (marketplaceName) {

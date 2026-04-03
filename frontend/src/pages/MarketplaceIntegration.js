@@ -12,7 +12,7 @@ const getUserIntegrations = async (userId) => {
         const token = localStorage.getItem("token");
         if (!token) { console.error("❌ Token eksik!"); return []; }
 
-        const response = await fetch(`${API_URL}/api/marketplace/user-marketplaces/${userId}`, {
+        const response = await fetch(`${API_URL}/api/marketplace/user-marketplaces`, {
             method: "GET",
             headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }
         });

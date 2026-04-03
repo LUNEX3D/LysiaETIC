@@ -1,6 +1,7 @@
 const axios = require("axios");
 const Marketplace = require("../models/Marketplace");
 const logger = require("../config/logger");
+const { decryptCredentials } = require("../utils/encryption");
 
 const MAX_RETRY = 3;
 const PAGE_SIZE = 200;
@@ -18,7 +19,8 @@ const convertToGMT3Timestamp = (dateStr, isStart = true) => {
 
 exports.getCargoTrackingOrders = async (req, res) => {
     try {
-        const { userId } = req.params;
+        // ✅ FIX H1: IDOR — req.params.userId yerine req.user._id kullanılıyor
+        const userId = req.user._id;
         let { startDate, endDate, marketplace } = req.query;
 
         const now = getIstanbulTimestamp();
@@ -248,6 +250,8 @@ exports.getCargoTrackingOrders = async (req, res) => {
 
         let allCargoOrders = [];
         for (const integration of integrations) {
+            // ✅ FIX H5: Credential'ları decrypt et
+            integration.credentials = decryptCredentials(integration.credentials);
             const marketplaceName = integration.marketplaceName.toLowerCase();
 
             try {

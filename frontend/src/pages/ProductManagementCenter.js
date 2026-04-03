@@ -175,7 +175,7 @@ const ProductManagementCenter = ({ userId }) => {
     const ufSet = (k, v) => setUf(p => ({ ...p, [k]: v }));
 
     // ── Data Loading ──
-    useEffect(() => { if (userId) getUserMarketplaces(userId).then(d => setMarketplaces(d.map(m => ({ ...m, name: m.marketplaceName })))).catch(() => {}); }, [userId]);
+    useEffect(() => { if (userId) getUserMarketplaces().then(d => setMarketplaces(d.map(m => ({ ...m, name: m.marketplaceName })))).catch(() => {}); }, [userId]);
 
     const loadProducts = useCallback(async (p = 0, s = search, sf = stockFilter) => {
         setLoading(true);

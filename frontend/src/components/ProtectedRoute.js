@@ -14,7 +14,8 @@ import { Navigate, useLocation } from "react-router-dom";
 
 const ProtectedRoute = ({ children, requiredRoles = [] }) => {
     const location = useLocation();
-    const token = localStorage.getItem("token");
+    // ✅ FIX H7: rememberMe — hem localStorage hem sessionStorage'dan token oku
+    const token = localStorage.getItem("token") || sessionStorage.getItem("token");
     const userRole = localStorage.getItem("userRole");
 
     // Token yoksa login'e yönlendir

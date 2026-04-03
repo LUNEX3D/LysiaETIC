@@ -40,7 +40,7 @@ const PriceSyncPage = () => {
 
     const loadMarketplaces = useCallback(async () => {
         try {
-            const res = await API.get("/marketplace/user-marketplaces/" + localStorage.getItem("userId"));
+            const res = await API.get("/marketplace/user-marketplaces");
             setUserMarketplaces((res.data || []).map(m => m.marketplaceName));
         } catch {
             setUserMarketplaces([]);

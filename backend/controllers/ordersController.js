@@ -7,11 +7,189 @@ const {
 
 const amazonService = require("../services/amazon/amazonSpApiService");
 const Marketplace = require("../models/Marketplace");
+const Order = require("../models/Order");
+const Product = require("../models/Product");
 const logger = require("../config/logger");
+const { decryptCredentials } = require("../utils/encryption");
 
 const getIstanbulTimestamp = () => {
     return new Date(new Date().toLocaleString("en-US", { timeZone: "Europe/Istanbul" })).getTime();
 };
+
+// ═══════════════════════════════════════════════════════════════════════
+// ORDER SYNC — Pazaryeri siparislerini MongoDB'ye kaydet
+// Gelismis Analiz (analyticsController) bu verilerle calisir
+// Idempotent: ayni siparis tekrar kaydedilmez (orderNumber + marketplace)
+// ═══════════════════════════════════════════════════════════════════════
+
+async function syncOrdersBackground(userId, marketplaceName, rawOrders) {
+    if (!rawOrders || rawOrders.length === 0) {
+        logger.info(`[OrderSync] ${marketplaceName}: rawOrders boş, sync atlanıyor`);
+        return { synced: 0, skipped: 0 };
+    }
+
+    logger.info(`[OrderSync] ${marketplaceName}: ${rawOrders.length} sipariş sync ediliyor`);
+
+    let synced = 0;
+    let skipped = 0;
+
+    // Urun maliyet bilgilerini onceden cek (kar hesabi icin)
+    const products = await Product.find({ userId }).select("barcode costPrice commissionRate shippingCost packagingCost otherCost category").lean();
+    const productMap = new Map(products.map(p => [p.barcode, p]));
+
+    for (const order of rawOrders) {
+        try {
+            const orderNumber = order.orderNumber || order.id;
+            if (!orderNumber) { skipped++; continue; }
+
+            // Ayni siparis zaten var mi kontrol et
+            const exists = await Order.findOne({
+                user: userId,
+                marketplaceName: marketplaceName,
+                trackingNumber: String(orderNumber)
+            });
+            if (exists) { skipped++; continue; }
+
+            // Siparis kalemlerini normalize et
+            const rawItems = order.products || order.items || order.lines || [];
+            const orderTotalPrice = parseFloat(order.totalPrice || 0);
+            const totalItemCount = rawItems.length || 1;
+            const items = rawItems.map(function(item, itemIdx) {
+                const barcode = item.barcode || item.sku || item.merchantSku || item.productCode || item.productId || "";
+                // Barcode bos ise fallback olustur (Order modeli barcode required)
+                const finalBarcode = barcode || ("SYNC-" + orderNumber + "-" + itemIdx);
+                const productInfo = productMap.get(barcode) || {};
+                // Fiyat: item.price > 0 ise onu kullan, yoksa siparis toplamini kalemlere bol
+                let price = parseFloat(item.price || item.unitPrice || 0);
+                if (price === 0 && orderTotalPrice > 0) {
+                    price = orderTotalPrice / totalItemCount;
+                }
+                const quantity = parseInt(item.quantity || 1);
+                const costPrice = productInfo.costPrice || 0;
+                const commissionRate = productInfo.commissionRate || 0;
+                const apiCommission = parseFloat(item.commissionAmount || 0);
+                const commissionAmount = apiCommission > 0 ? apiCommission : (price * quantity * (commissionRate / 100));
+                const shippingCost = productInfo.shippingCost || 0;
+                const totalCost = (costPrice * quantity) + commissionAmount + shippingCost;
+                const netProfit = (price * quantity) - totalCost;
+
+                return {
+                    productName: item.productName || item.name || item.title || "Bilinmeyen",
+                    quantity: quantity,
+                    barcode: finalBarcode,
+                    imageUrl: item.imageUrl || item.image || "https://via.placeholder.com/150",
+                    price: price,
+                    category: item.category || productInfo.category || "Bilinmiyor",
+                    costPrice: costPrice,
+                    commissionRate: commissionRate,
+                    commissionAmount: commissionAmount,
+                    shippingCost: shippingCost,
+                    netProfit: netProfit
+                };
+            });
+
+            // Eger items bos ise siparis seviyesinde tek kalem olustur
+            if (items.length === 0) {
+                const totalPrice = parseFloat(order.totalPrice || 0);
+                items.push({
+                    productName: order.productName || "Siparis Urunu",
+                    quantity: 1,
+                    barcode: "SYNC-" + orderNumber + "-0",
+                    price: totalPrice,
+                    category: "Bilinmiyor",
+                    costPrice: 0,
+                    commissionRate: 0,
+                    commissionAmount: 0,
+                    shippingCost: 0,
+                    netProfit: totalPrice
+                });
+            }
+
+            // Siparis seviyesi maliyet ozeti hesapla
+            const totalPrice = parseFloat(order.totalPrice || 0) || items.reduce(function(sum, it) { return sum + (it.price * it.quantity); }, 0);
+            const totalCost = items.reduce(function(sum, it) { return sum + (it.costPrice * it.quantity); }, 0);
+            const totalCommission = items.reduce(function(sum, it) { return sum + it.commissionAmount; }, 0);
+            const totalShipping = items.reduce(function(sum, it) { return sum + it.shippingCost; }, 0);
+            const grossProfit = totalPrice - totalCost;
+            const netProfit = grossProfit - totalCommission - totalShipping;
+            const profitMargin = totalPrice > 0 ? (netProfit / totalPrice) * 100 : 0;
+
+            // Siparis durumu kontrol
+            const status = String(order.status || "Created");
+            const isReturned = /cancel|return|refund|iade|iptal/i.test(status);
+            const isCancelled = /cancel|iptal/i.test(status);
+
+            // Siparis tarihini parse et
+            // orderDateRaw: epoch ms (Trendyol) veya ISO string
+            // orderDate: "17.03.2026 05:08:14" (TR locale) veya "14-03-2026 15:19" (N11)
+            let orderDate;
+            try {
+                // Oncelik: raw epoch/ISO deger
+                if (order.orderDateRaw) {
+                    orderDate = new Date(order.orderDateRaw);
+                } else if (order.orderDate) {
+                    // ISO veya standart format dene
+                    orderDate = new Date(order.orderDate);
+                    // Gecersizse TR formatini parse et: "DD.MM.YYYY HH:mm:ss" veya "DD-MM-YYYY HH:mm"
+                    if (isNaN(orderDate.getTime())) {
+                        const parts = order.orderDate.match(/(\d{2})[.\-/](\d{2})[.\-/](\d{4})\s*(\d{2}):(\d{2})(?::(\d{2}))?/);
+                        if (parts) {
+                            orderDate = new Date(
+                                parseInt(parts[3]), parseInt(parts[2]) - 1, parseInt(parts[1]),
+                                parseInt(parts[4]), parseInt(parts[5]), parseInt(parts[6] || 0)
+                            );
+                        }
+                    }
+                }
+                if (!orderDate || isNaN(orderDate.getTime())) orderDate = new Date();
+            } catch (e) {
+                orderDate = new Date();
+            }
+
+            const newOrder = new Order({
+                user: userId,
+                marketplace: undefined, // marketplace ObjectId opsiyonel
+                marketplaceName: marketplaceName,
+                totalPrice: totalPrice,
+                orderDate: orderDate,
+                status: status,
+                trackingNumber: String(orderNumber),
+                items: items,
+                costSummary: {
+                    totalCost: totalCost,
+                    totalCommission: totalCommission,
+                    totalShipping: totalShipping,
+                    totalPackaging: 0,
+                    totalOtherCost: 0,
+                    grossProfit: grossProfit,
+                    netProfit: netProfit,
+                    profitMargin: parseFloat(profitMargin.toFixed(2))
+                },
+                isReturned: isReturned,
+                isCancelled: isCancelled
+            });
+
+            await newOrder.save();
+            synced++;
+        } catch (err) {
+            if (err.code === 11000) { skipped++; continue; } // duplicate
+            // İlk 3 hatayı detaylı logla
+            if (skipped < 3) {
+                logger.error(`[OrderSync] ${marketplaceName} sipariş kayıt hatası: ${err.message}`);
+                if (err.errors) {
+                    Object.keys(err.errors).forEach(key => {
+                        logger.error(`  -> ${key}: ${err.errors[key].message}`);
+                    });
+                }
+            }
+            skipped++;
+        }
+    }
+
+    logger.info("[OrderSync] " + marketplaceName + ": " + synced + " yeni siparis kaydedildi, " + skipped + " atlandi");
+
+    return { synced, skipped };
+}
 
 const convertToGMT3Timestamp = (dateStr, isStart = true) => {
     if (!dateStr) return NaN;
@@ -41,7 +219,9 @@ exports.getAllOrders = async (req, res) => {
 
         let rawOrders = [];
         let orders = [];
-        const { marketplaceName, credentials } = integration;
+        const marketplaceName = integration.marketplaceName;
+        // ✅ FIX H5: Credential'ları decrypt et
+        const credentials = decryptCredentials(integration.credentials);
 
         switch (marketplaceName.toLowerCase()) {
             case "trendyol":
@@ -120,6 +300,12 @@ exports.getAllOrders = async (req, res) => {
             products: order.products
         }));
 
+        // ── Arka planda siparisleri MongoDB'ye kaydet (Gelismis Analiz icin) ──
+        // Response'u bekletmeden async olarak calistir
+        syncOrdersBackground(userId, marketplaceName, rawOrders).catch(err => {
+            logger.warn("[OrderSync] Arka plan sync hatasi: " + err.message);
+        });
+
         return res.status(200).json({
             success: true,
             marketplace: marketplaceName,
@@ -137,5 +323,129 @@ exports.getAllOrders = async (req, res) => {
             error: "Failed to fetch orders!",
             details: process.env.NODE_ENV === "development" ? error.message : null
         });
+    }
+};
+
+// ═══════════════════════════════════════════════════════════════════════
+// SYNC ALL ORDERS — Tum pazaryerlerinden siparisleri cekip DB'ye kaydet
+// Gelismis Analiz sayfasi acildiginda bu endpoint cagirilir
+// GET /api/orders/sync-all
+// ═══════════════════════════════════════════════════════════════════════
+
+exports.syncAllOrders = async (req, res) => {
+    try {
+        const userId = req.user._id;
+        const now = getIstanbulTimestamp();
+        const defaultStartDate = now - 90 * 24 * 60 * 60 * 1000; // 90 gun
+        const startDate = req.query.startDate ? convertToGMT3Timestamp(req.query.startDate, true) : defaultStartDate;
+        const endDate = req.query.endDate ? convertToGMT3Timestamp(req.query.endDate, false) : now;
+
+        logger.info(`[OrderSync] syncAllOrders başladı - userId=${userId}`);
+
+        // NOT: isActive alani bazi eski kayitlarda undefined olabilir
+        // $ne: false kullanarak hem true hem undefined olanlari dahil ediyoruz
+        const marketplaces = await Marketplace.find({ userId, isActive: { $ne: false } });
+        if (marketplaces.length === 0) {
+            logger.warn(`[OrderSync] userId=${userId} için aktif pazaryeri bulunamadı!`);
+            return res.json({ success: true, message: "Aktif pazaryeri bulunamadi.", results: [] });
+        }
+
+        logger.info("[OrderSync] Tum pazaryerleri icin sync basliyor - " + marketplaces.length + " marketplace");
+
+        const results = [];
+
+        for (const rawMp of marketplaces) {
+            const mp = rawMp.toObject();
+            const credentials = decryptCredentials(mp.credentials);
+            const marketplaceName = mp.marketplaceName;
+            let rawOrders = [];
+
+            try {
+                switch (marketplaceName.toLowerCase()) {
+                    case "trendyol":
+                        rawOrders = await fetchTrendyolOrders(
+                            credentials.sellerId, credentials.apiKey, credentials.apiSecret,
+                            startDate, endDate
+                        );
+                        break;
+                    case "hepsiburada":
+                        rawOrders = await fetchHepsiburadaOrders(
+                            credentials.merchantId, credentials.apiKey || credentials.serviceKey,
+                            startDate, endDate
+                        );
+                        break;
+                    case "n11":
+                        rawOrders = await fetchN11Orders(
+                            credentials.apiKey, credentials.secretKey,
+                            startDate, endDate
+                        );
+                        break;
+                    case "çiçeksepeti":
+                    case "ciceksepeti":
+                        rawOrders = await fetchCicekSepetiOrders(
+                            credentials.apiKey, credentials.sellerId, credentials.integratorName
+                        );
+                        break;
+                    case "amazon":
+                    case "amazon türkiye":
+                    case "amazon europe":
+                    case "amazon usa":
+                        try {
+                            const amazonResult = await amazonService.getAllOrders(credentials, {
+                                createdAfter: new Date(startDate).toISOString(),
+                                createdBefore: new Date(endDate).toISOString()
+                            });
+                            rawOrders = (amazonResult.orders || []).map(function(order) {
+                                return {
+                                    orderNumber: order.AmazonOrderId,
+                                    orderDate: order.PurchaseDate,
+                                    totalPrice: order.OrderTotal?.Amount || "0.00",
+                                    status: order.OrderStatus,
+                                    products: []
+                                };
+                            });
+                        } catch (amzErr) {
+                            logger.warn("[OrderSync] Amazon siparis cekme hatasi: " + amzErr.message);
+                        }
+                        break;
+                    default:
+                        logger.warn("[OrderSync] Desteklenmeyen marketplace: " + marketplaceName);
+                        continue;
+                }
+
+                const syncResult = await syncOrdersBackground(userId, marketplaceName, rawOrders);
+                results.push({
+                    marketplace: marketplaceName,
+                    fetched: rawOrders.length,
+                    synced: syncResult.synced,
+                    skipped: syncResult.skipped
+                });
+
+            } catch (mpErr) {
+                logger.error("[OrderSync] " + marketplaceName + " hatasi: " + mpErr.message);
+                results.push({
+                    marketplace: marketplaceName,
+                    fetched: 0,
+                    synced: 0,
+                    skipped: 0,
+                    error: mpErr.message
+                });
+            }
+        }
+
+        const totalSynced = results.reduce(function(sum, r) { return sum + r.synced; }, 0);
+        const totalFetched = results.reduce(function(sum, r) { return sum + r.fetched; }, 0);
+
+        logger.info("[OrderSync] Sync tamamlandi - " + totalFetched + " siparis cekildi, " + totalSynced + " yeni kaydedildi");
+
+        return res.json({
+            success: true,
+            message: totalSynced + " yeni siparis kaydedildi (" + totalFetched + " toplam cekildi)",
+            results: results
+        });
+
+    } catch (error) {
+        logger.error("[OrderSync] Sync hatasi:", error.message);
+        return res.status(500).json({ success: false, message: "Siparis sync hatasi: " + error.message });
     }
 };

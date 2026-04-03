@@ -28,7 +28,6 @@ import AdminServers from "./pages/AdminServers";
 import AdminUserAccess from "./pages/AdminUserAccess";
 import MarketplaceIntegration from "./pages/MarketplaceIntegration";
 import ProductWizard from "./components/ProductWizard";
-import CategoryMappingPage from "./pages/CategoryMappingPage";
 
 // SaaS Admin Panel Sayfaları
 import SaasTenants from "./pages/SaasTenants";
@@ -59,6 +58,9 @@ import VerifyEmail from "./pages/VerifyEmail";
 import SubscriptionPage from "./pages/SubscriptionPage";
 import PaymentResult from "./pages/PaymentResult";
 import AdminSubscriptionManager from "./pages/AdminSubscriptionManager";
+
+// Roketfy — Marketplace Intelligence Panel
+import RoketfyPanel from "./pages/RoketfyPanel";
 
 // ✅ FIX #19: Protected Route — Auth guard
 import ProtectedRoute from "./components/ProtectedRoute";
@@ -127,8 +129,8 @@ const AppContent = () => {
             <Route path="/product-upload" element={<ProtectedRoute><ProductUploadPage /></ProtectedRoute>} />
             <Route path="/price-sync" element={<ProtectedRoute><PriceSyncPage /></ProtectedRoute>} />
 
-            {/* Kategori Eşleştirme — Giriş gerekli */}
-            <Route path="/category-mapping" element={<ProtectedRoute><CategoryMappingPage /></ProtectedRoute>} />
+            {/* Roketfy — Marketplace Intelligence */}
+            <Route path="/roketfy" element={<ProtectedRoute><RoketfyPanel /></ProtectedRoute>} />
 
             {/* Abonelik & Ödeme */}
             <Route path="/subscription" element={<ProtectedRoute><SubscriptionPage /></ProtectedRoute>} />

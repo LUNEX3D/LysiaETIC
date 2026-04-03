@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState } from "react";
 import axios from "../services/api";
 import { useNavigate } from "react-router-dom";
 import { useGoogleLogin, GoogleOAuthProvider } from "@react-oauth/google";
@@ -12,11 +12,23 @@ import {
     FaArrowLeft,
     FaKey
 } from "react-icons/fa";
-import LandingSection from "./LandingSection";
 import "../styles/login.css";
+
+// ✅ FIX E6: Shared auth components
+import AuthNavbar from "./auth/AuthNavbar";
+import DashboardMockup from "./auth/DashboardMockup";
+import { PlantDecoration, GoogleIcon, AuthFooter } from "./auth/AuthShared";
 
 const GOOGLE_CLIENT_ID = process.env.REACT_APP_GOOGLE_CLIENT_ID || "";
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   ✅ FIX E6: AuthNavbar, DashboardMockup, PlantDecoration, GoogleIcon
+   artık ./auth/ klasöründen import ediliyor (duplicate kod kaldırıldı)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   LOGIN FORM INNER
+   ═══════════════════════════════════════════════════════════════════════════ */
 const LoginFormInner = () => {
     const [formData, setFormData] = useState({ email: "", password: "" });
     const [message, setMessage] = useState({ text: "", type: "" });
@@ -28,20 +40,13 @@ const LoginFormInner = () => {
     const [needsVerification, setNeedsVerification] = useState(false);
     const [resendLoading, setResendLoading] = useState(false);
 
-    // Şifremi unuttum state'leri
+    // Şifremi unuttum
     const [forgotMode, setForgotMode] = useState(false);
     const [forgotEmail, setForgotEmail] = useState("");
     const [resetCode, setResetCode] = useState("");
     const [newPassword, setNewPassword] = useState("");
     const [newPasswordConfirm, setNewPasswordConfirm] = useState("");
     const [showNewPassword, setShowNewPassword] = useState(false);
-
-    // Sağ panel scroll ref — landing'den "Giriş Yap" tıklanınca sağ panele focus
-    const scrollToLogin = useCallback(() => {
-        // Zaten login formu görünür durumda, sadece focus ver
-        const emailInput = document.querySelector('.auth-input[name="email"]');
-        if (emailInput) emailInput.focus();
-    }, []);
 
     const navigate = useNavigate();
 
@@ -58,7 +63,6 @@ const LoginFormInner = () => {
 
         try {
             const response = await axios.post("/auth/login", formData);
-            localStorage.setItem("token", response.data.token);
 
             const userResponse = await axios.get("/auth/profile", {
                 headers: { Authorization: `Bearer ${response.data.token}` },
@@ -69,16 +73,20 @@ const LoginFormInner = () => {
                 return;
             }
 
-            localStorage.setItem("userId", userResponse.data._id);
-            localStorage.setItem("userEmail", userResponse.data.email);
-            localStorage.setItem("userName", userResponse.data.name || "Bilinmiyor");
-            localStorage.setItem("userRole", userResponse.data.role || "user");
-
-            if (!rememberMe) {
+            // ✅ FIX H7: rememberMe — localStorage vs sessionStorage doğru kullanımı
+            if (rememberMe) {
+                localStorage.setItem("token", response.data.token);
+                sessionStorage.removeItem("token");
+            } else {
                 sessionStorage.setItem("token", response.data.token);
                 localStorage.removeItem("token");
             }
             localStorage.setItem("rememberMe", rememberMe.toString());
+
+            localStorage.setItem("userId", userResponse.data._id);
+            localStorage.setItem("userEmail", userResponse.data.email);
+            localStorage.setItem("userName", userResponse.data.name || "Bilinmiyor");
+            localStorage.setItem("userRole", userResponse.data.role || "user");
 
             setMessage({ text: "Giriş başarılı! Yönlendiriliyorsunuz...", type: "success" });
 
@@ -237,59 +245,31 @@ const LoginFormInner = () => {
         setMessage({ text: "", type: "" });
     };
 
-    // ─── Render: Forgot Password Forms ───
+    // ─── Forgot Password Forms ───
     const renderForgotForm = () => {
         if (forgotMode === "email") {
             return (
                 <div className="auth-form-card auth-fade-in">
                     <div className="auth-form-header">
                         <h2>Şifremi Unuttum</h2>
-                        <p>Kayıtlı e-posta adresinizi girin.</p>
+                        <p>Kayıtlı e-posta adresinizi girin, size bir sıfırlama kodu göndereceğiz.</p>
                     </div>
-
                     <form onSubmit={handleForgotSubmit} className="auth-form">
                         <div className="auth-field">
                             <div className="auth-input-wrap">
                                 <FaEnvelope className="auth-input-icon" />
-                                <input
-                                    className="auth-input"
-                                    type="email"
-                                    placeholder="E-posta adresiniz"
-                                    value={forgotEmail}
-                                    onChange={(e) => setForgotEmail(e.target.value)}
-                                    required
-                                    autoComplete="email"
-                                    disabled={isLoading}
-                                />
+                                <input className="auth-input" type="email" placeholder="E-posta adresiniz" value={forgotEmail} onChange={(e) => setForgotEmail(e.target.value)} required autoComplete="email" disabled={isLoading} />
                             </div>
                         </div>
-
-                        {message.text && (
-                            <div className={`auth-message auth-message--${message.type}`}>
-                                {message.text}
-                            </div>
-                        )}
-
+                        {message.text && <div className={`auth-message auth-message--${message.type}`}>{message.text}</div>}
                         <button type="submit" className="auth-submit" disabled={isLoading}>
-                            {isLoading ? (
-                                <div className="auth-spinner" />
-                            ) : (
-                                <>
-                                    Kod Gönder
-                                    <FaArrowRight className="auth-arrow" />
-                                </>
-                            )}
+                            {isLoading ? <div className="auth-spinner" /> : <>Kod Gönder <FaArrowRight className="auth-arrow" /></>}
                         </button>
                     </form>
-
-                    <button className="auth-back-btn" onClick={exitForgotMode} type="button">
-                        <FaArrowLeft />
-                        Giriş ekranına dön
-                    </button>
+                    <button className="auth-back-btn" onClick={exitForgotMode} type="button"><FaArrowLeft /> Giriş ekranına dön</button>
                 </div>
             );
         }
-
         if (forgotMode === "code") {
             return (
                 <div className="auth-form-card auth-fade-in">
@@ -297,51 +277,22 @@ const LoginFormInner = () => {
                         <h2>Doğrulama Kodu</h2>
                         <p>E-postanıza gönderilen 6 haneli kodu girin.</p>
                     </div>
-
                     <form onSubmit={handleCodeSubmit} className="auth-form">
                         <div className="auth-field">
                             <div className="auth-input-wrap">
                                 <FaKey className="auth-input-icon" />
-                                <input
-                                    className="auth-input"
-                                    type="text"
-                                    placeholder="6 haneli kod"
-                                    value={resetCode}
-                                    onChange={(e) => setResetCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                                    required
-                                    maxLength={6}
-                                    disabled={isLoading}
-                                    style={{ letterSpacing: "0.3em", textAlign: "center", fontSize: "22px", fontWeight: 700 }}
-                                />
+                                <input className="auth-input" type="text" placeholder="6 haneli kod" value={resetCode} onChange={(e) => setResetCode(e.target.value.replace(/\D/g, "").slice(0, 6))} required maxLength={6} disabled={isLoading} style={{ letterSpacing: "0.3em", textAlign: "center", fontSize: "22px", fontWeight: 700 }} />
                             </div>
                         </div>
-
-                        {message.text && (
-                            <div className={`auth-message auth-message--${message.type}`}>
-                                {message.text}
-                            </div>
-                        )}
-
+                        {message.text && <div className={`auth-message auth-message--${message.type}`}>{message.text}</div>}
                         <button type="submit" className="auth-submit" disabled={isLoading || resetCode.length !== 6}>
-                            {isLoading ? (
-                                <div className="auth-spinner" />
-                            ) : (
-                                <>
-                                    Kodu Doğrula
-                                    <FaArrowRight className="auth-arrow" />
-                                </>
-                            )}
+                            {isLoading ? <div className="auth-spinner" /> : <>Kodu Doğrula <FaArrowRight className="auth-arrow" /></>}
                         </button>
                     </form>
-
-                    <button className="auth-back-btn" onClick={() => { setForgotMode("email"); setMessage({ text: "", type: "" }); }} type="button">
-                        <FaArrowLeft />
-                        Geri dön
-                    </button>
+                    <button className="auth-back-btn" onClick={() => { setForgotMode("email"); setMessage({ text: "", type: "" }); }} type="button"><FaArrowLeft /> Geri dön</button>
                 </div>
             );
         }
-
         if (forgotMode === "reset") {
             return (
                 <div className="auth-form-card auth-fade-in">
@@ -349,74 +300,29 @@ const LoginFormInner = () => {
                         <h2>Yeni Şifre</h2>
                         <p>Yeni şifrenizi belirleyin.</p>
                     </div>
-
                     <form onSubmit={handleResetSubmit} className="auth-form">
                         <div className="auth-field">
                             <div className="auth-input-wrap">
                                 <FaLock className="auth-input-icon" />
-                                <input
-                                    className="auth-input"
-                                    type={showNewPassword ? "text" : "password"}
-                                    placeholder="Yeni şifre (min. 6 karakter)"
-                                    value={newPassword}
-                                    onChange={(e) => setNewPassword(e.target.value)}
-                                    required
-                                    minLength={6}
-                                    disabled={isLoading}
-                                />
-                                <button
-                                    type="button"
-                                    className="auth-eye-btn"
-                                    onClick={() => setShowNewPassword(!showNewPassword)}
-                                    tabIndex={-1}
-                                >
-                                    {showNewPassword ? <FaEyeSlash /> : <FaEye />}
-                                </button>
+                                <input className="auth-input" type={showNewPassword ? "text" : "password"} placeholder="Yeni şifre (min. 6 karakter)" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required minLength={6} disabled={isLoading} />
+                                <button type="button" className="auth-eye-btn" onClick={() => setShowNewPassword(!showNewPassword)} tabIndex={-1}>{showNewPassword ? <FaEyeSlash /> : <FaEye />}</button>
                             </div>
                         </div>
-
                         <div className="auth-field">
                             <div className="auth-input-wrap">
                                 <FaLock className="auth-input-icon" />
-                                <input
-                                    className="auth-input"
-                                    type={showNewPassword ? "text" : "password"}
-                                    placeholder="Yeni şifre tekrar"
-                                    value={newPasswordConfirm}
-                                    onChange={(e) => setNewPasswordConfirm(e.target.value)}
-                                    required
-                                    minLength={6}
-                                    disabled={isLoading}
-                                />
+                                <input className="auth-input" type={showNewPassword ? "text" : "password"} placeholder="Şifrenizi tekrar girin" value={newPasswordConfirm} onChange={(e) => setNewPasswordConfirm(e.target.value)} required minLength={6} disabled={isLoading} />
                             </div>
                         </div>
-
-                        {message.text && (
-                            <div className={`auth-message auth-message--${message.type}`}>
-                                {message.text}
-                            </div>
-                        )}
-
+                        {message.text && <div className={`auth-message auth-message--${message.type}`}>{message.text}</div>}
                         <button type="submit" className="auth-submit" disabled={isLoading}>
-                            {isLoading ? (
-                                <div className="auth-spinner" />
-                            ) : (
-                                <>
-                                    Şifreyi Değiştir
-                                    <FaArrowRight className="auth-arrow" />
-                                </>
-                            )}
+                            {isLoading ? <div className="auth-spinner" /> : <>Şifreyi Değiştir <FaArrowRight className="auth-arrow" /></>}
                         </button>
                     </form>
-
-                    <button className="auth-back-btn" onClick={exitForgotMode} type="button">
-                        <FaArrowLeft />
-                        Giriş ekranına dön
-                    </button>
+                    <button className="auth-back-btn" onClick={exitForgotMode} type="button"><FaArrowLeft /> Giriş ekranına dön</button>
                 </div>
             );
         }
-
         return null;
     };
 
@@ -433,17 +339,7 @@ const LoginFormInner = () => {
                 <div className="auth-field">
                     <div className="auth-input-wrap">
                         <FaEnvelope className="auth-input-icon" />
-                        <input
-                            className="auth-input"
-                            type="email"
-                            name="email"
-                            placeholder="E-posta adresiniz"
-                            value={formData.email}
-                            onChange={handleChange}
-                            required
-                            autoComplete="email"
-                            disabled={isLoading}
-                        />
+                        <input className="auth-input" type="email" name="email" placeholder="E-posta adresiniz" value={formData.email} onChange={handleChange} required autoComplete="email" disabled={isLoading} />
                     </div>
                 </div>
 
@@ -451,23 +347,8 @@ const LoginFormInner = () => {
                 <div className="auth-field">
                     <div className="auth-input-wrap">
                         <FaLock className="auth-input-icon" />
-                        <input
-                            className="auth-input"
-                            type={showPassword ? "text" : "password"}
-                            name="password"
-                            placeholder="Şifreniz"
-                            value={formData.password}
-                            onChange={handleChange}
-                            required
-                            autoComplete="current-password"
-                            disabled={isLoading}
-                        />
-                        <button
-                            type="button"
-                            className="auth-eye-btn"
-                            onClick={() => setShowPassword(!showPassword)}
-                            tabIndex={-1}
-                        >
+                        <input className="auth-input" type={showPassword ? "text" : "password"} name="password" placeholder="Şifreniz" value={formData.password} onChange={handleChange} required autoComplete="current-password" disabled={isLoading} />
+                        <button type="button" className="auth-eye-btn" onClick={() => setShowPassword(!showPassword)} tabIndex={-1}>
                             {showPassword ? <FaEyeSlash /> : <FaEye />}
                         </button>
                     </div>
@@ -476,16 +357,10 @@ const LoginFormInner = () => {
                 {/* Remember & Forgot */}
                 <div className="auth-options-row">
                     <label className="auth-remember" onClick={() => setRememberMe(!rememberMe)}>
-                        <div className={`auth-checkbox ${rememberMe ? "checked" : ""}`}>
-                            <FaCheck />
-                        </div>
+                        <div className={`auth-checkbox ${rememberMe ? "checked" : ""}`}><FaCheck /></div>
                         <span className="auth-remember-text">Beni hatırla</span>
                     </label>
-                    <button
-                        type="button"
-                        className="auth-forgot"
-                        onClick={() => { setForgotMode("email"); setMessage({ text: "", type: "" }); }}
-                    >
+                    <button type="button" className="auth-forgot" onClick={() => { setForgotMode("email"); setMessage({ text: "", type: "" }); }}>
                         Şifremi unuttum?
                     </button>
                 </div>
@@ -495,23 +370,15 @@ const LoginFormInner = () => {
                     <div className={`auth-message auth-message--${message.type}`}>
                         {message.text}
                         {needsVerification && (
-                            <button
-                                type="button"
-                                className="auth-resend-btn"
-                                disabled={resendLoading}
-                                onClick={async () => {
-                                    setResendLoading(true);
-                                    try {
-                                        await axios.post("/auth/resend-verification", { email: formData.email });
-                                        setMessage({ text: "Doğrulama e-postası yeniden gönderildi! Gelen kutunuzu kontrol edin.", type: "success" });
-                                        setNeedsVerification(false);
-                                    } catch {
-                                        setMessage({ text: "E-posta gönderilemedi. Lütfen tekrar deneyin.", type: "error" });
-                                    } finally {
-                                        setResendLoading(false);
-                                    }
-                                }}
-                            >
+                            <button type="button" className="auth-resend-btn" disabled={resendLoading} onClick={async () => {
+                                setResendLoading(true);
+                                try {
+                                    await axios.post("/auth/resend-verification", { email: formData.email });
+                                    setMessage({ text: "Doğrulama e-postası yeniden gönderildi!", type: "success" });
+                                    setNeedsVerification(false);
+                                } catch { setMessage({ text: "E-posta gönderilemedi.", type: "error" }); }
+                                finally { setResendLoading(false); }
+                            }}>
                                 {resendLoading ? "Gönderiliyor..." : "Doğrulama e-postasını yeniden gönder"}
                             </button>
                         )}
@@ -520,92 +387,69 @@ const LoginFormInner = () => {
 
                 {/* Submit */}
                 <button type="submit" className="auth-submit" disabled={isLoading}>
-                    {isLoading ? (
-                        <div className="auth-spinner" />
-                    ) : (
-                        <>
-                            Giriş Yap
-                            <FaArrowRight className="auth-arrow" />
-                        </>
-                    )}
+                    {isLoading ? <div className="auth-spinner" /> : <>Giriş Yap <FaArrowRight className="auth-arrow" /></>}
                 </button>
             </form>
 
-            {/* Divider & Google — sadece client_id varsa göster */}
-            {GOOGLE_CLIENT_ID && (
-                <>
-                    <div className="auth-divider">
-                        <div className="auth-divider-line" />
-                        <span className="auth-divider-text">veya</span>
-                        <div className="auth-divider-line" />
-                    </div>
-                    <button
-                        className="auth-google-btn"
-                        type="button"
-                        onClick={() => googleLogin()}
-                        disabled={isLoading}
-                    >
-                        <svg width="20" height="20" viewBox="0 0 24 24">
-                            <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/>
-                            <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-                            <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
-                            <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
-                        </svg>
-                        Google ile devam et
-                    </button>
-                </>
-            )}
+            {/* Divider */}
+            <div className="auth-divider">
+                <div className="auth-divider-line" />
+                <span className="auth-divider-text">veya</span>
+                <div className="auth-divider-line" />
+            </div>
+
+            {/* Google Button — full width (görseldeki gibi) */}
+            <button className="auth-google-btn" type="button" onClick={() => googleLogin()} disabled={isLoading}>
+                <GoogleIcon />
+                Google ile devam et
+            </button>
 
             {/* Switch */}
             <div className="auth-switch">
                 Hesabınız yok mu?
-                <button
-                    type="button"
-                    className="auth-switch-link"
-                    onClick={() => navigate("/register")}
-                >
+                <button type="button" className="auth-switch-link" onClick={() => navigate("/register")}>
                     Kayıt olun <span className="auth-switch-arrow">→</span>
                 </button>
             </div>
         </div>
     );
 
-    // ═══════════════════════════════════════════════════════════
-    // RENDER — Sol: Sekmeli Landing | Sağ: Login Formu
-    // Sayfa tam ekran, landing login formunun yanına kadar gelir
-    // ═══════════════════════════════════════════════════════════
+    // ═══════════════════════════════════════════════════════════════════════
+    // RENDER
+    // ═══════════════════════════════════════════════════════════════════════
     return (
         <div className="auth-page">
-            {/* ═══ SOL PANEL — Sekmeli Landing İçeriği ═══ */}
-            <div className="auth-left">
-                <LandingSection onScrollToLogin={scrollToLogin} />
-            </div>
+            {/* Glow lines — görseldeki üst kısımdaki ışık çizgileri */}
+            <div className="auth-glow-lines" />
 
-            {/* ═══ SAĞ PANEL — Login Formu ═══ */}
-            <div className="auth-right">
-                {/* Mobile logo */}
-                <div className="auth-mobile-logo">
-                    <div className="auth-logo-icon">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M12 2L2 7l10 5 10-5-10-5z"/>
-                            <path d="M2 17l10 5 10-5"/>
-                            <path d="M2 12l10 5 10-5"/>
-                        </svg>
-                    </div>
-                    <span className="auth-logo-text">LUNEXETIC</span>
+            {/* Navbar */}
+            <AuthNavbar />
+
+            {/* Main Content */}
+            <div className="auth-main">
+                {/* Sol — Hero + Mockup */}
+                <div className="auth-hero auth-fade-in">
+                    <h1 className="auth-hero-title">
+                        İşinizi tek panelden<br />yönetin, <em>büyütün.</em>
+                    </h1>
+                    <p className="auth-hero-desc">
+                        Pazaryeri entegrasyonu, stok, sipariş ve daha fazlası.<br />
+                        Lunexetic ile e-ticarette bir adım önde olun.
+                    </p>
+                    <DashboardMockup />
+
+                    {/* Dekoratif bitki — görseldeki sol alt */}
+                    <PlantDecoration />
                 </div>
 
-                {forgotMode ? renderForgotForm() : renderLoginForm()}
-
-                {/* Footer */}
-                <div className="auth-footer">
-                    <span>© 2024 Lunexetic. Tüm hakları saklıdır.</span>
-                    <span className="auth-footer-dot" />
-                    <a href="/privacy">Gizlilik Politikası</a>
-                    <span className="auth-footer-dot" />
-                    <a href="/terms">Kullanım Şartları</a>
+                {/* Sağ — Login Form */}
+                <div className="auth-form-panel auth-fade-in-delay">
+                    {forgotMode ? renderForgotForm() : renderLoginForm()}
                 </div>
             </div>
+
+            {/* Footer — ✅ FIX E6: Shared component */}
+            <AuthFooter />
         </div>
     );
 };

@@ -1,6 +1,7 @@
 const express = require("express");
 const router  = express.Router();
 const { authMiddleware } = require("../middlewares/authMiddleware");
+const { subscriptionMiddleware } = require("../middlewares/subscriptionMiddleware");
 
 const {
     getUserMarketplaces,
@@ -19,6 +20,9 @@ const {
     getUnmappedStats
 } = require("../controllers/categoryMappingController");
 
+// ✅ FIX E1: Validation middleware'leri eklendi
+const { validateAddMarketplace, validateUpdateMarketplace } = require("../middlewares/validate");
+
 const Marketplace       = require("../models/Marketplace");
 const n11Service        = require("../services/n11Service");
 const n11MappingService = require("../services/n11MappingService");
@@ -28,18 +32,19 @@ const logger            = require("../config/logger");
 // PAZARYERİ ENTEGRASYON CRUD
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ✅ FIX H6: subscriptionMiddleware eklendi
+// ✅ FIX: :userId kaldırıldı — token'dan alınıyor
 // Kullanıcının tüm pazaryeri entegrasyonlarını getir
-// ✅ FIX #2: :userId artık controller'da req.user._id'den alınıyor (geriye uyumluluk için route korundu)
-router.get("/user-marketplaces/:userId", authMiddleware, getUserMarketplaces);
+router.get("/user-marketplaces", authMiddleware, subscriptionMiddleware, getUserMarketplaces);
 
-// Yeni entegrasyon ekle
-router.post("/integrate", authMiddleware, addMarketplace);
+// Yeni entegrasyon ekle — ✅ FIX E1: validateAddMarketplace eklendi
+router.post("/integrate", authMiddleware, subscriptionMiddleware, validateAddMarketplace, addMarketplace);
 
-// Pazaryeri bilgilerini güncelle
-router.put("/:id", authMiddleware, updateMarketplace);
+// Pazaryeri bilgilerini güncelle — ✅ FIX E1: validateUpdateMarketplace eklendi
+router.put("/:id", authMiddleware, subscriptionMiddleware, validateUpdateMarketplace, updateMarketplace);
 
 // Pazaryeri kaydını sil
-router.delete("/:id", authMiddleware, deleteMarketplace);
+router.delete("/:id", authMiddleware, subscriptionMiddleware, deleteMarketplace);
 
 // Hepsiburada credential test
 router.post("/test-hepsiburada", authMiddleware, testHepsiburadaCredentials);

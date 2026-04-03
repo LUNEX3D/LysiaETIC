@@ -11,10 +11,10 @@ const API = axios.create({
     timeout: 120000, // 2 dakika — toplu dağıtım ve karşılaştırma uzun sürebilir
 });
 
-// 🔒 Her istekte Authorization header'ını otomatik ekle
+// ✅ FIX H7: rememberMe — hem localStorage hem sessionStorage'dan token oku
 API.interceptors.request.use(
     (config) => {
-        const token = localStorage.getItem("token");
+        const token = localStorage.getItem("token") || sessionStorage.getItem("token");
         if (token) {
             config.headers["Authorization"] = `Bearer ${token}`;
         }
@@ -32,7 +32,9 @@ API.interceptors.response.use(
             const currentPath = window.location.pathname;
             // Login sayfasındayken sonsuz döngü olmasın
             if (currentPath !== "/login" && currentPath !== "/register" && currentPath !== "/") {
+                // ✅ FIX H7: sessionStorage'ı da temizle
                 localStorage.removeItem("token");
+                sessionStorage.removeItem("token");
                 localStorage.removeItem("userId");
                 localStorage.removeItem("userEmail");
                 localStorage.removeItem("userName");
@@ -49,8 +51,7 @@ export const getCategories = async () => {
     try {
         const response = await API.get("/categories");
         return response.data.categories;
-    } catch (error) {
-        console.error("Kategoriler yüklenirken hata oluştu:", error);
+    } catch {
         return [];
     }
 };
@@ -61,7 +62,6 @@ export const uploadProduct = async (productData) => {
         const response = await API.post("/products", productData);
         return response.data;
     } catch (error) {
-        console.error("Ürün yüklenirken hata oluştu:", error);
         throw error;
     }
 };
@@ -72,7 +72,6 @@ export const loginUser = async (credentials) => {
         const response = await API.post("/auth/login", credentials);
         return response.data;
     } catch (error) {
-        console.error("Giriş yapılırken hata oluştu:", error);
         throw error;
     }
 };
@@ -83,7 +82,6 @@ export const registerUser = async (userData) => {
         const response = await API.post("/auth/register", userData);
         return response.data;
     } catch (error) {
-        console.error("Kayıt olunurken hata oluştu:", error);
         throw error;
     }
 };

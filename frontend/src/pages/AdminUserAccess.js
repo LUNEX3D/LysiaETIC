@@ -35,7 +35,7 @@ const AdminUserAccess = () => {
                     list.map(async user => {
                         try {
                             const mpRes = await axios.get(
-                                `/marketplace/user-marketplaces/${user._id}`,
+                                `/admin/marketplace/user-marketplaces/${user._id}`,
                                 { headers: h }
                             );
                             return [user._id, mpRes.data || []];

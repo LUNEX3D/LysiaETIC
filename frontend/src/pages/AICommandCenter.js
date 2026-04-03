@@ -1,4 +1,4 @@
-/**
+﻿/**
  * ═══════════════════════════════════════════════════════════════════════════════
  * AI OPERATIONS BRAIN — LysiaETIC (v6 PRO — Professional SaaS Design)
  * ═══════════════════════════════════════════════════════════════════════════════
@@ -34,6 +34,7 @@ import {
     FaMagic, FaStethoscope,
 } from "react-icons/fa";
 import API from "../services/api";
+import AIErrorBoundary from "../components/AIErrorBoundary";
 import "../styles/aiCommandCenter.css";
 
 /* ── Helpers ── */
@@ -68,9 +69,17 @@ const AICommandCenter = () => {
 
     // Strategy
     const [selectedStrategy, setSelectedStrategy] = useState("balanced");
+    const [strategyChanging, setStrategyChanging] = useState(false);
 
     // Rec filter
     const [recFilter, setRecFilter] = useState("pending");
+
+    // Bulk selection
+    const [selectedRecs, setSelectedRecs] = useState(new Set());
+    const [bulkLoading, setBulkLoading] = useState(false);
+
+    // Worker status
+    const [workerStatus, setWorkerStatus] = useState(null);
 
     // Explanation modal
     const [explainModal, setExplainModal] = useState(null);
@@ -124,18 +133,30 @@ const AICommandCenter = () => {
         }
     }, [selectedStrategy]);
 
+    // Bug #5 fix: stable polling, no race condition on strategy change
     useEffect(() => {
         loadBrain();
+        // Clear old interval before setting new one
+        if (pollRef.current) clearInterval(pollRef.current);
         pollRef.current = setInterval(() => loadBrain(false), 60000);
-        return () => clearInterval(pollRef.current);
+        return () => { if (pollRef.current) clearInterval(pollRef.current); };
     }, [loadBrain]);
 
-    // Auto-load cost products when costs tab is selected
+    // Auto-load cost products when costs tab is selected (Bug #9 fix: proper deps)
+    const costProductsLoadedRef = useRef(false);
     useEffect(() => {
-        if (activeTab === "costs" && costProducts.length === 0) {
+        if (activeTab === "costs" && !costProductsLoadedRef.current) {
+            costProductsLoadedRef.current = true;
             loadCostProducts("");
         }
-    }, [activeTab]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [activeTab]);
+
+    // Load worker status once
+    useEffect(() => {
+        API.get("/ai-engine/worker-status").then(res => {
+            if (res.data.success) setWorkerStatus(res.data.status);
+        }).catch(() => { /* silent */ });
+    }, []);
 
     // ═══════════════════════════════════════════════════════════════════════
     // ACTIONS
@@ -245,6 +266,58 @@ const AICommandCenter = () => {
         finally { setCostSaving(""); }
     };
 
+    // ── Bulk Actions ──
+    const handleBulkApprove = async () => {
+        if (selectedRecs.size === 0) return;
+        setBulkLoading(true);
+        try {
+            const res = await API.post("/ai-engine/recommendations/bulk-approve", { ids: [...selectedRecs] });
+            if (res.data.success) {
+                alert(`✅ ${res.data.approved} öneri onaylandı`);
+                setSelectedRecs(new Set());
+                loadBrain(true);
+            }
+        } catch (err) { alert("Toplu onay başarısız: " + (err.response?.data?.message || err.message)); }
+        finally { setBulkLoading(false); }
+    };
+
+    const handleBulkReject = async () => {
+        if (selectedRecs.size === 0) return;
+        if (!window.confirm(`${selectedRecs.size} öneriyi reddetmek istediğinizden emin misiniz?`)) return;
+        setBulkLoading(true);
+        try {
+            const res = await API.post("/ai-engine/recommendations/bulk-reject", { ids: [...selectedRecs] });
+            if (res.data.success) {
+                alert(`✅ ${res.data.rejected} öneri reddedildi`);
+                setSelectedRecs(new Set());
+                loadBrain(true);
+            }
+        } catch (err) { alert("Toplu red başarısız: " + (err.response?.data?.message || err.message)); }
+        finally { setBulkLoading(false); }
+    };
+
+    const toggleRecSelection = (recId) => {
+        setSelectedRecs(prev => {
+            const next = new Set(prev);
+            if (next.has(recId)) next.delete(recId); else next.add(recId);
+            return next;
+        });
+    };
+
+    const selectAllPendingRecs = () => {
+        const pendingIds = recommendations.filter(r => r.status === "pending").map(r => r._id);
+        setSelectedRecs(prev => prev.size === pendingIds.length ? new Set() : new Set(pendingIds));
+    };
+
+    // ── Strategy Change (Bug #5 fix — with loading indicator) ──
+    const handleStrategyChange = (newStrategy) => {
+        if (newStrategy === selectedStrategy) return;
+        setStrategyChanging(true);
+        setSelectedStrategy(newStrategy);
+        // loadBrain will be triggered by useEffect[loadBrain] since selectedStrategy changed
+        setTimeout(() => setStrategyChanging(false), 3000);
+    };
+
     // ── Auto Decide ("BENİM YERİME KARAR VER") ──
     const handleAutoDecide = async () => {
         setAutoDecideLoading(true);
@@ -306,22 +379,29 @@ const AICommandCenter = () => {
 
     const handleApplySimulation = async () => {
         if (!simResult?.products?.length) return;
-        if (!window.confirm(`Bu simülasyonu ${simResult.products.length} ürüne uygulamak istediğinizden emin misiniz? Fiyatlar gerçekten değişecek!`)) return;
+        const changedProducts = simResult.products.filter(p => p.simulated.price !== p.current.price);
+        if (changedProducts.length === 0) { alert("Fiyat değişikliği olan ürün yok."); return; }
+        if (!window.confirm(
+            `${changedProducts.length} ürünün fiyatı gerçekten değişecek!\n\n` +
+            changedProducts.slice(0, 5).map(p => `• ${p.name?.slice(0, 30)}: ${p.current.price}₺ → ${p.simulated.price}₺`).join("\n") +
+            (changedProducts.length > 5 ? `\n... ve ${changedProducts.length - 5} ürün daha` : "") +
+            "\n\nOnaylıyor musunuz?"
+        )) return;
         try {
-            let applied = 0;
-            for (const p of simResult.products) {
-                if (p.simulated.price !== p.current.price) {
-                    try {
-                        await API.post("/ai-engine/brain/update-cost", { barcode: p.barcode, costPrice: undefined });
-                        // Actually update the price via the existing mechanism
-                        const recRes = await API.post("/ai-engine/recommendations/generate", { strategyMode: selectedStrategy });
-                        applied++;
-                    } catch { /* continue */ }
-                }
+            const res = await API.post("/ai-engine/simulate/apply", {
+                products: changedProducts.map(p => ({
+                    barcode: p.barcode,
+                    newPrice: p.simulated.price,
+                    oldPrice: p.current.price,
+                }))
+            });
+            if (res.data.success) {
+                alert(`✅ ${res.data.applied} ürünün fiyatı güncellendi!${res.data.failed > 0 ? ` (${res.data.failed} başarısız)` : ""}`);
+                loadBrain(true);
+            } else {
+                alert("❌ " + res.data.message);
             }
-            alert(`✅ Simülasyon uygulandı! ${applied} ürün işleme alındı.`);
-            loadBrain(true);
-        } catch (err) { alert("Uygulama hatası: " + err.message); }
+        } catch (err) { alert("Uygulama hatası: " + (err.response?.data?.message || err.message)); }
     };
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -397,7 +477,7 @@ const AICommandCenter = () => {
                     <motion.div className="ai-red-alarm-container" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}>
                         <div className="ai-red-alarm-header">
                             <div className="ai-red-alarm-pulse" />
-                            <h3>ğŸš¨ KIRMIZI ALARM</h3>
+                            <h3>🚨 KIRMIZI ALARM</h3>
                             <Badge color="#f87171">{redAlerts.criticalCount} kritik</Badge>
                             {redAlerts.totalAlertImpact > 0 && <Badge color="#fbbf24">Toplam Etki: {fmtCurrency(redAlerts.totalAlertImpact)}</Badge>}
                         </div>
@@ -409,7 +489,7 @@ const AICommandCenter = () => {
                                     <div className="ai-red-alarm-body">
                                         <div className="ai-red-alarm-headline">{alert.headline}</div>
                                         <div className="ai-red-alarm-message">{alert.message}</div>
-                                        {alert.amount > 0 && <div className="ai-red-alarm-amount">ğŸ’¸ {fmtCurrency(alert.amount)}</div>}
+                                        {alert.amount > 0 && <div className="ai-red-alarm-amount">💸 {fmtCurrency(alert.amount)}</div>}
                                         <div className="ai-red-alarm-action">→ {alert.action}</div>
                                         {alert.products?.length > 0 && (
                                             <div className="ai-red-alarm-products">
@@ -429,7 +509,7 @@ const AICommandCenter = () => {
                 <motion.div className="ai-card ai-emotional-banner" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
                     <div className="ai-emotional-content">
                         <div className="ai-emotional-left">
-                            <span className="ai-emotional-emoji">{tone.emoji || "ğŸ¤–"}</span>
+                            <span className="ai-emotional-emoji">{tone.emoji || "🤖"}</span>
                             <div>
                                 <h2 className="ai-emotional-greeting">{context.greeting || "Merhaba"}, {context.dayOfWeek || ""}</h2>
                                 <p className="ai-emotional-msg">{tone.message || "AI sistemi çalışıyor..."}</p>
@@ -452,7 +532,7 @@ const AICommandCenter = () => {
                     </div>
                     {context.specialDates?.length > 0 && (
                         <div className="ai-context-dates">
-                            {context.specialDates.map((d, i) => <Badge key={i} color="#fbbf24">ğŸ—“️ {d}</Badge>)}
+                            {context.specialDates.map((d, i) => <Badge key={i} color="#fbbf24">🗓️ {d}</Badge>)}
                         </div>
                     )}
                 </motion.div>
@@ -461,7 +541,7 @@ const AICommandCenter = () => {
                 {focus.length > 0 && (
                     <motion.div className="ai-card ai-today-card" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
                         <div className="ai-card-head">
-                            <h3><FaCrosshairs /> ğŸ“‹ BUGÜN NE YAPMALIYIM?</h3>
+                            <h3><FaCrosshairs /> 📋 BUGÜN NE YAPMALIYIM?</h3>
                             <Badge color="#f87171">{focus.length} görev</Badge>
                         </div>
                         <p className="ai-card-desc">AI senin için önceliklendirdi — yukarıdan aşağı sırayla yap.</p>
@@ -533,7 +613,7 @@ const AICommandCenter = () => {
                         </div>
                         <div className="ai-wins-stats">
                             <div className="ai-wins-stat">
-                                <span className="ai-wins-stat-icon">ğŸ¯</span>
+                                <span className="ai-wins-stat-icon">🎯</span>
                                 <span className="ai-wins-stat-val">{roi.totalExecuted || selfEval.executed || 0}</span>
                                 <span className="ai-wins-stat-label">Uygulanan Aksiyon</span>
                             </div>
@@ -543,7 +623,7 @@ const AICommandCenter = () => {
                                 <span className="ai-wins-stat-label">Kabul Oranı</span>
                             </div>
                             <div className="ai-wins-stat">
-                                <span className="ai-wins-stat-icon">ğŸ§ </span>
+                                <span className="ai-wins-stat-icon">🧠</span>
                                 <span className="ai-wins-stat-val">{selfEval.aiPerformanceScore || 0}</span>
                                 <span className="ai-wins-stat-label">AI Skoru</span>
                             </div>
@@ -551,7 +631,7 @@ const AICommandCenter = () => {
                         <p className="ai-wins-eval">{selfEval.evaluation || "AI öğrenmeye devam ediyor..."}</p>
                         {(roi.totalProfitGenerated > 0 || selfEval.totalProfitGenerated > 0) && (
                             <div className="ai-wins-badge-row">
-                                <span className="ai-wins-trophy">ğŸ†</span>
+                                <span className="ai-wins-trophy">🏆</span>
                                 <span className="ai-wins-badge-text">AI önerileri sayesinde kâr elde ettiniz!</span>
                             </div>
                         )}
@@ -575,7 +655,7 @@ const AICommandCenter = () => {
                         {/* Top Earners */}
                         {(money.topEarners || []).length > 0 && (
                             <div className="ai-money-section">
-                                <div className="ai-money-section-title">ğŸ’° En Çok Kazandıran</div>
+                                <div className="ai-money-section-title">💰 En Çok Kazandıran</div>
                                 {money.topEarners.slice(0, 3).map((p, i) => (
                                     <div key={i} className="ai-money-row ai-money-row-green">
                                         <span className="ai-money-rank">#{i + 1}</span>
@@ -588,7 +668,7 @@ const AICommandCenter = () => {
                         {/* Top Losers */}
                         {(money.topLosers || []).length > 0 && (
                             <div className="ai-money-section">
-                                <div className="ai-money-section-title">ğŸ”´ En Çok Zarar Ettiren</div>
+                                <div className="ai-money-section-title">🔴 En Çok Zarar Ettiren</div>
                                 {money.topLosers.slice(0, 3).map((p, i) => (
                                     <div key={i} className="ai-money-row ai-money-row-red">
                                         <span className="ai-money-rank">#{i + 1}</span>
@@ -601,10 +681,10 @@ const AICommandCenter = () => {
                         {/* Marketplace Performance */}
                         {(money.marketplaces || []).length > 0 && (
                             <div className="ai-money-section">
-                                <div className="ai-money-section-title">ğŸª En Karlı Pazaryeri</div>
+                                <div className="ai-money-section-title">🏪 En Karlı Pazaryeri</div>
                                 {money.marketplaces.slice(0, 3).map((mp, i) => (
                                     <div key={i} className="ai-money-row">
-                                        <span className="ai-money-rank">{i === 0 ? "ğŸ¥‡" : i === 1 ? "ğŸ¥ˆ" : "ğŸ¥‰"}</span>
+                                        <span className="ai-money-rank">{i === 0 ? "🥇" : i === 1 ? "🥈" : "🥉"}</span>
                                         <span className="ai-money-name">{mp.name}</span>
                                         <span className={mp.profit >= 0 ? "ai-money-amount-green" : "ai-money-amount-red"}>
                                             {mp.profit >= 0 ? "+" : ""}{fmtCurrency(mp.profit)}
@@ -625,9 +705,9 @@ const AICommandCenter = () => {
                             <Badge color={bh.overallScore >= 60 ? "#34d399" : "#fbbf24"}>{bh.rating === "excellent" ? "Mükemmel" : bh.rating === "good" ? "İyi" : bh.rating === "warning" ? "Uyarı" : "Kritik"}</Badge>
                         </div>
                         <div className="ai-subscores">
-                            <HealthBar value={bh.profitHealth || 0} label="ğŸ’° Kâr Sağlığı" gradient="linear-gradient(90deg, #34d399, #10b981)" />
-                            <HealthBar value={bh.stockHealth || 0} label="ğŸ“¦ Stok Sağlığı" gradient="linear-gradient(90deg, #60a5fa, #818cf8)" />
-                            <HealthBar value={bh.salesHealth || 0} label="ğŸ“ˆ Satış Sağlığı" gradient="linear-gradient(90deg, #fbbf24, #fbbf24)" />
+                            <HealthBar value={bh.profitHealth || 0} label="💰 Kâr Sağlığı" gradient="linear-gradient(90deg, #34d399, #10b981)" />
+                            <HealthBar value={bh.stockHealth || 0} label="📦 Stok Sağlığı" gradient="linear-gradient(90deg, #60a5fa, #818cf8)" />
+                            <HealthBar value={bh.salesHealth || 0} label="📈 Satış Sağlığı" gradient="linear-gradient(90deg, #fbbf24, #fbbf24)" />
                             <HealthBar value={bh.operationsHealth || 0} label="⚙️ Operasyon Sağlığı" gradient="linear-gradient(90deg, #a78bfa, #f472b6)" />
                         </div>
                         <div className="ai-bh-metrics">
@@ -690,19 +770,19 @@ const AICommandCenter = () => {
                             <Badge color="#4ecdc4">{journal.date || "—"}</Badge>
                         </div>
                         <div className="ai-report-section">
-                            <h4 className="ai-report-title" style={{ color: "#f87171" }}>ğŸš¨ Sorunlar</h4>
+                            <h4 className="ai-report-title" style={{ color: "#f87171" }}>🚨 Sorunlar</h4>
                             {(journal.problems || []).length > 0 ? journal.problems.map((p, i) => (
                                 <div key={i} className="ai-report-item"><span className="ai-report-icon">{p.icon}</span><span>{p.text}</span></div>
                             )) : <div className="ai-report-empty">Sorun yok ✅</div>}
                         </div>
                         <div className="ai-report-section">
-                            <h4 className="ai-report-title" style={{ color: "#34d399" }}>ğŸ’¡ Fırsatlar</h4>
+                            <h4 className="ai-report-title" style={{ color: "#34d399" }}>💡 Fırsatlar</h4>
                             {(journal.opportunities || []).length > 0 ? journal.opportunities.map((o, i) => (
                                 <div key={i} className="ai-report-item"><span className="ai-report-icon">{o.icon}</span><span>{o.text}</span></div>
                             )) : <div className="ai-report-empty">—</div>}
                         </div>
                         <div className="ai-report-section">
-                            <h4 className="ai-report-title" style={{ color: "#818cf8" }}>ğŸ¯ Aksiyonlar</h4>
+                            <h4 className="ai-report-title" style={{ color: "#818cf8" }}>🎯 Aksiyonlar</h4>
                             {(journal.actions || []).length > 0 ? journal.actions.map((a, i) => (
                                 <div key={i} className="ai-report-item"><span className="ai-report-icon">{a.icon}</span><span>{a.text}</span></div>
                             )) : <div className="ai-report-empty">—</div>}
@@ -785,6 +865,29 @@ const AICommandCenter = () => {
                         ))}
                     </div>
 
+                    {/* Bulk Actions Bar */}
+                    {recFilter === "pending" && recSummary.pending > 0 && (
+                        <div className="ai-bulk-bar">
+                            <label className="ai-bulk-select-all">
+                                <input type="checkbox"
+                                    checked={selectedRecs.size > 0 && selectedRecs.size === recommendations.filter(r => r.status === "pending").length}
+                                    onChange={selectAllPendingRecs} />
+                                <span>Tümünü Seç ({recommendations.filter(r => r.status === "pending").length})</span>
+                            </label>
+                            {selectedRecs.size > 0 && (
+                                <div className="ai-bulk-actions">
+                                    <span className="ai-bulk-count">{selectedRecs.size} seçili</span>
+                                    <button className="ai-btn ai-btn-approve" onClick={handleBulkApprove} disabled={bulkLoading}>
+                                        <FaCheckCircle /> Toplu Onayla
+                                    </button>
+                                    <button className="ai-btn ai-btn-reject" onClick={handleBulkReject} disabled={bulkLoading}>
+                                        <FaTimesCircle /> Toplu Reddet
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
                     {/* Category Filters */}
                     {categories.length > 1 && (
                         <div className="ai-rec-filters" style={{ marginTop: "-0.5rem" }}>
@@ -793,7 +896,7 @@ const AICommandCenter = () => {
                             </button>
                             {categories.map(cat => (
                                 <button key={cat} className={`ai-rec-filter ${recCategoryFilter === cat ? "active" : ""}`} onClick={() => setRecCategoryFilter(cat)}>
-                                    {cat === "pricing" ? "ğŸ’° Fiyat" : cat === "stock" ? "ğŸ“¦ Stok" : cat === "performance" ? "ğŸ“Š Performans" : cat === "financial" ? "ğŸ’µ Finans" : cat === "strategy" ? "ğŸ¯ Strateji" : cat}
+                                    {cat === "pricing" ? "💰 Fiyat" : cat === "stock" ? "📦 Stok" : cat === "performance" ? "📊 Performans" : cat === "financial" ? "💵 Finans" : cat === "strategy" ? "🎯 Strateji" : cat}
                                 </button>
                             ))}
                         </div>
@@ -809,9 +912,14 @@ const AICommandCenter = () => {
                             {filtered.map((rec, idx) => {
                                 const pc = priorityConfig[rec.priority] || priorityConfig.medium;
                                 return (
-                                    <motion.div key={rec._id} className={`ai-rec priority-${rec.priority}`}
+                                    <motion.div key={rec._id} className={`ai-rec priority-${rec.priority} ${selectedRecs.has(rec._id) ? "selected" : ""}`}
                                         initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: idx * 0.03 }}>
                                         <div className="ai-rec-header">
+                                            {rec.status === "pending" && (
+                                                <input type="checkbox" className="ai-rec-checkbox"
+                                                    checked={selectedRecs.has(rec._id)}
+                                                    onChange={() => toggleRecSelection(rec._id)} />
+                                            )}
                                             <div className="ai-rec-priority-icon" style={{ color: pc.color }}>{pc.icon}</div>
                                             <div className="ai-rec-info">
                                                 <h4 className="ai-rec-title">{rec.title}</h4>
@@ -864,7 +972,7 @@ const AICommandCenter = () => {
                                             )}
                                             {(rec.status === "executed" || rec.status === "rejected") && (
                                                 <Badge color={rec.status === "executed" ? "#34d399" : "#f87171"}>
-                                                    {rec.status === "executed" ? "✅ Uygulandı" : "ğŸš« Reddedildi"}
+                                                    {rec.status === "executed" ? "✅ Uygulandı" : "🚫 Reddedildi"}
                                                 </Badge>
                                             )}
                                             <button className="ai-btn ai-btn-ghost" onClick={() => handleExplain(rec._id)} title="Neden bu öneri?">
@@ -903,10 +1011,10 @@ const AICommandCenter = () => {
                     </div>
                     <div className="ai-health-segments">
                         {[
-                            { label: "Mükemmel", count: ph.segments?.excellent || 0, color: "#34d399", icon: "ğŸ†" },
+                            { label: "Mükemmel", count: ph.segments?.excellent || 0, color: "#34d399", icon: "🏆" },
                             { label: "Sağlıklı", count: ph.segments?.healthy || 0, color: "#60a5fa", icon: "✅" },
                             { label: "Uyarı", count: ph.segments?.warning || 0, color: "#fbbf24", icon: "⚠️" },
-                            { label: "Kritik", count: ph.segments?.critical || 0, color: "#f87171", icon: "ğŸš¨" },
+                            { label: "Kritik", count: ph.segments?.critical || 0, color: "#f87171", icon: "🚨" },
                         ].map((s, i) => (
                             <div key={i} className="ai-health-seg" style={{ borderColor: `${s.color}30` }}>
                                 <span className="ai-health-seg-icon">{s.icon}</span>
@@ -927,9 +1035,9 @@ const AICommandCenter = () => {
                         <div className="ai-seg-grid">
                             {[
                                 { key: "stars", label: "⭐ Yıldızlar", color: "#34d399", data: seg.stars },
-                                { key: "cashCows", label: "ğŸ„ Nakit İnekleri", color: "#60a5fa", data: seg.cashCows },
+                                { key: "cashCows", label: "🐄 Nakit İnekleri", color: "#60a5fa", data: seg.cashCows },
                                 { key: "questionMarks", label: "❓ Soru İşaretleri", color: "#fbbf24", data: seg.questionMarks },
-                                { key: "dogs", label: "ğŸ• Köpekler", color: "#f87171", data: seg.dogs },
+                                { key: "dogs", label: "🐕 Köpekler", color: "#f87171", data: seg.dogs },
                             ].map(s => (
                                 <div key={s.key} className="ai-seg-card" style={{ borderColor: `${s.color}30` }}>
                                     <div className="ai-seg-head">
@@ -987,14 +1095,14 @@ const AICommandCenter = () => {
                             <h3><FaClock /> Zamanlama Analizi</h3>
                         </div>
                         <div className="ai-timing-info">
-                            <div className="ai-timing-item"><span className="ai-timing-label">ğŸ”¥ En yoğun saat</span><span className="ai-timing-val">{timing.bestHour || "N/A"}</span></div>
-                            <div className="ai-timing-item"><span className="ai-timing-label">ğŸ”¥ En yoğun gün</span><span className="ai-timing-val">{timing.bestDay || "N/A"}</span></div>
-                            <div className="ai-timing-item"><span className="ai-timing-label">ğŸ’¤ En düşük saat</span><span className="ai-timing-val">{timing.worstHour || "N/A"}</span></div>
-                            <div className="ai-timing-item"><span className="ai-timing-label">ğŸ’¤ En düşük gün</span><span className="ai-timing-val">{timing.worstDay || "N/A"}</span></div>
+                            <div className="ai-timing-item"><span className="ai-timing-label">🔥 En yoğun saat</span><span className="ai-timing-val">{timing.bestHour || "N/A"}</span></div>
+                            <div className="ai-timing-item"><span className="ai-timing-label">🔥 En yoğun gün</span><span className="ai-timing-val">{timing.bestDay || "N/A"}</span></div>
+                            <div className="ai-timing-item"><span className="ai-timing-label">💤 En düşük saat</span><span className="ai-timing-val">{timing.worstHour || "N/A"}</span></div>
+                            <div className="ai-timing-item"><span className="ai-timing-label">💤 En düşük gün</span><span className="ai-timing-val">{timing.worstDay || "N/A"}</span></div>
                         </div>
                         {timing.suggestions?.length > 0 && (
                             <div className="ai-suggestions">
-                                {timing.suggestions.map((s, i) => <div key={i} className="ai-suggestion">ğŸ’¡ {s}</div>)}
+                                {timing.suggestions.map((s, i) => <div key={i} className="ai-suggestion">💡 {s}</div>)}
                             </div>
                         )}
                     </motion.div>
@@ -1127,7 +1235,7 @@ const AICommandCenter = () => {
                                             <Badge color={sev.color}>{sev.label}</Badge>
                                         </div>
                                         {p.detail && <div style={{ fontSize: "0.72rem", color: "var(--text-dim)", margin: "0.2rem 0", lineHeight: 1.5 }}>{p.detail}</div>}
-                                        {p.product && <div className="ai-prediction-product">ğŸ“¦ {p.product?.slice(0, 45)}</div>}
+                                        {p.product && <div className="ai-prediction-product">📦 {p.product?.slice(0, 45)}</div>}
                                         <div className="ai-prediction-meta">
                                             <Badge color="#818cf8">Güven: {p.confidence}%</Badge>
                                             {p.financialImpact !== 0 && p.financialImpact !== undefined && (
@@ -1244,7 +1352,7 @@ const AICommandCenter = () => {
                                     <Badge color="#fbbf24">{c.issue}</Badge>
                                 </div>
                                 <div className="ai-cause-roots">
-                                    {c.rootCauses?.map((rc, j) => <div key={j} className="ai-cause-root">ğŸ” {rc}</div>)}
+                                    {c.rootCauses?.map((rc, j) => <div key={j} className="ai-cause-root">🔍 {rc}</div>)}
                                 </div>
                                 {c.chain?.length > 0 && (
                                     <div className="ai-chain">
@@ -1256,7 +1364,7 @@ const AICommandCenter = () => {
                                         ))}
                                     </div>
                                 )}
-                                <div className="ai-cause-rec">ğŸ’¡ {c.recommendation}</div>
+                                <div className="ai-cause-rec">💡 {c.recommendation}</div>
                             </div>
                         ))}
                     </motion.div>
@@ -1344,11 +1452,11 @@ const AICommandCenter = () => {
                         )}
                         {simSelectedProduct && (
                             <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap", fontSize: "0.72rem", color: "var(--text-tertiary)", marginTop: "0.4rem" }}>
-                                <span>ğŸ’° Fiyat: {fmtCurrency(simSelectedProduct.price)}</span>
-                                <span>ğŸ“¦ Stok: {simSelectedProduct.stock}</span>
-                                <span>ğŸ“Š Marj: {fmtPct(simSelectedProduct.profitMargin)}</span>
-                                <span>ğŸ›’ Satış: {simSelectedProduct.avgDailySales?.toFixed(1)}/gün</span>
-                                <span>ğŸ’µ Maliyet: {simSelectedProduct.costPrice > 0 ? fmtCurrency(simSelectedProduct.costPrice) : "Girilmemiş"}</span>
+                                <span>💰 Fiyat: {fmtCurrency(simSelectedProduct.price)}</span>
+                                <span>📦 Stok: {simSelectedProduct.stock}</span>
+                                <span>📊 Marj: {fmtPct(simSelectedProduct.profitMargin)}</span>
+                                <span>🛍 Satış: {simSelectedProduct.avgDailySales?.toFixed(1)}/gün</span>
+                                <span>💵 Maliyet: {simSelectedProduct.costPrice > 0 ? fmtCurrency(simSelectedProduct.costPrice) : "Girilmemiş"}</span>
                             </div>
                         )}
                     </div>
@@ -1358,16 +1466,16 @@ const AICommandCenter = () => {
                         <div style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--text-tertiary)", marginBottom: "0.5rem" }}>⚡ Hazır Senaryolar</div>
                         <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap" }}>
                             {[
-                                { id: "price_up_5", label: "Fiyat +%5", icon: "ğŸ“ˆ", color: "#34d399" },
-                                { id: "price_up_10", label: "Fiyat +%10", icon: "ğŸ“ˆ", color: "#10b981" },
-                                { id: "price_down_5", label: "Fiyat -%5", icon: "ğŸ“‰", color: "#fbbf24" },
-                                { id: "price_down_10", label: "Fiyat -%10", icon: "ğŸ“‰", color: "#fb923c" },
-                                { id: "campaign_10", label: "%10 Kampanya", icon: "ğŸ·️", color: "#818cf8" },
-                                { id: "campaign_20", label: "%20 Kampanya", icon: "ğŸ·️", color: "#a78bfa" },
-                                { id: "campaign_30", label: "%30 Kampanya", icon: "ğŸ”¥", color: "#f472b6" },
-                                { id: "stock_50", label: "+50 Stok", icon: "ğŸ“¦", color: "#60a5fa" },
-                                { id: "stock_100", label: "+100 Stok", icon: "ğŸ“¦", color: "#0ea5e9" },
-                                { id: "aggressive", label: "Agresif Satış", icon: "ğŸš€", color: "#f87171" },
+                                { id: "price_up_5", label: "Fiyat +%5", icon: "📈", color: "#34d399" },
+                                { id: "price_up_10", label: "Fiyat +%10", icon: "📈", color: "#10b981" },
+                                { id: "price_down_5", label: "Fiyat -%5", icon: "📉", color: "#fbbf24" },
+                                { id: "price_down_10", label: "Fiyat -%10", icon: "📉", color: "#fb923c" },
+                                { id: "campaign_10", label: "%10 Kampanya", icon: "🏷️", color: "#818cf8" },
+                                { id: "campaign_20", label: "%20 Kampanya", icon: "🏷️", color: "#a78bfa" },
+                                { id: "campaign_30", label: "%30 Kampanya", icon: "🔥", color: "#f472b6" },
+                                { id: "stock_50", label: "+50 Stok", icon: "📦", color: "#60a5fa" },
+                                { id: "stock_100", label: "+100 Stok", icon: "📦", color: "#0ea5e9" },
+                                { id: "aggressive", label: "Agresif Satış", icon: "🚀", color: "#f87171" },
                             ].map(preset => (
                                 <button key={preset.id} className={`ai-btn ${simPreset === preset.id ? "ai-btn-execute" : "ai-btn-secondary"}`}
                                     onClick={() => applySimPreset(preset.id)}
@@ -1522,7 +1630,7 @@ const AICommandCenter = () => {
                             {(strategy.options || []).map(opt => (
                                 <div key={opt.id}
                                     className={`ai-strategy-card ${selectedStrategy === opt.id ? "active" : ""} ${strategy.recommended === opt.id ? "recommended" : ""}`}
-                                    onClick={() => setSelectedStrategy(opt.id)}>
+                                    onClick={() => handleStrategyChange(opt.id)}>
                                     <div className="ai-strategy-icon">{opt.icon}</div>
                                     <div className="ai-strategy-name">{opt.name}</div>
                                     <div className="ai-strategy-desc">{opt.description}</div>
@@ -1686,10 +1794,10 @@ const AICommandCenter = () => {
                     {/* Stats Bar */}
                     <div style={{ display: "flex", gap: "0.75rem", marginBottom: "1rem" }}>
                         {[
-                            { label: "Toplam Ürün", value: costStats.total, color: "#818cf8", icon: "ğŸ“¦" },
+                            { label: "Toplam Ürün", value: costStats.total, color: "#818cf8", icon: "📦" },
                             { label: "Maliyet Girilmiş", value: costStats.withCost, color: "#34d399", icon: "✅" },
                             { label: "Maliyet Eksik", value: costStats.withoutCost, color: "#f87171", icon: "❌" },
-                            { label: "Tamamlanma", value: costStats.total > 0 ? `%${Math.round(costStats.withCost / costStats.total * 100)}` : "%0", color: "#fbbf24", icon: "ğŸ“Š" },
+                            { label: "Tamamlanma", value: costStats.total > 0 ? `%${Math.round(costStats.withCost / costStats.total * 100)}` : "%0", color: "#fbbf24", icon: "📊" },
                         ].map((s, i) => (
                             <div key={i} style={{ flex: 1, background: `${s.color}08`, border: `1px solid ${s.color}20`, borderRadius: 10, padding: "0.6rem 0.8rem", textAlign: "center" }}>
                                 <div style={{ fontSize: "0.65rem", color: "var(--text-dim)" }}>{s.icon} {s.label}</div>
@@ -1854,7 +1962,7 @@ const AICommandCenter = () => {
                 <motion.div className="ai-modal ai-diagnosis-modal" initial={{ scale: 0.92, y: 40 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.92, y: 40 }}
                     onClick={e => e.stopPropagation()} style={{ maxWidth: 720 }}>
                     <div className="ai-modal-head" style={{ background: "linear-gradient(135deg, rgba(99,102,241,0.15), rgba(236,72,153,0.1))" }}>
-                        <h3><FaStethoscope /> ğŸ” İŞLETME TEŞHİSİ</h3>
+                        <h3><FaStethoscope /> 🔍 İŞLETME TEŞHİSİ</h3>
                         <button className="ai-modal-close" onClick={() => setShowDiagnosisModal(false)}>✕</button>
                     </div>
                     <div className="ai-modal-body">
@@ -1871,23 +1979,23 @@ const AICommandCenter = () => {
                                     <div className="ai-diagnosis-grade">NOT: {d.healthGrade}</div>
                                     <p className="ai-diagnosis-text">{d.verdict}</p>
                                     <div className="ai-diagnosis-amounts">
-                                        {d.totalMistakeAmount > 0 && <Badge color="#f87171">ğŸ”´ Hata: {fmtCurrency(d.totalMistakeAmount)}</Badge>}
-                                        {d.totalLeakAmount > 0 && <Badge color="#fbbf24">ğŸ’¸ Kaçak: {fmtCurrency(d.totalLeakAmount)}</Badge>}
-                                        {d.totalOppAmount > 0 && <Badge color="#34d399">ğŸ’° Fırsat: {fmtCurrency(d.totalOppAmount)}</Badge>}
+                                        {d.totalMistakeAmount > 0 && <Badge color="#f87171">🔴 Hata: {fmtCurrency(d.totalMistakeAmount)}</Badge>}
+                                        {d.totalLeakAmount > 0 && <Badge color="#fbbf24">💸 Kaçak: {fmtCurrency(d.totalLeakAmount)}</Badge>}
+                                        {d.totalOppAmount > 0 && <Badge color="#34d399">💰 Fırsat: {fmtCurrency(d.totalOppAmount)}</Badge>}
                                     </div>
                                 </div>
 
                                 {/* Mistakes */}
                                 {d.mistakes?.length > 0 && (
                                     <div className="ai-diagnosis-section">
-                                        <h4 className="ai-diagnosis-section-title" style={{ color: "#f87171" }}>ğŸ”´ NEREDE HATA YAPIYORSUN?</h4>
+                                        <h4 className="ai-diagnosis-section-title" style={{ color: "#f87171" }}>🔴 NEREDE HATA YAPIYORSUN?</h4>
                                         {d.mistakes.map((m, i) => (
                                             <div key={i} className="ai-diagnosis-item ai-diagnosis-mistake">
                                                 <span className="ai-diagnosis-item-icon">{m.icon}</span>
                                                 <div>
                                                     <div className="ai-diagnosis-item-title">{m.title}</div>
                                                     <div className="ai-diagnosis-item-detail">{m.detail}</div>
-                                                    <div className="ai-diagnosis-item-fix">ğŸ’Š {m.fix}</div>
+                                                    <div className="ai-diagnosis-item-fix">💊 {m.fix}</div>
                                                     {m.amount > 0 && <Badge color="#f87171">{fmtCurrency(m.amount)}</Badge>}
                                                 </div>
                                             </div>
@@ -1898,14 +2006,14 @@ const AICommandCenter = () => {
                                 {/* Leaks */}
                                 {d.leaks?.length > 0 && (
                                     <div className="ai-diagnosis-section">
-                                        <h4 className="ai-diagnosis-section-title" style={{ color: "#fbbf24" }}>ğŸ’¸ NEREDE PARA KAÇIRIYORSUN?</h4>
+                                        <h4 className="ai-diagnosis-section-title" style={{ color: "#fbbf24" }}>💸 NEREDE PARA KAÇIRIYORSUN?</h4>
                                         {d.leaks.map((l, i) => (
                                             <div key={i} className="ai-diagnosis-item ai-diagnosis-leak">
                                                 <span className="ai-diagnosis-item-icon">{l.icon}</span>
                                                 <div>
                                                     <div className="ai-diagnosis-item-title">{l.title}</div>
                                                     <div className="ai-diagnosis-item-detail">{l.detail}</div>
-                                                    <div className="ai-diagnosis-item-fix">ğŸ’Š {l.fix}</div>
+                                                    <div className="ai-diagnosis-item-fix">💊 {l.fix}</div>
                                                     {l.amount > 0 && <Badge color="#fbbf24">{fmtCurrency(l.amount)}</Badge>}
                                                 </div>
                                             </div>
@@ -1916,14 +2024,14 @@ const AICommandCenter = () => {
                                 {/* Opportunities */}
                                 {d.opportunities?.length > 0 && (
                                     <div className="ai-diagnosis-section">
-                                        <h4 className="ai-diagnosis-section-title" style={{ color: "#34d399" }}>ğŸ’° NEREDE FIRSAT VAR?</h4>
+                                        <h4 className="ai-diagnosis-section-title" style={{ color: "#34d399" }}>💰 NEREDE FIRSAT VAR?</h4>
                                         {d.opportunities.map((o, i) => (
                                             <div key={i} className="ai-diagnosis-item ai-diagnosis-opp">
                                                 <span className="ai-diagnosis-item-icon">{o.icon}</span>
                                                 <div>
                                                     <div className="ai-diagnosis-item-title">{o.title}</div>
                                                     <div className="ai-diagnosis-item-detail">{o.detail}</div>
-                                                    <div className="ai-diagnosis-item-fix">ğŸ¯ {o.action}</div>
+                                                    <div className="ai-diagnosis-item-fix">🎯 {o.action}</div>
                                                     {o.amount > 0 && <Badge color="#34d399">+{fmtCurrency(o.amount)}</Badge>}
                                                 </div>
                                             </div>
@@ -2012,9 +2120,22 @@ const AICommandCenter = () => {
                         <FaBrain style={{ color: "#4ecdc4", fontSize: "1.1rem" }} />
                         <span className="ai-title-accent">AI Operations Brain</span>
                     </h1>
-                    <p className="ai-subtitle">Karar verir · Aksiyon önerir · Öğretir</p>
+                    <div className="ai-subtitle-row">
+                        <p className="ai-subtitle">Karar verir · Aksiyon önerir · Öğretir</p>
+                        {workerStatus?.isActive && (
+                            <span className="ai-worker-badge" title={`Son döngü: ${workerStatus.lastCycleDurationMs ? (workerStatus.lastCycleDurationMs / 1000).toFixed(1) + 's' : 'Bekleniyor'} | ${workerStatus.usersAnalyzed || 0} kullanıcı analiz edildi`}>
+                                <span className="ai-worker-dot" /> Arka Plan AI Aktif
+                            </span>
+                        )}
+                        {brain?._cache && (
+                            <span className="ai-cache-badge" title={`Cache yaşı: ${brain._cache.ageMinutes || 0} dk | Analiz süresi: ${brain._cache.analysisDurationMs || 0}ms`}>
+                                ⚡ {brain._cache.ageMinutes || 0}dk önce güncellendi
+                            </span>
+                        )}
+                    </div>
                 </div>
                 <div className="ai-header-right">
+                    {strategyChanging && <span className="ai-strategy-loading"><FaSync className="ai-spin" /> Strateji değişiyor...</span>}
                     {brain?.score && <ScoreRing score={brain.score.overall} size={44} thickness={3} />}
                     <button className={`ai-refresh-btn ${refreshing ? "loading" : ""}`} onClick={() => loadBrain(true)}>
                         <FaSync className={refreshing ? "ai-spin" : ""} /> Yenile
@@ -2065,4 +2186,11 @@ const AICommandCenter = () => {
     );
 };
 
-export default AICommandCenter;
+// Wrap with Error Boundary for crash protection
+const AICommandCenterWithErrorBoundary = () => (
+    <AIErrorBoundary>
+        <AICommandCenter />
+    </AIErrorBoundary>
+);
+
+export default AICommandCenterWithErrorBoundary;

@@ -1,8 +1,10 @@
 const express = require("express");
 const router = express.Router();
+const { authMiddleware } = require("../middlewares/authMiddleware");
 const { getBrands, addBrand } = require("../controllers/brandController");
 
-router.get("/", getBrands); // ✅ Tüm Markaları Getir
-router.post("/", addBrand); // ✅ Yeni Marka Ekle
+// ✅ FIX H8: authMiddleware eklendi
+router.get("/", authMiddleware, getBrands);
+router.post("/", authMiddleware, addBrand);
 
 module.exports = router;

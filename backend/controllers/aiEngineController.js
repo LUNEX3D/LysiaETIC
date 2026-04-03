@@ -33,18 +33,65 @@ const AIEngine = require("../services/aiEngineService");
 const AIBrain = require("../services/aiOperationsBrain");
 const Recommendation = require("../models/Recommendation");
 const AIGoal = require("../models/AIGoal");
+const AIAnalysisCache = require("../models/AIAnalysisCache");
 const logger = require("../config/logger");
+
+let aiWorker = null;
+try { aiWorker = require("../services/aiBackgroundWorker"); } catch (e) { /* worker not available */ }
 
 const uid = (req) => req.user?._id || req.user?.id;
 
 // ═════════════════════════════════════════════════════════════════════════════
-// GET /brain — Full AI Operations Brain Dashboard (all 50 engines)
+// GET /brain — Full AI Operations Brain Dashboard (CACHED — reads from background worker)
 // ═════════════════════════════════════════════════════════════════════════════
 exports.getBrainDashboard = async (req, res) => {
     try {
         const userId = uid(req);
         const strategyMode = req.query.strategy || "balanced";
+        const forceRefresh = req.query.refresh === "true";
+
+        // 1. Try reading from cache first (background worker keeps this fresh)
+        if (!forceRefresh && aiWorker) {
+            const cached = await aiWorker.getCachedAnalysis(userId);
+            if (cached && !cached._cache?.isStale) {
+                // If strategy changed, trigger background re-analysis
+                if (cached._cache?.strategyMode !== strategyMode) {
+                    aiWorker.forceAnalyzeUser(userId, strategyMode).catch(e =>
+                        logger.warn(`[AI Brain] Strategy change re-analysis failed: ${e.message}`)
+                    );
+                }
+                return res.json(cached);
+            }
+        }
+
+        // 2. Cache miss or stale — compute fresh (also updates cache)
         const result = await AIBrain.getFullBrainDashboard(userId, AIEngine, strategyMode);
+
+        // 3. Update cache in background
+        if (aiWorker) {
+            AIAnalysisCache.findOneAndUpdate(
+                { userId },
+                {
+                    $set: {
+                        brainData: result,
+                        strategyMode,
+                        lastAnalyzedAt: new Date(),
+                        productCount: result.productCount || 0,
+                        healthSnapshot: {
+                            overallScore: result.businessHealth?.overallScore || 0,
+                            rating: result.businessHealth?.rating || "warning",
+                            criticalAlerts: result.redAlerts?.criticalCount || 0,
+                            pendingRecs: result.recSummary?.pending || 0,
+                            totalLoss: result.lossHunter?.totalImpact || 0,
+                        },
+                        lastError: null,
+                        consecutiveErrors: 0,
+                    }
+                },
+                { upsert: true }
+            ).catch(e => logger.warn(`[AI Brain] Cache update failed: ${e.message}`));
+        }
+
         res.json(result);
     } catch (err) {
         logger.error(`[AI Brain] getBrainDashboard error: ${err.message}`);
@@ -933,6 +980,144 @@ exports.getGoals = async (req, res) => {
     } catch (err) {
         logger.error(`[AI] getGoals error: ${err.message}`);
         res.status(500).json({ success: false, message: "Hedefler yüklenemedi", error: err.message });
+    }
+};
+
+// ═════════════════════════════════════════════════════════════════════════════
+// POST /recommendations/bulk-approve — Bulk approve recommendations
+// ═════════════════════════════════════════════════════════════════════════════
+exports.bulkApproveRecommendations = async (req, res) => {
+    try {
+        const userId = uid(req);
+        const { ids } = req.body; // array of recommendation IDs
+        if (!Array.isArray(ids) || ids.length === 0) {
+            return res.status(400).json({ success: false, message: "Öneri ID listesi zorunlu" });
+        }
+
+        const result = await Recommendation.updateMany(
+            { _id: { $in: ids }, userId, status: "pending" },
+            { $set: { status: "approved" } }
+        );
+
+        logger.info(`🤖 [AI] Toplu onay: ${result.modifiedCount} öneri onaylandı (userId: ${userId})`);
+        res.json({ success: true, message: `${result.modifiedCount} öneri onaylandı`, approved: result.modifiedCount });
+    } catch (err) {
+        logger.error(`[AI] bulkApproveRecommendations error: ${err.message}`);
+        res.status(500).json({ success: false, message: "Toplu onay başarısız", error: err.message });
+    }
+};
+
+// ═════════════════════════════════════════════════════════════════════════════
+// POST /recommendations/bulk-reject — Bulk reject recommendations
+// ═════════════════════════════════════════════════════════════════════════════
+exports.bulkRejectRecommendations = async (req, res) => {
+    try {
+        const userId = uid(req);
+        const { ids } = req.body;
+        if (!Array.isArray(ids) || ids.length === 0) {
+            return res.status(400).json({ success: false, message: "Öneri ID listesi zorunlu" });
+        }
+
+        const result = await Recommendation.updateMany(
+            { _id: { $in: ids }, userId, status: "pending" },
+            { $set: { status: "rejected" } }
+        );
+
+        logger.info(`🤖 [AI] Toplu red: ${result.modifiedCount} öneri reddedildi (userId: ${userId})`);
+        res.json({ success: true, message: `${result.modifiedCount} öneri reddedildi`, rejected: result.modifiedCount });
+    } catch (err) {
+        logger.error(`[AI] bulkRejectRecommendations error: ${err.message}`);
+        res.status(500).json({ success: false, message: "Toplu red başarısız", error: err.message });
+    }
+};
+
+// ═════════════════════════════════════════════════════════════════════════════
+// POST /simulate/apply — Actually apply simulation prices (Bug #1 fix)
+// ═════════════════════════════════════════════════════════════════════════════
+exports.applySimulation = async (req, res) => {
+    try {
+        const userId = uid(req);
+        const { products } = req.body; // [{ barcode, newPrice, oldPrice }]
+        if (!Array.isArray(products) || products.length === 0) {
+            return res.status(400).json({ success: false, message: "Ürün listesi zorunlu" });
+        }
+
+        const ProductMapping = require("../models/ProductMapping");
+        const Product = require("../models/Product");
+        let applied = 0;
+        let failed = 0;
+        const results = [];
+
+        for (const p of products.slice(0, 50)) {
+            if (!p.barcode || !p.newPrice || p.newPrice === p.oldPrice) {
+                continue;
+            }
+            try {
+                const pm = await ProductMapping.findOne({ userId, "masterProduct.barcode": p.barcode });
+                if (pm) {
+                    const oldPrice = pm.masterProduct.price;
+                    pm.masterProduct.price = Number(p.newPrice);
+                    pm.updatedAt = new Date();
+                    pm.addSyncLog("price_update", "AI Simulation", oldPrice, Number(p.newPrice), "success",
+                        `Simülasyon uygulandı: ${oldPrice}₺ → ${p.newPrice}₺`);
+                    await pm.save();
+                    applied++;
+                    results.push({ barcode: p.barcode, name: pm.masterProduct.name, oldPrice, newPrice: Number(p.newPrice), success: true });
+                } else {
+                    const product = await Product.findOne({ userId, barcode: p.barcode });
+                    if (product) {
+                        const oldPrice = product.salePrice || product.price;
+                        product.salePrice = Number(p.newPrice);
+                        product.price = Number(p.newPrice);
+                        await product.save();
+                        applied++;
+                        results.push({ barcode: p.barcode, name: product.name, oldPrice, newPrice: Number(p.newPrice), success: true });
+                    } else {
+                        failed++;
+                        results.push({ barcode: p.barcode, success: false, error: "Ürün bulunamadı" });
+                    }
+                }
+            } catch (err) {
+                failed++;
+                results.push({ barcode: p.barcode, success: false, error: err.message });
+            }
+        }
+
+        logger.info(`🤖 [AI] Simülasyon uygulandı: ${applied} başarılı, ${failed} başarısız (userId: ${userId})`);
+
+        // Force re-analyze after price changes
+        if (aiWorker && applied > 0) {
+            aiWorker.forceAnalyzeUser(userId).catch(e =>
+                logger.warn(`[AI] Post-simulation re-analysis failed: ${e.message}`)
+            );
+        }
+
+        res.json({
+            success: true,
+            message: `${applied} ürünün fiyatı güncellendi${failed > 0 ? `, ${failed} başarısız` : ""}`,
+            applied,
+            failed,
+            results,
+        });
+    } catch (err) {
+        logger.error(`[AI] applySimulation error: ${err.message}`);
+        res.status(500).json({ success: false, message: "Simülasyon uygulama başarısız", error: err.message });
+    }
+};
+
+// ═════════════════════════════════════════════════════════════════════════════
+// GET /worker-status — AI Background Worker status
+// ═════════════════════════════════════════════════════════════════════════════
+exports.getWorkerStatus = async (req, res) => {
+    try {
+        if (!aiWorker) {
+            return res.json({ success: true, status: { isActive: false, message: "Worker not loaded" } });
+        }
+        const status = aiWorker.getWorkerStatus();
+        res.json({ success: true, status });
+    } catch (err) {
+        logger.error(`[AI] getWorkerStatus error: ${err.message}`);
+        res.status(500).json({ success: false, message: "Worker durumu alınamadı", error: err.message });
     }
 };
 

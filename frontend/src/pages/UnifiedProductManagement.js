@@ -64,7 +64,7 @@ const UnifiedProductManagement = () => {
 
     useEffect(() => {
         if (!userId) return;
-        getUserMarketplaces(userId)
+        getUserMarketplaces()
             .then(data => setMarketplaces(data.map(m => ({ ...m, name: m.marketplaceName }))))
             .catch(() => {});
     }, [userId]);

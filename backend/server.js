@@ -45,7 +45,9 @@ const amazonRoutes            = require("./routes/amazonRoutes");
 const eInvoiceRoutes          = require("./routes/eInvoiceRoutes");
 const paytrRoutes             = require("./routes/paytrRoutes");
 const aiEngineRoutes          = require("./routes/aiEngineRoutes");
+const aiChatRoutes            = require("./routes/aiChatRoutes");
 const categorySmartRoutes     = require("./routes/categorySmartRoutes");
+const roketfyRoutes           = require("./routes/roketfyRoutes");
 
 // ─── 3. DNS & App ─────────────────────────────────────────────────────────────
 dns.setServers(["1.1.1.1", "8.8.8.8"]);
@@ -159,7 +161,8 @@ app.use("/api/auth",               authRoutes);
 app.use("/api/marketplace",        marketplaceRoutes);
 app.use("/api/ai",                 aiRoutes);
 app.use("/api/categories",         categoryRoutes);
-app.use("/hepsiburada",            hepsiburadaRoutes);
+// ✅ FIX: /hepsiburada → /api/hepsiburada (tutarlı prefix)
+app.use("/api/hepsiburada",        hepsiburadaRoutes);
 app.use("/api/cargo",              cargoRoutes);
 app.use("/api/finance",            financeRoutes);
 app.use("/api/admin",              adminRoutes);
@@ -174,7 +177,9 @@ app.use("/api/amazon",            amazonRoutes);
 app.use("/api/e-invoice",        eInvoiceRoutes);
 app.use("/api/paytr",            paytrRoutes);
 app.use("/api/ai-engine",       aiEngineRoutes);
+app.use("/api/ai-chat",        aiChatRoutes);
 app.use("/api/category-smart", categorySmartRoutes);
+app.use("/api/roketfy",        roketfyRoutes);
 
 // ─── 10. SUNUCU DURUM ENDPOINTİ (/api/status) ────────────────────────────────
 app.get("/api/status", (req, res) => {
@@ -266,6 +271,15 @@ const startServer = async () => {
         } catch (err) {
             logger.warn(`Stok cron başlatılamadı: ${err.message}`);
         }
+
+        // ─── AI Background Worker — Tüm kullanıcıları arka planda analiz eder ──
+        try {
+            const { startAIWorker } = require("./services/aiBackgroundWorker");
+            startAIWorker();
+            logger.info("🧠 AI Background Worker başlatıldı ✅");
+        } catch (err) {
+            logger.warn(`AI Worker başlatılamadı: ${err.message}`);
+        }
     });
 };
 
@@ -285,8 +299,8 @@ process.on("uncaughtException", (err) => {
 
 process.on("SIGTERM", () => {
     logger.info("SIGTERM alındı — sunucu kapatılıyor...");
-    const { stopStockCron } = require("./services/stockCronService");
-    stopStockCron();
+    try { const { stopStockCron } = require("./services/stockCronService"); stopStockCron(); } catch (e) { /* */ }
+    try { const { stopAIWorker } = require("./services/aiBackgroundWorker"); stopAIWorker(); } catch (e) { /* */ }
     if (server) {
         server.close(() => {
             mongoose.connection.close(false, () => {

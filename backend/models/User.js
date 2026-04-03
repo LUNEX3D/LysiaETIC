@@ -95,12 +95,7 @@ const UserSchema = new mongoose.Schema({
         grantNote: String
     },
 
-    // Trendyol Bilgileri (Legacy - will be moved to Marketplace model)
-    trendyolCredentials: {
-        apiKey: { type: String },
-        apiSecret: { type: String },
-        sellerId: { type: String }
-    }
+    // ✅ FIX H14: Legacy trendyolCredentials kaldırıldı — Marketplace model kullanılıyor
 
 }, { timestamps: true });
 

@@ -142,7 +142,7 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
                     ...(endDate && { endDate }),
                 });
 
-                const response = await axios.get(`/orders/all/${userId}?${params.toString()}`, {
+                const response = await axios.get(`/orders/all?${params.toString()}`, {
                     headers: { Authorization: `Bearer ${token}` },
                 });
 

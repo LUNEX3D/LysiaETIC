@@ -15,6 +15,8 @@ router.get("/dashboard",                     authMiddleware, ctrl.getFullDashboa
 // ── Recommendations ──
 router.get("/recommendations",               authMiddleware, ctrl.getRecommendations);
 router.post("/recommendations/generate",     authMiddleware, ctrl.generateRecommendations);
+router.post("/recommendations/bulk-approve", authMiddleware, ctrl.bulkApproveRecommendations);
+router.post("/recommendations/bulk-reject",  authMiddleware, ctrl.bulkRejectRecommendations);
 router.post("/recommendations/:id/approve",  authMiddleware, ctrl.approveRecommendation);
 router.post("/recommendations/:id/reject",   authMiddleware, ctrl.rejectRecommendation);
 router.post("/recommendations/:id/execute",  authMiddleware, ctrl.executeRecommendation);
@@ -32,6 +34,7 @@ router.get("/strategy",                      authMiddleware, ctrl.getStrategy);
 // ── Simulation ──
 router.post("/simulate",                     authMiddleware, ctrl.simulate);
 router.post("/simulate-advanced",            authMiddleware, ctrl.simulateAdvanced);
+router.post("/simulate/apply",               authMiddleware, ctrl.applySimulation);
 
 // ── Analytics ──
 router.get("/profit-heatmap",               authMiddleware, ctrl.getProfitHeatmap);
@@ -71,5 +74,8 @@ router.get("/brain/diagnosis",               authMiddleware, ctrl.getDiagnosis);
 router.get("/brain/products",                authMiddleware, ctrl.getBrainProducts);
 router.post("/brain/update-cost",            authMiddleware, ctrl.updateProductCost);
 router.post("/brain/bulk-update-cost",       authMiddleware, ctrl.bulkUpdateProductCost);
+
+// ── AI Background Worker Status ──
+router.get("/worker-status",                 authMiddleware, ctrl.getWorkerStatus);
 
 module.exports = router;

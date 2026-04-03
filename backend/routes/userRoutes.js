@@ -38,4 +38,8 @@ router.delete("/api-key/:keyId", authMiddleware, revokeApiKey);
 // User statistics
 router.get("/stats", authMiddleware, getUserStats);
 
+// ✅ FIX E8: Hesap silme endpoint'i
+const { deleteAccount } = require("../controllers/userController");
+router.delete("/account", authMiddleware, sensitiveLimiter, deleteAccount);
+
 module.exports = router;

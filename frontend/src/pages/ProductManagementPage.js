@@ -195,9 +195,7 @@ const ProductManagementPage = () => {
 
     const loadMarketplaces = useCallback(async () => {
         try {
-            const uid = localStorage.getItem("userId");
-            if (!uid) return;
-            const res = await getUserMarketplaces(uid);
+            const res = await getUserMarketplaces();
             const list = Array.isArray(res) ? res : (res.marketplaces || res.data || []);
             setMarketplaces(list.map(m => ({ ...m, name: m.marketplaceName || m.name || "" })));
         } catch { /* sessiz */ }

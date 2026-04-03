@@ -3,8 +3,8 @@ const logger = require("../config/logger");
 
 exports.getDashboardSummary = async (req, res) => {
     try {
-        // userId'yi params'dan veya auth middleware'den al
-        const userId = req.params.userId || req.user?._id || req.user?.id;
+        // ✅ FIX H3: IDOR — req.user._id öncelikli, params.userId sadece geriye uyumluluk için
+        const userId = req.user?._id || req.user?.id || req.params.userId;
 
         if (!userId) {
             logger.warn("Dashboard request without userId");

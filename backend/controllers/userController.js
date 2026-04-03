@@ -417,6 +417,63 @@ exports.verifyPassword = async (req, res) => {
     }
 };
 
+// ✅ FIX E8: Hesap silme
+exports.deleteAccount = async (req, res) => {
+    try {
+        const userId = req.user._id || req.userId;
+        const { password } = req.body;
+
+        logger.info("🗑️ Hesap silme isteği:", userId);
+
+        const user = await User.findById(userId);
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: "Kullanıcı bulunamadı"
+            });
+        }
+
+        // Google hesabı değilse şifre doğrulaması yap
+        if (user.authProvider !== "google" && user.password) {
+            if (!password) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Hesabınızı silmek için şifrenizi girin"
+                });
+            }
+
+            const isMatch = await bcrypt.compare(password, user.password);
+            if (!isMatch) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Şifre yanlış"
+                });
+            }
+        }
+
+        // Kullanıcının marketplace entegrasyonlarını sil
+        await Marketplace.deleteMany({ userId });
+
+        // Kullanıcıyı sil
+        await User.findByIdAndDelete(userId);
+
+        logger.info(`✅ Hesap silindi: ${user.email}`);
+
+        res.json({
+            success: true,
+            message: "Hesabınız ve tüm verileriniz başarıyla silindi"
+        });
+    } catch (error) {
+        logger.error("❌ Hesap silme hatası:", error);
+        res.status(500).json({
+            success: false,
+            message: "Hesap silinirken bir hata oluştu",
+            error: error.message
+        });
+    }
+};
+
 // Get user statistics
 exports.getUserStats = async (req, res) => {
     try {
@@ -434,11 +491,12 @@ exports.getUserStats = async (req, res) => {
 
         try {
             const Order = require("../models/Order");
-            totalOrders = await Order.countDocuments({ userId });
+            // ✅ FIX H12: Order model'de field adı "user" (userId değil), "totalPrice" (totalAmount değil)
+            totalOrders = await Order.countDocuments({ user: userId });
 
             const revenueResult = await Order.aggregate([
-                { $match: { userId } },
-                { $group: { _id: null, total: { $sum: "$totalAmount" } } }
+                { $match: { user: userId } },
+                { $group: { _id: null, total: { $sum: "$totalPrice" } } }
             ]);
             totalRevenue = revenueResult.length > 0 ? revenueResult[0].total : 0;
         } catch (err) {

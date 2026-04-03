@@ -60,7 +60,7 @@ const CargoTrackingPage = ({ userId, marketplaceId, marketplace }) => {
                 endDate: endDate ? new Date(endDate).toISOString().slice(0, 10) : "",
                 marketplace: marketplace.marketplaceName
             });
-            const response = await axios.get(`/cargo/${userId}?${params.toString()}`, {
+            const response = await axios.get(`/cargo?${params.toString()}`, {
                 headers: { Authorization: `Bearer ${token}` }
             });
             const sortedOrders = (response.data.orders || []).sort((a, b) => {

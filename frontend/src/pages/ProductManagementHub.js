@@ -2,14 +2,13 @@
  * ═══════════════════════════════════════════════════════════════════════════════
  * 🎯 ÜRÜN YÖNETİM MERKEZİ — ProductManagementHub.js (v9 — Tam Revizyon)
  * ═══════════════════════════════════════════════════════════════════════════════
- * 7 Sekme: Dashboard, Ürünlerim, Çek & Yükle, Fiyatlandırma, Platform Analizi,
- *          Kategori Eşleştirme, Loglar & Excel
+ * 6 Sekme: Dashboard, Ürünlerim, Çek & Yükle, Fiyatlandırma, Platform Analizi,
+ *          Loglar & Excel
  * ═══════════════════════════════════════════════════════════════════════════════
  */
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import CategoryMappingPage from "./CategoryMappingPage";
 import {
     FaBoxOpen, FaSearch, FaSync, FaStore, FaWarehouse,
     FaMoneyBillWave, FaChartBar, FaEdit, FaTimes, FaSave,
@@ -19,7 +18,7 @@ import {
     FaRocket, FaTags, FaPlus, FaCheck, FaCheckSquare, FaSquare,
     FaArrowLeft, FaTrash, FaTag, FaEye,
     FaUpload, FaDownload, FaCloudDownloadAlt, FaCloudUploadAlt, FaFileImport,
-    FaFileExcel, FaMapMarkedAlt, FaDollarSign, FaGlobe
+    FaFileExcel, FaDollarSign, FaGlobe
 } from "react-icons/fa";
 import {
     getProducts, syncAllMarketplaces, syncStock, syncPrice,
@@ -40,7 +39,7 @@ const TABS = [
     { key: "pull-push",    icon: <FaCloudDownloadAlt />, label: "Çek & Yükle" },
     { key: "pricing",      icon: <FaDollarSign />,       label: "Fiyatlandırma" },
     { key: "comparison",   icon: <FaGlobe />,            label: "Platform Analizi" },
-    { key: "categories",   icon: <FaMapMarkedAlt />,     label: "Kategori Eşleştirme" },
+
     { key: "logs",         icon: <FaClipboardList />,    label: "Loglar" },
 ];
 
@@ -211,9 +210,7 @@ const ProductManagementHub = () => {
 
     const loadMarketplaces = useCallback(async () => {
         try {
-            const uid = localStorage.getItem("userId");
-            if (!uid) return;
-            const res = await getUserMarketplaces(uid);
+            const res = await getUserMarketplaces();
             const list = Array.isArray(res) ? res : (res.marketplaces || res.data || []);
             setMarketplaces(list.map(m => ({ ...m, name: normalizeMP(m.marketplaceName || m.name || "") })));
         } catch { }
@@ -1299,15 +1296,6 @@ const ProductManagementHub = () => {
     };
 
     /* ══════════════════════════════════════════════════════════════════════════
-       RENDER: Kategori Eşleştirme
-       ══════════════════════════════════════════════════════════════════════════ */
-    const renderCategories = () => (
-        <div className="pmh-fade-in">
-            <CategoryMappingPage />
-        </div>
-    );
-
-    /* ══════════════════════════════════════════════════════════════════════════
        RENDER: Loglar & Excel
        ══════════════════════════════════════════════════════════════════════════ */
     const renderLogs = () => {
@@ -1488,7 +1476,7 @@ const ProductManagementHub = () => {
                 {activeTab === "pull-push" && renderPullPush()}
                 {activeTab === "pricing" && renderPricing()}
                 {activeTab === "comparison" && renderComparison()}
-                {activeTab === "categories" && renderCategories()}
+
                 {activeTab === "logs" && renderLogs()}
             </div>
 

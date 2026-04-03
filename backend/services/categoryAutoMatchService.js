@@ -20,20 +20,7 @@
 const InternalCategory   = require("../models/InternalCategory");
 const UserCategoryMemory = require("../models/UserCategoryMemory");
 const logger             = require("../config/logger");
-
-// ─────────────────────────────────────────────────────────────────────────────
-// YARDIMCI: Metin normalleştirme
-// ─────────────────────────────────────────────────────────────────────────────
-const normalize = (text) => {
-    if (!text) return "";
-    return text
-        .toLowerCase()
-        .replace(/ğ/g, "g").replace(/ü/g, "u").replace(/ş/g, "s")
-        .replace(/ı/g, "i").replace(/ö/g, "o").replace(/ç/g, "c")
-        .replace(/[^a-z0-9\s]/g, " ")
-        .replace(/\s+/g, " ")
-        .trim();
-};
+const { normalize }      = require("../utils/textNormalize");
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. ANA EŞLEŞTİRME FONKSİYONU
@@ -111,7 +98,8 @@ const autoMatch = async (userId, product) => {
 
     // ── Adım 2: InternalCategory keywords — Sistem anahtar kelimeleri ───────
     try {
-        const categories = await InternalCategory.find({ isActive: true }).lean();
+        const { getInternalCategoriesCached } = require("./categoryMappingService");
+        const categories = await getInternalCategoriesCached();
 
         let bestMatch = null;
         let bestScore = 0;

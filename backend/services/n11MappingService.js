@@ -109,10 +109,30 @@ const mapCategoryToN11 = async (userId, categoryName) => {
         logger.warn(`[N11 MAPPING] MarketplaceCategory arama hatası: ${err.message}`);
     }
 
+    // ── 3. InternalCategoryMapping tablosunda ara (Ortak resolveForMarketplace) ──
+    try {
+        const categoryMappingService = require("./categoryMappingService");
+        const resolved = await categoryMappingService.resolveForMarketplace(categoryName, "N11");
+
+        if (resolved && resolved.categoryId) {
+            logger.info(
+                `[N11 MAPPING] ✅ InternalCategoryMapping'den bulundu: ` +
+                `"${categoryName}" → N11 ID: ${resolved.categoryId} (${resolved.categoryName})`
+            );
+            return {
+                categoryId:   parseInt(resolved.categoryId),
+                categoryName: resolved.categoryName,
+                source:       "InternalCategoryMapping"
+            };
+        }
+    } catch (err) {
+        logger.warn(`[N11 MAPPING] InternalCategoryMapping arama hatası: ${err.message}`);
+    }
+
     // ── Bulunamadı — null döner, çağıran karar verir ─────────────────────────
     logger.warn(
         `[N11 MAPPING] ❌ Kategori eşleşmesi bulunamadı: "${categoryName}". ` +
-        `Çözüm: Ürün Yönetimi → N11 Kategori Eşleştirme sayfasından bu kategoriyi eşleştirin.`
+        `Çözüm: Kategori Eşleştirme Merkezi'nden bu kategoriyi eşleştirin.`
     );
     return { categoryId: null, categoryName: null, source: "none" };
 };
@@ -362,7 +382,7 @@ const transformAttribute = (catAttr, productValue) => {
  * Master Product'u N11 payload'ına hazırlar.
  *
  * Pipeline:
- *   1. Kategori mapping → N11 categoryId (bulunamazsa null — çağıran throw eder)
+ *   1. Kategori mapping → N11 categoryId (resolvedCategoryId varsa direkt kullan)
  *   2. Attribute'ları N11'den çek (cache + API)
  *   3. isMandatory attribute'ları dönüştür
  *   4. Marka (id:1) ekle
@@ -370,19 +390,26 @@ const transformAttribute = (catAttr, productValue) => {
  * @param {string} userId
  * @param {Object} credentials  - { apiKey, secretKey }
  * @param {Object} product      - masterProduct (autoFix() çıktısı)
+ * @param {Object} [options]    - Opsiyonel ayarlar
+ * @param {number|string} [options.resolvedCategoryId] - Dışarıdan çözülmüş categoryId (tekrar arama yapılmaz)
  * @returns {Promise<{ categoryId, categoryName, categorySource, attributes, brand }>}
  */
-const transformProductForN11 = async (userId, credentials, product) => {
+const transformProductForN11 = async (userId, credentials, product, options = {}) => {
     // ── 1. Kategori mapping ──────────────────────────────────────────────────
-    const categoryStr = (
-        product.category     ||
-        product.categoryName ||
-        ""
-    ).trim();
+    // resolvedCategoryId varsa → dışarıda zaten çözülmüş, tekrar aramaya gerek yok
+    let categoryId = options.resolvedCategoryId ? parseInt(options.resolvedCategoryId) : null;
+    let catResult  = { categoryId, categoryName: options.resolvedCategoryName || null, source: "resolved_external" };
 
-    const catResult  = await mapCategoryToN11(userId, categoryStr);
-    // categoryId null ise çağıran (toN11 / uploadProductToN11) throw edecek
-    const categoryId = catResult.categoryId;
+    if (!categoryId) {
+        const categoryStr = (
+            product.category     ||
+            product.categoryName ||
+            ""
+        ).trim();
+
+        catResult  = await mapCategoryToN11(userId, categoryStr);
+        categoryId = catResult.categoryId;
+    }
 
     // ── 2. Attribute'ları çek (sadece kategori bulunduysa) ───────────────────
     let categoryAttrs = [];

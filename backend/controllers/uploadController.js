@@ -1,14 +1,17 @@
 const axios = require("axios");
 const logger = require("../config/logger");
 const Marketplace = require("../models/Marketplace");
+const { decryptCredentials } = require("../utils/encryption");
 
+// ✅ FIX H8: userId artık req.user._id'den alınıyor
 exports.uploadProduct = async (req, res) => {
     try {
         const { marketplace } = req.params;
-        const { userId, productData } = req.body;
+        const userId = req.user._id;
+        const { productData } = req.body;
 
-        if (!userId || !productData) {
-            return res.status(400).json({ error: "Kullanıcı ID ve ürün bilgileri gereklidir!" });
+        if (!productData) {
+            return res.status(400).json({ error: "Ürün bilgileri gereklidir!" });
         }
 
         const integration = await Marketplace.findOne({ userId, marketplaceName: marketplace });
@@ -17,7 +20,8 @@ exports.uploadProduct = async (req, res) => {
             return res.status(404).json({ error: `${marketplace} entegrasyonu bulunamadı!` });
         }
 
-        const { apiKey, apiSecret, sellerId } = integration.credentials;
+        // ✅ FIX H5: Credential'ları decrypt et
+        const { apiKey, apiSecret, sellerId } = decryptCredentials(integration.credentials);
         const authHeader = Buffer.from(`${apiKey}:${apiSecret}`).toString("base64");
 
         let apiUrl;

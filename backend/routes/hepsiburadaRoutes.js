@@ -4,11 +4,13 @@ const { fetchHepsiburadaOrders } = require("../services/ordersService");
 const Marketplace = require("../models/Marketplace");
 const logger = require("../config/logger");
 const { authMiddleware } = require("../middlewares/authMiddleware");
+const { decryptCredentials } = require("../utils/encryption");
 
-// 📌 **Siparişleri API'den Çekme Route'u (Kullanıcı Kimliğine Göre)**
-router.post("/orders/:userId", authMiddleware, async (req, res) => {
+// ✅ FIX H2: IDOR — :userId kaldırıldı, req.user._id kullanılıyor
+// 📌 **Siparişleri API'den Çekme Route'u**
+router.post("/orders", authMiddleware, async (req, res) => {
     try {
-        const { userId } = req.params;
+        const userId = req.user._id;
         const { startDate, endDate } = req.body;
 
         // Kullanıcının Hepsiburada entegrasyonunu bul
@@ -24,7 +26,9 @@ router.post("/orders/:userId", authMiddleware, async (req, res) => {
             });
         }
 
-        const { merchantId, apiKey } = integration.credentials;
+        // ✅ FIX H5: Credential'ları decrypt et
+        const decryptedCreds = decryptCredentials(integration.credentials);
+        const { merchantId, apiKey } = decryptedCreds;
 
         if (!merchantId || !apiKey) {
             return res.status(400).json({
