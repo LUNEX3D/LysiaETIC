@@ -60,9 +60,10 @@ const AdminLogin = () => {
             const response = await axios.post("/auth/login", formData);
             const token = response.data.token;
 
-            const profileRes = await axios.get("/auth/profile", {
-                headers: { Authorization: `Bearer ${token}` }
-            });
+            // ✅ FIX: Yeni token'ı ÖNCE kaydet — axios interceptor localStorage'dan okuyor
+            localStorage.setItem("token", token);
+
+            const profileRes = await axios.get("/auth/profile");
             const user = profileRes.data;
 
             if (user.role !== "admin" && user.role !== "dev") {

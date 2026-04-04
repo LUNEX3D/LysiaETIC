@@ -64,9 +64,13 @@ const LoginFormInner = () => {
         try {
             const response = await axios.post("/auth/login", formData);
 
-            const userResponse = await axios.get("/auth/profile", {
-                headers: { Authorization: `Bearer ${response.data.token}` },
-            });
+            // ✅ FIX: Yeni token'ı ÖNCE kaydet — axios interceptor localStorage'dan okuyor
+            // ESKİ: Eski/bozuk token localStorage'da kalıyordu → interceptor eski token'ı
+            //   profile isteğine ekliyordu → "invalid signature" hatası
+            localStorage.setItem("token", response.data.token);
+            sessionStorage.setItem("token", response.data.token);
+
+            const userResponse = await axios.get("/auth/profile");
 
             if (!userResponse.data._id) {
                 setMessage({ text: "Kullanıcı bilgileri yüklenemedi.", type: "error" });
