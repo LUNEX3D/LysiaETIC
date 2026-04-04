@@ -76,11 +76,16 @@ app.use(helmet({
 const allowedOrigins = [
     "http://localhost:3000",
     "http://localhost:5000",
-    // 🛡️ FIX #13: Production'da HTTPS zorunlu — HTTP origin'ler kaldırıldı
+    // Production — hem HTTP hem HTTPS (SSL sertifikası eklenene kadar HTTP de gerekli)
+    "http://13.51.158.124",
+    "http://13.51.158.124:3000",
+    "http://13.51.158.124:5000",
     "https://13.51.158.124",
     "https://13.51.158.124:3000",
     "https://lunexetic.com",
-    "https://www.lunexetic.com"
+    "https://www.lunexetic.com",
+    "http://lunexetic.com",
+    "http://www.lunexetic.com"
 ];
 
 app.use(cors({
