@@ -871,12 +871,82 @@ const addLaborCost = async (credentials, laborCostDetails) => {
     }
 };
 
+/**
+ * Ürün Silme (DeleteProductById) — SOAP API
+ *
+ * N11 REST API'de ürün silme endpoint'i yok, sadece SOAP API'de var.
+ * WSDL: https://api.n11.com/ws/ProductService.wsdl
+ * Method: DeleteProductById — n11ProductId ile ürünü tamamen siler.
+ *
+ * @param {Object} credentials - { apiKey, secretKey }
+ * @param {String|Number} n11ProductId - N11 ürün kodu (n11ProductId)
+ */
+const deleteProductById = async (credentials, n11ProductId) => {
+    try {
+        const { apiKey, secretKey } = credentials;
+
+        if (!apiKey || !secretKey) {
+            return { success: false, error: "N11 credentials eksik: apiKey ve secretKey gerekli" };
+        }
+        if (!n11ProductId) {
+            return { success: false, error: "n11ProductId gerekli" };
+        }
+
+        // SOAP XML oluştur
+        const soapXml = `<?xml version="1.0" encoding="UTF-8"?>
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:sch="http://www.n11.com/ws/schemas">
+    <soapenv:Header/>
+    <soapenv:Body>
+        <sch:DeleteProductByIdRequest>
+            <auth>
+                <appKey>${apiKey}</appKey>
+                <appSecret>${secretKey}</appSecret>
+            </auth>
+            <productId>${n11ProductId}</productId>
+        </sch:DeleteProductByIdRequest>
+    </soapenv:Body>
+</soapenv:Envelope>`;
+
+        logger.info(`[N11 DELETE] Ürün siliniyor — n11ProductId: ${n11ProductId}`);
+
+        const response = await axios.post(
+            "https://api.n11.com/ws/ProductService",
+            soapXml,
+            {
+                headers: {
+                    "Content-Type": "text/xml; charset=utf-8",
+                    "SOAPAction": ""
+                },
+                timeout: 20000
+            }
+        );
+
+        const responseText = response.data || "";
+
+        // SOAP response'dan status kontrol et
+        if (typeof responseText === "string" && responseText.includes("<status>success</status>")) {
+            logger.info(`[N11 DELETE] ✅ Ürün silindi — n11ProductId: ${n11ProductId}`);
+            return { success: true, n11ProductId };
+        }
+
+        // Hata durumu — response'dan mesaj çıkar
+        const errorMatch = typeof responseText === "string" && responseText.match(/<errorMessage>(.*?)<\/errorMessage>/);
+        const errorMsg = errorMatch ? errorMatch[1] : "Bilinmeyen SOAP hatası";
+        logger.error(`[N11 DELETE] ❌ Hata — n11ProductId: ${n11ProductId}, mesaj: ${errorMsg}`);
+        return { success: false, error: errorMsg };
+
+    } catch (error) {
+        return handleN11Error(error, "Ürün Silme (DeleteProductById)");
+    }
+};
+
 module.exports = {
     // Ürün Servisleri
     createProduct,
     updateProductPriceAndStock,
     getTaskDetails,
     getProducts,
+    deleteProductById,
 
     // Kategori Servisleri
     getCategories,

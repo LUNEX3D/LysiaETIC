@@ -1,6 +1,8 @@
 const amazonService = require("../services/amazon/amazonSpApiService");
 const Marketplace = require("../models/Marketplace");
 const logger = require("../config/logger");
+// ✅ FIX: Credential'ları decrypt ederek kullan
+const { decryptCredentials } = require("../utils/encryption");
 
 // ═══════════════════════════════════════════════════════════════════════
 // 🛒 AMAZON SP-API CONTROLLER
@@ -29,7 +31,8 @@ const getAmazonCredentials = async (req) => {
         throw error;
     }
 
-    return marketplace.credentials;
+    // ✅ FIX: Credential'ları decrypt et (DB'de şifreli saklanıyor)
+    return decryptCredentials(marketplace.credentials);
 };
 
 // ═══════════════════════════════════════════════════════════════════════

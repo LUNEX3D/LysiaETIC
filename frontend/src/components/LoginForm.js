@@ -74,12 +74,17 @@ const LoginFormInner = () => {
             }
 
             // ✅ FIX H7: rememberMe — localStorage vs sessionStorage doğru kullanımı
+            // 🛡️ FIX #12: refreshToken'ı da kaydet
             if (rememberMe) {
                 localStorage.setItem("token", response.data.token);
+                if (response.data.refreshToken) localStorage.setItem("refreshToken", response.data.refreshToken);
                 sessionStorage.removeItem("token");
+                sessionStorage.removeItem("refreshToken");
             } else {
                 sessionStorage.setItem("token", response.data.token);
+                if (response.data.refreshToken) sessionStorage.setItem("refreshToken", response.data.refreshToken);
                 localStorage.removeItem("token");
+                localStorage.removeItem("refreshToken");
             }
             localStorage.setItem("rememberMe", rememberMe.toString());
 
@@ -121,6 +126,8 @@ const LoginFormInner = () => {
             });
 
             localStorage.setItem("token", response.data.token);
+            // 🛡️ FIX #12: refreshToken'ı da kaydet
+            if (response.data.refreshToken) localStorage.setItem("refreshToken", response.data.refreshToken);
 
             const user = response.data.user;
             localStorage.setItem("userId", user._id);

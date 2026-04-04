@@ -3,12 +3,12 @@ const mongoose = require("mongoose");
 /**
  * BİRLEŞİK KATEGORİ HARİTASI — Unified Category Map
  *
- * 3 pazaryerinin (Trendyol, N11, ÇiçekSepeti) kategorilerini
+ * 5 pazaryerinin (Trendyol, N11, ÇiçekSepeti, Hepsiburada, Amazon) kategorilerini
  * TEK bir ortak isim altında birleştiren merkezi eşleştirme tablosu.
  *
  * matchType:
- *   "exact"   — 3 platformda da birebir aynı isim
- *   "2of3"    — 2 platformda eşleşme var
+ *   "exact"   — Tüm platformlarda birebir aynı isim
+ *   "2of3"    — 2+ platformda eşleşme var
  *   "single"  — Sadece 1 platformda var
  *   "manual"  — Kullanıcı tarafından manuel eşleştirilmiş
  */
@@ -49,12 +49,14 @@ const UnifiedCategoryMapSchema = new mongoose.Schema({
     trendyol:    { type: PlatformCategorySchema, default: null },
     n11:         { type: PlatformCategorySchema, default: null },
     ciceksepeti: { type: PlatformCategorySchema, default: null },
+    hepsiburada: { type: PlatformCategorySchema, default: null },
+    amazon:      { type: PlatformCategorySchema, default: null },
 
     platformCount: {
         type: Number,
         default: 0,
         min: 0,
-        max: 3,
+        max: 5,
         index: true
     },
 

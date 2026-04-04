@@ -2,9 +2,10 @@ const express = require("express");
 const router = express.Router();
 const advancedProductController = require("../controllers/advancedProductController");
 const { authMiddleware } = require("../middlewares/authMiddleware");
+const { subscriptionMiddleware } = require("../middlewares/subscriptionMiddleware");
 
-// Tüm route'lar için auth gerekli
-router.use(authMiddleware);
+// ✅ Tüm route'lar için auth + subscription gerekli
+router.use(authMiddleware, subscriptionMiddleware);
 
 // ═══════════════════════════════════════════════════════════════
 // ÜRÜN ÇEKME İŞLEMLERİ

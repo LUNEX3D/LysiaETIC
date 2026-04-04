@@ -22,11 +22,13 @@ const StockSyncLogSchema = new mongoose.Schema({
             "stock_update",      // Stok güncelleme
             "price_update",      // Fiyat güncelleme
             "product_created",   // Yeni ürün oluşturma
+            "product_deleted",   // Ürün silme
             "product_synced",    // Ürün senkronizasyonu
             "order_placed",      // Sipariş verildi
             "auto_sync",         // Otomatik senkronizasyon
             "manual_sync",       // Manuel senkronizasyon
-            "bulk_update"        // Toplu güncelleme
+            "bulk_update",       // Toplu güncelleme
+            "bulk_delete"        // Toplu silme
         ]
     },
 

@@ -44,7 +44,7 @@ import {
     distributeProduct,
 } from "../services/productManagementApi";
 import { getUserMarketplaces } from "../services/marketplaceApi";
-import "../styles/ProductManagementPageV4.css";
+import "../styles/ProductManagementCenter.css";
 
 // ─── Sabitler ────────────────────────────────────────────────────────────────
 
@@ -154,6 +154,9 @@ const ProductManagementPageV3 = () => {
 
     // ── Silme onay ───────────────────────────────────────────────────────────
     const [deleteModal,     setDeleteModal]     = useState(null);
+    const [deleteFromMP,    setDeleteFromMP]    = useState(true);  // pazaryerlerinden de sil
+    const [deleteResults,   setDeleteResults]   = useState(null);  // silme sonuçları
+    const [deleting,        setDeleting]        = useState(false); // silme işlemi devam ediyor
 
     // ── Loglar & Bildirimler ─────────────────────────────────────────────────
     const [logs,            setLogs]            = useState([]);
@@ -360,18 +363,25 @@ const ProductManagementPageV3 = () => {
         } finally { setLoading(false); }
     };
 
-    // ─── Ürün sil ─────────────────────────────────────────────────────────────
+    // ─── Ürün sil (tekli — pazaryerlerinden de kaldırma opsiyonlu) ────────────
     const handleDelete = async () => {
         if (!deleteModal) return;
-        setLoading(true);
+        setDeleting(true);
+        setDeleteResults(null);
         try {
-            await deleteProduct(deleteModal._id);
-            showToast("✅ Ürün silindi", "success");
-            setDeleteModal(null);
-            loadProducts(); loadDashboard(); loadComparison();
+            const res = await deleteProduct(deleteModal._id, {
+                deleteFromMarketplaces: deleteFromMP
+            });
+            setDeleteResults(res.marketplaceResults || []);
+            showToast("✅ " + (res.message || "Ürün silindi"), "success");
+            // Sonuçları 3sn göster, sonra kapat
+            setTimeout(() => {
+                setDeleteModal(null); setDeleteResults(null); setDeleteFromMP(true);
+                loadProducts(); loadDashboard(); loadComparison();
+            }, res.marketplaceResults?.length > 0 ? 3000 : 500);
         } catch (e) {
             showToast("Ürün silinemedi: " + (e.response?.data?.error || e.message), "error");
-        } finally { setLoading(false); }
+        } finally { setDeleting(false); }
     };
 
     // ─── Toplu dağıtım ────────────────────────────────────────────────────────
@@ -2838,26 +2848,77 @@ const ProductManagementPageV3 = () => {
                 {deleteModal && (
                     <motion.div className="pmv4-modal-overlay"
                         initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                        onClick={() => setDeleteModal(null)}>
+                        onClick={() => { if (!deleting) { setDeleteModal(null); setDeleteResults(null); setDeleteFromMP(true); } }}>
                         <motion.div className="pmv4-modal pmv4-modal-danger"
                             initial={{ scale: 0.9 }} animate={{ scale: 1 }} exit={{ scale: 0.9 }}
-                            onClick={e => e.stopPropagation()}>
+                            onClick={e => e.stopPropagation()}
+                            style={{ maxWidth: 520 }}>
                             <div className="pmv4-modal-header">
                                 <h3><FaTrash /> Ürünü Sil</h3>
-                                <button onClick={() => setDeleteModal(null)}><FaTimes /></button>
+                                <button onClick={() => { if (!deleting) { setDeleteModal(null); setDeleteResults(null); setDeleteFromMP(true); } }}><FaTimes /></button>
                             </div>
                             <div className="pmv4-modal-body">
                                 <p>Bu ürünü silmek istediğinizden emin misiniz?</p>
                                 <p><strong>{deleteModal.masterProduct?.name || deleteModal.name}</strong></p>
+
+                                {/* Pazaryeri bilgisi */}
+                                {deleteModal.marketplaceMappings?.length > 0 && (
+                                    <div style={{ margin: "12px 0", padding: 12, borderRadius: 8, background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.15)" }}>
+                                        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: "#ef4444" }}>📡 Pazaryeri Bağlantıları</div>
+                                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                                            {deleteModal.marketplaceMappings.map((mp, i) => {
+                                                const name = mp.marketplaceName || "?";
+                                                const colors = { Trendyol: "#f27a1a", N11: "#7b61ff", Hepsiburada: "#ff6000", ÇiçekSepeti: "#e91e8c", Amazon: "#ff9900" };
+                                                return (
+                                                    <span key={i} style={{
+                                                        display: "inline-flex", alignItems: "center", gap: 4,
+                                                        padding: "3px 10px", borderRadius: 12, fontSize: 12, fontWeight: 600,
+                                                        background: `${colors[name] || "#666"}22`, color: colors[name] || "#666",
+                                                        border: `1px solid ${colors[name] || "#666"}44`
+                                                    }}>
+                                                        {name}
+                                                        {mp.marketplaceSku && <span style={{ opacity: 0.7, fontWeight: 400 }}>({mp.marketplaceSku})</span>}
+                                                    </span>
+                                                );
+                                            })}
+                                        </div>
+
+                                        {/* Pazaryerlerinden de sil toggle */}
+                                        <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, cursor: "pointer", fontSize: 13 }}>
+                                            <input type="checkbox" checked={deleteFromMP} onChange={e => setDeleteFromMP(e.target.checked)}
+                                                style={{ width: 16, height: 16, accentColor: "#ef4444" }} />
+                                            <span style={{ color: "#ccc" }}>Pazaryerlerinden de kaldır <span style={{ opacity: 0.6 }}>(stok 0'a çekilir)</span></span>
+                                        </label>
+                                    </div>
+                                )}
+
+                                {/* Silme sonuçları */}
+                                {deleteResults && deleteResults.length > 0 && (
+                                    <div style={{ margin: "12px 0", padding: 10, borderRadius: 8, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.08)" }}>
+                                        <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 6, color: "#aaa" }}>Pazaryeri Sonuçları:</div>
+                                        {deleteResults.map((r, i) => (
+                                            <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, padding: "3px 0" }}>
+                                                <span>{r.status === "success" ? "✅" : r.status === "skipped" ? "⏭️" : "❌"}</span>
+                                                <span style={{ fontWeight: 600, minWidth: 80 }}>{r.name}</span>
+                                                <span style={{ color: r.status === "success" ? "#22c55e" : r.status === "error" ? "#ef4444" : "#888" }}>{r.message}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+
                                 <div className="pmv4-modal-info-box pmv4-info-danger">
                                     <FaExclamationTriangle />
-                                    <span>Bu işlem geri alınamaz. Ürün tüm pazaryerlerinden kaldırılacaktır.</span>
+                                    <span>
+                                        {deleteFromMP && deleteModal.marketplaceMappings?.length > 0
+                                            ? "Bu işlem geri alınamaz. Ürün yerel kayıttan silinecek ve pazaryerlerinde stok 0'a çekilecektir."
+                                            : "Bu işlem geri alınamaz. Sadece yerel kayıt silinecek, pazaryerlerindeki ürünler etkilenmez."}
+                                    </span>
                                 </div>
                             </div>
                             <div className="pmv4-modal-footer">
-                                <button className="pmv4-btn pmv4-btn-outline" onClick={() => setDeleteModal(null)}>İptal</button>
-                                <button className="pmv4-btn pmv4-btn-danger" onClick={handleDelete} disabled={loading}>
-                                    {loading ? <Spinner /> : <FaTrash />} Sil
+                                <button className="pmv4-btn pmv4-btn-outline" onClick={() => { setDeleteModal(null); setDeleteResults(null); setDeleteFromMP(true); }} disabled={deleting}>İptal</button>
+                                <button className="pmv4-btn pmv4-btn-danger" onClick={handleDelete} disabled={deleting || deleteResults}>
+                                    {deleting ? <><Spinner /> Siliniyor...</> : <><FaTrash /> {deleteFromMP && deleteModal.marketplaceMappings?.length > 0 ? "Her Yerden Sil" : "Sil"}</>}
                                 </button>
                             </div>
                         </motion.div>

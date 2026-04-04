@@ -26,6 +26,10 @@ const ProductMappingSchema = new mongoose.Schema({
         stock: { type: Number, required: true, default: 0 },
         category: { type: String },
         brand: { type: String },
+        // Maliyet bilgileri (AI Brain tarafından kullanılır)
+        costPrice: { type: Number, default: 0 },
+        shippingCost: { type: Number, default: 0 },
+        packagingCost: { type: Number, default: 0 },
         attributes: {
             color: String,
             size: String,
@@ -166,9 +170,9 @@ ProductMappingSchema.methods.addSyncLog = function(action, marketplace, oldValue
         message
     });
 
-    // Son 100 log'u tut
-    if (this.syncHistory.length > 100) {
-        this.syncHistory = this.syncHistory.slice(-100);
+    // 🛡️ FIX #10: syncHistory sınırsız büyümeyi önle — son 50 log'u tut
+    if (this.syncHistory.length > 50) {
+        this.syncHistory = this.syncHistory.slice(-50);
     }
 };
 

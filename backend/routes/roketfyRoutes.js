@@ -33,33 +33,44 @@
 const express = require("express");
 const router = express.Router();
 const { authMiddleware } = require("../middlewares/authMiddleware");
+const { subscriptionMiddleware } = require("../middlewares/subscriptionMiddleware");
 const ctrl = require("../controllers/roketfyController");
 
+// ✅ Tüm route'lara auth + subscription kontrolü uygula
+router.use(authMiddleware, subscriptionMiddleware);
+
 // ── Dashboard & Genel ──
-router.get("/dashboard",              authMiddleware, ctrl.getDashboard);
-router.get("/history",                authMiddleware, ctrl.getHistory);
-router.get("/categories",             authMiddleware, ctrl.getCategories);
+router.get("/dashboard",              ctrl.getDashboard);
+router.get("/history",                ctrl.getHistory);
+router.get("/categories",             ctrl.getCategories);
 
 // ── Ürün Araştırması (Trendyol pazar verisi) ──
-router.post("/research/products",     authMiddleware, ctrl.researchProducts);
-router.get("/research/best-sellers",  authMiddleware, ctrl.getBestSellers);
-router.post("/research/keywords",     authMiddleware, ctrl.researchKeywords);
+router.post("/research/products",     ctrl.researchProducts);
+router.get("/research/best-sellers",  ctrl.getBestSellers);
+router.post("/research/keywords",     ctrl.researchKeywords);
 
 // ── Rakip Araştırması ──
-router.post("/competitor/analyze",    authMiddleware, ctrl.analyzeCompetitor);
+router.get("/competitor/my-products", ctrl.getMyProducts);
+router.post("/competitor/analyze",    ctrl.analyzeCompetitor);
 
 // ── Listeleme Analisti ──
-router.post("/listing/analyze",       authMiddleware, ctrl.analyzeListing);
-router.post("/listing/analyze-all",   authMiddleware, ctrl.analyzeAllListings);
+router.post("/listing/analyze",       ctrl.analyzeListing);
+router.post("/listing/analyze-all",   ctrl.analyzeAllListings);
 
 // ── AI İçerik Yazarı ──
-router.post("/content/title",         authMiddleware, ctrl.generateTitle);
-router.post("/content/description",   authMiddleware, ctrl.generateDescription);
+router.post("/content/title",         ctrl.generateTitle);
+router.post("/content/description",   ctrl.generateDescription);
 
 // ── Yorum Analizi ──
-router.post("/reviews/analyze",       authMiddleware, ctrl.analyzeReviews);
+router.post("/reviews/analyze",       ctrl.analyzeReviews);
 
 // ── Fiyat Önerisi ──
-router.post("/price/suggest",         authMiddleware, ctrl.suggestPrice);
+router.post("/price/suggest",         ctrl.suggestPrice);
+
+// ── Flaş Ürünler (anlık indirimli ürünler) ──
+router.get("/research/flash-products", ctrl.getFlashProducts);
+
+// ── Gelişmiş Kategori (alt kategori desteği) ──
+router.get("/categories/detailed",     ctrl.getDetailedCategories);
 
 module.exports = router;

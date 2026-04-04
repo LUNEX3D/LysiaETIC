@@ -1,6 +1,8 @@
 const Marketplace = require("../models/Marketplace");
 const logger = require("../config/logger");
 const ciceksepetiService = require("../services/ciceksepeti/ciceksepetiService");
+// ✅ FIX: Credential'ları decrypt ederek kullan
+const { decryptCredentials } = require("../utils/encryption");
 
 // ═══════════════════════════════════════════════════════════════════════
 // 🌸 ÇİÇEKSEPETİ CONTROLLER
@@ -14,6 +16,10 @@ const findCiceksepetiIntegration = async (userId) => {
         userId,
         marketplaceName: { $regex: /^[çc][ıi][çc]eksepeti$/i }
     });
+    if (marketplace) {
+        // ✅ FIX: Credential'ları decrypt et (DB'de şifreli saklanıyor)
+        marketplace.credentials = decryptCredentials(marketplace.credentials);
+    }
     return marketplace;
 };
 

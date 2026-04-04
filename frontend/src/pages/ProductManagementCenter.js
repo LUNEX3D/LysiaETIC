@@ -1,5 +1,5 @@
 /**
- * ÜRÜN YÖNETİM MERKEZİ — ProductManagementCenter.js (v2 — Kompakt & Modern)
+ * ÜRÜN YÖNETİM MERKEZİ — ProductManagementCenter.js (v3 — Temiz & Kullanışlı)
  *
  * Tek sayfa içinde tüm ürün yönetimi:
  *   • Dashboard özet kartları (üstte her zaman görünür)
@@ -10,7 +10,17 @@
  */
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
+import ReactDOM from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
+import {
+    FaBox, FaSearch, FaPlus, FaEdit, FaTrash, FaSync, FaRocket,
+    FaEye, FaFileExcel, FaCheck, FaTimes, FaChevronLeft, FaChevronRight,
+    FaTag, FaBarcode, FaDollarSign, FaWarehouse, FaStore, FaGlobe,
+    FaBolt, FaClipboardList, FaImage, FaFolderOpen, FaMagic,
+    FaArrowRight, FaArrowLeft, FaSave, FaCloudUploadAlt, FaShieldAlt,
+    FaPercentage, FaLayerGroup, FaExclamationTriangle, FaCheckCircle,
+    FaTimesCircle, FaInfoCircle, FaCubes, FaSitemap, FaSpinner
+} from "react-icons/fa";
 import {
     getProducts, getProductDetail, updateProduct, deleteProduct,
     syncFromMarketplace, distributeProduct, bulkDistribute,
@@ -22,23 +32,14 @@ import {
     bulkUpdatePrices, bulkUpdateStocks, bulkDeleteProducts, bulkUpdateFields,
 } from "../services/productManagementApi";
 import { getUserMarketplaces } from "../services/marketplaceApi";
+import "../styles/ProductManagementCenter.css";
 
 /* ═══════════════════════════════════════════════════════════════════
-   RENK PALETİ & SABİTLER
+   SABİTLER & YARDIMCILAR
    ═══════════════════════════════════════════════════════════════════ */
-const C = {
-    bg: "#060a13", surface: "#0c1120", card: "#111827", cardAlt: "#151d2e",
-    border: "rgba(255,255,255,0.06)", borderHover: "rgba(99,179,237,0.3)",
-    accent: "#38bdf8", accentDark: "#0ea5e9", purple: "#a78bfa", purpleDark: "#7c3aed",
-    green: "#34d399", greenDark: "#059669", yellow: "#fbbf24", yellowDark: "#d97706",
-    red: "#f87171", redDark: "#dc2626", blue: "#60a5fa",
-    text: "#f1f5f9", textSub: "#94a3b8", textDim: "#475569",
-    glass: "rgba(255,255,255,0.03)", glassBorder: "rgba(255,255,255,0.08)",
-};
-
 const PLATFORMS = ["Trendyol", "Hepsiburada", "N11", "Amazon", "ÇiçekSepeti"];
-const PL_COLOR = { Trendyol: "#f97316", Hepsiburada: "#eab308", N11: "#a855f7", Amazon: "#f59e0b", ÇiçekSepeti: "#ec4899" };
-const PL_ICON = { Trendyol: "🟠", Hepsiburada: "🟡", N11: "🟣", Amazon: "🔶", ÇiçekSepeti: "🌸" };
+const PL_COLOR = { Trendyol: "#f27a1a", Hepsiburada: "#ff6000", N11: "#8b5cf6", Amazon: "#f59e0b", ÇiçekSepeti: "#ec4899" };
+const PL_SHORT = { Trendyol: "TY", Hepsiburada: "HB", N11: "N11", Amazon: "AZ", ÇiçekSepeti: "ÇS" };
 
 const fmt = (v) => {
     try { return new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY", maximumFractionDigits: 2 }).format(Number(v || 0)); }
@@ -47,58 +48,6 @@ const fmt = (v) => {
 const fmtDate = (d) => { if (!d) return "—"; const dt = new Date(d); return isNaN(dt.getTime()) ? "—" : dt.toLocaleString("tr-TR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }); };
 const fmtAgo = (d) => { if (!d) return "—"; const m = Math.floor((Date.now() - new Date(d).getTime()) / 60000); if (m < 1) return "Az önce"; if (m < 60) return `${m}dk`; const h = Math.floor(m / 60); if (h < 24) return `${h}sa`; return `${Math.floor(h / 24)}g`; };
 
-/* ═══════════════════════════════════════════════════════════════════
-   MİNİ BİLEŞENLER
-   ═══════════════════════════════════════════════════════════════════ */
-const Pill = ({ color, children, style }) => (
-    <span style={{ background: color + "15", color, border: `1px solid ${color}30`, borderRadius: 6, padding: "2px 8px", fontSize: 10, fontWeight: 700, whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 3, ...style }}>{children}</span>
-);
-
-const Btn = ({ onClick, children, color = C.accent, disabled, loading, small, outline, style }) => (
-    <motion.button whileHover={!disabled ? { scale: 1.02 } : {}} whileTap={!disabled ? { scale: 0.97 } : {}} onClick={onClick} disabled={disabled || loading}
-        style={{
-            background: outline ? "transparent" : `linear-gradient(135deg, ${color}, ${color}cc)`,
-            border: outline ? `1.5px solid ${color}` : "none", borderRadius: 8,
-            padding: small ? "5px 12px" : "8px 18px", color: outline ? color : "#fff",
-            fontSize: small ? 11 : 12, fontWeight: 700, cursor: disabled ? "not-allowed" : "pointer",
-            display: "inline-flex", alignItems: "center", gap: 6, opacity: disabled ? 0.5 : 1,
-            boxShadow: outline ? "none" : `0 2px 8px ${color}30`, transition: "all .15s", ...style
-        }}>
-        {loading && <span style={{ width: 12, height: 12, border: "2px solid rgba(255,255,255,.3)", borderTop: "2px solid #fff", borderRadius: "50%", animation: "spin .7s linear infinite" }} />}
-        {children}
-    </motion.button>
-);
-
-const Card = ({ children, style, hover, onClick }) => (
-    <div onClick={onClick} style={{
-        background: C.card, border: `1px solid ${C.border}`, borderRadius: 14, padding: "1rem",
-        cursor: onClick ? "pointer" : "default", transition: "all .2s",
-        ...(hover ? { ":hover": { borderColor: C.borderHover } } : {}), ...style
-    }}>{children}</div>
-);
-
-const Empty = ({ icon = "📭", title, desc }) => (
-    <div style={{ textAlign: "center", padding: "2.5rem 1rem", color: C.textDim }}>
-        <div style={{ fontSize: "2.5rem", marginBottom: 8 }}>{icon}</div>
-        <div style={{ fontSize: 13, fontWeight: 600, color: C.textSub }}>{title}</div>
-        {desc && <div style={{ fontSize: 11, marginTop: 4 }}>{desc}</div>}
-    </div>
-);
-
-const Input = ({ label, icon, value, onChange, placeholder, type = "text", required, style: sx }) => (
-    <div style={{ display: "flex", flexDirection: "column", gap: 4, ...sx }}>
-        {label && <label style={{ color: C.textDim, fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em", display: "flex", alignItems: "center", gap: 3 }}>
-            {icon && <span style={{ fontSize: 11 }}>{icon}</span>}{label}{required && <span style={{ color: C.red }}>*</span>}
-        </label>}
-        <input type={type} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
-            style={{ background: C.glass, border: `1px solid ${C.border}`, borderRadius: 8, padding: "9px 12px", color: C.text, fontSize: 12, outline: "none", transition: "border .2s" }}
-            onFocus={e => e.target.style.borderColor = C.accent + "60"} onBlur={e => e.target.style.borderColor = C.border} />
-    </div>
-);
-
-/* ═══════════════════════════════════════════════════════════════════
-   PLATFORM YARDIMCILARI
-   ═══════════════════════════════════════════════════════════════════ */
 const normMP = (n) => { if (!n) return ""; const l = n.trim().toLowerCase(); if (l === "trendyol") return "trendyol"; if (l === "hepsiburada") return "hepsiburada"; if (l === "n11") return "n11"; if (l === "amazon" || l === "amazon türkiye") return "amazon"; if (l === "çiçeksepeti" || l === "ciceksepeti") return "ciceksepeti"; return l; };
 const getPlMap = (p, name) => (p.marketplaceMappings || []).find(m => normMP(m.marketplaceName) === normMP(name));
 const getPlStatus = (p, name) => { const m = getPlMap(p, name); if (!m) return { exists: false }; return { exists: true, status: m.syncStatus || (m.isActive !== false ? "active" : "inactive"), price: m.price, stock: m.stock, lastSync: m.lastSyncDate }; };
@@ -125,7 +74,7 @@ const ProductManagementCenter = ({ userId }) => {
     const [stockFilter, setStockFilter] = useState("");
     const [syncLogs, setSyncLogs] = useState([]);
     const [logsLoading, setLogsLoading] = useState(false);
-    const [editMap, setEditMap] = useState({}); // { [id]: { price, stock } }
+    const [editMap, setEditMap] = useState({});
     const [bulkModal, setBulkModal] = useState(false);
     const searchRef = useRef(null);
     const LIMIT = 20;
@@ -137,14 +86,14 @@ const ProductManagementCenter = ({ userId }) => {
     const [bulkSearch, setBulkSearch] = useState("");
     const [bulkSelected, setBulkSelected] = useState(new Set());
     const [bulkLoading, setBulkLoading] = useState(false);
-    const [bulkAction, setBulkAction] = useState(""); // "price"|"stock"|"delete"|"distribute"|"fields"
+    const [bulkAction, setBulkAction] = useState("");
     const [bulkActionLoading, setBulkActionLoading] = useState(false);
-    const [bulkPriceMode, setBulkPriceMode] = useState("percent"); // "fixed"|"percent"|"round"
+    const [bulkPriceMode, setBulkPriceMode] = useState("percent");
     const [bulkPriceValue, setBulkPriceValue] = useState("");
     const [bulkPriceRound, setBulkPriceRound] = useState("");
     const [bulkPriceListToo, setBulkPriceListToo] = useState(true);
     const [bulkPriceSync, setBulkPriceSync] = useState(false);
-    const [bulkStockMode, setBulkStockMode] = useState("fixed"); // "fixed"|"increase"|"decrease"
+    const [bulkStockMode, setBulkStockMode] = useState("fixed");
     const [bulkStockValue, setBulkStockValue] = useState("");
     const [bulkStockSync, setBulkStockSync] = useState(false);
     const [bulkFieldCategory, setBulkFieldCategory] = useState("");
@@ -152,6 +101,12 @@ const ProductManagementCenter = ({ userId }) => {
     const [bulkFieldSafety, setBulkFieldSafety] = useState("");
     const [bulkResult, setBulkResult] = useState(null);
     const bulkSearchRef = useRef(null);
+
+    // ── Delete Confirm Modal State ──
+    const [deleteConfirm, setDeleteConfirm] = useState(null);       // { id, name, platforms: [] }
+    const [deleteFromMP, setDeleteFromMP] = useState(true);
+    const [deleteLoading, setDeleteLoading] = useState(false);
+    const [deleteResult, setDeleteResult] = useState(null);         // { success, msg, mpResults: [] }
 
     // ── Upload State ──
     const [uploadStep, setUploadStep] = useState(1);
@@ -227,11 +182,36 @@ const ProductManagementCenter = ({ userId }) => {
         finally { setActionLoading(""); }
     };
 
-    const handleDelete = async (id) => {
-        if (!window.confirm("Bu ürünü silmek istediğinize emin misiniz?")) return;
-        setActionLoading(`d-${id}`);
-        try { await deleteProduct(id); showToast("Ürün silindi"); loadProducts(page); if (detail?._id === id) { setDetail(null); setShowDetail(false); } } catch { showToast("Silinemedi", "error"); }
-        finally { setActionLoading(""); }
+    // Silme onay modal'ını aç
+    const askDelete = (id) => {
+        const p = products.find(x => x._id === id) || detail;
+        const mp = p?.masterProduct || {};
+        const mappings = (p?.marketplaceMappings || []).map(m => m.marketplaceName);
+        setDeleteConfirm({ id, name: mp.name || mp.barcode || "Ürün", platforms: mappings });
+        setDeleteFromMP(true);
+        setDeleteResult(null);
+    };
+
+    // Silme işlemini gerçekleştir
+    const executeDelete = async () => {
+        if (!deleteConfirm) return;
+        const { id } = deleteConfirm;
+        setDeleteLoading(true); setDeleteResult(null);
+        try {
+            const res = await deleteProduct(id, { deleteFromMarketplaces: deleteFromMP });
+            const mpResults = res.marketplaceResults || [];
+            const mpSuccess = mpResults.filter(r => r.status === "success").length;
+            const mpError = mpResults.filter(r => r.status === "error").length;
+            let msg = "Ürün silindi";
+            if (mpResults.length > 0) msg += ` | Pazaryeri: ${mpSuccess} başarılı${mpError > 0 ? `, ${mpError} hata` : ""}`;
+            setDeleteResult({ success: true, msg, mpResults });
+            showToast(msg);
+            loadProducts(page); loadDashboard();
+            if (detail?._id === id) { setDetail(null); setShowDetail(false); }
+        } catch {
+            setDeleteResult({ success: false, msg: "Ürün silinemedi", mpResults: [] });
+            showToast("Silinemedi", "error");
+        } finally { setDeleteLoading(false); }
     };
 
     const handleSyncFrom = async (mp) => {
@@ -320,24 +300,80 @@ const ProductManagementCenter = ({ userId }) => {
     const dbP = db.products || {};
 
     /* ═══════════════════════════════════════════════════════════════
-       DASHBOARD KARTLARI (her zaman üstte)
+       PAYLAŞILAN ALT BİLEŞENLER
+       ═══════════════════════════════════════════════════════════════ */
+    const PlatformDots = ({ product }) => (
+        <div>
+            <div className="ud-pm-platforms">
+                {PLATFORMS.map(pl => {
+                    const ps = getPlStatus(product, pl);
+                    return (
+                        <div key={pl} className={`ud-pm-platform-dot ${ps.exists ? "" : "inactive"}`}
+                            title={`${pl}: ${ps.exists ? ps.status : "Yok"}`}
+                            style={{ background: ps.exists ? PL_COLOR[pl] + "20" : "transparent", color: PL_COLOR[pl] }}>
+                            {PL_SHORT[pl]}
+                            {ps.exists && (
+                                <span className="status-indicator" style={{
+                                    background: ps.status === "synced" || ps.status === "active" ? "var(--ud-pm-green)" : ps.status === "error" ? "var(--ud-pm-red)" : "var(--ud-pm-yellow)"
+                                }} />
+                            )}
+                        </div>
+                    );
+                })}
+            </div>
+            <div className="ud-pm-platform-count">{(product.marketplaceMappings || []).filter(m => m.marketplaceName).length} platform</div>
+        </div>
+    );
+
+    const Pagination = ({ currentPage, totalPages: tp, total: t, onPageChange }) => {
+        if (tp <= 1) return null;
+        return (
+            <div className="ud-pm-pagination">
+                <button className="ud-pm-btn sm accent outline" disabled={currentPage === 0} onClick={() => onPageChange(currentPage - 1)}><FaChevronLeft /></button>
+                <span className="page-info">{currentPage + 1} / {tp} <span className="total">({t})</span></span>
+                <button className="ud-pm-btn sm accent outline" disabled={currentPage >= tp - 1} onClick={() => onPageChange(currentPage + 1)}><FaChevronRight /></button>
+            </div>
+        );
+    };
+
+    const Empty = ({ icon: Icon = FaBox, title, desc }) => (
+        <div className="ud-pm-empty">
+            <div className="icon"><Icon /></div>
+            <div className="title">{title}</div>
+            {desc && <div className="desc">{desc}</div>}
+        </div>
+    );
+
+    const Loading = () => (
+        <div className="ud-pm-loading">
+            <div className="spinner-lg" />
+            Yükleniyor...
+        </div>
+    );
+
+    const Pill = ({ color, children }) => (
+        <span className="ud-pm-pill" style={{ background: color + "15", color, border: `1px solid ${color}30` }}>{children}</span>
+    );
+
+    /* ═══════════════════════════════════════════════════════════════
+       DASHBOARD KARTLARI
        ═══════════════════════════════════════════════════════════════ */
     const renderDashCards = () => {
         const cards = [
-            { icon: "📦", label: "Toplam Ürün", val: dbP.total || total, color: C.accent },
-            { icon: "✅", label: "Sağlıklı", val: dbP.healthy || "—", color: C.green },
-            { icon: "⚠️", label: "Düşük Stok", val: dbP.lowStock || 0, color: C.yellow },
-            { icon: "❌", label: "Stok Yok", val: dbP.outOfStock || 0, color: C.red },
-            { icon: "🏪", label: "Platform", val: (db.marketplaces || marketplaces || []).length, color: C.purple },
+            { icon: <FaCubes />, label: "Toplam Ürün", val: dbP.total || total, color: "var(--ud-pm-accent)" },
+            { icon: <FaCheckCircle />, label: "Sağlıklı", val: dbP.healthy || "—", color: "var(--ud-pm-green)" },
+            { icon: <FaExclamationTriangle />, label: "Düşük Stok", val: dbP.lowStock || 0, color: "var(--ud-pm-yellow)" },
+            { icon: <FaTimesCircle />, label: "Stok Yok", val: dbP.outOfStock || 0, color: "var(--ud-pm-red)" },
+            { icon: <FaStore />, label: "Platform", val: (db.marketplaces || marketplaces || []).length, color: "var(--ud-pm-purple)" },
         ];
         return (
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10, marginBottom: 20 }}>
+            <div className="ud-pm-dash-grid">
                 {cards.map(c => (
-                    <div key={c.label} style={{ background: `linear-gradient(135deg, ${c.color}08, ${c.color}04)`, border: `1px solid ${c.color}20`, borderRadius: 12, padding: "12px 14px", display: "flex", alignItems: "center", gap: 10 }}>
-                        <span style={{ fontSize: 22 }}>{c.icon}</span>
+                    <div key={c.label} className="ud-pm-dash-card" style={{ background: `linear-gradient(135deg, ${c.color}08, ${c.color}04)`, borderColor: `${c.color}20` }}>
+                        <div className="ud-pm-dash-icon" style={{ background: `${c.color}15`, color: c.color }}>{c.icon}</div>
                         <div>
-                            <div style={{ color: c.color, fontSize: 20, fontWeight: 800, lineHeight: 1 }}>{c.val}</div>
-                            <div style={{ color: C.textDim, fontSize: 10, fontWeight: 600, marginTop: 2 }}>{c.label}</div>
+                            <div className="ud-pm-dash-val" style={{ color: c.color }}>{c.val}</div>
+                            <div className="ud-pm-dash-label">{c.label}</div>
                         </div>
                     </div>
                 ))}
@@ -351,94 +387,83 @@ const ProductManagementCenter = ({ userId }) => {
     const renderProducts = () => (
         <div>
             {/* Toolbar */}
-            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 14 }}>
-                <div style={{ position: "relative", flex: 1, maxWidth: 320 }}>
-                    <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 12, color: C.textDim }}>🔍</span>
-                    <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Ürün adı, barkod, SKU..."
-                        style={{ width: "100%", background: C.glass, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 10px 8px 32px", color: C.text, fontSize: 12, outline: "none" }}
-                        onFocus={e => e.target.style.borderColor = C.accent + "50"} onBlur={e => e.target.style.borderColor = C.border} />
+            <div className="ud-pm-toolbar">
+                <div className="ud-pm-search-wrap">
+                    <span className="icon"><FaSearch /></span>
+                    <input className="ud-pm-search" value={search} onChange={e => setSearch(e.target.value)} placeholder="Ürün adı, barkod, SKU..." />
                 </div>
-                <select value={stockFilter} onChange={e => setStockFilter(e.target.value)}
-                    style={{ background: C.glass, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 10px", color: C.text, fontSize: 11, outline: "none" }}>
+                <select className="ud-pm-select" value={stockFilter} onChange={e => setStockFilter(e.target.value)}>
                     <option value="">Tüm Stok</option><option value="lowStock">Düşük</option><option value="outOfStock">Yok</option>
                 </select>
-                <div style={{ flex: 1 }} />
+                <div className="ud-pm-spacer" />
                 {selected.size > 0 && <>
-                    <Pill color={C.accent}>✓ {selected.size}</Pill>
-                    <Btn small color={C.purple} onClick={() => setBulkModal(true)}>🚀 Dağıt</Btn>
+                    <Pill color="var(--ud-pm-accent)"><FaCheck style={{ fontSize: 9 }} /> {selected.size}</Pill>
+                    <button className="ud-pm-btn sm purple" onClick={() => setBulkModal(true)}><FaRocket /> Dağıt</button>
                 </>}
-                <Btn small outline color={C.green} onClick={handleExport} loading={actionLoading === "export"}>📥 Excel</Btn>
-                <Btn small onClick={handleSyncAll} loading={actionLoading === "sync-all"}>🔄 Çek</Btn>
+                <button className="ud-pm-btn sm green outline" onClick={handleExport} disabled={actionLoading === "export"}>
+                    {actionLoading === "export" ? <span className="spinner" /> : <FaFileExcel />} Excel
+                </button>
+                <button className="ud-pm-btn sm accent" onClick={handleSyncAll} disabled={actionLoading === "sync-all"}>
+                    {actionLoading === "sync-all" ? <span className="spinner" /> : <FaSync />} Çek
+                </button>
             </div>
 
             {/* Tablo */}
-            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, overflow: "hidden" }}>
-                <div style={{ overflowX: "auto" }}>
-                    <table style={{ width: "100%", minWidth: 820, borderCollapse: "collapse" }}>
+            <div className="ud-pm-table-wrap">
+                <div className="ud-pm-table-scroll">
+                    <table className="ud-pm-table">
                         <thead>
-                            <tr style={{ borderBottom: `1px solid ${C.border}` }}>
-                                <th style={th}><input type="checkbox" checked={selected.size === products.length && products.length > 0} onChange={toggleAll} style={{ accentColor: C.accent }} /></th>
-                                <th style={th}>Ürün</th>
-                                <th style={th}>Barkod / SKU</th>
-                                <th style={{ ...th, textAlign: "right" }}>Fiyat</th>
-                                <th style={{ ...th, textAlign: "center" }}>Stok</th>
-                                <th style={{ ...th, textAlign: "center" }}>Platformlar</th>
-                                <th style={{ ...th, textAlign: "center" }}>İşlem</th>
+                            <tr>
+                                <th style={{ width: 40 }}><input type="checkbox" className="ud-pm-checkbox" checked={selected.size === products.length && products.length > 0} onChange={toggleAll} /></th>
+                                <th>Ürün</th>
+                                <th>Barkod / SKU</th>
+                                <th className="right">Fiyat</th>
+                                <th className="center">Stok</th>
+                                <th className="center">Platformlar</th>
+                                <th className="center">İşlem</th>
                             </tr>
                         </thead>
                         <tbody>
                             {loading ? (
-                                <tr><td colSpan={7} style={{ textAlign: "center", padding: "2.5rem", color: C.textDim }}><span style={{ fontSize: 20, animation: "spin .8s linear infinite", display: "inline-block" }}>⏳</span><div style={{ marginTop: 6, fontSize: 12 }}>Yükleniyor...</div></td></tr>
+                                <tr><td colSpan={7}><Loading /></td></tr>
                             ) : products.length === 0 ? (
-                                <tr><td colSpan={7}><Empty icon="📦" title="Ürün bulunamadı" desc="Pazaryerlerinden çekin veya yeni ekleyin" /></td></tr>
+                                <tr><td colSpan={7}><Empty icon={FaBox} title="Ürün bulunamadı" desc="Pazaryerlerinden çekin veya yeni ekleyin" /></td></tr>
                             ) : products.map((p, i) => {
                                 const mp = p.masterProduct || {};
                                 const st = p.stockTracking || {};
                                 const isSel = selected.has(p._id);
-                                const plCount = (p.marketplaceMappings || []).filter(m => m.marketplaceName).length;
                                 return (
                                     <motion.tr key={p._id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.015 }}
-                                        style={{ borderBottom: `1px solid ${C.border}`, background: isSel ? C.accent + "08" : "transparent", cursor: "pointer", transition: "background .1s" }}
-                                        onClick={() => openDetail(p._id)}
-                                        onMouseEnter={e => { if (!isSel) e.currentTarget.style.background = "rgba(255,255,255,.015)"; }}
-                                        onMouseLeave={e => { if (!isSel) e.currentTarget.style.background = "transparent"; }}>
-                                        <td style={td} onClick={e => e.stopPropagation()}><input type="checkbox" checked={isSel} onChange={() => toggleSel(p._id)} style={{ accentColor: C.accent }} /></td>
-                                        <td style={td}>
-                                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                                {mp.images?.[0] ? <img src={mp.images[0]} alt="" style={{ width: 32, height: 32, borderRadius: 6, objectFit: "cover", border: `1px solid ${C.border}` }} />
-                                                    : <div style={{ width: 32, height: 32, borderRadius: 6, background: C.glass, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>📦</div>}
+                                        className={isSel ? "selected" : ""} onClick={() => openDetail(p._id)}>
+                                        <td onClick={e => e.stopPropagation()}><input type="checkbox" className="ud-pm-checkbox" checked={isSel} onChange={() => toggleSel(p._id)} /></td>
+                                        <td>
+                                            <div className="product-cell">
+                                                {mp.images?.[0] ? <img src={mp.images[0]} alt="" className="product-img" />
+                                                    : <div className="product-img-placeholder"><FaBox /></div>}
                                                 <div>
-                                                    <div style={{ color: C.text, fontSize: 12, fontWeight: 600, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{mp.name || "İsimsiz"}</div>
-                                                    {mp.brand && <div style={{ color: C.textDim, fontSize: 10 }}>{mp.brand}</div>}
+                                                    <div className="product-name">{mp.name || "İsimsiz"}</div>
+                                                    {mp.brand && <div className="product-brand">{mp.brand}</div>}
                                                 </div>
                                             </div>
                                         </td>
-                                        <td style={td}>
-                                            <div style={{ fontFamily: "monospace", fontSize: 11, color: C.textSub }}>{mp.barcode || "—"}</div>
-                                            <div style={{ fontFamily: "monospace", fontSize: 10, color: C.textDim }}>{mp.sku || "—"}</div>
+                                        <td>
+                                            <div className="mono">{mp.barcode || "—"}</div>
+                                            <div className="mono-dim">{mp.sku || "—"}</div>
                                         </td>
-                                        <td style={{ ...td, textAlign: "right" }}>
-                                            <div style={{ color: C.green, fontWeight: 700, fontSize: 12 }}>{fmt(mp.price)}</div>
-                                            {mp.listPrice && mp.listPrice !== mp.price && <div style={{ color: C.textDim, fontSize: 10, textDecoration: "line-through" }}>{fmt(mp.listPrice)}</div>}
+                                        <td className="right">
+                                            <div className="price">{fmt(mp.price)}</div>
+                                            {mp.listPrice && mp.listPrice !== mp.price && <div className="price-old">{fmt(mp.listPrice)}</div>}
                                         </td>
-                                        <td style={{ ...td, textAlign: "center" }}>
-                                            <span style={{ color: st.isOutOfStock ? C.red : st.isLowStock ? C.yellow : C.green, fontWeight: 800, fontSize: 13 }}>{st.totalStock ?? mp.stock ?? 0}</span>
+                                        <td className="center">
+                                            <span className={st.isOutOfStock ? "stock-out" : st.isLowStock ? "stock-low" : "stock-ok"}>
+                                                {st.totalStock ?? mp.stock ?? 0}
+                                            </span>
                                         </td>
-                                        <td style={{ ...td, textAlign: "center" }}>
-                                            <div style={{ display: "flex", gap: 2, justifyContent: "center" }}>
-                                                {PLATFORMS.map(pl => { const ps = getPlStatus(p, pl); return (
-                                                    <span key={pl} title={`${pl}: ${ps.exists ? ps.status : "Yok"}`} style={{ fontSize: 12, opacity: ps.exists ? 1 : 0.15, position: "relative" }}>
-                                                        {PL_ICON[pl]}
-                                                        {ps.exists && <span style={{ position: "absolute", bottom: -1, right: -1, width: 5, height: 5, borderRadius: "50%", background: ps.status === "synced" || ps.status === "active" ? C.green : ps.status === "error" ? C.red : C.yellow, border: `1px solid ${C.card}` }} />}
-                                                    </span>
-                                                ); })}
-                                            </div>
-                                            <div style={{ fontSize: 9, color: C.textDim, marginTop: 1 }}>{plCount} platform</div>
-                                        </td>
-                                        <td style={{ ...td, textAlign: "center" }} onClick={e => e.stopPropagation()}>
-                                            <div style={{ display: "flex", gap: 3, justifyContent: "center" }}>
-                                                <Btn small outline color={C.accent} onClick={() => openDetail(p._id)}>👁️</Btn>
-                                                <Btn small outline color={C.red} onClick={() => handleDelete(p._id)} disabled={actionLoading === `d-${p._id}`}>🗑️</Btn>
+                                        <td className="center"><PlatformDots product={p} /></td>
+                                        <td className="center" onClick={e => e.stopPropagation()}>
+                                            <div style={{ display: "flex", gap: 4, justifyContent: "center" }}>
+                                                <button className="ud-pm-btn sm accent outline" onClick={() => openDetail(p._id)}><FaEye /></button>
+                                                <button className="ud-pm-btn sm red outline" onClick={() => askDelete(p._id)}><FaTrash /></button>
                                             </div>
                                         </td>
                                     </motion.tr>
@@ -447,36 +472,35 @@ const ProductManagementCenter = ({ userId }) => {
                         </tbody>
                     </table>
                 </div>
-                {totalPages > 1 && (
-                    <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 8, padding: 10, borderTop: `1px solid ${C.border}` }}>
-                        <Btn small outline disabled={page === 0} onClick={() => loadProducts(page - 1)}>◀</Btn>
-                        <span style={{ color: C.textSub, fontSize: 12 }}>{page + 1} / {totalPages} <span style={{ color: C.textDim }}>({total})</span></span>
-                        <Btn small outline disabled={page >= totalPages - 1} onClick={() => loadProducts(page + 1)}>▶</Btn>
-                    </div>
-                )}
+                <Pagination currentPage={page} totalPages={totalPages} total={total} onPageChange={p => loadProducts(p)} />
             </div>
 
-            {/* Bulk Modal */}
+            {/* Bulk Distribute Modal */}
+            {ReactDOM.createPortal(
             <AnimatePresence>
                 {bulkModal && (
-                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setBulkModal(false)}
-                        style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.7)", backdropFilter: "blur(4px)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
-                        <motion.div initial={{ scale: .9 }} animate={{ scale: 1 }} exit={{ scale: .9 }} onClick={e => e.stopPropagation()}
-                            style={{ background: C.card, border: `1px solid ${C.borderHover}`, borderRadius: 16, padding: "1.5rem", maxWidth: 420, width: "100%" }}>
-                            <h3 style={{ color: C.text, margin: 0, marginBottom: 14, fontSize: 16 }}>🚀 Toplu Dağıtım — {selected.size} Ürün</h3>
+                    <motion.div className="ud-pm-modal-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setBulkModal(false)}>
+                        <motion.div className="ud-pm-modal" initial={{ scale: .9 }} animate={{ scale: 1 }} exit={{ scale: .9 }} onClick={e => e.stopPropagation()} style={{ maxWidth: 420 }}>
+                            <h3 style={{ color: "var(--ud-pm-text)", margin: "0 0 14px", fontSize: 16, display: "flex", alignItems: "center", gap: 8 }}><FaRocket style={{ color: "var(--ud-pm-purple)" }} /> Toplu Dağıtım — {selected.size} Ürün</h3>
                             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                                 {marketplaces.map(mp => (
-                                    <Btn key={mp._id} color={PL_COLOR[mp.marketplaceName] || C.accent} onClick={() => handleBulkDistribute([mp.marketplaceName])} loading={actionLoading === "bulk"} style={{ justifyContent: "flex-start" }}>
-                                        {PL_ICON[mp.marketplaceName] || "🔗"} {mp.marketplaceName}
-                                    </Btn>
+                                    <button key={mp._id} className="ud-pm-btn" style={{ background: PL_COLOR[mp.marketplaceName] || "var(--ud-pm-accent)", justifyContent: "flex-start" }}
+                                        onClick={() => handleBulkDistribute([mp.marketplaceName])} disabled={actionLoading === "bulk"}>
+                                        {actionLoading === "bulk" ? <span className="spinner" /> : <FaRocket />} {mp.marketplaceName}
+                                    </button>
                                 ))}
-                                {marketplaces.length > 1 && <Btn color={C.accent} onClick={() => handleBulkDistribute(marketplaces.map(m => m.marketplaceName))} loading={actionLoading === "bulk"}>🌐 Tümüne Dağıt</Btn>}
+                                {marketplaces.length > 1 && (
+                                    <button className="ud-pm-btn accent" onClick={() => handleBulkDistribute(marketplaces.map(m => m.marketplaceName))} disabled={actionLoading === "bulk"}>
+                                        <FaGlobe /> Tümüne Dağıt
+                                    </button>
+                                )}
                             </div>
-                            <button onClick={() => setBulkModal(false)} style={{ marginTop: 12, background: "none", border: "none", color: C.textDim, cursor: "pointer", fontSize: 12 }}>İptal</button>
+                            <button onClick={() => setBulkModal(false)} style={{ marginTop: 12, background: "none", border: "none", color: "var(--ud-pm-text-dim)", cursor: "pointer", fontSize: 12 }}>İptal</button>
                         </motion.div>
                     </motion.div>
                 )}
             </AnimatePresence>
+            , document.body)}
         </div>
     );
 
@@ -487,68 +511,99 @@ const ProductManagementCenter = ({ userId }) => {
         const totalImgs = uf.imageUrls.length + imgFiles.length;
         const canSubmit = uf.name && uf.barcode && uf.sku && uf.price;
 
-        const Step = ({ num, label, icon }) => (
-            <div onClick={() => setUploadStep(num)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", borderRadius: 10, cursor: "pointer", flex: 1,
-                background: uploadStep === num ? C.accent + "12" : "transparent", border: `1.5px solid ${uploadStep === num ? C.accent : uploadStep > num ? C.green + "40" : C.border}`, transition: "all .2s" }}>
-                <span style={{ width: 26, height: 26, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
-                    background: uploadStep > num ? C.green : uploadStep === num ? C.accent : C.glass, color: uploadStep >= num ? "#fff" : C.textDim, fontSize: 11, fontWeight: 800 }}>
-                    {uploadStep > num ? "✓" : icon}
-                </span>
-                <div>
-                    <div style={{ color: uploadStep === num ? C.accent : uploadStep > num ? C.green : C.textDim, fontSize: 10, fontWeight: 700 }}>Adım {num}</div>
-                    <div style={{ color: uploadStep === num ? C.text : C.textDim, fontSize: 10 }}>{label}</div>
-                </div>
-            </div>
-        );
-
-        const CodeChip = ({ item, onClick }) => (
-            <button onClick={() => item.available && onClick(item.value)} disabled={!item.available}
-                style={{ background: item.available ? C.accent + "12" : C.red + "08", border: `1px solid ${item.available ? C.accent + "35" : C.red + "25"}`, borderRadius: 6, padding: "4px 10px", cursor: item.available ? "pointer" : "not-allowed", color: item.available ? C.accent : C.red, fontSize: 11, fontWeight: 600, fontFamily: "monospace", display: "flex", alignItems: "center", gap: 4, opacity: item.available ? 1 : .5 }}>
-                {item.available ? "✓" : "✗"} {item.value}
-            </button>
-        );
-
         return (
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-                <div style={{ display: "flex", gap: 8 }}>{Step({ num: 1, label: "Temel Bilgiler", icon: "1" })}{Step({ num: 2, label: "Kategori & Görseller", icon: "2" })}{Step({ num: 3, label: "Açıklama & Gönder", icon: "3" })}</div>
+                {/* Steps */}
+                <div className="ud-pm-steps">
+                    {[{ num: 1, label: "Temel Bilgiler", icon: <FaEdit /> }, { num: 2, label: "Kategori & Görseller", icon: <FaImage /> }, { num: 3, label: "Açıklama & Gönder", icon: <FaCloudUploadAlt /> }].map(s => (
+                        <button key={s.num} className={`ud-pm-step ${uploadStep === s.num ? "active" : ""} ${uploadStep > s.num ? "done" : ""}`} onClick={() => setUploadStep(s.num)}>
+                            <span className="step-num">{uploadStep > s.num ? <FaCheck /> : s.icon}</span>
+                            <div>
+                                <div className="step-label">Adım {s.num}</div>
+                                <div className="step-desc">{s.label}</div>
+                            </div>
+                        </button>
+                    ))}
+                </div>
 
                 {/* ADIM 1 */}
                 {uploadStep === 1 && (
                     <motion.div initial={{ opacity: 0, x: 15 }} animate={{ opacity: 1, x: 0 }} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                        <Card>
-                            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
-                                <span style={{ fontSize: 20 }}>📝</span>
-                                <div><div style={{ color: C.text, fontSize: 14, fontWeight: 700 }}>Temel Bilgiler</div><div style={{ color: C.textDim, fontSize: 10 }}>Ürün adı, fiyat, stok ve marka</div></div>
+                        <div className="ud-pm-card">
+                            <div className="ud-pm-card-header">
+                                <span className="icon"><FaEdit /></span>
+                                <div><div className="title">Temel Bilgiler</div><div className="subtitle">Ürün adı, fiyat, stok ve marka</div></div>
                             </div>
-                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                                <div style={{ gridColumn: "1/-1" }}><Input label="Ürün Adı" icon="📦" value={uf.name} onChange={v => ufSet("name", v)} placeholder="Ürün başlığı..." required /></div>
-                                <Input label="Marka" icon="🏷️" value={uf.brand} onChange={v => ufSet("brand", v)} placeholder="Marka" />
-                                <Input label="Stok" icon="📊" value={uf.stock} onChange={v => ufSet("stock", v)} placeholder="0" type="number" />
-                                <Input label="Satış Fiyatı (₺)" icon="💰" value={uf.price} onChange={v => ufSet("price", v)} placeholder="0.00" type="number" required />
-                                <Input label="Liste Fiyatı (₺)" icon="🏷️" value={uf.listPrice} onChange={v => ufSet("listPrice", v)} placeholder="Boş = satış fiyatı" type="number" />
-                            </div>
-                        </Card>
-                        <Card>
-                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-                                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                    <span style={{ fontSize: 20 }}>🔢</span>
-                                    <div><div style={{ color: C.text, fontSize: 14, fontWeight: 700 }}>Barkod & SKU</div><div style={{ color: C.textDim, fontSize: 10 }}>Manuel girin veya öneri alın</div></div>
+                            <div className="ud-pm-grid-2">
+                                <div className="ud-pm-field full">
+                                    <label><FaBox style={{ fontSize: 10 }} /> Ürün Adı <span className="required">*</span></label>
+                                    <input value={uf.name} onChange={e => ufSet("name", e.target.value)} placeholder="Ürün başlığı..." />
                                 </div>
-                                <Btn small color={C.purple} onClick={handleSuggestCodes} loading={codeLoading} disabled={!uf.name.trim()}>✨ Öneri</Btn>
+                                <div className="ud-pm-field">
+                                    <label><FaTag style={{ fontSize: 10 }} /> Marka</label>
+                                    <input value={uf.brand} onChange={e => ufSet("brand", e.target.value)} placeholder="Marka" />
+                                </div>
+                                <div className="ud-pm-field">
+                                    <label><FaWarehouse style={{ fontSize: 10 }} /> Stok</label>
+                                    <input type="number" value={uf.stock} onChange={e => ufSet("stock", e.target.value)} placeholder="0" />
+                                </div>
+                                <div className="ud-pm-field">
+                                    <label><FaDollarSign style={{ fontSize: 10 }} /> Satış Fiyatı (₺) <span className="required">*</span></label>
+                                    <input type="number" value={uf.price} onChange={e => ufSet("price", e.target.value)} placeholder="0.00" />
+                                </div>
+                                <div className="ud-pm-field">
+                                    <label><FaTag style={{ fontSize: 10 }} /> Liste Fiyatı (₺)</label>
+                                    <input type="number" value={uf.listPrice} onChange={e => ufSet("listPrice", e.target.value)} placeholder="Boş = satış fiyatı" />
+                                </div>
                             </div>
-                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                                <Input label="Barkod" icon="📊" value={uf.barcode} onChange={v => ufSet("barcode", v)} placeholder="Benzersiz barkod" required />
-                                <Input label="SKU" icon="🏷️" value={uf.sku} onChange={v => ufSet("sku", v)} placeholder="Stok kodu" required />
+                        </div>
+                        <div className="ud-pm-card">
+                            <div className="ud-pm-card-header">
+                                <span className="icon"><FaBarcode /></span>
+                                <div style={{ flex: 1 }}><div className="title">Barkod & SKU</div><div className="subtitle">Manuel girin veya öneri alın</div></div>
+                                <button className="ud-pm-btn sm purple" onClick={handleSuggestCodes} disabled={!uf.name.trim() || codeLoading}>
+                                    {codeLoading ? <span className="spinner" /> : <FaMagic />} Öneri
+                                </button>
+                            </div>
+                            <div className="ud-pm-grid-2">
+                                <div className="ud-pm-field">
+                                    <label><FaBarcode style={{ fontSize: 10 }} /> Barkod <span className="required">*</span></label>
+                                    <input value={uf.barcode} onChange={e => ufSet("barcode", e.target.value)} placeholder="Benzersiz barkod" />
+                                </div>
+                                <div className="ud-pm-field">
+                                    <label><FaTag style={{ fontSize: 10 }} /> SKU <span className="required">*</span></label>
+                                    <input value={uf.sku} onChange={e => ufSet("sku", e.target.value)} placeholder="Stok kodu" />
+                                </div>
                             </div>
                             {codeSugg && (
-                                <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                                    <div><div style={{ color: C.textDim, fontSize: 9, fontWeight: 700, marginBottom: 6, textTransform: "uppercase" }}>Barkod Önerileri</div><div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{(codeSugg.barcodes || []).map((b, i) => <CodeChip key={i} item={b} onClick={v => ufSet("barcode", v)} />)}</div></div>
-                                    <div><div style={{ color: C.textDim, fontSize: 9, fontWeight: 700, marginBottom: 6, textTransform: "uppercase" }}>SKU Önerileri</div><div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{(codeSugg.skus || []).map((s, i) => <CodeChip key={i} item={s} onClick={v => ufSet("sku", v)} />)}</div></div>
+                                <div className="ud-pm-grid-2" style={{ marginTop: 12 }}>
+                                    <div>
+                                        <div style={{ color: "var(--ud-pm-text-dim)", fontSize: 9, fontWeight: 700, marginBottom: 6, textTransform: "uppercase" }}>Barkod Önerileri</div>
+                                        <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                                            {(codeSugg.barcodes || []).map((b, i) => (
+                                                <button key={i} className={`ud-pm-code-chip ${!b.available ? "unavailable" : ""}`}
+                                                    onClick={() => b.available && ufSet("barcode", b.value)} disabled={!b.available}>
+                                                    {b.available ? <FaCheck style={{ fontSize: 8 }} /> : <FaTimes style={{ fontSize: 8 }} />} {b.value}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <div style={{ color: "var(--ud-pm-text-dim)", fontSize: 9, fontWeight: 700, marginBottom: 6, textTransform: "uppercase" }}>SKU Önerileri</div>
+                                        <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                                            {(codeSugg.skus || []).map((s, i) => (
+                                                <button key={i} className={`ud-pm-code-chip ${!s.available ? "unavailable" : ""}`}
+                                                    onClick={() => s.available && ufSet("sku", s.value)} disabled={!s.available}>
+                                                    {s.available ? <FaCheck style={{ fontSize: 8 }} /> : <FaTimes style={{ fontSize: 8 }} />} {s.value}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
                                 </div>
                             )}
-                        </Card>
+                        </div>
                         <div style={{ display: "flex", justifyContent: "flex-end" }}>
-                            <Btn onClick={() => setUploadStep(2)} disabled={!uf.name.trim()}>İleri →</Btn>
+                            <button className="ud-pm-btn accent" onClick={() => setUploadStep(2)} disabled={!uf.name.trim()}><span>İleri</span> <FaArrowRight /></button>
                         </div>
                     </motion.div>
                 )}
@@ -556,178 +611,191 @@ const ProductManagementCenter = ({ userId }) => {
                 {/* ADIM 2 */}
                 {uploadStep === 2 && (
                     <motion.div initial={{ opacity: 0, x: 15 }} animate={{ opacity: 1, x: 0 }} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                        <Card>
-                            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-                                <span style={{ fontSize: 20 }}>🗂️</span>
-                                <div style={{ flex: 1 }}><div style={{ color: C.text, fontSize: 14, fontWeight: 700 }}>Kategori</div><div style={{ color: C.textDim, fontSize: 10 }}>Platform kategorisi seçin</div></div>
+                        <div className="ud-pm-card">
+                            <div className="ud-pm-card-header">
+                                <span className="icon"><FaSitemap /></span>
+                                <div style={{ flex: 1 }}><div className="title">Kategori</div><div className="subtitle">Platform kategorisi seçin</div></div>
                                 <div style={{ display: "flex", gap: 4 }}>
                                     {["Trendyol", "N11"].map(p => (
-                                        <button key={p} onClick={() => { setCatPlatform(p); setCatLevels([]); setCatResults([]); setCatSearch(""); }}
-                                            style={{ background: catPlatform === p ? (PL_COLOR[p] || C.accent) + "18" : "transparent", border: `1px solid ${catPlatform === p ? PL_COLOR[p] || C.accent : C.border}`, borderRadius: 6, padding: "4px 10px", cursor: "pointer", color: catPlatform === p ? C.text : C.textDim, fontSize: 10, fontWeight: 700 }}>
-                                            {PL_ICON[p]} {p}
+                                        <button key={p} className={`ud-pm-tone-btn ${catPlatform === p ? "active" : ""}`}
+                                            style={catPlatform === p ? { borderColor: PL_COLOR[p], color: PL_COLOR[p], background: PL_COLOR[p] + "15" } : {}}
+                                            onClick={() => { setCatPlatform(p); setCatLevels([]); setCatResults([]); setCatSearch(""); }}>
+                                            {PL_SHORT[p]} {p}
                                         </button>
                                     ))}
                                 </div>
                             </div>
                             {uf.category && (
-                                <div style={{ background: C.green + "0c", border: `1px solid ${C.green}25`, borderRadius: 8, padding: "8px 12px", marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
-                                    <span style={{ color: C.green, fontSize: 12 }}>✅</span>
-                                    <span style={{ color: C.text, fontSize: 12, fontWeight: 600, flex: 1 }}>{uf.category}</span>
-                                    <button onClick={() => { ufSet("category", ""); setCatLevels([]); }} style={{ background: "none", border: "none", color: C.textDim, cursor: "pointer", fontSize: 14 }}>✕</button>
+                                <div className="ud-pm-cat-selected">
+                                    <FaCheckCircle style={{ color: "var(--ud-pm-green)", fontSize: 13 }} />
+                                    <span className="cat-text">{uf.category}</span>
+                                    <button className="clear-btn" onClick={() => { ufSet("category", ""); setCatLevels([]); }}><FaTimes /></button>
                                 </div>
                             )}
                             <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-                                <div style={{ position: "relative", flex: 1 }}>
-                                    <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 11, color: C.textDim }}>🔍</span>
-                                    <input value={catSearch} onChange={e => handleCatSearch(e.target.value)} placeholder={`${catPlatform} kategorilerinde ara...`}
-                                        style={{ width: "100%", background: C.glass, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 10px 8px 30px", color: C.text, fontSize: 11, outline: "none" }} />
+                                <div className="ud-pm-search-wrap" style={{ maxWidth: "none" }}>
+                                    <span className="icon"><FaSearch /></span>
+                                    <input className="ud-pm-search" value={catSearch} onChange={e => handleCatSearch(e.target.value)} placeholder={`${catPlatform} kategorilerinde ara...`} />
                                 </div>
-                                {!catSearch && catLevels.length === 0 && <Btn small color={C.blue} onClick={() => loadCatLevel("0", 0)} loading={catLoading}>📂 Aç</Btn>}
+                                {!catSearch && catLevels.length === 0 && (
+                                    <button className="ud-pm-btn sm blue" onClick={() => loadCatLevel("0", 0)} disabled={catLoading}>
+                                        {catLoading ? <span className="spinner" /> : <FaFolderOpen />} Aç
+                                    </button>
+                                )}
                             </div>
                             {catSearch && catResults.length > 0 && (
-                                <div style={{ maxHeight: 200, overflowY: "auto", border: `1px solid ${C.border}`, borderRadius: 8, marginBottom: 10 }}>
+                                <div className="ud-pm-cat-search-results">
                                     {catResults.map((c, i) => (
-                                        <div key={c.id || i} onClick={() => { ufSet("category", c.path || c.name); setCatSearch(""); setCatResults([]); }}
-                                            style={{ padding: "8px 12px", cursor: "pointer", borderBottom: `1px solid ${C.border}`, fontSize: 11, transition: "background .1s" }}
-                                            onMouseEnter={e => e.currentTarget.style.background = C.accent + "08"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                                            <div style={{ color: C.text, fontWeight: 600 }}>{c.name}</div>
-                                            {c.path && <div style={{ color: C.textDim, fontSize: 9 }}>{c.path}</div>}
+                                        <div key={c.id || i} className="ud-pm-cat-search-item"
+                                            onClick={() => { ufSet("category", c.path || c.name); setCatSearch(""); setCatResults([]); }}>
+                                            <div className="name">{c.name}</div>
+                                            {c.path && <div className="path">{c.path}</div>}
                                         </div>
                                     ))}
                                 </div>
                             )}
                             {!catSearch && catLevels.length > 0 && (
-                                <div style={{ display: "flex", gap: 2, overflowX: "auto", paddingBottom: 4 }}>
+                                <div className="ud-pm-cat-levels">
                                     {catLevels.map((lv, li) => (
-                                        <div key={li} style={{ minWidth: 170, maxWidth: 210, border: `1px solid ${C.border}`, borderRadius: 8, background: C.glass, flexShrink: 0 }}>
-                                            <div style={{ padding: "6px 10px", borderBottom: `1px solid ${C.border}`, color: C.textDim, fontSize: 9, fontWeight: 700, textTransform: "uppercase" }}>{li === 0 ? "Ana Kategori" : `Alt ${li}`}</div>
-                                            <div style={{ maxHeight: 200, overflowY: "auto" }}>
-                                                {lv.categories.map(c => { const sel = lv.selected?.id === c.id; return (
-                                                    <div key={c.id} onClick={() => handleCatSelect(li, c)}
-                                                        style={{ padding: "6px 10px", cursor: "pointer", background: sel ? C.accent + "12" : "transparent", borderLeft: sel ? `2px solid ${C.accent}` : "2px solid transparent", display: "flex", alignItems: "center", gap: 4, transition: "all .1s" }}
-                                                        onMouseEnter={e => { if (!sel) e.currentTarget.style.background = "rgba(255,255,255,.02)"; }} onMouseLeave={e => { if (!sel) e.currentTarget.style.background = "transparent"; }}>
-                                                        <span style={{ fontSize: 10, color: c.isLeaf ? C.green : C.yellow }}>{c.isLeaf ? "📄" : "📁"}</span>
-                                                        <span style={{ color: sel ? C.accent : C.text, fontSize: 11, fontWeight: sel ? 700 : 400, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</span>
-                                                        {c.hasChildren && <span style={{ color: C.textDim, fontSize: 9 }}>›</span>}
-                                                    </div>
-                                                ); })}
+                                        <div key={li} className="ud-pm-cat-column">
+                                            <div className="col-header">{li === 0 ? "Ana Kategori" : `Alt ${li}`}</div>
+                                            <div className="col-list">
+                                                {lv.categories.map(c => {
+                                                    const sel = lv.selected?.id === c.id;
+                                                    return (
+                                                        <div key={c.id} className={`ud-pm-cat-item ${sel ? "selected" : ""}`} onClick={() => handleCatSelect(li, c)}>
+                                                            <span className="cat-icon" style={{ color: c.isLeaf ? "var(--ud-pm-green)" : "var(--ud-pm-yellow)" }}>
+                                                                {c.isLeaf ? <FaCheck /> : <FaFolderOpen />}
+                                                            </span>
+                                                            <span className="cat-name">{c.name}</span>
+                                                            {c.hasChildren && <span className="cat-arrow"><FaChevronRight /></span>}
+                                                        </div>
+                                                    );
+                                                })}
                                             </div>
                                         </div>
                                     ))}
-                                    {catLoading && <div style={{ minWidth: 170, display: "flex", alignItems: "center", justifyContent: "center", color: C.textDim, fontSize: 11 }}>⏳</div>}
+                                    {catLoading && <div style={{ minWidth: 170, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--ud-pm-text-dim)" }}><FaSpinner className="ud-pm-spin" /></div>}
                                 </div>
                             )}
-                        </Card>
-                        <Card>
-                            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-                                <span style={{ fontSize: 20 }}>🖼️</span>
-                                <div><div style={{ color: C.text, fontSize: 14, fontWeight: 700 }}>Görseller</div><div style={{ color: C.textDim, fontSize: 10 }}>Dosya veya URL (maks. 8)</div></div>
-                                <Pill color={C.accent} style={{ marginLeft: "auto" }}>{totalImgs}/8</Pill>
+                        </div>
+                        <div className="ud-pm-card">
+                            <div className="ud-pm-card-header">
+                                <span className="icon"><FaImage /></span>
+                                <div><div className="title">Görseller</div><div className="subtitle">Dosya veya URL (maks. 8)</div></div>
+                                <Pill color="var(--ud-pm-accent)">{totalImgs}/8</Pill>
                             </div>
                             <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
                                 <input ref={fileRef} type="file" accept="image/*" multiple onChange={handleFileSelect} style={{ display: "none" }} />
-                                <Btn small color={C.purple} onClick={() => fileRef.current?.click()} disabled={totalImgs >= 8}>📁 Dosya</Btn>
+                                <button className="ud-pm-btn sm purple" onClick={() => fileRef.current?.click()} disabled={totalImgs >= 8}><FaFolderOpen /> Dosya</button>
                                 <div style={{ display: "flex", gap: 4, flex: 1, minWidth: 180 }}>
-                                    <input value={imgUrlInput} onChange={e => setImgUrlInput(e.target.value)} placeholder="https://... görsel URL" onKeyDown={e => e.key === "Enter" && handleAddImgUrl()}
-                                        style={{ flex: 1, background: C.glass, border: `1px solid ${C.border}`, borderRadius: 8, padding: "7px 10px", color: C.text, fontSize: 11, outline: "none" }} />
-                                    <Btn small color={C.green} onClick={handleAddImgUrl} disabled={!imgUrlInput.trim() || totalImgs >= 8}>+</Btn>
+                                    <input className="ud-pm-search" style={{ paddingLeft: 12 }} value={imgUrlInput} onChange={e => setImgUrlInput(e.target.value)} placeholder="https://... görsel URL" onKeyDown={e => e.key === "Enter" && handleAddImgUrl()} />
+                                    <button className="ud-pm-btn sm green" onClick={handleAddImgUrl} disabled={!imgUrlInput.trim() || totalImgs >= 8}><FaPlus /></button>
                                 </div>
                             </div>
                             {totalImgs > 0 ? (
-                                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(90px, 1fr))", gap: 8 }}>
+                                <div className="ud-pm-img-grid">
                                     {uf.imageUrls.map((u, i) => (
-                                        <div key={`u${i}`} style={{ position: "relative", borderRadius: 8, overflow: "hidden", border: `1px solid ${C.border}`, aspectRatio: "1" }}>
-                                            <img src={u} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={e => e.target.style.display = "none"} />
-                                            <button onClick={() => removeImg("url", i)} style={{ position: "absolute", top: 3, right: 3, background: "rgba(0,0,0,.7)", border: "none", borderRadius: "50%", width: 18, height: 18, color: "#fff", cursor: "pointer", fontSize: 9, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+                                        <div key={`u${i}`} className="ud-pm-img-item">
+                                            <img src={u} alt="" onError={e => e.target.style.display = "none"} />
+                                            <button className="remove-btn" onClick={() => removeImg("url", i)}><FaTimes /></button>
                                         </div>
                                     ))}
                                     {imgFiles.map((f, i) => (
-                                        <div key={`f${i}`} style={{ position: "relative", borderRadius: 8, overflow: "hidden", border: `1px solid ${C.border}`, aspectRatio: "1" }}>
-                                            <img src={f.preview} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                                            <button onClick={() => removeImg("file", i)} style={{ position: "absolute", top: 3, right: 3, background: "rgba(0,0,0,.7)", border: "none", borderRadius: "50%", width: 18, height: 18, color: "#fff", cursor: "pointer", fontSize: 9, display: "flex", alignItems: "center", justifyContent: "center" }}>✕</button>
+                                        <div key={`f${i}`} className="ud-pm-img-item">
+                                            <img src={f.preview} alt="" />
+                                            <button className="remove-btn" onClick={() => removeImg("file", i)}><FaTimes /></button>
                                         </div>
                                     ))}
                                 </div>
                             ) : (
-                                <div onClick={() => fileRef.current?.click()} style={{ border: `2px dashed ${C.border}`, borderRadius: 10, padding: "2rem", textAlign: "center", cursor: "pointer" }}
-                                    onMouseEnter={e => e.currentTarget.style.borderColor = C.accent + "40"} onMouseLeave={e => e.currentTarget.style.borderColor = C.border}>
-                                    <div style={{ fontSize: 28, marginBottom: 4 }}>📸</div>
-                                    <div style={{ color: C.textDim, fontSize: 11 }}>Tıklayın veya URL yapıştırın</div>
+                                <div className="ud-pm-img-dropzone" onClick={() => fileRef.current?.click()}>
+                                    <div className="icon"><FaImage /></div>
+                                    <div className="text">Tıklayın veya URL yapıştırın</div>
                                 </div>
                             )}
-                        </Card>
+                        </div>
                         <div style={{ display: "flex", justifyContent: "space-between" }}>
-                            <Btn outline color={C.textDim} onClick={() => setUploadStep(1)}>← Geri</Btn>
-                            <Btn onClick={() => setUploadStep(3)}>İleri →</Btn>
+                            <button className="ud-pm-btn muted" onClick={() => setUploadStep(1)}><FaArrowLeft /> Geri</button>
+                            <button className="ud-pm-btn accent" onClick={() => setUploadStep(3)}>İleri <FaArrowRight /></button>
                         </div>
                     </motion.div>
                 )}
 
                 {/* ADIM 3 */}
                 {uploadStep === 3 && (
-                    <motion.div initial={{ opacity: 0, x: 15 }} animate={{ opacity: 1, x: 0 }} style={{ display: "grid", gridTemplateColumns: "1fr 300px", gap: 14, alignItems: "start" }}>
+                    <motion.div initial={{ opacity: 0, x: 15 }} animate={{ opacity: 1, x: 0 }} className="ud-pm-upload-final">
                         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                            <Card>
-                                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-                                    <span style={{ fontSize: 20 }}>✍️</span>
-                                    <div style={{ flex: 1 }}><div style={{ color: C.text, fontSize: 14, fontWeight: 700 }}>Açıklama</div><div style={{ color: C.textDim, fontSize: 10 }}>Yazın veya AI ile oluşturun</div></div>
+                            <div className="ud-pm-card">
+                                <div className="ud-pm-card-header">
+                                    <span className="icon"><FaEdit /></span>
+                                    <div style={{ flex: 1 }}><div className="title">Açıklama</div><div className="subtitle">Yazın veya AI ile oluşturun</div></div>
                                 </div>
-                                <div style={{ display: "flex", gap: 4, marginBottom: 10, flexWrap: "wrap", alignItems: "center" }}>
-                                    <span style={{ color: C.textDim, fontSize: 9, fontWeight: 700 }}>🤖 Ton:</span>
-                                    {[{ id: "professional", l: "Profesyonel", i: "💼" }, { id: "friendly", l: "Samimi", i: "😊" }, { id: "luxury", l: "Lüks", i: "✨" }, { id: "minimal", l: "Minimal", i: "📝" }].map(t => (
-                                        <button key={t.id} onClick={() => setDescTone(t.id)}
-                                            style={{ background: descTone === t.id ? C.accent + "18" : "transparent", border: `1px solid ${descTone === t.id ? C.accent : C.border}`, borderRadius: 6, padding: "3px 10px", cursor: "pointer", color: descTone === t.id ? C.accent : C.textDim, fontSize: 10, fontWeight: 600 }}>
-                                            {t.i} {t.l}
-                                        </button>
+                                <div className="ud-pm-tone-group" style={{ marginBottom: 10 }}>
+                                    <span style={{ color: "var(--ud-pm-text-dim)", fontSize: 9, fontWeight: 700 }}><FaMagic /> Ton:</span>
+                                    {[{ id: "professional", l: "Profesyonel" }, { id: "friendly", l: "Samimi" }, { id: "luxury", l: "Lüks" }, { id: "minimal", l: "Minimal" }].map(t => (
+                                        <button key={t.id} className={`ud-pm-tone-btn ${descTone === t.id ? "active" : ""}`} onClick={() => setDescTone(t.id)}>{t.l}</button>
                                     ))}
-                                    <Btn small color={C.purple} onClick={handleGenDesc} loading={descLoading} disabled={!uf.name.trim()} style={{ marginLeft: "auto" }}>🤖 Oluştur</Btn>
+                                    <div className="ud-pm-spacer" />
+                                    <button className="ud-pm-btn sm purple" onClick={handleGenDesc} disabled={!uf.name.trim() || descLoading}>
+                                        {descLoading ? <span className="spinner" /> : <FaMagic />} Oluştur
+                                    </button>
                                 </div>
-                                <textarea value={uf.description} onChange={e => ufSet("description", e.target.value)} placeholder="Ürün açıklaması..." rows={10}
-                                    style={{ width: "100%", background: C.glass, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px", color: C.text, fontSize: 12, outline: "none", resize: "vertical", fontFamily: "inherit", lineHeight: 1.5, boxSizing: "border-box" }} />
+                                <div className="ud-pm-field">
+                                    <textarea value={uf.description} onChange={e => ufSet("description", e.target.value)} placeholder="Ürün açıklaması..." rows={10} />
+                                </div>
                                 <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
-                                    <span style={{ color: C.textDim, fontSize: 9 }}>{uf.description.length} karakter</span>
-                                    {uf.description && <button onClick={() => ufSet("description", "")} style={{ background: "none", border: "none", color: C.textDim, cursor: "pointer", fontSize: 10 }}>🗑️ Temizle</button>}
+                                    <span style={{ color: "var(--ud-pm-text-dim)", fontSize: 9 }}>{uf.description.length} karakter</span>
+                                    {uf.description && <button onClick={() => ufSet("description", "")} style={{ background: "none", border: "none", color: "var(--ud-pm-text-dim)", cursor: "pointer", fontSize: 10 }}><FaTrash style={{ fontSize: 9 }} /> Temizle</button>}
                                 </div>
-                            </Card>
-                            <Btn outline color={C.textDim} onClick={() => setUploadStep(2)} style={{ alignSelf: "flex-start" }}>← Geri</Btn>
+                            </div>
+                            <button className="ud-pm-btn muted" onClick={() => setUploadStep(2)} style={{ alignSelf: "flex-start" }}><FaArrowLeft /> Geri</button>
                         </div>
                         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                            <Card>
-                                <div style={{ color: C.text, fontSize: 13, fontWeight: 700, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>🚀 Platformlar</div>
+                            <div className="ud-pm-card">
+                                <div style={{ color: "var(--ud-pm-text)", fontSize: 13, fontWeight: 700, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}><FaRocket style={{ color: "var(--ud-pm-purple)" }} /> Platformlar</div>
                                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                                    {marketplaces.map(mp => { const sel = uf.targetMarketplaces.includes(mp.marketplaceName); return (
-                                        <div key={mp._id} onClick={() => toggleTarget(mp.marketplaceName)}
-                                            style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: 8, cursor: "pointer", background: sel ? (PL_COLOR[mp.marketplaceName] || C.accent) + "15" : C.glass, border: `1.5px solid ${sel ? PL_COLOR[mp.marketplaceName] || C.accent : C.border}`, transition: "all .15s" }}>
-                                            <span style={{ fontSize: 16 }}>{PL_ICON[mp.marketplaceName] || "🔗"}</span>
-                                            <span style={{ color: sel ? C.text : C.textSub, fontWeight: 700, fontSize: 12, flex: 1 }}>{mp.marketplaceName}</span>
-                                            <span style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${sel ? PL_COLOR[mp.marketplaceName] || C.accent : C.border}`, background: sel ? PL_COLOR[mp.marketplaceName] || C.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 9 }}>{sel && "✓"}</span>
-                                        </div>
-                                    ); })}
+                                    {marketplaces.map(mp => {
+                                        const sel = uf.targetMarketplaces.includes(mp.marketplaceName);
+                                        const plColor = PL_COLOR[mp.marketplaceName] || "var(--ud-pm-accent)";
+                                        return (
+                                            <div key={mp._id} className={`ud-pm-target-item ${sel ? "selected" : ""}`}
+                                                style={sel ? { background: plColor + "12", borderColor: plColor } : {}}
+                                                onClick={() => toggleTarget(mp.marketplaceName)}>
+                                                <span className="mp-icon" style={{ color: plColor }}><FaStore /></span>
+                                                <span className="mp-name">{mp.marketplaceName}</span>
+                                                <span className="ud-pm-target-check" style={sel ? { borderColor: plColor, background: plColor } : {}}>
+                                                    {sel && <FaCheck />}
+                                                </span>
+                                            </div>
+                                        );
+                                    })}
                                 </div>
-                            </Card>
-                            <Card style={{ background: `linear-gradient(135deg, ${C.accent}06, ${C.purple}06)` }}>
-                                <div style={{ color: C.textDim, fontSize: 9, fontWeight: 700, textTransform: "uppercase", marginBottom: 8 }}>📋 Özet</div>
+                            </div>
+                            <div className="ud-pm-card ud-pm-summary">
+                                <div style={{ color: "var(--ud-pm-text-dim)", fontSize: 9, fontWeight: 700, textTransform: "uppercase", marginBottom: 8 }}><FaClipboardList style={{ fontSize: 9 }} /> Özet</div>
                                 {[
-                                    ["Ürün", uf.name || "—", C.text], ["Barkod", uf.barcode || "—", C.accent], ["SKU", uf.sku || "—", C.purple],
-                                    ["Fiyat", uf.price ? fmt(uf.price) : "—", C.green], ["Stok", uf.stock || "0", C.text],
-                                    ...(uf.category ? [["Kategori", uf.category, C.yellow]] : []), ...(uf.brand ? [["Marka", uf.brand, C.blue]] : []),
-                                    ["Görseller", `${totalImgs} adet`, C.text], ["Açıklama", uf.description ? "✓" : "—", uf.description ? C.green : C.textDim],
+                                    ["Ürün", uf.name || "—", "var(--ud-pm-text)"], ["Barkod", uf.barcode || "—", "var(--ud-pm-accent)"], ["SKU", uf.sku || "—", "var(--ud-pm-purple)"],
+                                    ["Fiyat", uf.price ? fmt(uf.price) : "—", "var(--ud-pm-green)"], ["Stok", uf.stock || "0", "var(--ud-pm-text)"],
+                                    ...(uf.category ? [["Kategori", uf.category, "var(--ud-pm-yellow)"]] : []), ...(uf.brand ? [["Marka", uf.brand, "var(--ud-pm-blue)"]] : []),
+                                    ["Görseller", `${totalImgs} adet`, "var(--ud-pm-text)"], ["Açıklama", uf.description ? "✓" : "—", uf.description ? "var(--ud-pm-green)" : "var(--ud-pm-text-dim)"],
                                 ].map(([k, v, c]) => (
-                                    <div key={k} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 4 }}>
-                                        <span style={{ color: C.textDim }}>{k}</span>
-                                        <span style={{ color: c, fontWeight: 600, maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textAlign: "right" }}>{v}</span>
+                                    <div key={k} className="ud-pm-summary-row">
+                                        <span className="key">{k}</span>
+                                        <span className="val" style={{ color: c }}>{v}</span>
                                     </div>
                                 ))}
                                 {uf.targetMarketplaces.length > 0 && (
                                     <div style={{ display: "flex", gap: 3, flexWrap: "wrap", marginTop: 6 }}>
-                                        {uf.targetMarketplaces.map(t => <Pill key={t} color={PL_COLOR[t] || C.accent} style={{ fontSize: 9 }}>{PL_ICON[t]} {t}</Pill>)}
+                                        {uf.targetMarketplaces.map(t => <Pill key={t} color={PL_COLOR[t] || "var(--ud-pm-accent)"}>{PL_SHORT[t]} {t}</Pill>)}
                                     </div>
                                 )}
-                            </Card>
-                            <Btn onClick={handleCreate} loading={uploadLoading} disabled={!canSubmit} style={{ width: "100%", justifyContent: "center", padding: "12px", fontSize: 13 }}>
-                                {uf.targetMarketplaces.length > 0 ? `🚀 Oluştur & ${uf.targetMarketplaces.length} Platforma Dağıt` : "💾 Kaydet"}
-                            </Btn>
-                            {!canSubmit && <div style={{ color: C.yellow, fontSize: 10, textAlign: "center" }}>⚠️ Ad, barkod, SKU ve fiyat zorunlu</div>}
+                            </div>
+                            <button className="ud-pm-btn accent" onClick={handleCreate} disabled={!canSubmit || uploadLoading} style={{ width: "100%", justifyContent: "center", padding: "12px", fontSize: 13 }}>
+                                {uploadLoading ? <span className="spinner" /> : uf.targetMarketplaces.length > 0 ? <FaRocket /> : <FaSave />}
+                                {uf.targetMarketplaces.length > 0 ? `Oluştur & ${uf.targetMarketplaces.length} Platforma Dağıt` : "Kaydet"}
+                            </button>
+                            {!canSubmit && <div style={{ color: "var(--ud-pm-yellow)", fontSize: 10, textAlign: "center", display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}><FaExclamationTriangle /> Ad, barkod, SKU ve fiyat zorunlu</div>}
                         </div>
                     </motion.div>
                 )}
@@ -740,70 +808,68 @@ const ProductManagementCenter = ({ userId }) => {
        ═══════════════════════════════════════════════════════════════ */
     const renderPriceStock = () => (
         <div>
-            <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 14, flexWrap: "wrap" }}>
-                <div style={{ position: "relative", flex: 1, maxWidth: 300 }}>
-                    <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 12, color: C.textDim }}>🔍</span>
-                    <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Ürün ara..."
-                        style={{ width: "100%", background: C.glass, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 10px 8px 32px", color: C.text, fontSize: 12, outline: "none" }} />
+            <div className="ud-pm-toolbar">
+                <div className="ud-pm-search-wrap" style={{ maxWidth: 300 }}>
+                    <span className="icon"><FaSearch /></span>
+                    <input className="ud-pm-search" value={search} onChange={e => setSearch(e.target.value)} placeholder="Ürün ara..." />
                 </div>
-                <select value={stockFilter} onChange={e => setStockFilter(e.target.value)}
-                    style={{ background: C.glass, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 10px", color: C.text, fontSize: 11, outline: "none" }}>
+                <select className="ud-pm-select" value={stockFilter} onChange={e => setStockFilter(e.target.value)}>
                     <option value="">Tüm</option><option value="lowStock">Düşük</option><option value="outOfStock">Yok</option>
                 </select>
-                <div style={{ flex: 1 }} />
-                <Pill color={C.accent}>{total} ürün</Pill>
+                <div className="ud-pm-spacer" />
+                <Pill color="var(--ud-pm-accent)">{total} ürün</Pill>
             </div>
-            <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, overflow: "hidden" }}>
-                <div style={{ overflowX: "auto" }}>
-                    <table style={{ width: "100%", minWidth: 750, borderCollapse: "collapse" }}>
+            <div className="ud-pm-table-wrap">
+                <div className="ud-pm-table-scroll">
+                    <table className="ud-pm-table" style={{ minWidth: 750 }}>
                         <thead>
-                            <tr style={{ borderBottom: `1px solid ${C.border}` }}>
-                                <th style={th}>Ürün</th>
-                                <th style={{ ...th, textAlign: "right" }}>Satış Fiyatı</th>
-                                <th style={{ ...th, textAlign: "center" }}>Stok</th>
-                                <th style={{ ...th, textAlign: "center" }}>Güvenlik</th>
-                                <th style={{ ...th, textAlign: "center" }}>Durum</th>
-                                {PLATFORMS.slice(0, 3).map(pl => <th key={pl} style={{ ...th, textAlign: "center", fontSize: 10 }}>{PL_ICON[pl]}</th>)}
-                                <th style={{ ...th, textAlign: "center" }}>Kaydet</th>
+                            <tr>
+                                <th>Ürün</th>
+                                <th className="right">Satış Fiyatı</th>
+                                <th className="center">Stok</th>
+                                <th className="center">Güvenlik</th>
+                                <th className="center">Durum</th>
+                                {PLATFORMS.slice(0, 3).map(pl => <th key={pl} className="center" style={{ fontSize: 10 }}>{PL_SHORT[pl]}</th>)}
+                                <th className="center">Kaydet</th>
                             </tr>
                         </thead>
                         <tbody>
                             {loading ? (
-                                <tr><td colSpan={8 + Math.min(PLATFORMS.length, 3)} style={{ textAlign: "center", padding: "2rem", color: C.textDim, fontSize: 12 }}>Yükleniyor...</td></tr>
+                                <tr><td colSpan={8 + Math.min(PLATFORMS.length, 3)}><Loading /></td></tr>
                             ) : products.length === 0 ? (
-                                <tr><td colSpan={8 + Math.min(PLATFORMS.length, 3)}><Empty icon="💰" title="Ürün bulunamadı" /></td></tr>
+                                <tr><td colSpan={8 + Math.min(PLATFORMS.length, 3)}><Empty icon={FaDollarSign} title="Ürün bulunamadı" /></td></tr>
                             ) : products.map(p => {
                                 const mp = p.masterProduct || {};
                                 const st = p.stockTracking || {};
                                 const ed = editMap[p._id] || {};
-                                const mktStock = Math.max(0, (st.totalStock || 0) - (st.safetyStock || 0));
                                 return (
-                                    <tr key={p._id} style={{ borderBottom: `1px solid ${C.border}` }}>
-                                        <td style={td}>
-                                            <div style={{ color: C.text, fontSize: 12, fontWeight: 600, maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{mp.name}</div>
-                                            <div style={{ color: C.textDim, fontSize: 10, fontFamily: "monospace" }}>{mp.barcode}</div>
+                                    <tr key={p._id}>
+                                        <td>
+                                            <div className="product-name">{mp.name}</div>
+                                            <div className="mono-dim">{mp.barcode}</div>
                                         </td>
-                                        <td style={{ ...td, textAlign: "right" }}>
-                                            <input type="number" step="0.01" value={ed.price !== undefined ? ed.price : (mp.price || 0)}
-                                                onChange={e => setEditMap(p2 => ({ ...p2, [p._id]: { ...p2[p._id], price: e.target.value } }))}
-                                                style={{ width: 80, background: C.glass, border: `1px solid ${C.border}`, borderRadius: 6, padding: "5px 6px", color: C.green, fontSize: 12, fontWeight: 700, textAlign: "right", outline: "none" }} />
+                                        <td className="right">
+                                            <input type="number" step="0.01" className="ud-pm-inline-input price-input"
+                                                value={ed.price !== undefined ? ed.price : (mp.price || 0)}
+                                                onChange={e => setEditMap(p2 => ({ ...p2, [p._id]: { ...p2[p._id], price: e.target.value } }))} />
                                         </td>
-                                        <td style={{ ...td, textAlign: "center" }}>
-                                            <input type="number" min="0" value={ed.stock !== undefined ? ed.stock : (st.totalStock ?? 0)}
-                                                onChange={e => setEditMap(p2 => ({ ...p2, [p._id]: { ...p2[p._id], stock: e.target.value } }))}
-                                                style={{ width: 60, background: C.glass, border: `1px solid ${C.border}`, borderRadius: 6, padding: "5px 6px", color: st.isOutOfStock ? C.red : st.isLowStock ? C.yellow : C.green, fontSize: 12, fontWeight: 800, textAlign: "center", outline: "none" }} />
+                                        <td className="center">
+                                            <input type="number" min="0" className="ud-pm-inline-input stock-input"
+                                                style={{ color: st.isOutOfStock ? "var(--ud-pm-red)" : st.isLowStock ? "var(--ud-pm-yellow)" : "var(--ud-pm-green)" }}
+                                                value={ed.stock !== undefined ? ed.stock : (st.totalStock ?? 0)}
+                                                onChange={e => setEditMap(p2 => ({ ...p2, [p._id]: { ...p2[p._id], stock: e.target.value } }))} />
                                         </td>
-                                        <td style={{ ...td, textAlign: "center", color: C.textDim, fontSize: 11 }}>🛡️ {st.safetyStock || 0}</td>
-                                        <td style={{ ...td, textAlign: "center" }}>
-                                            {st.isOutOfStock ? <Pill color={C.red}>Yok</Pill> : st.isLowStock ? <Pill color={C.yellow}>Düşük</Pill> : <Pill color={C.green}>OK</Pill>}
+                                        <td className="center" style={{ color: "var(--ud-pm-text-dim)", fontSize: 11 }}><FaShieldAlt style={{ fontSize: 9 }} /> {st.safetyStock || 0}</td>
+                                        <td className="center">
+                                            {st.isOutOfStock ? <Pill color="var(--ud-pm-red)">Yok</Pill> : st.isLowStock ? <Pill color="var(--ud-pm-yellow)">Düşük</Pill> : <Pill color="var(--ud-pm-green)">OK</Pill>}
                                         </td>
                                         {PLATFORMS.slice(0, 3).map(pl => { const ps = getPlStatus(p, pl); return (
-                                            <td key={pl} style={{ ...td, textAlign: "center" }}>
-                                                {ps.exists ? <span style={{ color: C.text, fontSize: 11, fontWeight: 600 }}>{ps.price ? fmt(ps.price) : "—"}</span> : <span style={{ color: C.textDim, fontSize: 10 }}>—</span>}
+                                            <td key={pl} className="center">
+                                                {ps.exists ? <span style={{ color: "var(--ud-pm-text)", fontSize: 11, fontWeight: 600 }}>{ps.price ? fmt(ps.price) : "—"}</span> : <span style={{ color: "var(--ud-pm-text-dim)", fontSize: 10 }}>—</span>}
                                             </td>
                                         ); })}
-                                        <td style={{ ...td, textAlign: "center" }}>
-                                            <Btn small color={C.green} disabled={actionLoading === `s-${p._id}` || actionLoading === `p-${p._id}`}
+                                        <td className="center">
+                                            <button className="ud-pm-btn sm green" disabled={actionLoading === `s-${p._id}` || actionLoading === `p-${p._id}`}
                                                 onClick={() => {
                                                     const newPrice = ed.price !== undefined ? ed.price : mp.price;
                                                     const newStock = ed.stock !== undefined ? ed.stock : st.totalStock;
@@ -812,8 +878,8 @@ const ProductManagementCenter = ({ userId }) => {
                                                     if (ed.price === undefined && ed.stock === undefined) showToast("Değişiklik yok", "error");
                                                     setEditMap(p2 => { const n = { ...p2 }; delete n[p._id]; return n; });
                                                 }}>
-                                                {actionLoading === `s-${p._id}` || actionLoading === `p-${p._id}` ? "⏳" : "💾"}
-                                            </Btn>
+                                                {actionLoading === `s-${p._id}` || actionLoading === `p-${p._id}` ? <span className="spinner" /> : <FaSave />}
+                                            </button>
                                         </td>
                                     </tr>
                                 );
@@ -821,13 +887,7 @@ const ProductManagementCenter = ({ userId }) => {
                         </tbody>
                     </table>
                 </div>
-                {totalPages > 1 && (
-                    <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 8, padding: 10, borderTop: `1px solid ${C.border}` }}>
-                        <Btn small outline disabled={page === 0} onClick={() => loadProducts(page - 1)}>◀</Btn>
-                        <span style={{ color: C.textSub, fontSize: 12 }}>{page + 1} / {totalPages}</span>
-                        <Btn small outline disabled={page >= totalPages - 1} onClick={() => loadProducts(page + 1)}>▶</Btn>
-                    </div>
-                )}
+                <Pagination currentPage={page} totalPages={totalPages} total={total} onPageChange={p => loadProducts(p)} />
             </div>
         </div>
     );
@@ -837,58 +897,63 @@ const ProductManagementCenter = ({ userId }) => {
        ═══════════════════════════════════════════════════════════════ */
     const renderSync = () => (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 12 }}>
+            <div className="ud-pm-sync-grid">
                 {marketplaces.map(mp => (
-                    <Card key={mp._id} style={{ transition: "border-color .2s" }}
-                        onMouseEnter={e => e.currentTarget.style.borderColor = PL_COLOR[mp.marketplaceName] || C.borderHover}
-                        onMouseLeave={e => e.currentTarget.style.borderColor = C.border}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-                            <span style={{ fontSize: 24 }}>{PL_ICON[mp.marketplaceName] || "🔗"}</span>
+                    <div key={mp._id} className="ud-pm-card ud-pm-sync-card">
+                        <div className="ud-pm-sync-header">
+                            <span className="mp-icon" style={{ color: PL_COLOR[mp.marketplaceName] || "var(--ud-pm-accent)" }}><FaStore /></span>
                             <div>
-                                <div style={{ color: C.text, fontSize: 14, fontWeight: 700 }}>{mp.marketplaceName}</div>
-                                <div style={{ color: C.textDim, fontSize: 10 }}>{mp.credentials && Object.keys(mp.credentials).length > 0 ? "✅ Bağlı" : "⚠️ Eksik"}</div>
+                                <div className="mp-name">{mp.marketplaceName}</div>
+                                <div className="mp-status">{mp.credentials && Object.keys(mp.credentials).length > 0 ? <><FaCheckCircle style={{ color: "var(--ud-pm-green)", fontSize: 9 }} /> Bağlı</> : <><FaExclamationTriangle style={{ color: "var(--ud-pm-yellow)", fontSize: 9 }} /> Eksik</>}</div>
                             </div>
                         </div>
-                        <Btn onClick={() => handleSyncFrom(mp)} loading={actionLoading === `sync-${mp._id}`} color={PL_COLOR[mp.marketplaceName] || C.accent} style={{ width: "100%", justifyContent: "center", fontSize: 11 }}>
-                            📥 Ürün Çek
-                        </Btn>
-                    </Card>
+                        <button className="ud-pm-btn" style={{ width: "100%", justifyContent: "center", background: PL_COLOR[mp.marketplaceName] || "var(--ud-pm-accent)" }}
+                            onClick={() => handleSyncFrom(mp)} disabled={actionLoading === `sync-${mp._id}`}>
+                            {actionLoading === `sync-${mp._id}` ? <span className="spinner" /> : <FaSync />} Ürün Çek
+                        </button>
+                    </div>
                 ))}
-                <Card style={{ background: `linear-gradient(135deg, ${C.accent}08, ${C.purple}08)`, borderColor: C.accent + "25" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-                        <span style={{ fontSize: 24 }}>🌐</span>
-                        <div><div style={{ color: C.text, fontSize: 14, fontWeight: 700 }}>Tüm Platformlar</div><div style={{ color: C.textDim, fontSize: 10 }}>Toplu senkronizasyon</div></div>
+                <div className="ud-pm-card" style={{ background: "linear-gradient(135deg, rgba(78,205,196,0.05), rgba(139,92,246,0.05))", borderColor: "rgba(78,205,196,0.2)" }}>
+                    <div className="ud-pm-sync-header">
+                        <span className="mp-icon" style={{ color: "var(--ud-pm-accent)" }}><FaGlobe /></span>
+                        <div><div className="mp-name">Tüm Platformlar</div><div className="mp-status">Toplu senkronizasyon</div></div>
                     </div>
                     <div style={{ display: "flex", gap: 6 }}>
-                        <Btn onClick={handleSyncAll} loading={actionLoading === "sync-all"} style={{ flex: 1, justifyContent: "center", fontSize: 11 }}>🔄 Tümünü Çek</Btn>
-                        <Btn color={C.purple} onClick={async () => { setActionLoading("auto"); try { await triggerAutoSync(); showToast("Oto sync tamamlandı"); loadProducts(page); } catch { showToast("Hata", "error"); } finally { setActionLoading(""); } }} loading={actionLoading === "auto"} style={{ flex: 1, justifyContent: "center", fontSize: 11 }}>⚡ Oto Sync</Btn>
+                        <button className="ud-pm-btn accent" style={{ flex: 1, justifyContent: "center" }} onClick={handleSyncAll} disabled={actionLoading === "sync-all"}>
+                            {actionLoading === "sync-all" ? <span className="spinner" /> : <FaSync />} Tümünü Çek
+                        </button>
+                        <button className="ud-pm-btn purple" style={{ flex: 1, justifyContent: "center" }}
+                            onClick={async () => { setActionLoading("auto"); try { await triggerAutoSync(); showToast("Oto sync tamamlandı"); loadProducts(page); } catch { showToast("Hata", "error"); } finally { setActionLoading(""); } }}
+                            disabled={actionLoading === "auto"}>
+                            {actionLoading === "auto" ? <span className="spinner" /> : <FaBolt />} Oto Sync
+                        </button>
                     </div>
-                </Card>
+                </div>
             </div>
 
-            <Card>
+            <div className="ud-pm-card">
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                    <div style={{ color: C.text, fontSize: 14, fontWeight: 700 }}>📋 Senkronizasyon Logları</div>
-                    <Btn small outline color={C.accent} onClick={loadLogs}>🔄</Btn>
+                    <div style={{ color: "var(--ud-pm-text)", fontSize: 14, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}><FaClipboardList style={{ color: "var(--ud-pm-accent)" }} /> Senkronizasyon Logları</div>
+                    <button className="ud-pm-btn sm accent outline" onClick={loadLogs}><FaSync /></button>
                 </div>
-                {logsLoading ? <div style={{ textAlign: "center", padding: "1.5rem", color: C.textDim, fontSize: 12 }}>Yükleniyor...</div>
-                : syncLogs.length === 0 ? <Empty icon="📋" title="Henüz log yok" />
+                {logsLoading ? <Loading />
+                : syncLogs.length === 0 ? <Empty icon={FaClipboardList} title="Henüz log yok" />
                 : (
-                    <div style={{ maxHeight: 350, overflowY: "auto" }}>
+                    <div className="ud-pm-log-list">
                         {syncLogs.map((log, i) => (
-                            <div key={log._id || i} style={{ display: "flex", gap: 8, alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${C.border}`, fontSize: 11 }}>
-                                <span style={{ width: 6, height: 6, borderRadius: "50%", background: log.status === "success" ? C.green : log.status === "error" ? C.red : C.yellow, flexShrink: 0 }} />
-                                <Pill color={log.actionType === "stock_update" ? C.green : log.actionType === "price_update" ? C.yellow : log.actionType === "product_created" ? C.purple : C.accent} style={{ minWidth: 55, justifyContent: "center", fontSize: 9 }}>
-                                    {log.actionType === "stock_update" ? "📊 Stok" : log.actionType === "price_update" ? "💰 Fiyat" : log.actionType === "product_created" ? "➕ Yeni" : log.actionType === "bulk_update" ? "📦 Toplu" : log.actionType}
+                            <div key={log._id || i} className="ud-pm-log-item">
+                                <span className="dot" style={{ background: log.status === "success" ? "var(--ud-pm-green)" : log.status === "error" ? "var(--ud-pm-red)" : "var(--ud-pm-yellow)" }} />
+                                <Pill color={log.actionType === "stock_update" ? "var(--ud-pm-green)" : log.actionType === "price_update" ? "var(--ud-pm-yellow)" : log.actionType === "product_created" ? "var(--ud-pm-purple)" : "var(--ud-pm-accent)"}>
+                                    {log.actionType === "stock_update" ? <><FaWarehouse style={{ fontSize: 8 }} /> Stok</> : log.actionType === "price_update" ? <><FaDollarSign style={{ fontSize: 8 }} /> Fiyat</> : log.actionType === "product_created" ? <><FaPlus style={{ fontSize: 8 }} /> Yeni</> : log.actionType === "bulk_update" ? <><FaLayerGroup style={{ fontSize: 8 }} /> Toplu</> : log.actionType}
                                 </Pill>
-                                <span style={{ color: C.text, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{log.product?.name || log.product?.barcode || "—"}</span>
-                                {log.changes?.field && <span style={{ color: C.textDim, fontSize: 10 }}>{log.changes.oldValue}→{log.changes.newValue}</span>}
-                                <span style={{ color: C.textDim, whiteSpace: "nowrap", fontSize: 10 }}>{fmtDate(log.timestamp)}</span>
+                                <span className="log-name">{log.product?.name || log.product?.barcode || "—"}</span>
+                                {log.changes?.field && <span className="log-change">{log.changes.oldValue}→{log.changes.newValue}</span>}
+                                <span className="log-date">{fmtDate(log.timestamp)}</span>
                             </div>
                         ))}
                     </div>
                 )}
-            </Card>
+            </div>
         </div>
     );
 
@@ -902,69 +967,66 @@ const ProductManagementCenter = ({ userId }) => {
         const st = p?.stockTracking || {};
         const mappings = p?.marketplaceMappings || [];
 
-        return (
+        return ReactDOM.createPortal(
             <AnimatePresence>
-                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                    onClick={() => { setShowDetail(false); setDetail(null); }}
-                    style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.75)", backdropFilter: "blur(6px)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
-                    <motion.div initial={{ scale: .92, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: .92, y: 20 }}
-                        onClick={e => e.stopPropagation()}
-                        style={{ background: C.card, border: `1px solid ${C.borderHover}`, borderRadius: 18, padding: "1.5rem", maxWidth: 700, width: "100%", maxHeight: "85vh", overflowY: "auto" }}>
-                        {detailLoading ? (
-                            <div style={{ textAlign: "center", padding: "3rem", color: C.textDim }}><span style={{ fontSize: 28 }}>⏳</span><div style={{ marginTop: 8, fontSize: 12 }}>Yükleniyor...</div></div>
-                        ) : !p ? (
-                            <div style={{ textAlign: "center", padding: "2rem", color: C.textDim }}>Ürün bulunamadı</div>
+                <motion.div className="ud-pm-modal-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                    onClick={() => { setShowDetail(false); setDetail(null); }}>
+                    <motion.div className="ud-pm-modal" initial={{ scale: .92, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: .92, y: 20 }}
+                        onClick={e => e.stopPropagation()}>
+                        {detailLoading ? <Loading /> : !p ? (
+                            <div className="ud-pm-empty"><div className="title">Ürün bulunamadı</div></div>
                         ) : (
                             <>
-                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
-                                    <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
-                                        {mp.images?.[0] ? <img src={mp.images[0]} alt="" style={{ width: 64, height: 64, borderRadius: 10, objectFit: "cover", border: `1px solid ${C.border}` }} />
-                                            : <div style={{ width: 64, height: 64, borderRadius: 10, background: C.glass, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28 }}>📦</div>}
+                                <div className="ud-pm-modal-header">
+                                    <div className="product-info">
+                                        {mp.images?.[0] ? <img src={mp.images[0]} alt="" className="product-img" />
+                                            : <div className="product-img-placeholder"><FaBox /></div>}
                                         <div>
-                                            <h2 style={{ color: C.text, margin: 0, fontSize: 16, fontWeight: 700 }}>{mp.name}</h2>
+                                            <h2>{mp.name}</h2>
                                             <div style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
-                                                <Pill color={C.accent}>Barkod: {mp.barcode}</Pill>
-                                                <Pill color={C.purple}>SKU: {mp.sku}</Pill>
-                                                {mp.brand && <Pill color={C.blue}>{mp.brand}</Pill>}
+                                                <Pill color="var(--ud-pm-accent)"><FaBarcode style={{ fontSize: 8 }} /> {mp.barcode}</Pill>
+                                                <Pill color="var(--ud-pm-purple)"><FaTag style={{ fontSize: 8 }} /> {mp.sku}</Pill>
+                                                {mp.brand && <Pill color="var(--ud-pm-blue)">{mp.brand}</Pill>}
                                             </div>
                                         </div>
                                     </div>
-                                    <button onClick={() => { setShowDetail(false); setDetail(null); }} style={{ background: "none", border: "none", color: C.textDim, cursor: "pointer", fontSize: 18 }}>✕</button>
+                                    <button className="close-btn" onClick={() => { setShowDetail(false); setDetail(null); }}><FaTimes /></button>
                                 </div>
 
-                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 16 }}>
-                                    <div style={{ background: C.green + "0c", border: `1px solid ${C.green}20`, borderRadius: 10, padding: "10px 14px", textAlign: "center" }}>
-                                        <div style={{ color: C.green, fontSize: 20, fontWeight: 800 }}>{fmt(mp.price)}</div>
-                                        <div style={{ color: C.textDim, fontSize: 10 }}>Satış Fiyatı</div>
+                                <div className="ud-pm-modal-stats">
+                                    <div className="ud-pm-modal-stat" style={{ background: "rgba(34,197,94,0.06)", border: "1px solid rgba(34,197,94,0.15)" }}>
+                                        <div className="stat-val" style={{ color: "var(--ud-pm-green)" }}>{fmt(mp.price)}</div>
+                                        <div className="stat-label">Satış Fiyatı</div>
                                     </div>
-                                    <div style={{ background: (st.isOutOfStock ? C.red : st.isLowStock ? C.yellow : C.green) + "0c", border: `1px solid ${(st.isOutOfStock ? C.red : st.isLowStock ? C.yellow : C.green)}20`, borderRadius: 10, padding: "10px 14px", textAlign: "center" }}>
-                                        <div style={{ color: st.isOutOfStock ? C.red : st.isLowStock ? C.yellow : C.green, fontSize: 20, fontWeight: 800 }}>{st.totalStock ?? 0}</div>
-                                        <div style={{ color: C.textDim, fontSize: 10 }}>Stok</div>
+                                    <div className="ud-pm-modal-stat" style={{ background: `${st.isOutOfStock ? "rgba(239,68,68,0.06)" : st.isLowStock ? "rgba(245,158,11,0.06)" : "rgba(34,197,94,0.06)"}`, border: `1px solid ${st.isOutOfStock ? "rgba(239,68,68,0.15)" : st.isLowStock ? "rgba(245,158,11,0.15)" : "rgba(34,197,94,0.15)"}` }}>
+                                        <div className="stat-val" style={{ color: st.isOutOfStock ? "var(--ud-pm-red)" : st.isLowStock ? "var(--ud-pm-yellow)" : "var(--ud-pm-green)" }}>{st.totalStock ?? 0}</div>
+                                        <div className="stat-label">Stok</div>
                                     </div>
-                                    <div style={{ background: C.purple + "0c", border: `1px solid ${C.purple}20`, borderRadius: 10, padding: "10px 14px", textAlign: "center" }}>
-                                        <div style={{ color: C.purple, fontSize: 20, fontWeight: 800 }}>{mappings.length}</div>
-                                        <div style={{ color: C.textDim, fontSize: 10 }}>Platform</div>
+                                    <div className="ud-pm-modal-stat" style={{ background: "rgba(139,92,246,0.06)", border: "1px solid rgba(139,92,246,0.15)" }}>
+                                        <div className="stat-val" style={{ color: "var(--ud-pm-purple)" }}>{mappings.length}</div>
+                                        <div className="stat-label">Platform</div>
                                     </div>
                                 </div>
 
-                                <div style={{ color: C.text, fontSize: 13, fontWeight: 700, marginBottom: 8 }}>🏪 Platform Durumları</div>
+                                <div style={{ color: "var(--ud-pm-text)", fontSize: 13, fontWeight: 700, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}><FaStore style={{ color: "var(--ud-pm-accent)" }} /> Platform Durumları</div>
                                 <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 16 }}>
                                     {PLATFORMS.map(pl => {
                                         const m = getPlMap(p, pl);
                                         const exists = !!m;
                                         return (
-                                            <div key={pl} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderRadius: 8, background: C.glass, border: `1px solid ${C.border}` }}>
-                                                <span style={{ fontSize: 16 }}>{PL_ICON[pl]}</span>
-                                                <span style={{ color: C.text, fontWeight: 600, fontSize: 12, flex: 1 }}>{pl}</span>
+                                            <div key={pl} className="ud-pm-modal-platform">
+                                                <span className="mp-icon" style={{ color: PL_COLOR[pl] }}><FaStore /></span>
+                                                <span className="mp-name">{pl}</span>
                                                 {exists ? <>
-                                                    <Pill color={C.green}>Aktif</Pill>
-                                                    <span style={{ color: C.textSub, fontSize: 11 }}>{m.price ? fmt(m.price) : "—"}</span>
-                                                    <span style={{ color: C.textDim, fontSize: 10 }}>{m.lastSyncDate ? fmtAgo(m.lastSyncDate) : "—"}</span>
+                                                    <Pill color="var(--ud-pm-green)"><FaCheckCircle style={{ fontSize: 8 }} /> Aktif</Pill>
+                                                    <span style={{ color: "var(--ud-pm-text-sub)", fontSize: 11 }}>{m.price ? fmt(m.price) : "—"}</span>
+                                                    <span style={{ color: "var(--ud-pm-text-dim)", fontSize: 10 }}>{m.lastSyncDate ? fmtAgo(m.lastSyncDate) : "—"}</span>
                                                 </> : <>
-                                                    <Pill color={C.textDim}>Pasif</Pill>
-                                                    <Btn small outline color={PL_COLOR[pl] || C.accent} onClick={() => {
-                                                        distributeProduct(p._id, [pl]).then(() => { showToast(`${pl} dağıtıldı`); openDetail(p._id); }).catch(e => showToast("Hata", "error"));
-                                                    }}>🚀 Gönder</Btn>
+                                                    <Pill color="var(--ud-pm-text-dim)">Pasif</Pill>
+                                                    <button className="ud-pm-btn sm outline" style={{ borderColor: PL_COLOR[pl], color: PL_COLOR[pl] }}
+                                                        onClick={() => { distributeProduct(p._id, [pl]).then(() => { showToast(`${pl} dağıtıldı`); openDetail(p._id); }).catch(() => showToast("Hata", "error")); }}>
+                                                        <FaRocket /> Gönder
+                                                    </button>
                                                 </>}
                                             </div>
                                         );
@@ -973,8 +1035,8 @@ const ProductManagementCenter = ({ userId }) => {
 
                                 {mp.description && (
                                     <div style={{ marginBottom: 16 }}>
-                                        <div style={{ color: C.text, fontSize: 13, fontWeight: 700, marginBottom: 6 }}>📝 Açıklama</div>
-                                        <div style={{ color: C.textSub, fontSize: 11, lineHeight: 1.6, background: C.glass, borderRadius: 8, padding: "10px 12px", maxHeight: 120, overflowY: "auto", whiteSpace: "pre-wrap" }}>{mp.description}</div>
+                                        <div style={{ color: "var(--ud-pm-text)", fontSize: 13, fontWeight: 700, marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}><FaEdit style={{ color: "var(--ud-pm-accent)" }} /> Açıklama</div>
+                                        <div style={{ color: "var(--ud-pm-text-sub)", fontSize: 11, lineHeight: 1.6, background: "var(--ud-pm-glass)", borderRadius: 8, padding: "10px 12px", maxHeight: 120, overflowY: "auto", whiteSpace: "pre-wrap" }}>{mp.description}</div>
                                     </div>
                                 )}
                             </>
@@ -982,12 +1044,119 @@ const ProductManagementCenter = ({ userId }) => {
                     </motion.div>
                 </motion.div>
             </AnimatePresence>
-        );
+        , document.body);
     };
 
     /* ═══════════════════════════════════════════════════════════════
-       ANA RENDER
+       ÜRÜN SİLME ONAY MODAL
        ═══════════════════════════════════════════════════════════════ */
+    const renderDeleteConfirmModal = () => {
+        if (!deleteConfirm) return null;
+        const { name, platforms } = deleteConfirm;
+        const hasPlatforms = platforms.length > 0;
+
+        return ReactDOM.createPortal(
+            <AnimatePresence>
+                <motion.div className="ud-pm-modal-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                    onClick={() => { if (!deleteLoading) { setDeleteConfirm(null); setDeleteResult(null); } }}>
+                    <motion.div className="ud-pm-modal" initial={{ scale: .92, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: .92, y: 20 }}
+                        onClick={e => e.stopPropagation()} style={{ maxWidth: 480 }}>
+
+                        {/* Başarılı silme sonucu */}
+                        {deleteResult?.success ? (
+                            <div style={{ textAlign: "center", padding: "10px 0" }}>
+                                <div style={{ fontSize: 40, marginBottom: 12 }}><FaCheckCircle style={{ color: "var(--ud-pm-green)" }} /></div>
+                                <div style={{ color: "var(--ud-pm-text)", fontSize: 16, fontWeight: 700, marginBottom: 6 }}>Ürün Silindi</div>
+                                <div style={{ color: "var(--ud-pm-text-sub)", fontSize: 12, marginBottom: 16 }}>{name}</div>
+
+                                {deleteResult.mpResults?.length > 0 && (
+                                    <div style={{ textAlign: "left", marginBottom: 16 }}>
+                                        <div style={{ color: "var(--ud-pm-text-dim)", fontSize: 11, fontWeight: 700, marginBottom: 8, textTransform: "uppercase", letterSpacing: ".04em" }}>Pazaryeri Sonuçları</div>
+                                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                                            {deleteResult.mpResults.map((r, i) => (
+                                                <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: 8, background: "var(--ud-pm-glass)", border: "1px solid var(--ud-pm-glass-border)" }}>
+                                                    {r.status === "success" ? <FaCheckCircle style={{ color: "var(--ud-pm-green)", fontSize: 13, flexShrink: 0 }} />
+                                                        : r.status === "skipped" ? <FaInfoCircle style={{ color: "var(--ud-pm-yellow)", fontSize: 13, flexShrink: 0 }} />
+                                                        : <FaTimesCircle style={{ color: "var(--ud-pm-red)", fontSize: 13, flexShrink: 0 }} />}
+                                                    <span style={{ color: "var(--ud-pm-text)", fontSize: 12, fontWeight: 600, minWidth: 80 }}>{r.name}</span>
+                                                    <span style={{ color: "var(--ud-pm-text-sub)", fontSize: 11, flex: 1 }}>{r.message}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
+                                <button className="ud-pm-btn accent" style={{ width: "100%", justifyContent: "center" }}
+                                    onClick={() => { setDeleteConfirm(null); setDeleteResult(null); }}>
+                                    <FaCheck /> Tamam
+                                </button>
+                            </div>
+                        ) : (
+                            /* Silme onay ekranı */
+                            <>
+                                <div style={{ textAlign: "center", marginBottom: 16 }}>
+                                    <div style={{ fontSize: 40, marginBottom: 10 }}><FaExclamationTriangle style={{ color: "var(--ud-pm-red)" }} /></div>
+                                    <div style={{ color: "var(--ud-pm-text)", fontSize: 16, fontWeight: 700, marginBottom: 4 }}>Ürünü Sil</div>
+                                    <div style={{ color: "var(--ud-pm-text-sub)", fontSize: 12 }}>
+                                        <strong style={{ color: "var(--ud-pm-text)" }}>{name}</strong> kalıcı olarak silinecek.
+                                    </div>
+                                </div>
+
+                                {hasPlatforms && (
+                                    <div style={{ background: "var(--ud-pm-glass)", border: "1px solid var(--ud-pm-glass-border)", borderRadius: 10, padding: "12px 14px", marginBottom: 14 }}>
+                                        <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer" }}>
+                                            <input type="checkbox" className="ud-pm-checkbox" style={{ accentColor: "var(--ud-pm-red)", marginTop: 2 }}
+                                                checked={deleteFromMP} onChange={e => setDeleteFromMP(e.target.checked)} />
+                                            <div>
+                                                <div style={{ color: "var(--ud-pm-text)", fontSize: 13, fontWeight: 700 }}>Pazaryerlerinden de kaldır</div>
+                                                <div style={{ color: "var(--ud-pm-text-dim)", fontSize: 11, marginTop: 2, lineHeight: 1.5 }}>
+                                                    Ürün aşağıdaki platformlardan silinecek veya stok 0'a çekilecek:
+                                                </div>
+                                                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+                                                    {platforms.map(pl => (
+                                                        <span key={pl} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 10px", borderRadius: 6, fontSize: 11, fontWeight: 600, background: `${PL_COLOR[pl] || "var(--ud-pm-accent)"}18`, color: PL_COLOR[pl] || "var(--ud-pm-accent)", border: `1px solid ${PL_COLOR[pl] || "var(--ud-pm-accent)"}30` }}>
+                                                            <FaStore style={{ fontSize: 9 }} /> {pl}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        </label>
+                                    </div>
+                                )}
+
+                                {!hasPlatforms && (
+                                    <div style={{ background: "rgba(78,205,196,0.06)", border: "1px solid rgba(78,205,196,0.15)", borderRadius: 10, padding: "10px 14px", marginBottom: 14, display: "flex", alignItems: "center", gap: 8 }}>
+                                        <FaInfoCircle style={{ color: "var(--ud-pm-accent)", fontSize: 14, flexShrink: 0 }} />
+                                        <span style={{ color: "var(--ud-pm-text-sub)", fontSize: 12 }}>Bu ürün hiçbir pazaryerine dağıtılmamış. Sadece yerel kayıt silinecek.</span>
+                                    </div>
+                                )}
+
+                                {deleteResult?.success === false && (
+                                    <div style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)", borderRadius: 8, padding: "8px 12px", marginBottom: 12, display: "flex", alignItems: "center", gap: 8 }}>
+                                        <FaTimesCircle style={{ color: "var(--ud-pm-red)", flexShrink: 0 }} />
+                                        <span style={{ color: "var(--ud-pm-red)", fontSize: 12 }}>{deleteResult.msg}</span>
+                                    </div>
+                                )}
+
+                                <div style={{ display: "flex", gap: 8 }}>
+                                    <button className="ud-pm-btn outline" style={{ flex: 1, justifyContent: "center" }}
+                                        onClick={() => { setDeleteConfirm(null); setDeleteResult(null); }} disabled={deleteLoading}>
+                                        İptal
+                                    </button>
+                                    <button className="ud-pm-btn red" style={{ flex: 1, justifyContent: "center" }}
+                                        onClick={executeDelete} disabled={deleteLoading}>
+                                        {deleteLoading ? <span className="spinner" /> : <FaTrash />}
+                                        {deleteFromMP && hasPlatforms ? "Her Yerden Sil" : "Sil"}
+                                    </button>
+                                </div>
+                            </>
+                        )}
+                    </motion.div>
+                </motion.div>
+            </AnimatePresence>
+        , document.body);
+    };
+
     /* ═══════════════════════════════════════════════════════════════
        TAB 5: TOPLU ÜRÜN YÖNETİMİ
        ═══════════════════════════════════════════════════════════════ */
@@ -1010,10 +1179,7 @@ const ProductManagementCenter = ({ userId }) => {
         if (bulkPriceMode !== "round" && !bulkPriceValue) return showToast("Değer girin", "error");
         setBulkActionLoading(true); setBulkResult(null);
         try {
-            const r = await bulkUpdatePrices(
-                Array.from(bulkSelected), bulkPriceMode, Number(bulkPriceValue) || 0,
-                { roundTo: bulkPriceRound, applyToListPrice: bulkPriceListToo, syncToMarketplaces: bulkPriceSync }
-            );
+            const r = await bulkUpdatePrices(Array.from(bulkSelected), bulkPriceMode, Number(bulkPriceValue) || 0, { roundTo: bulkPriceRound, applyToListPrice: bulkPriceListToo, syncToMarketplaces: bulkPriceSync });
             setBulkResult({ type: "price", ...r.results }); showToast(r.message); loadBulkProducts(bulkPage); loadDashboard();
         } catch (e) { showToast(e.response?.data?.error || "Hata", "error"); }
         finally { setBulkActionLoading(false); }
@@ -1030,13 +1196,19 @@ const ProductManagementCenter = ({ userId }) => {
         finally { setBulkActionLoading(false); }
     };
 
+    const [bulkDeleteFromMP, setBulkDeleteFromMP] = useState(true);
     const handleBulkDelete = async () => {
         if (bulkSelected.size === 0) return showToast("Ürün seçin", "error");
-        if (!window.confirm(`${bulkSelected.size} ürünü silmek istediğinize emin misiniz? Bu işlem geri alınamaz!`)) return;
+        const confirmMsg = bulkDeleteFromMP
+            ? `${bulkSelected.size} ürünü silmek ve pazaryerlerinden kaldırmak istediğinize emin misiniz?\nBu işlem geri alınamaz!`
+            : `${bulkSelected.size} ürünü silmek istediğinize emin misiniz?\nBu işlem geri alınamaz! (Sadece yerel kayıtlar silinir)`;
+        if (!window.confirm(confirmMsg)) return;
         setBulkActionLoading(true); setBulkResult(null);
         try {
-            const r = await bulkDeleteProducts(Array.from(bulkSelected));
-            setBulkResult({ type: "delete", deletedCount: r.deletedCount }); showToast(r.message); setBulkSelected(new Set()); loadBulkProducts(0); loadDashboard();
+            const r = await bulkDeleteProducts(Array.from(bulkSelected), { deleteFromMarketplaces: bulkDeleteFromMP });
+            const mpStats = r.marketplaceStats || {};
+            setBulkResult({ type: "delete", deletedCount: r.deletedCount, mpSuccess: mpStats.success || 0, mpError: mpStats.error || 0, fromMP: bulkDeleteFromMP });
+            showToast(r.message); setBulkSelected(new Set()); loadBulkProducts(0); loadDashboard();
         } catch (e) { showToast(e.response?.data?.error || "Hata", "error"); }
         finally { setBulkActionLoading(false); }
     };
@@ -1068,76 +1240,69 @@ const ProductManagementCenter = ({ userId }) => {
 
     const renderBulk = () => {
         const actions = [
-            { id: "price", icon: "💰", label: "Fiyat Güncelle", color: C.green, desc: "Sabit, yüzde veya yuvarlama" },
-            { id: "stock", icon: "📦", label: "Stok Güncelle", color: C.blue, desc: "Sabit, artır veya azalt" },
-            { id: "distribute", icon: "🚀", label: "Platformlara Dağıt", color: C.purple, desc: "Seçili platformlara gönder" },
-            { id: "fields", icon: "🏷️", label: "Alan Güncelle", color: C.yellow, desc: "Kategori, marka, güvenlik stoğu" },
-            { id: "delete", icon: "🗑️", label: "Toplu Sil", color: C.red, desc: "Seçili ürünleri kalıcı sil" },
+            { id: "price", icon: <FaDollarSign />, label: "Fiyat Güncelle", color: "var(--ud-pm-green)", desc: "Sabit, yüzde veya yuvarlama" },
+            { id: "stock", icon: <FaWarehouse />, label: "Stok Güncelle", color: "var(--ud-pm-blue)", desc: "Sabit, artır veya azalt" },
+            { id: "distribute", icon: <FaRocket />, label: "Platformlara Dağıt", color: "var(--ud-pm-purple)", desc: "Seçili platformlara gönder" },
+            { id: "fields", icon: <FaTag />, label: "Alan Güncelle", color: "var(--ud-pm-yellow)", desc: "Kategori, marka, güvenlik stoğu" },
+            { id: "delete", icon: <FaTrash />, label: "Toplu Sil", color: "var(--ud-pm-red)", desc: "Seçili ürünleri kalıcı sil" },
         ];
 
         return (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 340px", gap: 16, alignItems: "start" }}>
-                {/* SOL: Ürün Listesi + Seçim */}
+            <div className="ud-pm-bulk-layout">
+                {/* SOL: Ürün Listesi */}
                 <div>
-                    {/* Toolbar */}
-                    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 12 }}>
-                        <div style={{ position: "relative", flex: 1, maxWidth: 300 }}>
-                            <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 12, color: C.textDim }}>🔍</span>
-                            <input value={bulkSearch} onChange={e => setBulkSearch(e.target.value)} placeholder="Ürün adı, barkod, SKU..."
-                                style={{ width: "100%", background: C.glass, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 10px 8px 32px", color: C.text, fontSize: 12, outline: "none" }} />
+                    <div className="ud-pm-toolbar">
+                        <div className="ud-pm-search-wrap" style={{ maxWidth: 300 }}>
+                            <span className="icon"><FaSearch /></span>
+                            <input className="ud-pm-search" value={bulkSearch} onChange={e => setBulkSearch(e.target.value)} placeholder="Ürün adı, barkod, SKU..." />
                         </div>
-                        <Pill color={C.accent}>✓ {bulkSelected.size} / {bulkTotal}</Pill>
-                        <Btn small outline color={C.accent} onClick={bulkSelectAll} loading={bulkActionLoading}>📋 Tümünü Seç</Btn>
-                        {bulkSelected.size > 0 && <Btn small outline color={C.textDim} onClick={() => setBulkSelected(new Set())}>✕ Temizle</Btn>}
+                        <Pill color="var(--ud-pm-accent)"><FaCheck style={{ fontSize: 8 }} /> {bulkSelected.size} / {bulkTotal}</Pill>
+                        <button className="ud-pm-btn sm accent outline" onClick={bulkSelectAll} disabled={bulkActionLoading}><FaClipboardList /> Tümünü Seç</button>
+                        {bulkSelected.size > 0 && <button className="ud-pm-btn sm muted" onClick={() => setBulkSelected(new Set())}><FaTimes /> Temizle</button>}
                     </div>
 
-                    {/* Tablo */}
-                    <div style={{ background: C.card, border: `1px solid ${C.border}`, borderRadius: 12, overflow: "hidden" }}>
-                        <div style={{ overflowX: "auto" }}>
-                            <table style={{ width: "100%", minWidth: 600, borderCollapse: "collapse" }}>
+                    <div className="ud-pm-table-wrap">
+                        <div className="ud-pm-table-scroll">
+                            <table className="ud-pm-table" style={{ minWidth: 600 }}>
                                 <thead>
-                                    <tr style={{ borderBottom: `1px solid ${C.border}` }}>
-                                        <th style={th}><input type="checkbox" checked={bulkSelected.size === bulkProducts.length && bulkProducts.length > 0} onChange={bulkToggleAll} style={{ accentColor: C.accent }} /></th>
-                                        <th style={th}>Ürün</th>
-                                        <th style={th}>Barkod</th>
-                                        <th style={{ ...th, textAlign: "right" }}>Fiyat</th>
-                                        <th style={{ ...th, textAlign: "center" }}>Stok</th>
-                                        <th style={{ ...th, textAlign: "center" }}>Platform</th>
+                                    <tr>
+                                        <th style={{ width: 40 }}><input type="checkbox" className="ud-pm-checkbox" checked={bulkSelected.size === bulkProducts.length && bulkProducts.length > 0} onChange={bulkToggleAll} /></th>
+                                        <th>Ürün</th>
+                                        <th>Barkod</th>
+                                        <th className="right">Fiyat</th>
+                                        <th className="center">Stok</th>
+                                        <th className="center">Platform</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {bulkLoading ? (
-                                        <tr><td colSpan={6} style={{ textAlign: "center", padding: "2rem", color: C.textDim, fontSize: 12 }}>⏳ Yükleniyor...</td></tr>
+                                        <tr><td colSpan={6}><Loading /></td></tr>
                                     ) : bulkProducts.length === 0 ? (
-                                        <tr><td colSpan={6}><Empty icon="📦" title="Ürün bulunamadı" /></td></tr>
+                                        <tr><td colSpan={6}><Empty icon={FaBox} title="Ürün bulunamadı" /></td></tr>
                                     ) : bulkProducts.map((p, i) => {
                                         const mp = p.masterProduct || {};
                                         const st = p.stockTracking || {};
                                         const isSel = bulkSelected.has(p._id);
-                                        const plCount = (p.marketplaceMappings || []).filter(m => m.marketplaceName).length;
                                         return (
                                             <motion.tr key={p._id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.01 }}
-                                                onClick={() => bulkToggleSel(p._id)}
-                                                style={{ borderBottom: `1px solid ${C.border}`, background: isSel ? C.accent + "0c" : "transparent", cursor: "pointer", transition: "background .1s" }}
-                                                onMouseEnter={e => { if (!isSel) e.currentTarget.style.background = "rgba(255,255,255,.015)"; }}
-                                                onMouseLeave={e => { if (!isSel) e.currentTarget.style.background = isSel ? C.accent + "0c" : "transparent"; }}>
-                                                <td style={td}><input type="checkbox" checked={isSel} onChange={() => bulkToggleSel(p._id)} style={{ accentColor: C.accent }} /></td>
-                                                <td style={td}>
-                                                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                                        {mp.images?.[0] ? <img src={mp.images[0]} alt="" style={{ width: 28, height: 28, borderRadius: 5, objectFit: "cover", border: `1px solid ${C.border}` }} />
-                                                            : <div style={{ width: 28, height: 28, borderRadius: 5, background: C.glass, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12 }}>📦</div>}
+                                                className={isSel ? "selected" : ""} onClick={() => bulkToggleSel(p._id)}>
+                                                <td><input type="checkbox" className="ud-pm-checkbox" checked={isSel} onChange={() => bulkToggleSel(p._id)} /></td>
+                                                <td>
+                                                    <div className="product-cell">
+                                                        {mp.images?.[0] ? <img src={mp.images[0]} alt="" className="product-img" style={{ width: 28, height: 28 }} />
+                                                            : <div className="product-img-placeholder" style={{ width: 28, height: 28, fontSize: 12 }}><FaBox /></div>}
                                                         <div>
-                                                            <div style={{ color: C.text, fontSize: 11, fontWeight: 600, maxWidth: 180, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{mp.name || "İsimsiz"}</div>
-                                                            {mp.brand && <div style={{ color: C.textDim, fontSize: 9 }}>{mp.brand}</div>}
+                                                            <div className="product-name" style={{ maxWidth: 180 }}>{mp.name || "İsimsiz"}</div>
+                                                            {mp.brand && <div className="product-brand">{mp.brand}</div>}
                                                         </div>
                                                     </div>
                                                 </td>
-                                                <td style={td}><span style={{ fontFamily: "monospace", fontSize: 10, color: C.textSub }}>{mp.barcode || "—"}</span></td>
-                                                <td style={{ ...td, textAlign: "right" }}><span style={{ color: C.green, fontWeight: 700, fontSize: 12 }}>{fmt(mp.price)}</span></td>
-                                                <td style={{ ...td, textAlign: "center" }}><span style={{ color: st.isOutOfStock ? C.red : st.isLowStock ? C.yellow : C.green, fontWeight: 800, fontSize: 12 }}>{st.totalStock ?? 0}</span></td>
-                                                <td style={{ ...td, textAlign: "center" }}>
-                                                    <div style={{ display: "flex", gap: 2, justifyContent: "center" }}>
-                                                        {PLATFORMS.map(pl => { const ps = getPlStatus(p, pl); return <span key={pl} style={{ fontSize: 10, opacity: ps.exists ? 1 : 0.15 }}>{PL_ICON[pl]}</span>; })}
+                                                <td><span className="mono" style={{ fontSize: 10 }}>{mp.barcode || "—"}</span></td>
+                                                <td className="right"><span className="price">{fmt(mp.price)}</span></td>
+                                                <td className="center"><span className={st.isOutOfStock ? "stock-out" : st.isLowStock ? "stock-low" : "stock-ok"} style={{ fontSize: 12 }}>{st.totalStock ?? 0}</span></td>
+                                                <td className="center">
+                                                    <div className="ud-pm-platforms">
+                                                        {PLATFORMS.map(pl => { const ps = getPlStatus(p, pl); return <span key={pl} className={`ud-pm-platform-dot ${ps.exists ? "" : "inactive"}`} style={{ fontSize: 8, color: PL_COLOR[pl] }}>{PL_SHORT[pl]}</span>; })}
                                                     </div>
                                                 </td>
                                             </motion.tr>
@@ -1146,192 +1311,171 @@ const ProductManagementCenter = ({ userId }) => {
                                 </tbody>
                             </table>
                         </div>
-                        {bulkTotalPages > 1 && (
-                            <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 8, padding: 10, borderTop: `1px solid ${C.border}` }}>
-                                <Btn small outline disabled={bulkPage === 0} onClick={() => loadBulkProducts(bulkPage - 1)}>◀</Btn>
-                                <span style={{ color: C.textSub, fontSize: 12 }}>{bulkPage + 1} / {bulkTotalPages} <span style={{ color: C.textDim }}>({bulkTotal})</span></span>
-                                <Btn small outline disabled={bulkPage >= bulkTotalPages - 1} onClick={() => loadBulkProducts(bulkPage + 1)}>▶</Btn>
-                            </div>
-                        )}
+                        <Pagination currentPage={bulkPage} totalPages={bulkTotalPages} total={bulkTotal} onPageChange={p => loadBulkProducts(p)} />
                     </div>
                 </div>
 
                 {/* SAĞ: İşlem Paneli */}
-                <div style={{ display: "flex", flexDirection: "column", gap: 12, position: "sticky", top: 20 }}>
-                    {/* Seçim Özeti */}
-                    <Card style={{ background: `linear-gradient(135deg, ${C.accent}08, ${C.purple}06)`, borderColor: C.accent + "25" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-                            <span style={{ fontSize: 20 }}>📋</span>
+                <div className="ud-pm-bulk-panel">
+                    <div className="ud-pm-card" style={{ background: "linear-gradient(135deg, rgba(78,205,196,0.05), rgba(139,92,246,0.04))", borderColor: "rgba(78,205,196,0.2)" }}>
+                        <div className="ud-pm-card-header">
+                            <span className="icon"><FaLayerGroup /></span>
                             <div>
-                                <div style={{ color: C.text, fontSize: 14, fontWeight: 700 }}>Toplu İşlem</div>
-                                <div style={{ color: C.textDim, fontSize: 10 }}>{bulkSelected.size > 0 ? `${bulkSelected.size} ürün seçili` : "Ürün seçerek başlayın"}</div>
+                                <div className="title">Toplu İşlem</div>
+                                <div className="subtitle">{bulkSelected.size > 0 ? `${bulkSelected.size} ürün seçili` : "Ürün seçerek başlayın"}</div>
                             </div>
                         </div>
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                        <div className="ud-pm-bulk-actions">
                             {actions.map(a => (
-                                <div key={a.id} onClick={() => { setBulkAction(bulkAction === a.id ? "" : a.id); setBulkResult(null); }}
-                                    style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 10px", borderRadius: 8, cursor: "pointer",
-                                        background: bulkAction === a.id ? a.color + "15" : C.glass, border: `1.5px solid ${bulkAction === a.id ? a.color : C.border}`, transition: "all .15s" }}
-                                    onMouseEnter={e => { if (bulkAction !== a.id) e.currentTarget.style.borderColor = a.color + "40"; }}
-                                    onMouseLeave={e => { if (bulkAction !== a.id) e.currentTarget.style.borderColor = C.border; }}>
-                                    <span style={{ fontSize: 16 }}>{a.icon}</span>
+                                <button key={a.id} className={`ud-pm-bulk-action-btn ${bulkAction === a.id ? "active" : ""}`}
+                                    style={bulkAction === a.id ? { background: `${a.color}12`, borderColor: a.color } : {}}
+                                    onClick={() => { setBulkAction(bulkAction === a.id ? "" : a.id); setBulkResult(null); }}>
+                                    <span className="action-icon" style={{ color: bulkAction === a.id ? a.color : "var(--ud-pm-text-sub)" }}>{a.icon}</span>
                                     <div>
-                                        <div style={{ color: bulkAction === a.id ? a.color : C.text, fontSize: 11, fontWeight: 700 }}>{a.label}</div>
-                                        <div style={{ color: C.textDim, fontSize: 8 }}>{a.desc}</div>
+                                        <div className="action-label" style={bulkAction === a.id ? { color: a.color } : {}}>{a.label}</div>
+                                        <div className="action-desc">{a.desc}</div>
                                     </div>
-                                </div>
+                                </button>
                             ))}
                         </div>
-                    </Card>
+                    </div>
 
-                    {/* İşlem Detay Paneli */}
+                    {/* İşlem Detay Panelleri */}
                     <AnimatePresence mode="wait">
                         {bulkAction === "price" && (
                             <motion.div key="price" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}>
-                                <Card>
-                                    <div style={{ color: C.text, fontSize: 13, fontWeight: 700, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>💰 Toplu Fiyat Güncelleme</div>
-                                    <div style={{ display: "flex", gap: 4, marginBottom: 10 }}>
-                                        {[{ id: "percent", l: "% Oran", i: "📊" }, { id: "fixed", l: "Sabit ₺", i: "💵" }, { id: "round", l: "Yuvarlama", i: "🔄" }].map(m => (
-                                            <button key={m.id} onClick={() => setBulkPriceMode(m.id)}
-                                                style={{ flex: 1, background: bulkPriceMode === m.id ? C.green + "18" : C.glass, border: `1px solid ${bulkPriceMode === m.id ? C.green : C.border}`, borderRadius: 6, padding: "6px 4px", cursor: "pointer", color: bulkPriceMode === m.id ? C.green : C.textDim, fontSize: 10, fontWeight: 700, textAlign: "center" }}>
-                                                {m.i} {m.l}
-                                            </button>
+                                <div className="ud-pm-card">
+                                    <div style={{ color: "var(--ud-pm-text)", fontSize: 13, fontWeight: 700, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}><FaDollarSign style={{ color: "var(--ud-pm-green)" }} /> Toplu Fiyat Güncelleme</div>
+                                    <div className="ud-pm-mode-group">
+                                        {[{ id: "percent", l: "% Oran", icon: <FaPercentage /> }, { id: "fixed", l: "Sabit ₺", icon: <FaDollarSign /> }, { id: "round", l: "Yuvarlama", icon: <FaSync /> }].map(m => (
+                                            <button key={m.id} className={`ud-pm-mode-btn ${bulkPriceMode === m.id ? "active" : ""}`}
+                                                style={bulkPriceMode === m.id ? { color: "var(--ud-pm-green)", borderColor: "var(--ud-pm-green)", background: "rgba(34,197,94,0.1)" } : {}}
+                                                onClick={() => setBulkPriceMode(m.id)}>{m.icon} {m.l}</button>
                                         ))}
                                     </div>
                                     {bulkPriceMode !== "round" && (
-                                        <div style={{ marginBottom: 8 }}>
-                                            <label style={{ color: C.textDim, fontSize: 9, fontWeight: 700, textTransform: "uppercase", display: "block", marginBottom: 3 }}>
-                                                {bulkPriceMode === "percent" ? "Yüzde (+ artış, - azalış)" : "Yeni Fiyat (₺)"}
-                                            </label>
+                                        <div className="ud-pm-field" style={{ marginBottom: 8 }}>
+                                            <label>{bulkPriceMode === "percent" ? "Yüzde (+ artış, - azalış)" : "Yeni Fiyat (₺)"}</label>
                                             <input type="number" step={bulkPriceMode === "percent" ? "1" : "0.01"} value={bulkPriceValue} onChange={e => setBulkPriceValue(e.target.value)}
-                                                placeholder={bulkPriceMode === "percent" ? "ör: 10 veya -15" : "ör: 299.90"}
-                                                style={{ width: "100%", background: C.glass, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 10px", color: C.text, fontSize: 12, outline: "none", boxSizing: "border-box" }} />
+                                                placeholder={bulkPriceMode === "percent" ? "ör: 10 veya -15" : "ör: 299.90"} />
                                         </div>
                                     )}
-                                    <div style={{ marginBottom: 8 }}>
-                                        <label style={{ color: C.textDim, fontSize: 9, fontWeight: 700, textTransform: "uppercase", display: "block", marginBottom: 3 }}>Yuvarlama (opsiyonel)</label>
+                                    <div className="ud-pm-field" style={{ marginBottom: 8 }}>
+                                        <label>Yuvarlama (opsiyonel)</label>
                                         <div style={{ display: "flex", gap: 4 }}>
                                             {["", "0.90", "0.99", "0.49", "0.00"].map(r => (
-                                                <button key={r} onClick={() => setBulkPriceRound(r)}
-                                                    style={{ flex: 1, background: bulkPriceRound === r ? C.accent + "18" : C.glass, border: `1px solid ${bulkPriceRound === r ? C.accent : C.border}`, borderRadius: 6, padding: "5px 2px", cursor: "pointer", color: bulkPriceRound === r ? C.accent : C.textDim, fontSize: 10, fontWeight: 600 }}>
-                                                    {r || "Yok"}
-                                                </button>
+                                                <button key={r} className={`ud-pm-mode-btn ${bulkPriceRound === r ? "active" : ""}`}
+                                                    style={bulkPriceRound === r ? { color: "var(--ud-pm-accent)", borderColor: "var(--ud-pm-accent)", background: "rgba(78,205,196,0.1)" } : {}}
+                                                    onClick={() => setBulkPriceRound(r)}>{r || "Yok"}</button>
                                             ))}
                                         </div>
                                     </div>
                                     <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 }}>
-                                        <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 11, color: C.textSub }}>
-                                            <input type="checkbox" checked={bulkPriceListToo} onChange={e => setBulkPriceListToo(e.target.checked)} style={{ accentColor: C.accent }} />
+                                        <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 11, color: "var(--ud-pm-text-sub)" }}>
+                                            <input type="checkbox" className="ud-pm-checkbox" checked={bulkPriceListToo} onChange={e => setBulkPriceListToo(e.target.checked)} />
                                             Liste fiyatına da uygula
                                         </label>
-                                        <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 11, color: C.textSub }}>
-                                            <input type="checkbox" checked={bulkPriceSync} onChange={e => setBulkPriceSync(e.target.checked)} style={{ accentColor: C.green }} />
-                                            🔄 Platformlara da senkronize et
+                                        <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 11, color: "var(--ud-pm-text-sub)" }}>
+                                            <input type="checkbox" className="ud-pm-checkbox" checked={bulkPriceSync} onChange={e => setBulkPriceSync(e.target.checked)} />
+                                            <FaSync style={{ fontSize: 9 }} /> Platformlara da senkronize et
                                         </label>
                                     </div>
-                                    <Btn onClick={handleBulkPriceSubmit} loading={bulkActionLoading} disabled={bulkSelected.size === 0} color={C.green} style={{ width: "100%", justifyContent: "center" }}>
-                                        💰 {bulkSelected.size} Ürünün Fiyatını Güncelle
-                                    </Btn>
-                                </Card>
+                                    <button className="ud-pm-btn green" style={{ width: "100%", justifyContent: "center" }} onClick={handleBulkPriceSubmit} disabled={bulkSelected.size === 0 || bulkActionLoading}>
+                                        {bulkActionLoading ? <span className="spinner" /> : <FaDollarSign />} {bulkSelected.size} Ürünün Fiyatını Güncelle
+                                    </button>
+                                </div>
                             </motion.div>
                         )}
 
                         {bulkAction === "stock" && (
                             <motion.div key="stock" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}>
-                                <Card>
-                                    <div style={{ color: C.text, fontSize: 13, fontWeight: 700, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>📦 Toplu Stok Güncelleme</div>
-                                    <div style={{ display: "flex", gap: 4, marginBottom: 10 }}>
-                                        {[{ id: "fixed", l: "Sabit", i: "📌" }, { id: "increase", l: "Artır", i: "📈" }, { id: "decrease", l: "Azalt", i: "📉" }].map(m => (
-                                            <button key={m.id} onClick={() => setBulkStockMode(m.id)}
-                                                style={{ flex: 1, background: bulkStockMode === m.id ? C.blue + "18" : C.glass, border: `1px solid ${bulkStockMode === m.id ? C.blue : C.border}`, borderRadius: 6, padding: "6px 4px", cursor: "pointer", color: bulkStockMode === m.id ? C.blue : C.textDim, fontSize: 10, fontWeight: 700, textAlign: "center" }}>
-                                                {m.i} {m.l}
-                                            </button>
+                                <div className="ud-pm-card">
+                                    <div style={{ color: "var(--ud-pm-text)", fontSize: 13, fontWeight: 700, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}><FaWarehouse style={{ color: "var(--ud-pm-blue)" }} /> Toplu Stok Güncelleme</div>
+                                    <div className="ud-pm-mode-group">
+                                        {[{ id: "fixed", l: "Sabit" }, { id: "increase", l: "Artır" }, { id: "decrease", l: "Azalt" }].map(m => (
+                                            <button key={m.id} className={`ud-pm-mode-btn ${bulkStockMode === m.id ? "active" : ""}`}
+                                                style={bulkStockMode === m.id ? { color: "var(--ud-pm-blue)", borderColor: "var(--ud-pm-blue)", background: "rgba(59,130,246,0.1)" } : {}}
+                                                onClick={() => setBulkStockMode(m.id)}>{m.l}</button>
                                         ))}
                                     </div>
-                                    <div style={{ marginBottom: 8 }}>
-                                        <label style={{ color: C.textDim, fontSize: 9, fontWeight: 700, textTransform: "uppercase", display: "block", marginBottom: 3 }}>
-                                            {bulkStockMode === "fixed" ? "Yeni Stok Adedi" : bulkStockMode === "increase" ? "Artırılacak Miktar" : "Azaltılacak Miktar"}
-                                        </label>
+                                    <div className="ud-pm-field" style={{ marginBottom: 8 }}>
+                                        <label>{bulkStockMode === "fixed" ? "Yeni Stok Adedi" : bulkStockMode === "increase" ? "Artırılacak Miktar" : "Azaltılacak Miktar"}</label>
                                         <input type="number" min="0" step="1" value={bulkStockValue} onChange={e => setBulkStockValue(e.target.value)}
-                                            placeholder={bulkStockMode === "fixed" ? "ör: 50" : "ör: 10"}
-                                            style={{ width: "100%", background: C.glass, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 10px", color: C.text, fontSize: 12, outline: "none", boxSizing: "border-box" }} />
+                                            placeholder={bulkStockMode === "fixed" ? "ör: 50" : "ör: 10"} />
                                     </div>
-                                    <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 11, color: C.textSub, marginBottom: 10 }}>
-                                        <input type="checkbox" checked={bulkStockSync} onChange={e => setBulkStockSync(e.target.checked)} style={{ accentColor: C.green }} />
-                                        🔄 Platformlara da senkronize et
+                                    <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 11, color: "var(--ud-pm-text-sub)", marginBottom: 10 }}>
+                                        <input type="checkbox" className="ud-pm-checkbox" checked={bulkStockSync} onChange={e => setBulkStockSync(e.target.checked)} />
+                                        <FaSync style={{ fontSize: 9 }} /> Platformlara da senkronize et
                                     </label>
-                                    <Btn onClick={handleBulkStockSubmit} loading={bulkActionLoading} disabled={bulkSelected.size === 0} color={C.blue} style={{ width: "100%", justifyContent: "center" }}>
-                                        📦 {bulkSelected.size} Ürünün Stoğunu Güncelle
-                                    </Btn>
-                                </Card>
+                                    <button className="ud-pm-btn blue" style={{ width: "100%", justifyContent: "center" }} onClick={handleBulkStockSubmit} disabled={bulkSelected.size === 0 || bulkActionLoading}>
+                                        {bulkActionLoading ? <span className="spinner" /> : <FaWarehouse />} {bulkSelected.size} Ürünün Stoğunu Güncelle
+                                    </button>
+                                </div>
                             </motion.div>
                         )}
 
                         {bulkAction === "distribute" && (
                             <motion.div key="distribute" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}>
-                                <Card>
-                                    <div style={{ color: C.text, fontSize: 13, fontWeight: 700, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>🚀 Toplu Platform Dağıtımı</div>
+                                <div className="ud-pm-card">
+                                    <div style={{ color: "var(--ud-pm-text)", fontSize: 13, fontWeight: 700, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}><FaRocket style={{ color: "var(--ud-pm-purple)" }} /> Toplu Platform Dağıtımı</div>
                                     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                                         {marketplaces.map(mp => (
-                                            <Btn key={mp._id} color={PL_COLOR[mp.marketplaceName] || C.accent}
-                                                onClick={() => handleBulkDistributeAction([mp.marketplaceName])}
-                                                loading={bulkActionLoading} disabled={bulkSelected.size === 0}
-                                                style={{ justifyContent: "flex-start" }}>
-                                                {PL_ICON[mp.marketplaceName] || "🔗"} {mp.marketplaceName}'a Dağıt
-                                            </Btn>
+                                            <button key={mp._id} className="ud-pm-btn" style={{ background: PL_COLOR[mp.marketplaceName] || "var(--ud-pm-accent)", justifyContent: "flex-start" }}
+                                                onClick={() => handleBulkDistributeAction([mp.marketplaceName])} disabled={bulkSelected.size === 0 || bulkActionLoading}>
+                                                {bulkActionLoading ? <span className="spinner" /> : <FaRocket />} {mp.marketplaceName}'a Dağıt
+                                            </button>
                                         ))}
                                         {marketplaces.length > 1 && (
-                                            <Btn color={C.accent} onClick={() => handleBulkDistributeAction(marketplaces.map(m => m.marketplaceName))}
-                                                loading={bulkActionLoading} disabled={bulkSelected.size === 0}
-                                                style={{ justifyContent: "center", marginTop: 4 }}>
-                                                🌐 Tüm Platformlara Dağıt ({bulkSelected.size} ürün)
-                                            </Btn>
+                                            <button className="ud-pm-btn accent" style={{ justifyContent: "center", marginTop: 4 }}
+                                                onClick={() => handleBulkDistributeAction(marketplaces.map(m => m.marketplaceName))} disabled={bulkSelected.size === 0 || bulkActionLoading}>
+                                                <FaGlobe /> Tüm Platformlara Dağıt ({bulkSelected.size} ürün)
+                                            </button>
                                         )}
                                     </div>
-                                </Card>
+                                </div>
                             </motion.div>
                         )}
 
                         {bulkAction === "fields" && (
                             <motion.div key="fields" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}>
-                                <Card>
-                                    <div style={{ color: C.text, fontSize: 13, fontWeight: 700, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>🏷️ Toplu Alan Güncelleme</div>
+                                <div className="ud-pm-card">
+                                    <div style={{ color: "var(--ud-pm-text)", fontSize: 13, fontWeight: 700, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}><FaTag style={{ color: "var(--ud-pm-yellow)" }} /> Toplu Alan Güncelleme</div>
                                     <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 10 }}>
-                                        <div>
-                                            <label style={{ color: C.textDim, fontSize: 9, fontWeight: 700, textTransform: "uppercase", display: "block", marginBottom: 3 }}>Kategori</label>
-                                            <input value={bulkFieldCategory} onChange={e => setBulkFieldCategory(e.target.value)} placeholder="Yeni kategori adı"
-                                                style={{ width: "100%", background: C.glass, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 10px", color: C.text, fontSize: 12, outline: "none", boxSizing: "border-box" }} />
+                                        <div className="ud-pm-field">
+                                            <label>Kategori</label>
+                                            <input value={bulkFieldCategory} onChange={e => setBulkFieldCategory(e.target.value)} placeholder="Yeni kategori adı" />
                                         </div>
-                                        <div>
-                                            <label style={{ color: C.textDim, fontSize: 9, fontWeight: 700, textTransform: "uppercase", display: "block", marginBottom: 3 }}>Marka</label>
-                                            <input value={bulkFieldBrand} onChange={e => setBulkFieldBrand(e.target.value)} placeholder="Yeni marka adı"
-                                                style={{ width: "100%", background: C.glass, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 10px", color: C.text, fontSize: 12, outline: "none", boxSizing: "border-box" }} />
+                                        <div className="ud-pm-field">
+                                            <label>Marka</label>
+                                            <input value={bulkFieldBrand} onChange={e => setBulkFieldBrand(e.target.value)} placeholder="Yeni marka adı" />
                                         </div>
-                                        <div>
-                                            <label style={{ color: C.textDim, fontSize: 9, fontWeight: 700, textTransform: "uppercase", display: "block", marginBottom: 3 }}>🛡️ Güvenlik Stoğu</label>
-                                            <input type="number" min="0" value={bulkFieldSafety} onChange={e => setBulkFieldSafety(e.target.value)} placeholder="ör: 5"
-                                                style={{ width: "100%", background: C.glass, border: `1px solid ${C.border}`, borderRadius: 8, padding: "8px 10px", color: C.text, fontSize: 12, outline: "none", boxSizing: "border-box" }} />
+                                        <div className="ud-pm-field">
+                                            <label><FaShieldAlt style={{ fontSize: 9 }} /> Güvenlik Stoğu</label>
+                                            <input type="number" min="0" value={bulkFieldSafety} onChange={e => setBulkFieldSafety(e.target.value)} placeholder="ör: 5" />
                                         </div>
                                     </div>
-                                    <Btn onClick={handleBulkFieldsSubmit} loading={bulkActionLoading} disabled={bulkSelected.size === 0} color={C.yellow} style={{ width: "100%", justifyContent: "center" }}>
-                                        🏷️ {bulkSelected.size} Ürünü Güncelle
-                                    </Btn>
-                                </Card>
+                                    <button className="ud-pm-btn yellow" style={{ width: "100%", justifyContent: "center" }} onClick={handleBulkFieldsSubmit} disabled={bulkSelected.size === 0 || bulkActionLoading}>
+                                        {bulkActionLoading ? <span className="spinner" /> : <FaTag />} {bulkSelected.size} Ürünü Güncelle
+                                    </button>
+                                </div>
                             </motion.div>
                         )}
 
                         {bulkAction === "delete" && (
                             <motion.div key="delete" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}>
-                                <Card style={{ borderColor: C.red + "30" }}>
-                                    <div style={{ color: C.red, fontSize: 13, fontWeight: 700, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>⚠️ Toplu Silme</div>
-                                    <div style={{ color: C.textSub, fontSize: 11, lineHeight: 1.5, marginBottom: 12, background: C.red + "08", borderRadius: 8, padding: "10px 12px", border: `1px solid ${C.red}15` }}>
-                                        <strong style={{ color: C.red }}>{bulkSelected.size} ürün</strong> kalıcı olarak silinecek. Bu işlem geri alınamaz!
-                                        Pazaryerlerindeki ürünler etkilenmez, sadece yerel kayıtlar silinir.
+                                <div className="ud-pm-card" style={{ borderColor: "rgba(239,68,68,0.25)" }}>
+                                    <div style={{ color: "var(--ud-pm-red)", fontSize: 13, fontWeight: 700, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}><FaExclamationTriangle /> Toplu Silme</div>
+                                    <div className="ud-pm-delete-warning">
+                                        <strong style={{ color: "var(--ud-pm-red)" }}>{bulkSelected.size} ürün</strong> kalıcı olarak silinecek. Bu işlem geri alınamaz!
                                     </div>
-                                    <Btn onClick={handleBulkDelete} loading={bulkActionLoading} disabled={bulkSelected.size === 0} color={C.red} style={{ width: "100%", justifyContent: "center" }}>
-                                        🗑️ {bulkSelected.size} Ürünü Kalıcı Sil
-                                    </Btn>
-                                </Card>
+                                    <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, cursor: "pointer", fontSize: 11, color: "var(--ud-pm-text-sub)" }}>
+                                        <input type="checkbox" className="ud-pm-checkbox" style={{ accentColor: "var(--ud-pm-red)" }} checked={bulkDeleteFromMP} onChange={e => setBulkDeleteFromMP(e.target.checked)} />
+                                        Pazaryerlerinden de kaldır <span style={{ opacity: 0.6 }}>(stok 0'a çekilir)</span>
+                                    </label>
+                                    <button className="ud-pm-btn red" style={{ width: "100%", justifyContent: "center" }} onClick={handleBulkDelete} disabled={bulkSelected.size === 0 || bulkActionLoading}>
+                                        {bulkActionLoading ? <span className="spinner" /> : <FaTrash />} {bulkSelected.size} Ürünü {bulkDeleteFromMP ? "Her Yerden" : "Kalıcı"} Sil
+                                    </button>
+                                </div>
                             </motion.div>
                         )}
                     </AnimatePresence>
@@ -1340,38 +1484,40 @@ const ProductManagementCenter = ({ userId }) => {
                     <AnimatePresence>
                         {bulkResult && (
                             <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}>
-                                <Card style={{ borderColor: C.green + "30", background: C.green + "06" }}>
-                                    <div style={{ color: C.green, fontSize: 12, fontWeight: 700, marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}>✅ İşlem Tamamlandı</div>
+                                <div className="ud-pm-card ud-pm-result">
+                                    <div className="result-title"><FaCheckCircle /> İşlem Tamamlandı</div>
                                     {bulkResult.type === "price" && (
-                                        <div style={{ fontSize: 11, color: C.textSub, lineHeight: 1.6 }}>
-                                            <div>✓ <strong>{bulkResult.updated}</strong> ürün fiyatı güncellendi</div>
-                                            {bulkResult.synced > 0 && <div>🔄 <strong>{bulkResult.synced}</strong> platform senkronize edildi</div>}
-                                            {bulkResult.errors > 0 && <div style={{ color: C.red }}>✗ <strong>{bulkResult.errors}</strong> hata</div>}
+                                        <div>
+                                            <div className="result-line"><FaCheck style={{ fontSize: 9 }} /> <strong>{bulkResult.updated}</strong> ürün fiyatı güncellendi</div>
+                                            {bulkResult.synced > 0 && <div className="result-line"><FaSync style={{ fontSize: 9 }} /> <strong>{bulkResult.synced}</strong> platform senkronize edildi</div>}
+                                            {bulkResult.errors > 0 && <div className="result-line error"><FaTimes style={{ fontSize: 9 }} /> <strong>{bulkResult.errors}</strong> hata</div>}
                                         </div>
                                     )}
                                     {bulkResult.type === "stock" && (
-                                        <div style={{ fontSize: 11, color: C.textSub, lineHeight: 1.6 }}>
-                                            <div>✓ <strong>{bulkResult.updated}</strong> ürün stoğu güncellendi</div>
-                                            {bulkResult.synced > 0 && <div>🔄 <strong>{bulkResult.synced}</strong> platform senkronize edildi</div>}
-                                            {bulkResult.errors > 0 && <div style={{ color: C.red }}>✗ <strong>{bulkResult.errors}</strong> hata</div>}
+                                        <div>
+                                            <div className="result-line"><FaCheck style={{ fontSize: 9 }} /> <strong>{bulkResult.updated}</strong> ürün stoğu güncellendi</div>
+                                            {bulkResult.synced > 0 && <div className="result-line"><FaSync style={{ fontSize: 9 }} /> <strong>{bulkResult.synced}</strong> platform senkronize edildi</div>}
+                                            {bulkResult.errors > 0 && <div className="result-line error"><FaTimes style={{ fontSize: 9 }} /> <strong>{bulkResult.errors}</strong> hata</div>}
                                         </div>
                                     )}
                                     {bulkResult.type === "delete" && (
-                                        <div style={{ fontSize: 11, color: C.textSub }}>🗑️ <strong>{bulkResult.deletedCount}</strong> ürün silindi</div>
+                                        <div>
+                                            <div className="result-line"><FaTrash style={{ fontSize: 9 }} /> <strong>{bulkResult.deletedCount}</strong> ürün silindi</div>
+                                            {bulkResult.fromMP && bulkResult.mpSuccess > 0 && <div className="result-line"><FaStore style={{ fontSize: 9 }} /> <strong>{bulkResult.mpSuccess}</strong> pazaryeri kaydı kaldırıldı</div>}
+                                            {bulkResult.fromMP && bulkResult.mpError > 0 && <div className="result-line error"><FaTimes style={{ fontSize: 9 }} /> <strong>{bulkResult.mpError}</strong> pazaryeri hatası</div>}
+                                        </div>
                                     )}
                                     {bulkResult.type === "distribute" && (
-                                        <div style={{ fontSize: 11, color: C.textSub, lineHeight: 1.6 }}>
-                                            <div>✓ <strong>{bulkResult.success}</strong> başarılı</div>
-                                            {bulkResult.skipped > 0 && <div>⏭️ <strong>{bulkResult.skipped}</strong> atlandı</div>}
-                                            {bulkResult.error > 0 && <div style={{ color: C.red }}>✗ <strong>{bulkResult.error}</strong> hata</div>}
+                                        <div>
+                                            <div className="result-line"><FaCheck style={{ fontSize: 9 }} /> <strong>{bulkResult.success}</strong> başarılı</div>
+                                            {bulkResult.skipped > 0 && <div className="result-line"><FaArrowRight style={{ fontSize: 9 }} /> <strong>{bulkResult.skipped}</strong> atlandı</div>}
+                                            {bulkResult.error > 0 && <div className="result-line error"><FaTimes style={{ fontSize: 9 }} /> <strong>{bulkResult.error}</strong> hata</div>}
                                         </div>
                                     )}
                                     {bulkResult.type === "fields" && (
-                                        <div style={{ fontSize: 11, color: C.textSub }}>
-                                            ✓ <strong>{bulkResult.modifiedCount}</strong> ürünün {(bulkResult.fields || []).join(", ")} güncellendi
-                                        </div>
+                                        <div className="result-line"><FaCheck style={{ fontSize: 9 }} /> <strong>{bulkResult.modifiedCount}</strong> ürünün {(bulkResult.fields || []).join(", ")} güncellendi</div>
                                     )}
-                                </Card>
+                                </div>
                             </motion.div>
                         )}
                     </AnimatePresence>
@@ -1380,40 +1526,36 @@ const ProductManagementCenter = ({ userId }) => {
         );
     };
 
+    /* ═══════════════════════════════════════════════════════════════
+       ANA RENDER
+       ═══════════════════════════════════════════════════════════════ */
     const tabs = [
-        { id: "products", icon: "📦", label: "Ürünler", count: total },
-        { id: "upload", icon: "➕", label: "Yükle & Dağıt" },
-        { id: "pricestock", icon: "💰", label: "Fiyat & Stok" },
-        { id: "bulk", icon: "📋", label: "Toplu İşlem", count: bulkSelected.size > 0 ? bulkSelected.size : undefined },
-        { id: "sync", icon: "🔄", label: "Senkronizasyon" },
+        { id: "products", icon: <FaBox />, label: "Ürünler", count: total },
+        { id: "upload", icon: <FaPlus />, label: "Yükle & Dağıt" },
+        { id: "pricestock", icon: <FaDollarSign />, label: "Fiyat & Stok" },
+        { id: "bulk", icon: <FaLayerGroup />, label: "Toplu İşlem", count: bulkSelected.size > 0 ? bulkSelected.size : undefined },
+        { id: "sync", icon: <FaSync />, label: "Senkronizasyon" },
     ];
 
     return (
-        <div style={{ minHeight: "100vh", background: C.bg, padding: "clamp(10px, 2.5vw, 24px)", color: C.text, fontFamily: "'Inter', 'Segoe UI', sans-serif" }}>
+        <div className="ud-pm-root">
             {/* Header */}
-            <div style={{ marginBottom: 18 }}>
-                <h1 style={{ fontSize: "clamp(18px, 3.5vw, 24px)", fontWeight: 800, margin: 0, marginBottom: 4, background: `linear-gradient(135deg, ${C.accent}, ${C.purple})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
-                    📦 Ürün Yönetim Merkezi
-                </h1>
-                <p style={{ color: C.textDim, fontSize: 11, margin: 0 }}>Ürünlerinizi yönetin, platformlara dağıtın, stok ve fiyat senkronizasyonu yapın</p>
+            <div className="ud-pm-header">
+                <h1><FaCubes /> Ürün Yönetim Merkezi</h1>
+                <p>Ürünlerinizi yönetin, platformlara dağıtın, stok ve fiyat senkronizasyonu yapın</p>
             </div>
 
             {/* Dashboard Cards */}
             {renderDashCards()}
 
             {/* Tab Bar */}
-            <div style={{ display: "flex", gap: 6, marginBottom: 16, overflowX: "auto", paddingBottom: 2 }}>
+            <div className="ud-pm-tabs">
                 {tabs.map(t => (
-                    <motion.button key={t.id} whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }} onClick={() => setTab(t.id)}
-                        style={{
-                            background: tab === t.id ? `linear-gradient(135deg, ${C.accent}18, ${C.accent}08)` : C.glass,
-                            border: tab === t.id ? `1.5px solid ${C.accent}` : `1px solid ${C.border}`,
-                            borderRadius: 10, padding: "8px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap", transition: "all .2s"
-                        }}>
-                        <span style={{ fontSize: 14 }}>{t.icon}</span>
-                        <span style={{ color: tab === t.id ? C.accent : C.textSub, fontSize: 12, fontWeight: 700 }}>{t.label}</span>
-                        {t.count !== undefined && <span style={{ background: tab === t.id ? C.accent : "rgba(255,255,255,.08)", color: tab === t.id ? "#000" : C.text, padding: "1px 7px", borderRadius: 6, fontSize: 10, fontWeight: 800 }}>{t.count}</span>}
-                    </motion.button>
+                    <button key={t.id} className={`ud-pm-tab ${tab === t.id ? "active" : ""}`} onClick={() => setTab(t.id)}>
+                        <span className="ud-pm-tab-icon">{t.icon}</span>
+                        <span>{t.label}</span>
+                        {t.count !== undefined && <span className="ud-pm-tab-count">{t.count}</span>}
+                    </button>
                 ))}
             </div>
 
@@ -1431,22 +1573,20 @@ const ProductManagementCenter = ({ userId }) => {
             {/* Detail Modal */}
             {renderDetailModal()}
 
+            {/* Delete Confirm Modal */}
+            {renderDeleteConfirmModal()}
+
             {/* Toast */}
             <AnimatePresence>
                 {toast && (
-                    <motion.div initial={{ opacity: 0, y: 40, x: "-50%" }} animate={{ opacity: 1, y: 0, x: "-50%" }} exit={{ opacity: 0, y: 40, x: "-50%" }}
-                        style={{ position: "fixed", bottom: 20, left: "50%", background: toast.type === "error" ? C.red : C.green, color: "#fff", padding: "10px 22px", borderRadius: 10, fontSize: 12, fontWeight: 700, zIndex: 99999, boxShadow: `0 6px 24px ${toast.type === "error" ? C.red : C.green}50`, maxWidth: "90vw", textAlign: "center" }}>
-                        {toast.type === "error" ? "❌ " : "✅ "}{toast.msg}
+                    <motion.div className={`ud-pm-toast ${toast.type}`}
+                        initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 40 }}>
+                        {toast.type === "error" ? <FaTimesCircle /> : <FaCheckCircle />} {toast.msg}
                     </motion.div>
                 )}
             </AnimatePresence>
-
-            <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
         </div>
     );
 };
-
-const th = { padding: "10px 12px", textAlign: "left", color: "#64748b", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: ".04em", whiteSpace: "nowrap" };
-const td = { padding: "10px 12px", fontSize: 12 };
 
 export default ProductManagementCenter;

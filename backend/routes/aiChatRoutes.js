@@ -11,28 +11,32 @@
 const express = require("express");
 const router = express.Router();
 const { authMiddleware } = require("../middlewares/authMiddleware");
+const { subscriptionMiddleware } = require("../middlewares/subscriptionMiddleware");
 const ctrl = require("../controllers/aiChatController");
 
+// ✅ Tüm route'lara auth + subscription kontrolü uygula
+router.use(authMiddleware, subscriptionMiddleware);
+
 // ── Chat Endpoints ──────────────────────────────────────────────────────────
-router.post("/message",                    authMiddleware, ctrl.sendMessage);
-router.get("/history/:sessionId",          authMiddleware, ctrl.getHistory);
-router.get("/conversations",               authMiddleware, ctrl.getConversations);
-router.delete("/conversation/:sessionId",  authMiddleware, ctrl.deleteConversation);
+router.post("/message",                    ctrl.sendMessage);
+router.get("/history/:sessionId",          ctrl.getHistory);
+router.get("/conversations",               ctrl.getConversations);
+router.delete("/conversation/:sessionId",  ctrl.deleteConversation);
 
 // ── Proactive System ────────────────────────────────────────────────────────
-router.get("/alerts",                      authMiddleware, ctrl.getAlerts);
-router.get("/quick-stats",                 authMiddleware, ctrl.getQuickStats);
+router.get("/alerts",                      ctrl.getAlerts);
+router.get("/quick-stats",                 ctrl.getQuickStats);
 
 // ── AI Operatör Engine ──────────────────────────────────────────────────────
-router.post("/operator/cycle",             authMiddleware, ctrl.runOperatorCycle);
-router.post("/operator/act",               authMiddleware, ctrl.executeAction);
-router.get("/operator/status",             authMiddleware, ctrl.getOperatorStatus);
-router.post("/operator/mode",              authMiddleware, ctrl.setOperationMode);
+router.post("/operator/cycle",             ctrl.runOperatorCycle);
+router.post("/operator/act",               ctrl.executeAction);
+router.get("/operator/status",             ctrl.getOperatorStatus);
+router.post("/operator/mode",              ctrl.setOperationMode);
 
 // ── Otonom Döngü Geçmişi & Worker ──────────────────────────────────────────
-router.get("/operator/cycles",             authMiddleware, ctrl.getCycleHistory);
-router.get("/operator/cycle/:id",          authMiddleware, ctrl.getCycleDetail);
-router.get("/worker/status",               authMiddleware, ctrl.getWorkerStatus);
-router.post("/worker/force-cycle",         authMiddleware, ctrl.forceCycle);
+router.get("/operator/cycles",             ctrl.getCycleHistory);
+router.get("/operator/cycle/:id",          ctrl.getCycleDetail);
+router.get("/worker/status",               ctrl.getWorkerStatus);
+router.post("/worker/force-cycle",         ctrl.forceCycle);
 
 module.exports = router;

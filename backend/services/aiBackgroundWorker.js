@@ -39,6 +39,7 @@ const AIConversation = require("../models/AIConversation");
 const AIEngine = require("./aiEngineService");
 const AIBrain = require("./aiOperationsBrain");
 const AIOperator = require("./aiOperatorEngine");
+const { createNotificationDirect } = require("../controllers/notificationController");
 const logger = require("../config/logger");
 
 // ─── Configuration ──────────────────────────────────────────────────────────
@@ -129,6 +130,104 @@ async function getUserOperationMode(userId) {
 // GÖREV 1: ANALİZ CACHE — Brain Dashboard hesapla ve cache'le
 // ═════════════════════════════════════════════════════════════════════════════
 
+// ─── AI Bildirim Üretimi ─────────────────────────────────────────────────────
+// Analiz sonuçlarına göre kullanıcıya AI bildirimleri oluşturur.
+// Aynı tip bildirim 1 saat içinde tekrar oluşturulmaz (spam önleme).
+// ─────────────────────────────────────────────────────────────────────────────
+const Notification = require("../models/Notification");
+
+async function generateAINotifications(userId, healthSnapshot, brainData) {
+    const ONE_HOUR = 60 * 60 * 1000;
+
+    // Son 1 saat içinde bu kullanıcıya gönderilen AI bildirimlerini kontrol et
+    const recentNotifs = await Notification.find({
+        userId,
+        type: "ai",
+        createdAt: { $gt: new Date(Date.now() - ONE_HOUR) }
+    }).select("aiData.category title").lean();
+
+    const recentCategories = new Set(recentNotifs.map(n => n.aiData?.category));
+
+    const notifs = [];
+
+    // 1. Kritik uyarılar — skor çok düşükse
+    if (healthSnapshot.overallScore < 30 && !recentCategories.has("alert")) {
+        notifs.push({
+            userId, type: "ai", priority: "critical",
+            title: "🚨 İşletme Sağlığı Kritik!",
+            message: `İşletme sağlık skorunuz ${healthSnapshot.overallScore}/100 — acil müdahale gerekiyor.`,
+            icon: "🚨",
+            aiData: { category: "alert", actionRequired: true, confidence: 95, suggestedAction: "AI Asistan panelinden detaylı analizi inceleyin" },
+            actionLink: "advanced-ai"
+        });
+    }
+
+    // 2. Kritik alert sayısı yüksekse
+    if (healthSnapshot.criticalAlerts >= 3 && !recentCategories.has("risk")) {
+        notifs.push({
+            userId, type: "ai", priority: "high",
+            title: "⚠️ Çoklu Kritik Uyarı",
+            message: `${healthSnapshot.criticalAlerts} kritik uyarı tespit edildi. Stok, fiyat veya sipariş sorunları olabilir.`,
+            icon: "⚠️",
+            aiData: { category: "risk", actionRequired: true, confidence: 90, suggestedAction: "Uyarıları inceleyip gerekli aksiyonları alın" },
+            actionLink: "advanced-ai"
+        });
+    }
+
+    // 3. Kayıp avcısı — önemli kayıp tespit edildiyse
+    if (healthSnapshot.totalLoss > 500 && !recentCategories.has("opportunity")) {
+        notifs.push({
+            userId, type: "ai", priority: "high",
+            title: "💰 Kayıp Tespit Edildi",
+            message: `AI analizi ${Number(healthSnapshot.totalLoss).toLocaleString("tr-TR")} ₺ potansiyel kayıp tespit etti. Kurtarılabilir fırsatlar mevcut.`,
+            icon: "💰",
+            aiData: { category: "opportunity", actionRequired: false, confidence: 85, suggestedAction: "Kayıp Avcısı raporunu inceleyin" },
+            actionLink: "advanced-ai"
+        });
+    }
+
+    // 4. Bekleyen öneriler — çok fazla onay bekleyen öneri varsa
+    if (healthSnapshot.pendingRecs >= 5 && !recentCategories.has("recommendation")) {
+        notifs.push({
+            userId, type: "ai", priority: "medium",
+            title: "📋 Bekleyen AI Önerileri",
+            message: `${healthSnapshot.pendingRecs} AI önerisi onayınızı bekliyor. İnceleyip uygulayabilirsiniz.`,
+            icon: "📋",
+            aiData: { category: "recommendation", actionRequired: false, confidence: 80, suggestedAction: "Öneriler sekmesinden inceleyin" },
+            actionLink: "advanced-ai"
+        });
+    }
+
+    // 5. Pozitif bildirim — skor iyiyse (günde 1 kez)
+    if (healthSnapshot.overallScore >= 80 && healthSnapshot.rating === "healthy") {
+        const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+        const todayPositive = await Notification.findOne({
+            userId, type: "ai", "aiData.category": "insight",
+            createdAt: { $gt: todayStart }
+        }).lean();
+
+        if (!todayPositive) {
+            notifs.push({
+                userId, type: "ai", priority: "low",
+                title: "✅ İşletmeniz Sağlıklı",
+                message: `Sağlık skoru: ${healthSnapshot.overallScore}/100 — harika gidiyorsunuz! AI sistemi izlemeye devam ediyor.`,
+                icon: "✅",
+                aiData: { category: "insight", actionRequired: false, confidence: 95 },
+                actionLink: "advanced-ai"
+            });
+        }
+    }
+
+    // Bildirimleri oluştur
+    for (const n of notifs) {
+        await createNotificationDirect(n);
+    }
+
+    if (notifs.length > 0) {
+        logger.info(`[AI Worker] ${userId} için ${notifs.length} AI bildirimi oluşturuldu`);
+    }
+}
+
 async function analyzeUser(userId) {
     const startTime = Date.now();
 
@@ -180,6 +279,13 @@ async function analyzeUser(userId) {
             },
             { upsert: true, new: true }
         );
+
+        // ── AI Bildirim Üretimi ──
+        try {
+            await generateAINotifications(userId, healthSnapshot, brainData);
+        } catch (notifErr) {
+            logger.warn(`[AI Worker] Bildirim üretimi hatası (${userId}): ${notifErr.message}`);
+        }
 
         return { success: true, durationMs, productCount: brainData.productCount || 0 };
     } catch (err) {

@@ -208,13 +208,15 @@ exports.login = async (req, res) => {
             }
         }
 
-        const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: "7d" });
+        // 🛡️ FIX #12: JWT süresini 1 güne düşür + refresh token ekle
+        const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: "1d" });
+        const refreshToken = jwt.sign({ id: user._id, type: "refresh" }, process.env.JWT_SECRET, { expiresIn: "7d" });
 
         // Şifre hash'i response'dan çıkarıldı
         const { password: _pw, ...safeUser } = user.toObject();
 
         logger.info(`Kullanıcı giriş yaptı: ${user.email} (${user.role})`);
-        res.status(200).json({ message: "✅ Giriş başarılı!", token, user: safeUser });
+        res.status(200).json({ message: "✅ Giriş başarılı!", token, refreshToken, user: safeUser });
     } catch (error) {
         logger.error(`Giriş hatası: ${error.message}`);
         res.status(500).json({ message: "❌ Sunucu hatası!" });
@@ -314,11 +316,13 @@ exports.googleAuth = async (req, res) => {
             logger.info(`Yeni Google kullanıcısı kaydedildi: ${user.email} (14 gün demo)`);
         }
 
-        const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: "7d" });
+        // 🛡️ FIX #12: JWT süresini 1 güne düşür + refresh token ekle
+        const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: "1d" });
+        const refreshToken = jwt.sign({ id: user._id, type: "refresh" }, process.env.JWT_SECRET, { expiresIn: "7d" });
         const { password: _pw, ...safeUser } = user.toObject();
 
         logger.info(`Google ile giriş yapıldı: ${user.email} (${user.role})`);
-        res.status(200).json({ message: "✅ Google ile giriş başarılı!", token, user: safeUser });
+        res.status(200).json({ message: "✅ Google ile giriş başarılı!", token, refreshToken, user: safeUser });
     } catch (error) {
         logger.error(`Google auth hatası: ${error.message}`);
         res.status(500).json({ message: "❌ Google ile giriş yapılamadı!" });
@@ -433,6 +437,45 @@ exports.resetPassword = async (req, res) => {
         res.status(200).json({ message: "✅ Şifreniz başarıyla değiştirildi! Artık yeni şifrenizle giriş yapabilirsiniz." });
     } catch (error) {
         logger.error(`Şifre sıfırlama hatası: ${error.message}`);
+        res.status(500).json({ message: "❌ Sunucu hatası!" });
+    }
+};
+
+// ─── REFRESH TOKEN ──────────────────────────────────────────────────────────────
+exports.refreshToken = async (req, res) => {
+    try {
+        const { refreshToken } = req.body;
+
+        if (!refreshToken) {
+            return res.status(400).json({ message: "❌ Refresh token gerekli!" });
+        }
+
+        // Refresh token'ı doğrula
+        let decoded;
+        try {
+            decoded = jwt.verify(refreshToken, process.env.JWT_SECRET);
+        } catch (err) {
+            return res.status(401).json({ message: "❌ Geçersiz veya süresi dolmuş refresh token!" });
+        }
+
+        // Refresh token tipini kontrol et
+        if (decoded.type !== "refresh") {
+            return res.status(401).json({ message: "❌ Geçersiz token tipi!" });
+        }
+
+        // Kullanıcıyı bul
+        const user = await User.findById(decoded.id).select("-password");
+        if (!user) {
+            return res.status(404).json({ message: "❌ Kullanıcı bulunamadı!" });
+        }
+
+        // Yeni access token oluştur
+        const newToken = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: "1d" });
+
+        logger.info(`Token yenilendi: ${user.email}`);
+        res.status(200).json({ token: newToken });
+    } catch (error) {
+        logger.error(`Token yenileme hatası: ${error.message}`);
         res.status(500).json({ message: "❌ Sunucu hatası!" });
     }
 };

@@ -42,6 +42,10 @@ export const createAnnouncement = (data) => API.post(`${BASE}/announcements`, da
 export const updateAnnouncement = (id, data) => API.put(`${BASE}/announcements/${id}`, data);
 export const deleteAnnouncement = (id) => API.delete(`${BASE}/announcements/${id}`);
 
+// ─── 8b. Anlık Bildirim Gönderme (Notification sistemi) ──────────────────────
+export const sendAdminNotification = (data) => API.post("/notifications/admin/send", data);
+export const getAdminAllNotifications = (params) => API.get("/notifications/admin/all", { params });
+
 // ─── 9. Audit Log ────────────────────────────────────────────────────────────
 export const getAuditLogs = (params) => API.get(`${BASE}/audit-logs`, { params });
 

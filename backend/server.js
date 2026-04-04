@@ -48,6 +48,7 @@ const aiEngineRoutes          = require("./routes/aiEngineRoutes");
 const aiChatRoutes            = require("./routes/aiChatRoutes");
 const categorySmartRoutes     = require("./routes/categorySmartRoutes");
 const roketfyRoutes           = require("./routes/roketfyRoutes");
+const notificationRoutes      = require("./routes/notificationRoutes");
 
 // ─── 3. DNS & App ─────────────────────────────────────────────────────────────
 dns.setServers(["1.1.1.1", "8.8.8.8"]);
@@ -75,8 +76,9 @@ app.use(helmet({
 const allowedOrigins = [
     "http://localhost:3000",
     "http://localhost:5000",
-    "http://13.51.158.124",
-    "http://13.51.158.124:3000",
+    // 🛡️ FIX #13: Production'da HTTPS zorunlu — HTTP origin'ler kaldırıldı
+    "https://13.51.158.124",
+    "https://13.51.158.124:3000",
     "https://lunexetic.com",
     "https://www.lunexetic.com"
 ];
@@ -180,6 +182,7 @@ app.use("/api/ai-engine",       aiEngineRoutes);
 app.use("/api/ai-chat",        aiChatRoutes);
 app.use("/api/category-smart", categorySmartRoutes);
 app.use("/api/roketfy",        roketfyRoutes);
+app.use("/api/notifications",  notificationRoutes);
 
 // ─── 10. SUNUCU DURUM ENDPOINTİ (/api/status) ────────────────────────────────
 app.get("/api/status", (req, res) => {

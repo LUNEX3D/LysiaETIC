@@ -8,12 +8,17 @@
  * 5. Her 5 dakikada bir çalışır
  */
 
+const axios = require("axios");
+const moment = require("moment");
 const ProductMapping = require("../models/ProductMapping");
 const StockSyncLog = require("../models/StockSyncLog");
 const Marketplace = require("../models/Marketplace");
+const PendingDeletion = require("../models/PendingDeletion");
 const User = require("../models/User");
 const logger = require("../config/logger");
 const { syncStockToAllMarketplaces, reserveStock, releaseStock } = require("./stockSyncService");
+// ✅ FIX: Credential'ları decrypt ederek kullan
+const { decryptCredentials } = require("../utils/encryption");
 
 // İşlenen sipariş ID'lerini takip et (restart'a kadar — in-memory cache)
 // ⚠️ Her sipariş+ürün kombinasyonu ayrı key olarak tutulur
@@ -140,7 +145,9 @@ const checkTrendyolOrders = async (userId, credentials) => {
                 }
 
                 // ⚡ Tüm platformlara ANLIK push (güvenlik stoğu düşülmüş)
-                const syncResults = await syncStockToAllMarketplaces(userId, mapping, marketplaceStock, "Trendyol");
+                // ✅ FIX: excludeMarketplace=null — kaynak platform dahil tüm platformlara push
+                // ESKİ: "Trendyol" geçiliyordu → Trendyol'daki stok güncellenmiyordu → tutarsızlık
+                const syncResults = await syncStockToAllMarketplaces(userId, mapping, marketplaceStock, null);
                 await mapping.save();
 
                 // Log oluştur
@@ -267,7 +274,8 @@ const checkN11Orders = async (userId, credentials) => {
                 }
 
                 // ⚡ Tüm platformlara ANLIK push (güvenlik stoğu düşülmüş)
-                const syncResults = await syncStockToAllMarketplaces(userId, mapping, marketplaceStock, "N11");
+                // ✅ FIX: excludeMarketplace=null — kaynak platform dahil tüm platformlara push
+                const syncResults = await syncStockToAllMarketplaces(userId, mapping, marketplaceStock, null);
                 await mapping.save();
 
                 await StockSyncLog.create({
@@ -403,7 +411,8 @@ const checkHepsiburadaOrders = async (userId, credentials) => {
                 }
 
                 // ⚡ Tüm platformlara ANLIK push (güvenlik stoğu düşülmüş)
-                const syncResults = await syncStockToAllMarketplaces(userId, mapping, marketplaceStock, "Hepsiburada");
+                // ✅ FIX: excludeMarketplace=null — kaynak platform dahil tüm platformlara push
+                const syncResults = await syncStockToAllMarketplaces(userId, mapping, marketplaceStock, null);
                 await mapping.save();
 
                 await StockSyncLog.create({
@@ -450,6 +459,325 @@ const checkHepsiburadaOrders = async (userId, credentials) => {
 };
 
 /**
+ * ÇiçekSepeti siparişlerini kontrol et ve stok güncelle
+ * ✅ YENİ: Bu fonksiyon eksikti — ÇiçekSepeti siparişleri hiç kontrol edilmiyordu!
+ *
+ * ÇiçekSepeti API: POST /api/v1/Order/GetOrders
+ * Yanıt: { supplierOrderListWithBranch: [...], orderListCount }
+ * Her item: { orderId, orderItemId, barcode, stockCode, productCode, quantity, orderProductStatus, ... }
+ *
+ * orderProductStatus değerleri:
+ *   Yeni sipariş: "Yeni", "Hazırlanıyor", "Onaylandı"
+ *   İptal/İade:   "İptal Edildi", "İade Edildi", "İade Sürecinde"
+ *   Tamamlanmış:  "Teslim Edildi", "Kargoda", "Kargoya Verildi"
+ */
+const checkCicekSepetiOrders = async (userId, credentials) => {
+    const results = [];
+
+    try {
+        const apiKey = credentials.apiKey || credentials.apiSecret;
+        const sellerId = credentials.sellerId || credentials.supplierId;
+        const integratorName = credentials.integratorName || "";
+        if (!apiKey) return results;
+
+        // ÇiçekSepeti API header'ları: x-api-key + user-agent (ASCII only)
+        const cleanSellerId = String(sellerId || '').replace(/[^\x00-\x7F]/g, '');
+        const cleanIntegrator = integratorName ? String(integratorName).replace(/[^\x00-\x7F]/g, '') : '';
+        const userAgent = cleanIntegrator ? `${cleanSellerId} - ${cleanIntegrator}` : (cleanSellerId || "CicekSepetiIntegration");
+
+        const headers = {
+            "x-api-key": apiKey,
+            "user-agent": userAgent,
+            "Content-Type": "application/json"
+        };
+
+        // Son 2 saatteki siparişleri kontrol et
+        const endDate = moment().toISOString();
+        const startDate = moment().subtract(2, "hours").toISOString();
+
+        const response = await axios.post(
+            "https://apis.ciceksepeti.com/api/v1/Order/GetOrders",
+            {
+                startDate,
+                endDate,
+                pageSize: 100,
+                page: 0
+            },
+            { headers, timeout: 30000 }
+        );
+
+        const orders = response.data?.supplierOrderListWithBranch || [];
+
+        for (const order of orders) {
+            // ÇiçekSepeti her satır ayrı bir "order" objesi olarak döner (flat list)
+            const barcode = order.barcode || order.stockCode || order.productCode;
+            if (!barcode) continue;
+
+            const orderId = order.orderId || order.orderItemId;
+            if (!orderId) continue;
+
+            // ✅ Sipariş+ürün bazlı tekrar işleme koruması (in-memory)
+            const orderItemKey = `cs_${orderId}_${order.orderItemId || barcode}`;
+            if (processedOrders.has(orderItemKey)) continue;
+
+            // ✅ Sadece stok etkileyen durumları işle
+            const orderStatus = order.orderProductStatus || "";
+
+            // ÇiçekSepeti Türkçe status değerleri
+            const cancelStatuses = ["İptal Edildi", "İade Edildi", "İade Sürecinde", "İade Onaylandı", "Cancelled", "Returned"];
+            const newOrderStatuses = ["Yeni", "Hazırlanıyor", "Onaylandı", "New", "Approved", "Preparing"];
+
+            const isCancelled = cancelStatuses.some(s => orderStatus.includes(s));
+            const isNewOrder = newOrderStatuses.some(s => orderStatus.includes(s));
+
+            // Ne yeni sipariş ne iptal → stok değişikliği yok, atla
+            if (!isCancelled && !isNewOrder) {
+                processedOrders.add(orderItemKey);
+                continue;
+            }
+
+            // ✅ DB-level tekrar işleme koruması (server restart sonrası bile çalışır)
+            if (await isOrderAlreadyProcessed(userId, String(orderId), barcode, "ÇiçekSepeti")) {
+                processedOrders.add(orderItemKey);
+                continue;
+            }
+
+            const quantity = order.quantity || 1;
+
+            // 🔒 Atomic stok kilitleme — race condition önlenir
+            let stockResult;
+            if (isCancelled) {
+                stockResult = await releaseStock(userId, barcode, quantity);
+            } else {
+                stockResult = await reserveStock(userId, barcode, quantity);
+            }
+
+            if (!stockResult.success) {
+                logger.warn(`[STOCK CRON] ÇiçekSepeti stok ${isCancelled ? "serbest bırakma" : "rezerve"} başarısız: ${barcode} — ${stockResult.error}`);
+                processedOrders.add(orderItemKey);
+                continue;
+            }
+
+            const { mapping, oldStock, newStock, marketplaceStock } = stockResult;
+
+            if (oldStock === newStock) {
+                processedOrders.add(orderItemKey);
+                continue;
+            }
+
+            // ⚡ TÜM platformlara ANLIK push (güvenlik stoğu düşülmüş)
+            // ✅ FIX: excludeMarketplace YOK — sipariş kaynağı dahil tüm platformlara push
+            // Çünkü bizim hesapladığımız stok (safetyStock düşülmüş) platformun kendi düşürdüğünden farklı olabilir
+            const syncResults = await syncStockToAllMarketplaces(userId, mapping, marketplaceStock, null);
+            await mapping.save();
+
+            // Log oluştur
+            await StockSyncLog.create({
+                userId,
+                actionType: isCancelled ? "stock_update" : "order_placed",
+                product: {
+                    productMappingId: mapping._id,
+                    barcode: mapping.masterProduct.barcode,
+                    sku: mapping.masterProduct.sku,
+                    name: mapping.masterProduct.name
+                },
+                marketplace: { name: "ÇiçekSepeti" },
+                order: {
+                    orderId: String(orderId),
+                    orderNumber: String(orderId),
+                    marketplace: "ÇiçekSepeti",
+                    quantity
+                },
+                changes: {
+                    field: "stock",
+                    oldValue: oldStock,
+                    newValue: newStock,
+                    difference: newStock - oldStock
+                },
+                status: "success",
+                affectedMarketplaces: syncResults,
+                notification: {
+                    priority: newStock === 0 ? "critical" : newStock <= 10 ? "high" : "medium"
+                }
+            });
+
+            results.push({
+                barcode,
+                marketplace: "ÇiçekSepeti",
+                action: isCancelled ? "cancel_restore" : "order_deduct",
+                oldStock,
+                newStock,
+                quantity
+            });
+
+            logger.info(`[STOCK CRON] ÇiçekSepeti ${isCancelled ? "İPTAL +" : "SİPARİŞ -"}${quantity} | ${mapping.masterProduct.name} | ${oldStock} → ${newStock}`);
+            processedOrders.add(orderItemKey);
+        }
+    } catch (error) {
+        if (error.response?.status !== 401) {
+            logger.error(`[STOCK CRON] ÇiçekSepeti sipariş kontrolü hatası: ${error.message}`);
+        }
+    }
+
+    return results;
+};
+
+/**
+ * Amazon siparişlerini kontrol et ve stok güncelle
+ * ✅ YENİ: Bu fonksiyon eksikti — Amazon siparişleri hiç kontrol edilmiyordu!
+ *
+ * Amazon SP-API: GET /orders/v0/orders
+ * Sipariş ürünleri: GET /orders/v0/orders/{orderId}/orderItems
+ *
+ * OrderStatus değerleri:
+ *   Yeni sipariş: "Unshipped", "PartiallyShipped"
+ *   İptal:        "Canceled"
+ *   Tamamlanmış:  "Shipped", "InvoiceUnconfirmed", "Unfulfillable"
+ */
+const checkAmazonOrders = async (userId, credentials) => {
+    const results = [];
+
+    try {
+        // Amazon SP-API servisi — lazy require (her kullanıcıda Amazon olmayabilir)
+        let amazonService;
+        try {
+            amazonService = require("./amazon/amazonSpApiService");
+        } catch (reqErr) {
+            // Amazon servisi yüklenemezse sessizce atla
+            return results;
+        }
+
+        // Son 2 saatteki siparişleri kontrol et
+        const createdAfter = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+
+        const orderResult = await amazonService.getOrders(credentials, {
+            createdAfter,
+            orderStatuses: ["Unshipped", "PartiallyShipped", "Canceled"],
+            maxResults: 50
+        });
+
+        if (!orderResult.success || !orderResult.orders?.length) return results;
+
+        for (const order of orderResult.orders) {
+            const orderId = order.AmazonOrderId;
+            if (!orderId) continue;
+
+            const orderStatus = order.OrderStatus || "";
+            const cancelStatuses = ["Canceled"];
+            const newOrderStatuses = ["Unshipped", "PartiallyShipped"];
+
+            const isCancelled = cancelStatuses.includes(orderStatus);
+            const isNewOrder = newOrderStatuses.includes(orderStatus);
+
+            if (!isCancelled && !isNewOrder) continue;
+
+            // Sipariş ürünlerini çek (Amazon'da order ve items ayrı endpoint)
+            let items = [];
+            try {
+                const itemsResult = await amazonService.getOrderItems(credentials, orderId);
+                if (itemsResult.success) {
+                    items = itemsResult.items || [];
+                }
+            } catch (itemErr) {
+                logger.warn(`[STOCK CRON] Amazon sipariş ürünleri alınamadı: ${orderId} — ${itemErr.message}`);
+                continue;
+            }
+
+            for (const item of items) {
+                const barcode = item.sku; // Amazon'da SellerSKU = bizim SKU/barcode
+                if (!barcode) continue;
+
+                // ✅ Sipariş+ürün bazlı tekrar işleme koruması (in-memory)
+                const orderItemKey = `amz_${orderId}_${barcode}`;
+                if (processedOrders.has(orderItemKey)) continue;
+
+                // ✅ DB-level tekrar işleme koruması (server restart sonrası bile çalışır)
+                if (await isOrderAlreadyProcessed(userId, orderId, barcode, "Amazon")) {
+                    processedOrders.add(orderItemKey);
+                    continue;
+                }
+
+                const quantity = item.quantity || 1;
+
+                // 🔒 Atomic stok kilitleme — race condition önlenir
+                let stockResult;
+                if (isCancelled) {
+                    stockResult = await releaseStock(userId, barcode, quantity);
+                } else {
+                    stockResult = await reserveStock(userId, barcode, quantity);
+                }
+
+                if (!stockResult.success) {
+                    logger.warn(`[STOCK CRON] Amazon stok ${isCancelled ? "serbest bırakma" : "rezerve"} başarısız: ${barcode} — ${stockResult.error}`);
+                    processedOrders.add(orderItemKey);
+                    continue;
+                }
+
+                const { mapping, oldStock, newStock, marketplaceStock } = stockResult;
+
+                if (oldStock === newStock) {
+                    processedOrders.add(orderItemKey);
+                    continue;
+                }
+
+                // ⚡ TÜM platformlara ANLIK push (güvenlik stoğu düşülmüş)
+                // ✅ FIX: excludeMarketplace YOK — sipariş kaynağı dahil tüm platformlara push
+                const syncResults = await syncStockToAllMarketplaces(userId, mapping, marketplaceStock, null);
+                await mapping.save();
+
+                // Log oluştur
+                await StockSyncLog.create({
+                    userId,
+                    actionType: isCancelled ? "stock_update" : "order_placed",
+                    product: {
+                        productMappingId: mapping._id,
+                        barcode: mapping.masterProduct.barcode,
+                        sku: mapping.masterProduct.sku,
+                        name: mapping.masterProduct.name
+                    },
+                    marketplace: { name: "Amazon" },
+                    order: {
+                        orderId: orderId,
+                        orderNumber: orderId,
+                        marketplace: "Amazon",
+                        quantity
+                    },
+                    changes: {
+                        field: "stock",
+                        oldValue: oldStock,
+                        newValue: newStock,
+                        difference: newStock - oldStock
+                    },
+                    status: "success",
+                    affectedMarketplaces: syncResults,
+                    notification: {
+                        priority: newStock === 0 ? "critical" : newStock <= 10 ? "high" : "medium"
+                    }
+                });
+
+                results.push({
+                    barcode,
+                    marketplace: "Amazon",
+                    action: isCancelled ? "cancel_restore" : "order_deduct",
+                    oldStock,
+                    newStock,
+                    quantity
+                });
+
+                logger.info(`[STOCK CRON] Amazon ${isCancelled ? "İPTAL +" : "SİPARİŞ -"}${quantity} | ${mapping.masterProduct.name} | ${oldStock} → ${newStock}`);
+                processedOrders.add(orderItemKey);
+            }
+        }
+    } catch (error) {
+        if (error.response?.status !== 401 && error.response?.status !== 403) {
+            logger.error(`[STOCK CRON] Amazon sipariş kontrolü hatası: ${error.message}`);
+        }
+    }
+
+    return results;
+};
+
+/**
  * PERİYODİK STOK EŞİTLEME
  *
  * Bizim programdaki (master) stok değerini TÜM pazaryerlerine push eder.
@@ -468,6 +796,11 @@ const pushMasterStockToMarketplaces = async () => {
 
         if (mappings.length === 0) return { synced: 0, errors: 0 };
 
+        // 🛡️ FIX #4: Silinmesi bekleyen ürünlerin barkodlarını al
+        // Bu ürünlere stok push yapılmamalı — aksi halde silme işlemi bozulur
+        const pendingDeletions = await PendingDeletion.find({ status: "pending" }).lean();
+        const pendingBarcodes = new Set(pendingDeletions.map(pd => pd.barcode));
+
         let synced = 0;
         let errors = 0;
         let skipped = 0;
@@ -475,6 +808,13 @@ const pushMasterStockToMarketplaces = async () => {
         for (const mapping of mappings) {
             try {
                 const userId = mapping.userId;
+                const barcode = mapping.masterProduct?.barcode;
+
+                // 🛡️ FIX #4: Silinmesi bekleyen ürünü atla — stok push yapma
+                if (barcode && pendingBarcodes.has(barcode)) {
+                    skipped++;
+                    continue;
+                }
 
                 // 🛡️ Güvenlik stoğu düşülmüş stoku hesapla
                 const marketplaceStock = mapping.getMarketplaceStock();
@@ -580,15 +920,23 @@ const runStockSync = async () => {
                 let results = [];
 
                 try {
+                    // ✅ FIX: Credential'ları decrypt et (DB'de şifreli saklanıyor)
+                    const decryptedCreds = decryptCredentials(mp.credentials);
                     switch (mpName) {
                         case "Trendyol":
-                            results = await checkTrendyolOrders(userId, mp.credentials);
+                            results = await checkTrendyolOrders(userId, decryptedCreds);
                             break;
                         case "N11":
-                            results = await checkN11Orders(userId, mp.credentials);
+                            results = await checkN11Orders(userId, decryptedCreds);
                             break;
                         case "Hepsiburada":
-                            results = await checkHepsiburadaOrders(userId, mp.credentials);
+                            results = await checkHepsiburadaOrders(userId, decryptedCreds);
+                            break;
+                        case "ÇiçekSepeti":
+                            results = await checkCicekSepetiOrders(userId, decryptedCreds);
+                            break;
+                        case "Amazon":
+                            results = await checkAmazonOrders(userId, decryptedCreds);
                             break;
                         default:
                             break;
@@ -614,6 +962,20 @@ const runStockSync = async () => {
             logger.info(`[STOCK CRON] 🔄 Stok eşitleme — toplam: ${pushResult.total}, güncellenen: ${pushResult.synced}, hata: ${pushResult.errors}, atlanılan: ${pushResult.skipped}`);
         }
 
+        // ═══════════════════════════════════════════════════════
+        // ADIM 3: TRENDYOL BEKLEYEN SİLME İŞLEMLERİ
+        // Arşive alınmış ama henüz silinmemiş ürünleri kontrol et
+        // Trendyol kuralı: Arşivde 1+ gün kalan ürünler DELETE ile silinebilir
+        // ═══════════════════════════════════════════════════════
+        try {
+            const pendingResult = await processPendingTrendyolDeletions();
+            if (pendingResult.processed > 0) {
+                logger.info(`[STOCK CRON] 🗑️ Trendyol bekleyen silme — işlenen: ${pendingResult.processed}, silinen: ${pendingResult.deleted}, hata: ${pendingResult.errors}`);
+            }
+        } catch (pdErr) {
+            logger.error(`[STOCK CRON] Trendyol bekleyen silme hatası: ${pdErr.message}`);
+        }
+
         // Bellek temizliği — 10000'den fazla işlenmiş sipariş varsa eski olanları sil
         if (processedOrders.size > 10000) {
             const arr = [...processedOrders];
@@ -624,6 +986,108 @@ const runStockSync = async () => {
     } catch (error) {
         logger.error(`[STOCK CRON] Genel hata: ${error.message}`);
     }
+};
+
+/**
+ * Trendyol bekleyen silme işlemlerini kontrol et ve sil
+ *
+ * Trendyol kuralı: Ürün arşive alındıktan en az 1 gün (25 saat güvenlik payı)
+ * sonra DELETE API ile tamamen silinebilir.
+ *
+ * Bu fonksiyon her cron döngüsünde çalışır ve 25+ saat arşivde kalan
+ * ürünleri Trendyol DELETE API ile tamamen siler.
+ */
+const processPendingTrendyolDeletions = async () => {
+    const result = { processed: 0, deleted: 0, errors: 0 };
+
+    try {
+        // 25+ saat arşivde kalan ve henüz silinmemiş ürünleri bul
+        const pendingItems = await PendingDeletion.findReadyForDeletion();
+
+        if (pendingItems.length === 0) return result;
+
+        logger.info(`[PENDING DELETE] 🔍 ${pendingItems.length} ürün silmeye hazır`);
+
+        for (const item of pendingItems) {
+            result.processed++;
+
+            try {
+                // Marketplace credential'larını al
+                const marketplace = await Marketplace.findById(item.marketplaceId);
+                if (!marketplace) {
+                    item.status = "failed";
+                    item.lastError = "Marketplace entegrasyonu bulunamadı";
+                    item.lastAttemptAt = new Date();
+                    await item.save();
+                    result.errors++;
+                    continue;
+                }
+
+                const credentials = decryptCredentials(marketplace.credentials);
+                const { apiKey, apiSecret, sellerId, supplierId } = credentials;
+                const actualSellerId = sellerId || supplierId;
+
+                if (!apiKey || !apiSecret || !actualSellerId) {
+                    item.status = "failed";
+                    item.lastError = "Trendyol credentials eksik";
+                    item.lastAttemptAt = new Date();
+                    await item.save();
+                    result.errors++;
+                    continue;
+                }
+
+                const authHeader = Buffer.from(`${apiKey}:${apiSecret}`).toString("base64");
+                const headers = {
+                    Authorization: `Basic ${authHeader}`,
+                    "User-Agent": `${actualSellerId} - LysiaETIC`,
+                    "Content-Type": "application/json"
+                };
+
+                // Trendyol DELETE API çağrısı
+                const deleteResp = await axios.delete(
+                    `https://apigw.trendyol.com/integration/product/sellers/${actualSellerId}/products`,
+                    {
+                        data: { items: [{ barcode: item.barcode }] },
+                        headers,
+                        timeout: 15000
+                    }
+                );
+
+                // Başarılı — kaydı tamamlandı olarak işaretle
+                item.status = "completed";
+                item.completedAt = new Date();
+                item.lastAttemptAt = new Date();
+                item.attempts += 1;
+                await item.save();
+
+                result.deleted++;
+                logger.info(`[PENDING DELETE] ✅ Trendyol ürün tamamen silindi: ${item.barcode} (batchId: ${deleteResp.data?.batchRequestId})`);
+
+            } catch (deleteErr) {
+                const errMsg = deleteErr.response?.data?.errors?.[0]?.message || deleteErr.message;
+
+                item.attempts += 1;
+                item.lastAttemptAt = new Date();
+                item.lastError = errMsg;
+
+                // 5 denemeden sonra başarısız olarak işaretle
+                if (item.attempts >= 5) {
+                    item.status = "failed";
+                    logger.error(`[PENDING DELETE] ❌ Trendyol ürün silinemedi (5 deneme tükendi): ${item.barcode} — ${errMsg}`);
+                } else {
+                    logger.warn(`[PENDING DELETE] ⚠️ Trendyol DELETE başarısız (deneme ${item.attempts}/5): ${item.barcode} — ${errMsg}`);
+                }
+
+                await item.save();
+                result.errors++;
+            }
+        }
+
+    } catch (error) {
+        logger.error(`[PENDING DELETE] Genel hata: ${error.message}`);
+    }
+
+    return result;
 };
 
 /**

@@ -7,75 +7,79 @@
 const express = require("express");
 const router = express.Router();
 const { authMiddleware } = require("../middlewares/authMiddleware");
+const { subscriptionMiddleware } = require("../middlewares/subscriptionMiddleware");
 const ctrl = require("../controllers/aiEngineController");
 
+// ✅ Tüm route'lara auth + subscription kontrolü uygula
+router.use(authMiddleware, subscriptionMiddleware);
+
 // ── Full Dashboard (combined endpoint — reduces API calls) ──
-router.get("/dashboard",                     authMiddleware, ctrl.getFullDashboard);
+router.get("/dashboard",                     ctrl.getFullDashboard);
 
 // ── Recommendations ──
-router.get("/recommendations",               authMiddleware, ctrl.getRecommendations);
-router.post("/recommendations/generate",     authMiddleware, ctrl.generateRecommendations);
-router.post("/recommendations/bulk-approve", authMiddleware, ctrl.bulkApproveRecommendations);
-router.post("/recommendations/bulk-reject",  authMiddleware, ctrl.bulkRejectRecommendations);
-router.post("/recommendations/:id/approve",  authMiddleware, ctrl.approveRecommendation);
-router.post("/recommendations/:id/reject",   authMiddleware, ctrl.rejectRecommendation);
-router.post("/recommendations/:id/execute",  authMiddleware, ctrl.executeRecommendation);
+router.get("/recommendations",               ctrl.getRecommendations);
+router.post("/recommendations/generate",     ctrl.generateRecommendations);
+router.post("/recommendations/bulk-approve", ctrl.bulkApproveRecommendations);
+router.post("/recommendations/bulk-reject",  ctrl.bulkRejectRecommendations);
+router.post("/recommendations/:id/approve",  ctrl.approveRecommendation);
+router.post("/recommendations/:id/reject",   ctrl.rejectRecommendation);
+router.post("/recommendations/:id/execute",  ctrl.executeRecommendation);
 
 // ── AI Score ──
-router.get("/ai-score",                      authMiddleware, ctrl.getAIScore);
+router.get("/ai-score",                      ctrl.getAIScore);
 
 // ── Daily Report & Actions ──
-router.get("/daily-report",                  authMiddleware, ctrl.getDailyReport);
-router.get("/daily-actions",                 authMiddleware, ctrl.getDailyActions);
+router.get("/daily-report",                  ctrl.getDailyReport);
+router.get("/daily-actions",                 ctrl.getDailyActions);
 
 // ── Strategy ──
-router.get("/strategy",                      authMiddleware, ctrl.getStrategy);
+router.get("/strategy",                      ctrl.getStrategy);
 
 // ── Simulation ──
-router.post("/simulate",                     authMiddleware, ctrl.simulate);
-router.post("/simulate-advanced",            authMiddleware, ctrl.simulateAdvanced);
-router.post("/simulate/apply",               authMiddleware, ctrl.applySimulation);
+router.post("/simulate",                     ctrl.simulate);
+router.post("/simulate-advanced",            ctrl.simulateAdvanced);
+router.post("/simulate/apply",               ctrl.applySimulation);
 
 // ── Analytics ──
-router.get("/profit-heatmap",               authMiddleware, ctrl.getProfitHeatmap);
-router.get("/timing",                        authMiddleware, ctrl.getTiming);
-router.get("/retro",                         authMiddleware, ctrl.getRetro);
-router.get("/roi",                           authMiddleware, ctrl.getROI);
-router.get("/product-health",                authMiddleware, ctrl.getProductHealth);
-router.get("/learning",                      authMiddleware, ctrl.getLearning);
+router.get("/profit-heatmap",               ctrl.getProfitHeatmap);
+router.get("/timing",                        ctrl.getTiming);
+router.get("/retro",                         ctrl.getRetro);
+router.get("/roi",                           ctrl.getROI);
+router.get("/product-health",                ctrl.getProductHealth);
+router.get("/learning",                      ctrl.getLearning);
 
 // ── Goals ──
-router.post("/goals",                        authMiddleware, ctrl.createGoal);
-router.get("/goals",                         authMiddleware, ctrl.getGoals);
+router.post("/goals",                        ctrl.createGoal);
+router.get("/goals",                         ctrl.getGoals);
 
 // ── Notifications ──
-router.get("/notifications",                 authMiddleware, ctrl.getNotifications);
+router.get("/notifications",                 ctrl.getNotifications);
 
 // ══════════════════════════════════════════════════════════════════════════
 // AI OPERATIONS BRAIN — Advanced Engines (v3)
 // ══════════════════════════════════════════════════════════════════════════
-router.get("/brain",                         authMiddleware, ctrl.getBrainDashboard);
-router.get("/brain/focus",                   authMiddleware, ctrl.getBrainFocus);
-router.get("/brain/losses",                  authMiddleware, ctrl.getBrainLosses);
-router.get("/brain/risks",                   authMiddleware, ctrl.getBrainRisks);
-router.get("/brain/predictions",             authMiddleware, ctrl.getBrainPredictions);
-router.get("/brain/segmentation",            authMiddleware, ctrl.getBrainSegmentation);
-router.get("/brain/causes",                  authMiddleware, ctrl.getBrainCauses);
-router.get("/brain/opportunities",           authMiddleware, ctrl.getBrainOpportunities);
-router.get("/brain/self-eval",               authMiddleware, ctrl.getBrainSelfEval);
-router.get("/brain/decision-history",        authMiddleware, ctrl.getBrainDecisionHistory);
-router.post("/brain/explain/:id",            authMiddleware, ctrl.explainRecommendation);
+router.get("/brain",                         ctrl.getBrainDashboard);
+router.get("/brain/focus",                   ctrl.getBrainFocus);
+router.get("/brain/losses",                  ctrl.getBrainLosses);
+router.get("/brain/risks",                   ctrl.getBrainRisks);
+router.get("/brain/predictions",             ctrl.getBrainPredictions);
+router.get("/brain/segmentation",            ctrl.getBrainSegmentation);
+router.get("/brain/causes",                  ctrl.getBrainCauses);
+router.get("/brain/opportunities",           ctrl.getBrainOpportunities);
+router.get("/brain/self-eval",               ctrl.getBrainSelfEval);
+router.get("/brain/decision-history",        ctrl.getBrainDecisionHistory);
+router.post("/brain/explain/:id",            ctrl.explainRecommendation);
 
 // ── v5 — New AI Panels ──
-router.post("/brain/auto-decide",            authMiddleware, ctrl.autoDecide);
-router.get("/brain/diagnosis",               authMiddleware, ctrl.getDiagnosis);
+router.post("/brain/auto-decide",            ctrl.autoDecide);
+router.get("/brain/diagnosis",               ctrl.getDiagnosis);
 
 // ── Product Cost Management (AI Brain) ──
-router.get("/brain/products",                authMiddleware, ctrl.getBrainProducts);
-router.post("/brain/update-cost",            authMiddleware, ctrl.updateProductCost);
-router.post("/brain/bulk-update-cost",       authMiddleware, ctrl.bulkUpdateProductCost);
+router.get("/brain/products",                ctrl.getBrainProducts);
+router.post("/brain/update-cost",            ctrl.updateProductCost);
+router.post("/brain/bulk-update-cost",       ctrl.bulkUpdateProductCost);
 
 // ── AI Background Worker Status ──
-router.get("/worker-status",                 authMiddleware, ctrl.getWorkerStatus);
+router.get("/worker-status",                 ctrl.getWorkerStatus);
 
 module.exports = router;

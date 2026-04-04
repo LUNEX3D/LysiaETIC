@@ -26,8 +26,16 @@ export const updateProduct = async (productId, updates) => {
     return res.data;
 };
 
-export const deleteProduct = async (productId) => {
-    const res = await API.delete(`${BASE}/products/${productId}`);
+/**
+ * Ürün sil (opsiyonel: pazaryerlerinden de kaldır)
+ * @param {String} productId
+ * @param {Object} options - { deleteFromMarketplaces: Boolean, platforms: [String] }
+ */
+export const deleteProduct = async (productId, options = {}) => {
+    const params = {};
+    if (options.deleteFromMarketplaces) params.deleteFromMarketplaces = "true";
+    if (options.platforms?.length > 0) params.platforms = options.platforms.join(",");
+    const res = await API.delete(`${BASE}/products/${productId}`, { params });
     return res.data;
 };
 
@@ -433,11 +441,15 @@ export const bulkUpdateStocks = async (productIds, mode, value, syncToMarketplac
 };
 
 /**
- * Toplu ürün silme
+ * Toplu ürün silme (opsiyonel: pazaryerlerinden de kaldır)
  * @param {Array} productIds - Silinecek ürün ID'leri
+ * @param {Object} options - { deleteFromMarketplaces: Boolean, platforms: [String] }
  */
-export const bulkDeleteProducts = async (productIds) => {
-    const res = await API.post(`${BASE}/bulk/delete`, { productIds });
+export const bulkDeleteProducts = async (productIds, options = {}) => {
+    const body = { productIds };
+    if (options.deleteFromMarketplaces) body.deleteFromMarketplaces = true;
+    if (options.platforms?.length > 0) body.platforms = options.platforms;
+    const res = await API.post(`${BASE}/bulk/delete`, body);
     return res.data;
 };
 

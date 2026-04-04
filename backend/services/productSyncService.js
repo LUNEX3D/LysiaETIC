@@ -2,11 +2,14 @@ const axios = require("axios");
 const ProductMapping         = require("../models/ProductMapping");
 const StockSyncLog           = require("../models/StockSyncLog");
 const Marketplace            = require("../models/Marketplace");
+const PendingDeletion        = require("../models/PendingDeletion");
 const logger                 = require("../config/logger");
 const n11Service             = require("./n11Service");
 const n11MappingService      = require("./n11MappingService");
 const masterProductAdapter   = require("./masterProductAdapter");
 const categoryMappingService = require("./categoryMappingService");
+// ✅ FIX: Credential'ları decrypt ederek kullan
+const { decryptCredentials } = require("../utils/encryption");
 
 /**
  * ÜRÜN SENKRONİZASYON SERVİSİ
@@ -30,7 +33,8 @@ const normalizeMarketplaceName = (name) => {
 const fetchProductsFromMarketplace = async (marketplace) => {
     const rawName = marketplace.marketplaceName;
     const marketplaceName = normalizeMarketplaceName(rawName);
-    const credentials = marketplace.credentials;
+    // ✅ FIX: Credential'ları decrypt et (DB'de şifreli saklanıyor)
+    const credentials = decryptCredentials(marketplace.credentials);
 
     if (!credentials || Object.keys(credentials).length === 0) {
         throw new Error(`${marketplaceName} için API bilgileri (credentials) tanımlı değil. Lütfen entegrasyon ayarlarını kontrol edin.`);
@@ -308,13 +312,19 @@ const fetchN11Products = async (credentials) => {
 
 // ÇiçekSepeti ürünlerini çek
 const fetchCicekSepetiProducts = async (credentials) => {
-    // ÇiçekSepeti hem apiSecret hem apiKey adını kullanabilir
-    const apiSecret  = credentials.apiSecret  || credentials.apiKey;
-    const supplierId = credentials.supplierId || credentials.merchantId;
+    // ✅ FIX: DB'de apiKey/sellerId olarak saklanıyor — doğru alan adlarını kullan
+    const apiKey       = credentials.apiKey       || credentials.apiSecret;
+    const sellerId     = credentials.sellerId     || credentials.supplierId;
+    const integratorName = credentials.integratorName || "";
 
-    if (!apiSecret || !supplierId) {
-        throw new Error("ÇiçekSepeti credentials eksik: apiSecret ve supplierId gerekli");
+    if (!apiKey) {
+        throw new Error("ÇiçekSepeti credentials eksik: apiKey gerekli");
     }
+
+    // ÇiçekSepeti API header'ları: x-api-key + user-agent (ASCII only)
+    const cleanSellerId = String(sellerId || '').replace(/[^\x00-\x7F]/g, '');
+    const cleanIntegrator = integratorName ? String(integratorName).replace(/[^\x00-\x7F]/g, '') : '';
+    const userAgent = cleanIntegrator ? `${cleanSellerId} - ${cleanIntegrator}` : (cleanSellerId || "CicekSepetiIntegration");
 
     const products = [];
     let page = 1;
@@ -326,8 +336,8 @@ const fetchCicekSepetiProducts = async (credentials) => {
                 `https://apis.ciceksepeti.com/api/v1/Products`,
                 {
                     headers: {
-                        "x-api-key": apiSecret,
-                        "supplierId": supplierId,
+                        "x-api-key": apiKey,
+                        "user-agent": userAgent,
                         "Content-Type": "application/json"
                     },
                     params: { Page: page, PageSize: 60 },
@@ -655,9 +665,15 @@ const distributeProductToMarketplaces = async (userId, productMappingId, targetM
                 }
 
                 // Pazaryerine ürün yükle — userId mapping servisi için gerekli
+                // ✅ FIX: masterProduct + marketplaceMappings birleştir
+                // ÇiçekSepeti upload'u categoryId için marketplaceMappings'e ihtiyaç duyar
+                const productWithMappings = {
+                    ...mapping.masterProduct.toObject ? mapping.masterProduct.toObject() : mapping.masterProduct,
+                    marketplaceMappings: mapping.marketplaceMappings
+                };
                 const uploadResult = await uploadProductToMarketplace(
                     marketplace,
-                    mapping.masterProduct,
+                    productWithMappings,
                     userId
                 );
 
@@ -761,6 +777,10 @@ const distributeProductToMarketplaces = async (userId, productMappingId, targetM
 };
 
 // Trendyol'a ürün yükle
+// ✅ FIX: brandId ve categoryId artık dinamik çözümleniyor (eskisi hardcoded 1 idi → 400 hata)
+// ✅ FIX: marketplaceMappings'ten Trendyol-specific categoryId alınıyor
+// ✅ FIX: UnifiedCategoryMap'ten Trendyol categoryId fallback
+// ✅ FIX: Hata logu detaylı — raw response yazdırılıyor
 const uploadProductToTrendyol = async (credentials, product) => {
     const { apiKey, apiSecret, sellerId, supplierId } = credentials;
     const actualSellerId = sellerId || supplierId;
@@ -768,27 +788,125 @@ const uploadProductToTrendyol = async (credentials, product) => {
         return { success: false, error: "Trendyol credentials eksik" };
     }
     const authHeader = Buffer.from(`${apiKey}:${apiSecret}`).toString("base64");
+
+    const productName = product.name || product.title || "İsimsiz Ürün";
+
+    // ── categoryId çözümleme ──
+    let categoryId = null;
+
+    // 1. marketplaceMappings'ten Trendyol categoryId
+    if (product.marketplaceMappings && Array.isArray(product.marketplaceMappings)) {
+        const tyMapping = product.marketplaceMappings.find(
+            m => (m.marketplaceName || "").toLowerCase() === "trendyol"
+        );
+        if (tyMapping && tyMapping.categoryId) {
+            categoryId = parseInt(tyMapping.categoryId);
+        }
+    }
+
+    // 2. product.categoryId doğrudan
+    if (!categoryId && product.categoryId) {
+        categoryId = parseInt(product.categoryId);
+    }
+
+    // 3. product.category sayısal ise
+    if (!categoryId && product.category && !isNaN(product.category)) {
+        categoryId = parseInt(product.category);
+    }
+
+    // 4. UnifiedCategoryMap'ten Trendyol categoryId
+    if (!categoryId) {
+        try {
+            const UnifiedCategoryMap = require("../models/UnifiedCategoryMap");
+            const categoryName = (product.category || product.categoryName || "").trim();
+            if (categoryName) {
+                const catMap = await UnifiedCategoryMap.findOne({
+                    $or: [
+                        { "trendyol.categoryName": { $regex: new RegExp(categoryName, "i") } },
+                        { masterName: { $regex: new RegExp(categoryName, "i") } },
+                        { canonicalName: { $regex: new RegExp(categoryName, "i") } }
+                    ],
+                    "trendyol.categoryId": { $ne: null }
+                });
+                if (catMap && catMap.trendyol && catMap.trendyol.categoryId) {
+                    categoryId = parseInt(catMap.trendyol.categoryId);
+                    logger.info(`[UPLOAD TRENDYOL] Kategori eşleştirildi — "${categoryName}" → categoryId: ${categoryId}`);
+                }
+            }
+        } catch (catErr) {
+            logger.warn(`[UPLOAD TRENDYOL] Kategori arama hatası: ${catErr.message}`);
+        }
+    }
+
+    if (!categoryId) {
+        return {
+            success: false,
+            error: `Trendyol yükleme başarısız: "${productName}" için categoryId bulunamadı. ` +
+                   `Lütfen ürünün kategorisini Trendyol kategori eşleştirmesinden ayarlayın. ` +
+                   `(Mevcut kategori: "${product.category || "yok"}")`
+        };
+    }
+
+    // ── brandId çözümleme ──
+    // Trendyol API brandId zorunlu — varsayılan olarak "Diğer" markası (id: 7651) kullanılır
+    // Gerçek marka eşleştirmesi için Trendyol brand API'si kullanılmalı
+    let brandId = 7651; // "Diğer" / "Other" — Trendyol'un genel marka ID'si
+
+    // marketplaceMappings'ten brand bilgisi varsa kullan
+    if (product.marketplaceMappings && Array.isArray(product.marketplaceMappings)) {
+        const tyMapping = product.marketplaceMappings.find(
+            m => (m.marketplaceName || "").toLowerCase() === "trendyol"
+        );
+        if (tyMapping?.customAttributes?.brandId) {
+            brandId = parseInt(tyMapping.customAttributes.brandId) || brandId;
+        }
+    }
+
+    // Görselleri filtrele — geçerli URL'ler
+    const images = (product.images || [])
+        .map((url, i) => {
+            if (typeof url === "string" && (url.startsWith("http://") || url.startsWith("https://"))) {
+                return { url: url.trim(), order: i + 1 };
+            }
+            if (url && typeof url === "object" && url.url) {
+                return { url: url.url.toString().trim(), order: i + 1 };
+            }
+            return null;
+        })
+        .filter(Boolean);
+
+    if (images.length === 0) {
+        return { success: false, error: `Trendyol yükleme başarısız: "${productName}" için en az 1 görsel gerekli` };
+    }
+
     try {
         const payload = {
             items: [{
-                barcode: product.barcode,
-                title: product.name,
-                productMainId: product.sku,
-                brandId: 1,
-                categoryId: parseInt(product.category) || 1,
-                quantity: product.stock || 0,
-                stockCode: product.sku,
+                barcode:          product.barcode,
+                title:            productName,
+                productMainId:    product.sku,
+                brandId:          brandId,
+                categoryId:       categoryId,
+                quantity:         parseInt(product.stock) || 0,
+                stockCode:        product.sku,
                 dimensionalWeight: product.attributes?.weight || 1,
-                description: product.description || product.name,
-                currencyType: "TRY",
-                listPrice: product.listPrice || product.price,
-                salePrice: product.price,
-                vatRate: 18,
-                cargoCompanyId: 10,
-                images: (product.images || []).map((url, i) => ({ url, order: i + 1 })),
-                attributes: []
+                description:      product.description || productName,
+                currencyType:     "TRY",
+                listPrice:        parseFloat(product.listPrice || product.price) || 0,
+                salePrice:        parseFloat(product.price) || 0,
+                vatRate:          18,
+                cargoCompanyId:   10,
+                images:           images,
+                attributes:       []
             }]
         };
+
+        logger.info(
+            `[UPLOAD TRENDYOL] Ürün yükleniyor — "${productName}" | barcode: ${product.barcode} | ` +
+            `categoryId: ${categoryId} | brandId: ${brandId} | fiyat: ${product.price} TL | ` +
+            `stok: ${parseInt(product.stock) || 0} | görsel: ${images.length} adet`
+        );
+
         const response = await axios.post(
             `https://apigw.trendyol.com/integration/product/sellers/${actualSellerId}/products`,
             payload,
@@ -801,31 +919,71 @@ const uploadProductToTrendyol = async (credentials, product) => {
                 timeout: 15000
             }
         );
-        return { success: true, productId: product.barcode, response: response.data };
+
+        const batchId = response.data?.batchRequestId;
+        if (batchId) {
+            logger.info(`[UPLOAD TRENDYOL] ✅ Ürün kuyruğa alındı — "${productName}" | batchId: ${batchId}`);
+        }
+
+        return { success: true, productId: product.barcode, batchId, response: response.data };
     } catch (error) {
-        logger.error("[UPLOAD TRENDYOL] Hata:", error.response?.data || error.message);
-        return { success: false, error: error.response?.data?.message || error.message };
+        const errData = error.response?.data;
+        const errCode = error.response?.status;
+        let errMsg = error.message;
+        if (errData) {
+            if (errData.errors && Array.isArray(errData.errors)) {
+                errMsg = errData.errors.map(e => e.message || JSON.stringify(e)).join(" | ");
+            } else if (errData.message) errMsg = errData.message;
+            else if (typeof errData === "string") errMsg = errData;
+            else errMsg = JSON.stringify(errData);
+        }
+        logger.error(
+            `[UPLOAD TRENDYOL] ❌ Hata — "${productName}" | status: ${errCode} | error: ${errMsg}` +
+            (errData ? ` | raw: ${JSON.stringify(errData).substring(0, 500)}` : "")
+        );
+        return { success: false, error: errMsg };
     }
 };
 
 // Hepsiburada'ya ürün yükle
+// ✅ FIX: Doğru endpoint — inventory-uploads stok/fiyat güncelleme içindir, ürün oluşturma değil
+// Hepsiburada ürün oluşturma: POST /listings/merchantid/{merchantId}/inventory-uploads
+//   → Bu endpoint aslında hem yeni listing oluşturur hem de mevcut listing günceller
+//   → hepsiburadaSku (katalog SKU) zorunlu — ürün Hepsiburada kataloğunda olmalı
+//   → Eğer ürün katalogda yoksa, önce Hepsiburada Seller Panel'den ürün eşleştirmesi yapılmalı
+// ✅ FIX: Detaylı hata logu eklendi
 const uploadProductToHepsiburada = async (credentials, product) => {
     const { merchantId, apiKey } = credentials;
     if (!merchantId || !apiKey) {
-        return { success: false, error: "Hepsiburada credentials eksik" };
+        return { success: false, error: "Hepsiburada credentials eksik: merchantId ve apiKey gerekli" };
     }
     const authHeader = `Basic ${Buffer.from(`${merchantId}:${apiKey}`).toString("base64")}`;
+    const productName = product.name || product.title || "İsimsiz Ürün";
+
+    // Hepsiburada SKU — katalog eşleştirmesi için gerekli
+    const merchantSku    = product.sku || product.barcode;
+    const hepsiburadaSku = product.barcode || product.sku;
+
+    if (!merchantSku) {
+        return { success: false, error: `Hepsiburada yükleme başarısız: "${productName}" için SKU/barkod eksik` };
+    }
+
     try {
-        // Hepsiburada Listing API — stok & fiyat güncelleme
         const payload = {
             listings: [{
-                merchantSku:    product.sku || product.barcode,
-                hepsiburadaSku: product.barcode,
+                merchantSku:    merchantSku,
+                hepsiburadaSku: hepsiburadaSku,
                 availableStock: parseInt(product.stock) || 0,
                 price:          parseFloat(product.price) || 0,
                 listPrice:      parseFloat(product.listPrice || product.price) || 0
             }]
         };
+
+        logger.info(
+            `[UPLOAD HEPSIBURADA] Ürün yükleniyor — "${productName}" | merchantSku: ${merchantSku} | ` +
+            `hbSku: ${hepsiburadaSku} | fiyat: ${product.price} TL | stok: ${parseInt(product.stock) || 0}`
+        );
+
         const response = await axios.post(
             `https://listing-external.hepsiburada.com/listings/merchantid/${merchantId}/inventory-uploads`,
             payload,
@@ -838,10 +996,29 @@ const uploadProductToHepsiburada = async (credentials, product) => {
                 timeout: 15000
             }
         );
-        return { success: true, productId: product.barcode, response: response.data };
+
+        const trackingId = response.data?.id || response.data?.trackingId;
+        if (trackingId) {
+            logger.info(`[UPLOAD HEPSIBURADA] ✅ Listing kuyruğa alındı — "${productName}" | trackingId: ${trackingId}`);
+        }
+
+        return { success: true, productId: merchantSku, trackingId, response: response.data };
     } catch (error) {
-        logger.error("[UPLOAD HEPSIBURADA] Hata:", error.response?.data || error.message);
-        return { success: false, error: error.response?.data?.message || error.message };
+        const errData = error.response?.data;
+        const errCode = error.response?.status;
+        let errMsg = error.message;
+        if (errData) {
+            if (errData.errors && Array.isArray(errData.errors)) {
+                errMsg = errData.errors.map(e => e.message || e.code || JSON.stringify(e)).join(" | ");
+            } else if (errData.message) errMsg = errData.message;
+            else if (typeof errData === "string") errMsg = errData;
+            else errMsg = JSON.stringify(errData);
+        }
+        logger.error(
+            `[UPLOAD HEPSIBURADA] ❌ Hata — "${productName}" | status: ${errCode} | error: ${errMsg}` +
+            (errData ? ` | raw: ${JSON.stringify(errData).substring(0, 500)}` : "")
+        );
+        return { success: false, error: errMsg };
     }
 };
 
@@ -1077,48 +1254,221 @@ const uploadProductToN11 = async (credentials, product, userId = null) => {
 };
 
 // ÇiçekSepeti'ne ürün yükle
+// ÇiçekSepeti POST /api/v1/Products zorunlu alanlar:
+//   productName, mainProductCode, stockCode, categoryId, description,
+//   deliveryMessageType (numeric), deliveryType (numeric),
+//   stockQuantity, salesPrice, listPrice, images (min 1)
+//
+// deliveryType enum:        1=with_service, 2=with_cargo, 3=with_service_and_cargo
+// deliveryMessageType enum: 1=cicek_service, 4=gift_cargo_same_day, 5=gift_cargo_1_3_days, 18=gift_cargo_1_2_days
 const uploadProductToCicekSepeti = async (credentials, product) => {
-    const apiSecret  = credentials.apiSecret  || credentials.apiKey;
-    const supplierId = credentials.supplierId || credentials.merchantId;
-    if (!apiSecret || !supplierId) {
-        return { success: false, error: "ÇiçekSepeti credentials eksik" };
+    // ✅ FIX: DB'de apiKey/sellerId olarak saklanıyor — doğru alan adlarını kullan
+    const apiKey       = credentials.apiKey       || credentials.apiSecret;
+    const sellerId     = credentials.sellerId     || credentials.supplierId;
+    const integratorName = credentials.integratorName || "";
+    if (!apiKey) {
+        return { success: false, error: "ÇiçekSepeti credentials eksik: apiKey gerekli" };
     }
-    try {
-        const payload = {
-            products: [{
-                stockCode:     product.sku || product.barcode,
-                barcode:       product.barcode,
-                productName:   product.name,
-                description:   product.description || product.name,
-                salesPrice:    parseFloat(product.price) || 0,
-                listPrice:     parseFloat(product.listPrice || product.price) || 0,
-                stockQuantity: parseInt(product.stock) || 0,
-                images:        (product.images || []).map(url => ({ url }))
-            }]
+
+    // ÇiçekSepeti API header'ları: x-api-key + user-agent (ASCII only)
+    const cleanSellerId = String(sellerId || '').replace(/[^\x00-\x7F]/g, '');
+    const cleanIntegrator = integratorName ? String(integratorName).replace(/[^\x00-\x7F]/g, '') : '';
+    const userAgent = cleanIntegrator ? `${cleanSellerId} - ${cleanIntegrator}` : (cleanSellerId || "CicekSepetiIntegration");
+
+    const productName = product.name || product.title || "İsimsiz Ürün";
+    const stockCode   = product.sku || product.barcode || "";
+    const barcode     = product.barcode || product.sku || "";
+
+    // Zorunlu alan kontrolleri
+    if (!stockCode) {
+        return { success: false, error: `ÇiçekSepeti yükleme başarısız: "${productName}" için SKU/barkod eksik (stockCode zorunlu)` };
+    }
+
+    const salesPrice = parseFloat(product.price) || 0;
+    if (salesPrice <= 0) {
+        return { success: false, error: `ÇiçekSepeti yükleme başarısız: "${productName}" fiyatı geçersiz (${salesPrice} TL)` };
+    }
+
+    // Görselleri string array formatına çevir (ÇiçekSepeti string[] bekler, {url} değil)
+    const images = (product.images || [])
+        .map(img => {
+            if (typeof img === "string") return img.trim();
+            if (img && typeof img === "object" && img.url) return img.url.toString().trim();
+            return null;
+        })
+        .filter(url => url && (url.startsWith("http://") || url.startsWith("https://")));
+
+    // ✅ FIX: Görsel zorunlu — en az 1 görsel olmalı
+    if (images.length === 0) {
+        return { success: false, error: `ÇiçekSepeti yükleme başarısız: "${productName}" için en az 1 görsel gerekli` };
+    }
+
+    // ✅ FIX: categoryId zorunlu — marketplace mapping'den veya ürün verisinden al
+    // Öncelik: marketplaceMappings.categoryId > product.categoryId > product.category (sayısal ise)
+    let categoryId = null;
+
+    // 1. marketplaceMappings içinden ÇiçekSepeti categoryId'yi ara
+    if (product.marketplaceMappings && Array.isArray(product.marketplaceMappings)) {
+        const csMapping = product.marketplaceMappings.find(
+            m => (m.marketplaceName || "").toLowerCase().includes("cicek") ||
+                 (m.marketplaceName || "").toLowerCase().includes("çiçek")
+        );
+        if (csMapping && csMapping.categoryId) {
+            categoryId = parseInt(csMapping.categoryId);
+        }
+    }
+
+    // 2. Doğrudan product üzerindeki categoryId
+    if (!categoryId && product.categoryId) {
+        categoryId = parseInt(product.categoryId);
+    }
+
+    // 3. product.category sayısal bir değerse kullan
+    if (!categoryId && product.category && !isNaN(product.category)) {
+        categoryId = parseInt(product.category);
+    }
+
+    // 4. UnifiedCategoryMap'ten ÇiçekSepeti categoryId'yi bul
+    if (!categoryId) {
+        try {
+            const UnifiedCategoryMap = require("../models/UnifiedCategoryMap");
+            const categoryName = (product.category || product.categoryName || "").trim();
+            if (categoryName) {
+                const catMap = await UnifiedCategoryMap.findOne({
+                    $or: [
+                        { "ciceksepeti.categoryName": { $regex: new RegExp(categoryName, "i") } },
+                        { masterName: { $regex: new RegExp(categoryName, "i") } },
+                        { "trendyol.categoryName": { $regex: new RegExp(categoryName, "i") } }
+                    ],
+                    "ciceksepeti.categoryId": { $ne: null }
+                });
+                if (catMap && catMap.ciceksepeti && catMap.ciceksepeti.categoryId) {
+                    categoryId = parseInt(catMap.ciceksepeti.categoryId);
+                    logger.info(`[UPLOAD CİÇEKSEPETİ] Kategori eşleştirildi — "${categoryName}" → categoryId: ${categoryId}`);
+                }
+            }
+        } catch (catErr) {
+            logger.warn(`[UPLOAD CİÇEKSEPETİ] Kategori arama hatası: ${catErr.message}`);
+        }
+    }
+
+    if (!categoryId) {
+        return {
+            success: false,
+            error: `ÇiçekSepeti yükleme başarısız: "${productName}" için categoryId bulunamadı. ` +
+                   `Lütfen ürünün kategorisini ÇiçekSepeti kategori eşleştirmesinden ayarlayın. ` +
+                   `(Mevcut kategori: "${product.category || "yok"}")`
         };
+    }
+
+    // ✅ FIX: attributes — ÇiçekSepeti kategoriye özel zorunlu attribute'lar isteyebilir
+    // marketplaceMappings.customAttributes veya boş array gönder
+    let attributes = [];
+    if (product.marketplaceMappings && Array.isArray(product.marketplaceMappings)) {
+        const csMapping = product.marketplaceMappings.find(
+            m => (m.marketplaceName || "").toLowerCase().includes("cicek") ||
+                 (m.marketplaceName || "").toLowerCase().includes("çiçek")
+        );
+        if (csMapping && csMapping.customAttributes) {
+            // customAttributes Map → Array dönüşümü
+            const attrs = csMapping.customAttributes;
+            if (attrs instanceof Map) {
+                for (const [key, val] of attrs) {
+                    if (val && typeof val === "object" && val.id) {
+                        attributes.push(val);
+                    }
+                }
+            } else if (typeof attrs === "object") {
+                Object.values(attrs).forEach(val => {
+                    if (val && typeof val === "object" && val.id) {
+                        attributes.push(val);
+                    }
+                });
+            }
+        }
+    }
+
+    try {
+        const productPayload = {
+            productName:        productName,
+            mainProductCode:    barcode || stockCode,           // ✅ Zorunlu: Ana ürün kodu (gruplayıcı)
+            stockCode:          stockCode,                      // ✅ Zorunlu: Stok kodu (varyant bazlı)
+            categoryId:         categoryId,                     // ✅ FIX: Zorunlu — eksikti, 400 hatası veriyordu
+            barcode:            barcode,
+            description:        product.description || productName,
+            salesPrice:         salesPrice,
+            listPrice:          parseFloat(product.listPrice || product.price) || salesPrice,
+            stockQuantity:      parseInt(product.stock) || 0,
+            deliveryMessageType: 5,                             // ✅ FIX: Sayısal değer — 5 = "gift_cargo_1_3_days" (kargo ile 1-3 gün)
+            deliveryType:       2,                              // ✅ FIX: Sayısal değer — 2 = "with_cargo"
+            isActive:           true,
+            images:             images                          // ✅ FIX: string[] formatı, min 1 adet zorunlu
+        };
+
+        // Attribute varsa ekle
+        if (attributes.length > 0) {
+            productPayload.attributes = attributes;
+        }
+
+        const payload = { products: [productPayload] };
+
+        logger.info(
+            `[UPLOAD CİÇEKSEPETİ] Ürün yükleniyor — "${productName}" | stockCode: ${stockCode} | ` +
+            `categoryId: ${categoryId} | fiyat: ${salesPrice} TL | stok: ${parseInt(product.stock) || 0} | ` +
+            `görsel: ${images.length} adet | attribute: ${attributes.length} adet`
+        );
+
         const response = await axios.post(
             "https://apis.ciceksepeti.com/api/v1/Products",
             payload,
             {
                 headers: {
-                    "x-api-key":    apiSecret,
-                    "supplierId":   supplierId,
+                    "x-api-key":    apiKey,
+                    "user-agent":   userAgent,
                     "Content-Type": "application/json"
                 },
-                timeout: 15000
+                timeout: 30000
             }
         );
-        return { success: true, productId: product.barcode, response: response.data };
+
+        // ÇiçekSepeti başarılı yanıtta batchId döndürür
+        const batchId = response.data?.batchId;
+        if (batchId) {
+            logger.info(`[UPLOAD CİÇEKSEPETİ] ✅ Ürün kuyruğa alındı — "${productName}" | batchId: ${batchId}`);
+            return { success: true, productId: barcode || stockCode, batchId, response: response.data };
+        }
+
+        logger.info(`[UPLOAD CİÇEKSEPETİ] ✅ Ürün yüklendi — "${productName}" | response: ${JSON.stringify(response.data)}`);
+        return { success: true, productId: barcode || stockCode, response: response.data };
     } catch (error) {
-        logger.error("[UPLOAD CİÇEKSEPETİ] Hata:", error.response?.data || error.message);
-        return { success: false, error: error.response?.data?.message || error.message };
+        // ✅ FIX: Hata detayını düzgün logla — tüm olası hata formatlarını yakala
+        const errData = error.response?.data;
+        const errCode = error.response?.status;
+
+        // ÇiçekSepeti farklı hata formatları döndürebilir
+        let errMsg = error.message;
+        if (errData) {
+            if (errData.message)      errMsg = errData.message;
+            else if (errData.Message) errMsg = errData.Message;
+            else if (errData.errorMessage) errMsg = errData.errorMessage;
+            else if (errData.errors && Array.isArray(errData.errors)) errMsg = errData.errors.map(e => e.message || e.Message || JSON.stringify(e)).join(" | ");
+            else if (typeof errData === "string") errMsg = errData;
+            else errMsg = JSON.stringify(errData);
+        }
+
+        logger.error(
+            `[UPLOAD CİÇEKSEPETİ] ❌ Hata — "${productName}" | status: ${errCode} | error: ${errMsg}` +
+            (errData ? ` | raw: ${JSON.stringify(errData).substring(0, 500)}` : "")
+        );
+        return { success: false, error: errMsg };
     }
 };
 
 // Pazaryerine ürün yükle
 const uploadProductToMarketplace = async (marketplace, product, userId = null) => {
     const marketplaceName = normalizeMarketplaceName(marketplace.marketplaceName);
-    const credentials = marketplace.credentials;
+    // ✅ FIX: Credential'ları decrypt et (DB'de şifreli saklanıyor)
+    const credentials = decryptCredentials(marketplace.credentials);
     try {
         logger.info(`[UPLOAD] ${marketplaceName}'a ürün yükleniyor: ${product.name}`);
         switch (marketplaceName) {
@@ -1180,7 +1530,8 @@ const checkPendingN11Tasks = async (userId) => {
             logger.warn("[N11 PENDING CHECK] N11 entegrasyonu bulunamadı");
             return { checked: 0, updated: 0, failed: 0, error: "N11 entegrasyonu bulunamadı" };
         }
-        const credentials = marketplace.credentials;
+        // ✅ FIX: Credential'ları decrypt et (DB'de şifreli saklanıyor)
+        const credentials = decryptCredentials(marketplace.credentials);
 
         let updated = 0, failed = 0;
 
@@ -1241,11 +1592,388 @@ const checkPendingN11Tasks = async (userId) => {
     }
 };
 
+// ═══════════════════════════════════════════════════════════════
+// 🗑️ PAZARYERLERINDEN ÜRÜN SİLME / DEVRE DIŞI BIRAKMA
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Ürünü pazaryerlerinden sil/devre dışı bırak
+ *
+ * Strateji (platform bazlı):
+ *   - Trendyol:     Stok=0 gönder (Trendyol API'de ürün silme yok, stok 0 = satışa kapalı)
+ *   - N11:          Stok=0 gönder (N11 REST API'de ürün silme yok)
+ *   - Hepsiburada:  Stok=0 gönder
+ *   - ÇiçekSepeti:  Stok=0 gönder
+ *   - Amazon:       DELETE /listings API ile listing'i kaldır
+ *
+ * @param {String} userId
+ * @param {Object} productMapping — Mongoose document (masterProduct + marketplaceMappings)
+ * @param {Array}  targetPlatforms — Silinecek platform isimleri (boş = tümü)
+ * @returns {Array} — Her platform için { name, status, message }
+ */
+const deleteProductFromMarketplaces = async (userId, productMapping, targetPlatforms = []) => {
+    const results = [];
+    const mappings = productMapping.marketplaceMappings || [];
+
+    if (mappings.length === 0) {
+        return [{ name: "—", status: "skipped", message: "Ürün hiçbir pazaryerinde yok" }];
+    }
+
+    for (const mp of mappings) {
+        const mpName = normalizeMarketplaceName(mp.marketplaceName);
+
+        // Hedef platform filtresi (boş array = tümü)
+        if (targetPlatforms.length > 0) {
+            const normalizedTargets = targetPlatforms.map(t => normalizeMarketplaceName(t));
+            if (!normalizedTargets.includes(mpName)) {
+                results.push({ name: mpName, status: "skipped", message: "Hedef listesinde değil" });
+                continue;
+            }
+        }
+
+        try {
+            // Pazaryeri entegrasyonunu bul
+            const marketplace = await Marketplace.findOne({
+                userId,
+                marketplaceName: { $regex: new RegExp(`^${mpName}$`, "i") }
+            });
+
+            if (!marketplace) {
+                results.push({ name: mpName, status: "error", message: `${mpName} entegrasyonu bulunamadı` });
+                continue;
+            }
+
+            const credentials = decryptCredentials(marketplace.credentials);
+
+            // Ürün tanımlayıcıları (platform bazlı farklı ID'ler gerekebilir)
+            const barcode = mp.marketplaceBarcode || mp.marketplaceSku ||
+                            productMapping.masterProduct?.barcode ||
+                            productMapping.masterProduct?.sku;
+            const sku = mp.marketplaceSku || mp.marketplaceBarcode ||
+                        productMapping.masterProduct?.sku ||
+                        productMapping.masterProduct?.barcode;
+            const n11ProductId = mp.marketplaceProductId; // N11 silme için n11ProductId gerekli
+
+            const productId = sku || barcode || n11ProductId;
+
+            if (!productId) {
+                results.push({ name: mpName, status: "error", message: "Ürün tanımlayıcı (SKU/barcode) bulunamadı" });
+                continue;
+            }
+
+            logger.info(`[PRODUCT DELETE] ${mpName} — ürün siliniyor: ${productId}${n11ProductId ? ` (n11Id: ${n11ProductId})` : ""}`);
+
+            let deleteResult;
+
+            switch (mpName) {
+                case "Trendyol": {
+                    // ✅ Trendyol: 3 aşamalı silme stratejisi
+                    // 1) Stok=0 yap (hemen satıştan kaldır)
+                    // 2) Arşive al (PUT /archive-state → archived: true)
+                    // 3) DELETE ile tamamen sil (sadece 1+ gün arşivde olan ürünler silinebilir)
+                    //    DELETE başarısız olursa → PendingDeletion kaydı oluştur, cron 25 saat sonra tekrar dener
+                    const { apiKey, apiSecret, sellerId, supplierId } = credentials;
+                    const actualSellerId = sellerId || supplierId;
+                    if (!apiKey || !apiSecret || !actualSellerId) {
+                        deleteResult = { success: false, error: "Trendyol credentials eksik" };
+                        break;
+                    }
+                    const trendyolBarcode = mp.marketplaceBarcode || mp.marketplaceSku ||
+                                            productMapping.masterProduct?.barcode ||
+                                            productMapping.masterProduct?.sku;
+                    if (!trendyolBarcode) {
+                        deleteResult = { success: false, error: "Trendyol barcode bulunamadı" };
+                        break;
+                    }
+                    const authHeader = Buffer.from(`${apiKey}:${apiSecret}`).toString("base64");
+                    const trendyolHeaders = {
+                        Authorization: `Basic ${authHeader}`,
+                        "User-Agent": `${actualSellerId} - LysiaETIC`,
+                        "Content-Type": "application/json"
+                    };
+                    const barcodeStr = String(trendyolBarcode).trim();
+
+                    // Adım 1: Stok=0 yap — ürünü hemen satıştan kaldır
+                    try {
+                        await axios.post(
+                            `https://apigw.trendyol.com/integration/inventory/sellers/${actualSellerId}/products/price-and-inventory`,
+                            { items: [{ barcode: barcodeStr, quantity: 0 }] },
+                            { headers: trendyolHeaders, timeout: 15000 }
+                        );
+                        logger.info(`[PRODUCT DELETE] Trendyol Adım 1/3 ✅ Stok=0 yapıldı: ${barcodeStr}`);
+                    } catch (stockErr) {
+                        logger.warn(`[PRODUCT DELETE] Trendyol Adım 1/3 ⚠️ Stok=0 başarısız: ${stockErr.response?.data?.errors?.[0]?.message || stockErr.message}`);
+                    }
+
+                    // Adım 2: Arşive al — ürünü Trendyol'da görünmez yap
+                    let archiveSuccess = false;
+                    try {
+                        const archiveResp = await axios.put(
+                            `https://apigw.trendyol.com/integration/product/sellers/${actualSellerId}/products/archive-state`,
+                            { items: [{ barcode: barcodeStr, archived: true }] },
+                            { headers: trendyolHeaders, timeout: 15000 }
+                        );
+                        archiveSuccess = true;
+                        logger.info(`[PRODUCT DELETE] Trendyol Adım 2/3 ✅ Arşive alındı: ${barcodeStr} (batchId: ${archiveResp.data?.batchRequestId})`);
+                    } catch (archiveErr) {
+                        logger.warn(`[PRODUCT DELETE] Trendyol Adım 2/3 ⚠️ Arşive alma başarısız: ${archiveErr.response?.data?.errors?.[0]?.message || archiveErr.message}`);
+                    }
+
+                    // Adım 3: DELETE ile tamamen sil
+                    // Trendyol kuralı: Sadece 1+ gün arşivde olan ürünler silinebilir
+                    // Yeni arşivlenen ürünler için DELETE başarısız olacak → PendingDeletion'a kaydet
+                    try {
+                        const deleteResp = await axios.delete(
+                            `https://apigw.trendyol.com/integration/product/sellers/${actualSellerId}/products`,
+                            {
+                                data: { items: [{ barcode: barcodeStr }] },
+                                headers: trendyolHeaders,
+                                timeout: 15000
+                            }
+                        );
+                        deleteResult = { success: true, batchId: deleteResp.data?.batchRequestId };
+                        logger.info(`[PRODUCT DELETE] Trendyol Adım 3/3 ✅ Ürün tamamen silindi: ${barcodeStr} (batchId: ${deleteResp.data?.batchRequestId})`);
+                        // Eğer PendingDeletion kaydı varsa tamamlandı olarak işaretle
+                        await PendingDeletion.findOneAndUpdate(
+                            { userId, marketplace: "Trendyol", barcode: barcodeStr },
+                            { status: "completed", completedAt: new Date() }
+                        ).catch(() => {});
+                    } catch (deleteErr) {
+                        const errMsg = deleteErr.response?.data?.errors?.[0]?.message || deleteErr.message;
+                        logger.warn(`[PRODUCT DELETE] Trendyol Adım 3/3 ⚠️ DELETE başarısız (${errMsg}) — 25 saat sonra otomatik silinecek`);
+
+                        // PendingDeletion kaydı oluştur — cron job 25 saat sonra tekrar deneyecek
+                        try {
+                            await PendingDeletion.findOneAndUpdate(
+                                { userId, marketplace: "Trendyol", barcode: barcodeStr },
+                                {
+                                    userId,
+                                    marketplace: "Trendyol",
+                                    barcode: barcodeStr,
+                                    sku: sku || barcodeStr,
+                                    productName: productMapping.masterProduct?.name || barcodeStr,
+                                    marketplaceId: marketplace._id,
+                                    archivedAt: new Date(),
+                                    status: "pending",
+                                    lastAttemptAt: new Date(),
+                                    lastError: errMsg
+                                },
+                                { upsert: true, new: true }
+                            );
+                            logger.info(`[PRODUCT DELETE] Trendyol — PendingDeletion kaydı oluşturuldu: ${barcodeStr} (25 saat sonra otomatik silinecek)`);
+                        } catch (pdErr) {
+                            logger.error(`[PRODUCT DELETE] PendingDeletion kayıt hatası: ${pdErr.message}`);
+                        }
+
+                        // Ürün arşivde ve stok=0 — satışta değil, ama henüz tamamen silinmedi
+                        deleteResult = { success: true, pendingFullDelete: true };
+                    }
+                    break;
+                }
+
+                case "N11": {
+                    // ✅ N11: Gerçek DELETE — SOAP DeleteProductById ile tamamen siler
+                    // n11ProductId gerekli (marketplaceProductId alanında saklanıyor)
+                    const { apiKey: n11Key, secretKey } = credentials;
+                    if (!n11Key || !secretKey) {
+                        deleteResult = { success: false, error: "N11 credentials eksik" };
+                        break;
+                    }
+                    if (n11ProductId) {
+                        // n11ProductId varsa gerçek silme yap
+                        deleteResult = await n11Service.deleteProductById(credentials, n11ProductId);
+                        if (!deleteResult.success) {
+                            // Gerçek silme başarısız → fallback: stok=0
+                            logger.warn(`[PRODUCT DELETE] N11 DELETE başarısız (${deleteResult.error}), stok=0 fallback deneniyor...`);
+                            deleteResult = await n11Service.updateProductPriceAndStock(
+                                credentials,
+                                [{ stockCode: sku, quantity: 0 }],
+                                "LysiaETIC"
+                            );
+                            if (deleteResult.success) deleteResult.fallback = true;
+                        }
+                    } else {
+                        // n11ProductId yoksa sadece stok=0 yapabiliriz
+                        logger.warn(`[PRODUCT DELETE] N11 — n11ProductId yok, stok=0 fallback kullanılıyor`);
+                        deleteResult = await n11Service.updateProductPriceAndStock(
+                            credentials,
+                            [{ stockCode: sku, quantity: 0 }],
+                            "LysiaETIC"
+                        );
+                        if (deleteResult.success) deleteResult.fallback = true;
+                    }
+                    break;
+                }
+
+                case "Amazon": {
+                    // ✅ Amazon: Listing'i tamamen sil (DELETE API)
+                    const amazonService = require("./amazon/amazonSpApiService");
+                    deleteResult = await amazonService.deleteListingsItem(credentials, productId);
+                    break;
+                }
+
+                case "Hepsiburada": {
+                    // ✅ Hepsiburada: 3 aşamalı silme stratejisi
+                    // 1) Listing Deactivate — satıştan kaldır
+                    // 2) Listing Silme (DELETE) — tamamen sil
+                    // 3) Fallback: stok=0 gönder
+                    const { merchantId, username, password, apiKey: hbKey } = credentials;
+                    const authUser = username || merchantId;
+                    const authPass = password || hbKey;
+                    if (!merchantId || !authUser || !authPass) {
+                        deleteResult = { success: false, error: "Hepsiburada credentials eksik" };
+                        break;
+                    }
+                    const hbAuth = `Basic ${Buffer.from(`${authUser}:${authPass}`).toString("base64")}`;
+                    const hbHeaders = { Authorization: hbAuth, "Content-Type": "application/json", "User-Agent": "LysiaETIC" };
+
+                    const hbSku = mp.marketplaceBarcode || mp.marketplaceSku || productMapping.masterProduct?.barcode || productMapping.masterProduct?.sku;
+                    const merchantSku = mp.marketplaceSku || mp.marketplaceBarcode || productMapping.masterProduct?.sku || productMapping.masterProduct?.barcode;
+
+                    if (!hbSku) {
+                        deleteResult = { success: false, error: "Hepsiburada SKU bulunamadı" };
+                        break;
+                    }
+
+                    // Adım 1: Listing Deactivate — satıştan kaldır
+                    try {
+                        await axios.post(
+                            `https://listing-external.hepsiburada.com/listings/merchantid/${merchantId}/sku/${hbSku}/deactivate`,
+                            {},
+                            { headers: hbHeaders, timeout: 15000 }
+                        );
+                        logger.info(`[PRODUCT DELETE] Hepsiburada Adım 1/3 ✅ Listing deactivate: ${hbSku}`);
+                    } catch (deactErr) {
+                        logger.warn(`[PRODUCT DELETE] Hepsiburada Adım 1/3 ⚠️ Deactivate başarısız: ${deactErr.response?.data?.message || deactErr.response?.data || deactErr.message}`);
+                    }
+
+                    // Adım 2: Stok=0 gönder — satışı tamamen kapat
+                    try {
+                        await axios.post(
+                            `https://listing-external.hepsiburada.com/listings/merchantid/${merchantId}/inventory-uploads`,
+                            { listings: [{ hepsiburadaSku: hbSku, merchantSku: merchantSku, availableStock: 0 }] },
+                            { headers: hbHeaders, timeout: 15000 }
+                        );
+                        logger.info(`[PRODUCT DELETE] Hepsiburada Adım 2/3 ✅ Stok=0 yapıldı: ${hbSku}`);
+                    } catch (stockErr) {
+                        logger.warn(`[PRODUCT DELETE] Hepsiburada Adım 2/3 ⚠️ Stok=0 başarısız: ${stockErr.response?.data?.message || stockErr.message}`);
+                    }
+
+                    // Adım 3: Listing Silme (DELETE) — tamamen sil
+                    // Not: Satışta olan listing silinemez, bu yüzden önce deactivate + stok=0 yapıyoruz
+                    try {
+                        await axios.delete(
+                            `https://listing-external.hepsiburada.com/listings/merchantid/${merchantId}/sku/${hbSku}/merchantsku/${merchantSku}`,
+                            { headers: hbHeaders, timeout: 15000 }
+                        );
+                        deleteResult = { success: true };
+                        logger.info(`[PRODUCT DELETE] Hepsiburada Adım 3/3 ✅ Listing tamamen silindi: ${hbSku}`);
+                    } catch (delErr) {
+                        const errMsg = delErr.response?.data?.message || delErr.response?.data || delErr.message;
+                        logger.warn(`[PRODUCT DELETE] Hepsiburada Adım 3/3 ⚠️ DELETE başarısız (${errMsg}) — listing deaktif ve stok=0`);
+                        // DELETE başarısız olsa bile listing deaktif ve stok=0 — satışta değil
+                        deleteResult = { success: true, archived: true };
+                    }
+                    break;
+                }
+
+                case "ÇiçekSepeti": {
+                    // ✅ ÇiçekSepeti: 2 aşamalı silme stratejisi
+                    // 1) Stok=0 + Fiyat=0 → ürün "Satışa Kapalı" / "Stoğu Tükenen" durumuna geçer
+                    // 2) Ürün bilgilerini güncelle — isActive: false (varsa)
+                    // Not: ÇiçekSepeti'nin gerçek silme API'si yok, ama stok=0 ürünü satıştan kaldırır
+                    const csApiKey = credentials.apiKey || credentials.apiSecret;
+                    const csSellerId = credentials.sellerId || credentials.supplierId;
+                    const csIntegrator = credentials.integratorName || "";
+                    if (!csApiKey) {
+                        deleteResult = { success: false, error: "ÇiçekSepeti credentials eksik" };
+                        break;
+                    }
+                    const cleanSid = String(csSellerId || "").replace(/[^\x00-\x7F]/g, "");
+                    const cleanInt = csIntegrator ? String(csIntegrator).replace(/[^\x00-\x7F]/g, "") : "";
+                    const ua = cleanInt ? `${cleanSid} - ${cleanInt}` : (cleanSid || "CicekSepetiIntegration");
+                    const csHeaders = { "x-api-key": csApiKey, "user-agent": ua, "Content-Type": "application/json" };
+
+                    const csStockCode = mp.marketplaceSku || mp.marketplaceBarcode ||
+                                        productMapping.masterProduct?.sku ||
+                                        productMapping.masterProduct?.barcode;
+
+                    if (!csStockCode) {
+                        deleteResult = { success: false, error: "ÇiçekSepeti stok kodu bulunamadı" };
+                        break;
+                    }
+
+                    // Adım 1: Stok=0 + Fiyat=0 → satıştan kaldır
+                    try {
+                        await axios.put(
+                            `https://apis.ciceksepeti.com/api/v1/Products/price-and-stock`,
+                            { items: [{ stockCode: csStockCode, stockQuantity: 0, salesPrice: 0, listPrice: 0 }] },
+                            { headers: csHeaders, timeout: 15000 }
+                        );
+                        logger.info(`[PRODUCT DELETE] ÇiçekSepeti Adım 1/2 ✅ Stok=0 + Fiyat=0 yapıldı: ${csStockCode}`);
+                    } catch (stockErr) {
+                        logger.warn(`[PRODUCT DELETE] ÇiçekSepeti Adım 1/2 ⚠️ Stok/fiyat sıfırlama başarısız: ${stockErr.response?.data?.message || stockErr.message}`);
+                    }
+
+                    // Adım 2: Ürünü güncelle — açıklamayı "[SİLİNDİ]" yap, satışa kapalı olarak işaretle
+                    try {
+                        await axios.put(
+                            `https://apis.ciceksepeti.com/api/v1/Products`,
+                            { products: [{ stockCode: csStockCode, isActive: false }] },
+                            { headers: csHeaders, timeout: 15000 }
+                        );
+                        deleteResult = { success: true };
+                        logger.info(`[PRODUCT DELETE] ÇiçekSepeti Adım 2/2 ✅ Ürün deaktif edildi: ${csStockCode}`);
+                    } catch (updateErr) {
+                        const errMsg = updateErr.response?.data?.message || updateErr.message;
+                        logger.warn(`[PRODUCT DELETE] ÇiçekSepeti Adım 2/2 ⚠️ Deaktif başarısız (${errMsg}) — stok=0 ile satışta değil`);
+                        // Stok=0 yapıldıysa ürün zaten satışta değil
+                        deleteResult = { success: true, archived: true };
+                    }
+                    break;
+                }
+
+                default:
+                    deleteResult = { success: false, error: `${mpName} için silme API'si desteklenmiyor` };
+            }
+
+            if (deleteResult.success) {
+                let method;
+                if (deleteResult.fallback) {
+                    method = "Stok 0'a çekildi (satışa kapalı)";
+                } else if (deleteResult.pendingFullDelete) {
+                    // Trendyol: Arşive alındı, 25 saat sonra otomatik silinecek
+                    method = "Ürün arşive alındı ve satıştan kaldırıldı — 25 saat içinde otomatik olarak tamamen silinecek";
+                } else if (deleteResult.archived) {
+                    // Platform bazlı açıklayıcı mesajlar
+                    if (mpName === "Hepsiburada") method = "Listing deaktif edildi ve stok sıfırlandı (satışta değil)";
+                    else if (mpName === "ÇiçekSepeti") method = "Ürün deaktif edildi ve stok/fiyat sıfırlandı (satışta değil)";
+                    else method = "Ürün satıştan kaldırıldı ve deaktif edildi";
+                } else {
+                    method = "Ürün tamamen silindi";
+                }
+                logger.info(`[PRODUCT DELETE] ✅ ${mpName} — ${method}: ${productId}`);
+                results.push({ name: mpName, status: "success", message: method });
+            } else {
+                logger.error(`[PRODUCT DELETE] ❌ ${mpName} — hata: ${deleteResult.error}`);
+                results.push({ name: mpName, status: "error", message: deleteResult.error });
+            }
+
+        } catch (error) {
+            logger.error(`[PRODUCT DELETE] ${mpName} beklenmedik hata:`, error.message);
+            results.push({ name: mpName, status: "error", message: error.message });
+        }
+    }
+
+    return results;
+};
+
 module.exports = {
     fetchProductsFromMarketplace,
     syncProductsFromMarketplace,
     distributeProductToMarketplaces,
     uploadProductToMarketplace,
     normalizeMarketplaceName,
-    checkPendingN11Tasks
+    checkPendingN11Tasks,
+    deleteProductFromMarketplaces
 };

@@ -2597,6 +2597,8 @@ const UnifiedCategoryTab = ({ onRefresh }) => {
     const [trendyolFile, setTrendyolFile] = useState(null);
     const [n11File, setN11File] = useState(null);
     const [ciceksepetiFile, setCiceksepetiFile] = useState(null);
+    const [hepsiburadaFile, setHepsiburadaFile] = useState(null);
+    const [amazonFile, setAmazonFile] = useState(null);
     const [clearExisting, setClearExisting] = useState(false);
 
     const [selectedCategory, setSelectedCategory] = useState(null);
@@ -2605,6 +2607,8 @@ const UnifiedCategoryTab = ({ onRefresh }) => {
     const trendyolRef = useRef(null);
     const n11Ref = useRef(null);
     const ciceksepetiRef = useRef(null);
+    const hepsiburadaRef = useRef(null);
+    const amazonRef = useRef(null);
 
     const loadStats = useCallback(async () => {
         try {
@@ -2636,14 +2640,14 @@ const UnifiedCategoryTab = ({ onRefresh }) => {
     const handleSearch = () => { setSearch(searchInput); setPage(1); };
 
     const handleImport = async () => {
-        if (!trendyolFile && !n11File && !ciceksepetiFile) {
+        if (!trendyolFile && !n11File && !ciceksepetiFile && !hepsiburadaFile && !amazonFile) {
             alert("En az bir platform Excel dosyası seçmelisiniz!");
             return;
         }
 
         if (!window.confirm(
             `${clearExisting ? "⚠️ MEVCUT TÜM VERİLER SİLİNECEK!\n\n" : ""}` +
-            `Trendyol: ${trendyolFile ? "✅" : "❌"}  N11: ${n11File ? "✅" : "❌"}  ÇiçekSepeti: ${ciceksepetiFile ? "✅" : "❌"}\n\nDevam?`
+            `Trendyol: ${trendyolFile ? "✅" : "❌"}  N11: ${n11File ? "✅" : "❌"}  ÇiçekSepeti: ${ciceksepetiFile ? "✅" : "❌"}  Hepsiburada: ${hepsiburadaFile ? "✅" : "❌"}  Amazon: ${amazonFile ? "✅" : "❌"}\n\nDevam?`
         )) return;
 
         setImporting(true);
@@ -2652,19 +2656,23 @@ const UnifiedCategoryTab = ({ onRefresh }) => {
             if (trendyolFile) formData.append("trendyol", trendyolFile);
             if (n11File) formData.append("n11", n11File);
             if (ciceksepetiFile) formData.append("ciceksepeti", ciceksepetiFile);
+            if (hepsiburadaFile) formData.append("hepsiburada", hepsiburadaFile);
+            if (amazonFile) formData.append("amazon", amazonFile);
             formData.append("clearExisting", clearExisting ? "true" : "false");
 
             const res = await importUnifiedCategories(formData);
             alert(
                 `✅ Import başarılı!\n\n` +
                 `Yeni: ${res.result.dbResult.inserted}  Güncellenen: ${res.result.dbResult.updated}\n` +
-                `3'ü ortak: ${res.result.matchStats.exact3}  2'si ortak: ${res.result.matchStats.match2}  Tekil: ${res.result.matchStats.single}`
+                `3+ ortak: ${res.result.matchStats.exact3}  2'si ortak: ${res.result.matchStats.match2}  Tekil: ${res.result.matchStats.single}`
             );
 
-            setTrendyolFile(null); setN11File(null); setCiceksepetiFile(null); setClearExisting(false);
+            setTrendyolFile(null); setN11File(null); setCiceksepetiFile(null); setHepsiburadaFile(null); setAmazonFile(null); setClearExisting(false);
             if (trendyolRef.current) trendyolRef.current.value = "";
             if (n11Ref.current) n11Ref.current.value = "";
             if (ciceksepetiRef.current) ciceksepetiRef.current.value = "";
+            if (hepsiburadaRef.current) hepsiburadaRef.current.value = "";
+            if (amazonRef.current) amazonRef.current.value = "";
             loadStats(); loadCategories();
             if (onRefresh) onRefresh();
         } catch (err) {
@@ -2707,7 +2715,7 @@ const UnifiedCategoryTab = ({ onRefresh }) => {
                         <div>
                             <div style={{ fontSize: 14, fontWeight: 700, color: C.text, marginBottom: 4 }}>Ortak Kategori Merkezi</div>
                             <div style={{ fontSize: 12, color: C.textSub, lineHeight: 1.6 }}>
-                                PY Kategorileri sekmesinden indirdiğiniz <strong>3 platformun Excel dosyalarını</strong> (Trendyol, N11, ÇiçekSepeti) buraya yükleyin.
+                                PY Kategorileri sekmesinden indirdiğiniz <strong>5 platformun Excel dosyalarını</strong> (Trendyol, N11, ÇiçekSepeti, Hepsiburada, Amazon) buraya yükleyin.
                                 Sistem kategori adlarını normalize ederek otomatik eşleştirir. Eşleşme sonuçlarını <strong>Eşleşen</strong> sekmesinden inceleyip revize edebilirsiniz.
                                 <strong> Ürün dağıtımında bu harita otomatik kullanılır.</strong>
                             </div>
@@ -2733,6 +2741,8 @@ const UnifiedCategoryTab = ({ onRefresh }) => {
                             { val: stats.platforms?.trendyol || 0, label: "Trendyol", icon: "🟠", color: "#f97316" },
                             { val: stats.platforms?.n11 || 0, label: "N11", icon: "🟣", color: "#a855f7" },
                             { val: stats.platforms?.ciceksepeti || 0, label: "ÇiçekSepeti", icon: "🌸", color: "#ec4899" },
+                            { val: stats.platforms?.hepsiburada || 0, label: "Hepsiburada", icon: "🟢", color: "#22c55e" },
+                            { val: stats.platforms?.amazon || 0, label: "Amazon", icon: "🟡", color: "#f59e0b" },
                         ].map(p => (
                             <div key={p.label} style={{ background: `${p.color}10`, border: `1px solid ${p.color}30`, borderRadius: 8, padding: "8px 14px", display: "flex", alignItems: "center", gap: 8 }}>
                                 <span style={{ fontSize: 14 }}>{p.icon}</span>
@@ -2754,6 +2764,8 @@ const UnifiedCategoryTab = ({ onRefresh }) => {
                         { label: "🟠 Trendyol", file: trendyolFile, setFile: setTrendyolFile, ref: trendyolRef },
                         { label: "🟣 N11", file: n11File, setFile: setN11File, ref: n11Ref },
                         { label: "🌸 ÇiçekSepeti", file: ciceksepetiFile, setFile: setCiceksepetiFile, ref: ciceksepetiRef },
+                        { label: "🟢 Hepsiburada", file: hepsiburadaFile, setFile: setHepsiburadaFile, ref: hepsiburadaRef },
+                        { label: "🟡 Amazon", file: amazonFile, setFile: setAmazonFile, ref: amazonRef },
                     ].map(item => (
                         <div key={item.label}>
                             <label style={{ fontSize: 11, color: C.textSub, fontWeight: 600, display: "block", marginBottom: 4 }}>{item.label}</label>
@@ -2769,7 +2781,7 @@ const UnifiedCategoryTab = ({ onRefresh }) => {
                         <input type="checkbox" checked={clearExisting} onChange={(e) => setClearExisting(e.target.checked)} />
                         <span>⚠️ Sıfırdan oluştur</span>
                     </label>
-                    <Btn onClick={handleImport} loading={importing} disabled={!trendyolFile && !n11File && !ciceksepetiFile}>
+                    <Btn onClick={handleImport} loading={importing} disabled={!trendyolFile && !n11File && !ciceksepetiFile && !hepsiburadaFile && !amazonFile}>
                         📤 İçe Aktar
                     </Btn>
                 </div>
@@ -2818,16 +2830,16 @@ const UnifiedCategoryTab = ({ onRefresh }) => {
                     <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
                         <thead>
                             <tr style={{ background: C.surface, borderBottom: `1px solid ${C.border}` }}>
-                                {["ORTAK AD", "KÖK", "DURUM", "🟠", "🟣", "🌸", "İŞLEM"].map(h => (
+                                {["ORTAK AD", "KÖK", "DURUM", "🟠", "🟣", "🌸", "🟢", "🟡", "İŞLEM"].map(h => (
                                     <th key={h} style={{ padding: "10px 12px", textAlign: h === "ORTAK AD" || h === "KÖK" ? "left" : "center", color: C.textSub, fontWeight: 700, fontSize: 10, whiteSpace: "nowrap" }}>{h}</th>
                                 ))}
                             </tr>
                         </thead>
                         <tbody>
                             {loading ? (
-                                <tr><td colSpan="7" style={{ padding: 40, textAlign: "center", color: C.textDim }}>⏳ Yükleniyor...</td></tr>
+                                <tr><td colSpan="9" style={{ padding: 40, textAlign: "center", color: C.textDim }}>⏳ Yükleniyor...</td></tr>
                             ) : categories.length === 0 ? (
-                                <tr><td colSpan="7" style={{ padding: 40, textAlign: "center", color: C.textDim }}>
+                                <tr><td colSpan="9" style={{ padding: 40, textAlign: "center", color: C.textDim }}>
                                     {stats?.total === 0 ? "Henüz veri yok — yukarıdan Excel yükleyin." : "Filtrelere uygun sonuç yok."}
                                 </td></tr>
                             ) : categories.map(cat => (
@@ -2848,6 +2860,8 @@ const UnifiedCategoryTab = ({ onRefresh }) => {
                                     <td style={{ padding: "10px 12px", textAlign: "center", fontSize: 13 }}>{cat.trendyol?.categoryId ? "✅" : "❌"}</td>
                                     <td style={{ padding: "10px 12px", textAlign: "center", fontSize: 13 }}>{cat.n11?.categoryId ? "✅" : "❌"}</td>
                                     <td style={{ padding: "10px 12px", textAlign: "center", fontSize: 13 }}>{cat.ciceksepeti?.categoryId ? "✅" : "❌"}</td>
+                                    <td style={{ padding: "10px 12px", textAlign: "center", fontSize: 13 }}>{cat.hepsiburada?.categoryId ? "✅" : "❌"}</td>
+                                    <td style={{ padding: "10px 12px", textAlign: "center", fontSize: 13 }}>{cat.amazon?.categoryId ? "✅" : "❌"}</td>
                                     <td style={{ padding: "10px 12px", textAlign: "center" }} onClick={(e) => e.stopPropagation()}>
                                         <div style={{ display: "flex", gap: 4, justifyContent: "center" }}>
                                             <Btn onClick={() => { setSelectedCategory(cat); setShowDetail(true); }} color={C.blue} outline small>🔍</Btn>
@@ -2890,7 +2904,7 @@ const UnifiedCategoryTab = ({ onRefresh }) => {
                                 {selectedCategory.canonicalPath && <div style={{ fontSize: 11, color: C.textDim }}>{selectedCategory.canonicalPath}</div>}
                                 <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
                                     <Badge color={mtColor(selectedCategory.matchType)}>{mtLabel(selectedCategory.matchType)}</Badge>
-                                    <Badge color={C.accent}>{selectedCategory.platformCount}/3 Platform</Badge>
+                                    <Badge color={C.accent}>{selectedCategory.platformCount}/5 Platform</Badge>
                                     <Badge color={selectedCategory.isLeaf ? C.green : C.yellow}>{selectedCategory.isLeaf ? "🍃 Yaprak" : "📁 Üst"}</Badge>
                                 </div>
                             </div>
@@ -2903,6 +2917,8 @@ const UnifiedCategoryTab = ({ onRefresh }) => {
                                 { key: "trendyol", label: "Trendyol", icon: "🟠", color: "#f97316", data: selectedCategory.trendyol },
                                 { key: "n11", label: "N11", icon: "🟣", color: "#a855f7", data: selectedCategory.n11 },
                                 { key: "ciceksepeti", label: "ÇiçekSepeti", icon: "🌸", color: "#ec4899", data: selectedCategory.ciceksepeti },
+                                { key: "hepsiburada", label: "Hepsiburada", icon: "🟢", color: "#22c55e", data: selectedCategory.hepsiburada },
+                                { key: "amazon", label: "Amazon", icon: "🟡", color: "#f59e0b", data: selectedCategory.amazon },
                             ].map(p => (
                                 <div key={p.key} style={{
                                     background: C.surface, border: `1px solid ${p.data?.categoryId ? p.color + "40" : C.border}`,
@@ -3424,6 +3440,8 @@ const MatchedCategoriesTab = ({ onRefresh }) => {
             if (editedPlatforms.trendyol !== undefined) body.trendyol = editedPlatforms.trendyol;
             if (editedPlatforms.n11 !== undefined) body.n11 = editedPlatforms.n11;
             if (editedPlatforms.ciceksepeti !== undefined) body.ciceksepeti = editedPlatforms.ciceksepeti;
+            if (editedPlatforms.hepsiburada !== undefined) body.hepsiburada = editedPlatforms.hepsiburada;
+            if (editedPlatforms.amazon !== undefined) body.amazon = editedPlatforms.amazon;
 
             await API.put(`/category-smart/unified/${selectedCategory._id}`, body);
             setShowDetail(false);
@@ -3516,6 +3534,8 @@ const MatchedCategoriesTab = ({ onRefresh }) => {
                             { val: stats.platforms?.trendyol || 0, label: "T", color: "#f97316" },
                             { val: stats.platforms?.n11 || 0, label: "N", color: "#a855f7" },
                             { val: stats.platforms?.ciceksepeti || 0, label: "Ç", color: "#ec4899" },
+                            { val: stats.platforms?.hepsiburada || 0, label: "H", color: "#22c55e" },
+                            { val: stats.platforms?.amazon || 0, label: "A", color: "#f59e0b" },
                         ].map(p => (
                             <span key={p.label} style={{ fontSize: 11, color: p.color, fontWeight: 600 }}>{p.label}:{p.val}</span>
                         ))}
@@ -3569,14 +3589,16 @@ const MatchedCategoriesTab = ({ onRefresh }) => {
                             <th style={{ padding: "9px 12px", textAlign: "center", color: "#f97316", fontWeight: 600, fontSize: 11, width: 40 }}>T</th>
                             <th style={{ padding: "9px 12px", textAlign: "center", color: "#a855f7", fontWeight: 600, fontSize: 11, width: 40 }}>N</th>
                             <th style={{ padding: "9px 12px", textAlign: "center", color: "#ec4899", fontWeight: 600, fontSize: 11, width: 40 }}>Ç</th>
+                            <th style={{ padding: "9px 12px", textAlign: "center", color: "#22c55e", fontWeight: 600, fontSize: 11, width: 40 }}>H</th>
+                            <th style={{ padding: "9px 12px", textAlign: "center", color: "#f59e0b", fontWeight: 600, fontSize: 11, width: 40 }}>A</th>
                             <th style={{ padding: "9px 8px", textAlign: "center", color: C.textSub, fontWeight: 600, fontSize: 11, width: 60 }}></th>
                         </tr>
                     </thead>
                     <tbody>
                         {loading ? (
-                            <tr><td colSpan="6" style={{ padding: 32, textAlign: "center", color: C.textDim }}>Yükleniyor...</td></tr>
+                            <tr><td colSpan="8" style={{ padding: 32, textAlign: "center", color: C.textDim }}>Yükleniyor...</td></tr>
                         ) : categories.length === 0 ? (
-                            <tr><td colSpan="6" style={{ padding: 32, textAlign: "center", color: C.textDim }}>
+                            <tr><td colSpan="8" style={{ padding: 32, textAlign: "center", color: C.textDim }}>
                                 {stats?.total === 0 ? "Henüz eşleşme yok. Ortak Merkez'den Excel yükleyin." : "Sonuç yok."}
                             </td></tr>
                         ) : categories.map(cat => (
@@ -3600,6 +3622,12 @@ const MatchedCategoriesTab = ({ onRefresh }) => {
                                 </td>
                                 <td style={{ padding: "8px 6px", textAlign: "center", fontSize: 11 }}>
                                     {cat.ciceksepeti?.categoryId ? <span style={{ color: "#4ade80" }}>✓</span> : <span style={{ color: "#475569" }}>—</span>}
+                                </td>
+                                <td style={{ padding: "8px 6px", textAlign: "center", fontSize: 11 }}>
+                                    {cat.hepsiburada?.categoryId ? <span style={{ color: "#4ade80" }}>✓</span> : <span style={{ color: "#475569" }}>—</span>}
+                                </td>
+                                <td style={{ padding: "8px 6px", textAlign: "center", fontSize: 11 }}>
+                                    {cat.amazon?.categoryId ? <span style={{ color: "#4ade80" }}>✓</span> : <span style={{ color: "#475569" }}>—</span>}
                                 </td>
                                 <td style={{ padding: "8px 8px", textAlign: "center" }} onClick={(e) => e.stopPropagation()}>
                                     <div style={{ display: "flex", gap: 4, justifyContent: "center" }}>
@@ -3657,11 +3685,13 @@ const MatchedCategoriesTab = ({ onRefresh }) => {
                         </div>
 
                         {/* Platform Kartları */}
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 16 }}>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10, marginBottom: 16 }}>
                             {[
                                 { key: "trendyol", label: "Trendyol", color: "#f97316", mpName: "Trendyol" },
                                 { key: "n11", label: "N11", color: "#a855f7", mpName: "N11" },
                                 { key: "ciceksepeti", label: "ÇiçekSepeti", color: "#ec4899", mpName: "ÇiçekSepeti" },
+                                { key: "hepsiburada", label: "Hepsiburada", color: "#22c55e", mpName: "Hepsiburada" },
+                                { key: "amazon", label: "Amazon", color: "#f59e0b", mpName: "Amazon" },
                             ].map(p => {
                                 const data = getPlatformData(p.key);
                                 const isEdited = editedPlatforms[p.key] !== undefined;

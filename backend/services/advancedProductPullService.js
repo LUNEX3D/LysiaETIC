@@ -4,6 +4,8 @@ const MarketplaceCategory = require("../models/MarketplaceCategory");
 const Marketplace = require("../models/Marketplace");
 const AsyncJob = require("../models/AsyncJob");
 const logger = require("../config/logger");
+// ✅ FIX: Credential'ları decrypt ederek kullan
+const { decryptCredentials } = require("../utils/encryption");
 
 /**
  * GELİŞMİŞ ÜRÜN ÇEKME SERVİSİ
@@ -113,18 +115,20 @@ const pullCategoriesFromMarketplace = async (userId, marketplaceId, marketplaceN
     }
 
     let categories = [];
+    // ✅ FIX: Credential'ları decrypt et (DB'de şifreli saklanıyor)
+    const credentials = decryptCredentials(marketplace.credentials);
 
     try {
         switch (marketplaceName) {
             case "Trendyol":
-                categories = await fetchTrendyolCategories(marketplace.credentials);
+                categories = await fetchTrendyolCategories(credentials);
                 break;
             case "N11":
             case "n11":
-                categories = await fetchN11Categories(marketplace.credentials);
+                categories = await fetchN11Categories(credentials);
                 break;
             case "Hepsiburada":
-                categories = await fetchHepsiburadaCategories(marketplace.credentials);
+                categories = await fetchHepsiburadaCategories(credentials);
                 break;
             default:
                 throw new Error(`${marketplaceName} için kategori çekme desteklenmiyor`);
@@ -348,11 +352,19 @@ const fetchHepsiburadaProductsAdvanced = async (credentials, jobId) => {
 
 // ÇiçekSepeti ürünlerini çek (gelişmiş)
 const fetchCicekSepetiProductsAdvanced = async (credentials, jobId) => {
-    const { apiSecret, supplierId } = credentials;
+    // ✅ FIX: DB'de apiKey/sellerId olarak saklanıyor — doğru alan adlarını kullan
+    const apiKey       = credentials.apiKey       || credentials.apiSecret;
+    const sellerId     = credentials.sellerId     || credentials.supplierId;
+    const integratorName = credentials.integratorName || "";
 
-    if (!apiSecret || !supplierId) {
-        throw new Error("ÇiçekSepeti credentials eksik");
+    if (!apiKey) {
+        throw new Error("ÇiçekSepeti credentials eksik: apiKey gerekli");
     }
+
+    // ÇiçekSepeti API header'ları: x-api-key + user-agent (ASCII only)
+    const cleanSellerId = String(sellerId || '').replace(/[^\x00-\x7F]/g, '');
+    const cleanIntegrator = integratorName ? String(integratorName).replace(/[^\x00-\x7F]/g, '') : '';
+    const userAgent = cleanIntegrator ? `${cleanSellerId} - ${cleanIntegrator}` : (cleanSellerId || "CicekSepetiIntegration");
 
     const products = [];
     let page = 1;
@@ -364,8 +376,8 @@ const fetchCicekSepetiProductsAdvanced = async (credentials, jobId) => {
                 `https://apis.ciceksepeti.com/api/v1/Products`,
                 {
                     headers: {
-                        "x-api-key": apiSecret,
-                        "supplierId": supplierId,
+                        "x-api-key": apiKey,
+                        "user-agent": userAgent,
                         "Content-Type": "application/json"
                     },
                     params: { Page: page, PageSize: 60 },
@@ -408,21 +420,23 @@ const pullProductsFromMarketplace = async (userId, marketplaceId, marketplaceNam
     }
 
     let rawProducts = [];
+    // ✅ FIX: Credential'ları decrypt et (DB'de şifreli saklanıyor)
+    const credentials = decryptCredentials(marketplace.credentials);
 
     try {
         switch (marketplaceName) {
             case "Trendyol":
-                rawProducts = await fetchTrendyolProductsAdvanced(marketplace.credentials, jobId);
+                rawProducts = await fetchTrendyolProductsAdvanced(credentials, jobId);
                 break;
             case "N11":
             case "n11":
-                rawProducts = await fetchN11ProductsAdvanced(marketplace.credentials, jobId);
+                rawProducts = await fetchN11ProductsAdvanced(credentials, jobId);
                 break;
             case "Hepsiburada":
-                rawProducts = await fetchHepsiburadaProductsAdvanced(marketplace.credentials, jobId);
+                rawProducts = await fetchHepsiburadaProductsAdvanced(credentials, jobId);
                 break;
             case "ÇiçekSepeti":
-                rawProducts = await fetchCicekSepetiProductsAdvanced(marketplace.credentials, jobId);
+                rawProducts = await fetchCicekSepetiProductsAdvanced(credentials, jobId);
                 break;
             default:
                 throw new Error(`${marketplaceName} için ürün çekme desteklenmiyor`);

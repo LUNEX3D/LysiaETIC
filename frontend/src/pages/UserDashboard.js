@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { getUserMarketplaces, fetchDashboardData } from "../services/marketplaceApi";
 import { getProductManagementDashboard } from "../services/productManagementApi";
+import { getNotifications, markNotificationAsRead, dismissNotification as apiDismissNotif, createBulkOrderNotifications } from "../services/notificationApi";
 import { useApp } from "../context/AppContext";
 import MarketplaceIntegration from "../pages/MarketplaceIntegration";
 import OrdersPage from "../pages/OrdersPage";
@@ -214,12 +215,14 @@ const UserDashboard = () => {
     const [showOrderDetailsModal, setShowOrderDetailsModal] = useState(false);
     const [selectedOrderTab, setSelectedOrderTab] = useState("all");
 
-    // ── Bildirim Sistemi ──
+    // ── Bildirim Sistemi (Persistent Backend) ──
     const [notifications, setNotifications] = useState([]);
+    const [notifCounts, setNotifCounts] = useState({ total: 0, order: 0, admin: 0, ai: 0, stock: 0, system: 0 });
     const [showNotifPanel, setShowNotifPanel] = useState(false);
     const [notifSoundEnabled, setNotifSoundEnabled] = useState(true);
-    const prevOrderCountRef = useRef(null);
-    const prevOrderIdsRef = useRef(new Set());
+    const [notifFilter, setNotifFilter] = useState("all"); // all, order, admin, ai
+    const prevNotifCountRef = useRef(0);
+    const lastCheckRef = useRef(null);
 
     const userId = localStorage.getItem("userId");
 
@@ -252,54 +255,66 @@ const UserDashboard = () => {
         })();
     }, [userId]);
 
-    // ── Bildirim oluştur (yeni sipariş geldiğinde) ──
-    const checkForNewOrders = useCallback((data) => {
+    // ── Sipariş bildirimlerini backend'e kaydet ──
+    const syncOrderNotifications = useCallback(async (data) => {
         if (!data?.marketplaceStatus) return;
-
-        // Tüm siparişleri topla
-        const currentOrders = [];
-        Object.entries(data.marketplaceStatus).forEach(([mp, mpData]) => {
-            if (mpData.orderDetails && Array.isArray(mpData.orderDetails)) {
-                mpData.orderDetails.forEach(o => currentOrders.push({ ...o, marketplace: mp }));
+        try {
+            const orders = [];
+            Object.entries(data.marketplaceStatus).forEach(([mp, mpData]) => {
+                if (mpData.orderDetails && Array.isArray(mpData.orderDetails)) {
+                    mpData.orderDetails.forEach(o => {
+                        if (o.orderNumber) {
+                            orders.push({
+                                orderNumber: o.orderNumber,
+                                marketplace: mp,
+                                totalPrice: o.totalPrice || 0,
+                                itemCount: o.items?.length || 1,
+                                customerName: o.customerName || "",
+                                status: o.status || "Created"
+                            });
+                        }
+                    });
+                }
+            });
+            if (orders.length > 0) {
+                await createBulkOrderNotifications(orders);
             }
-        });
+        } catch { /* sessiz */ }
+    }, []);
 
-        const currentIds = new Set(currentOrders.map(o => o.orderNumber).filter(Boolean));
-        const currentCount = currentOrders.length;
+    // ── Bildirimleri backend'den çek ──
+    const loadNotifications = useCallback(async () => {
+        try {
+            const params = {};
+            if (lastCheckRef.current) params.lastCheck = lastCheckRef.current;
+            if (notifFilter !== "all") params.type = notifFilter;
+            params.limit = 50;
 
-        // İlk yükleme — sadece referansı kaydet
-        if (prevOrderCountRef.current === null) {
-            prevOrderCountRef.current = currentCount;
-            prevOrderIdsRef.current = currentIds;
-            return;
-        }
+            const data = await getNotifications(params);
+            const serverNotifs = data.notifications || [];
 
-        // Yeni siparişleri bul
-        const newOrders = currentOrders.filter(o => o.orderNumber && !prevOrderIdsRef.current.has(o.orderNumber));
+            if (lastCheckRef.current && serverNotifs.length > 0) {
+                // Yeni bildirimler geldi — mevcut listeye ekle
+                setNotifications(prev => {
+                    const existingIds = new Set(prev.map(n => n._id));
+                    const newOnes = serverNotifs.filter(n => !existingIds.has(n._id));
+                    return [...newOnes, ...prev].slice(0, 100);
+                });
 
-        if (newOrders.length > 0) {
-            const newNotifs = newOrders.map(o => ({
-                id: `${o.orderNumber}-${Date.now()}`,
-                type: "new_order",
-                title: "Yeni Sipariş!",
-                message: `${o.marketplace} — #${o.orderNumber} — ${fmtCurrency(o.totalPrice || 0)}`,
-                marketplace: o.marketplace,
-                amount: o.totalPrice || 0,
-                time: new Date(),
-                read: false,
-            }));
-
-            setNotifications(prev => [...newNotifs, ...prev].slice(0, 50));
-
-            // Ses çal
-            if (notifSoundEnabled) {
-                playNotificationSound();
+                // Yeni bildirim sesi
+                const newCount = serverNotifs.filter(n => !n.isRead).length;
+                if (newCount > 0 && notifSoundEnabled) {
+                    playNotificationSound();
+                }
+            } else if (!lastCheckRef.current) {
+                // İlk yükleme — tüm listeyi set et
+                setNotifications(serverNotifs);
             }
-        }
 
-        prevOrderCountRef.current = currentCount;
-        prevOrderIdsRef.current = currentIds;
-    }, [notifSoundEnabled]);
+            setNotifCounts(data.counts || { total: 0, order: 0, admin: 0, ai: 0, stock: 0, system: 0 });
+            if (data.serverTime) lastCheckRef.current = data.serverTime;
+        } catch { /* sessiz */ }
+    }, [notifFilter, notifSoundEnabled]);
 
     // ── Dashboard Verileri (gerçek) ──
     useEffect(() => {
@@ -311,7 +326,7 @@ const UserDashboard = () => {
             try {
                 const data = await fetchDashboardData();
                 setDashboardData(data);
-                checkForNewOrders(data);
+                syncOrderNotifications(data);
             } catch (e) {
                 console.error("Dashboard verileri yüklenirken hata:", e);
                 setDashboardError("Veriler yüklenemedi.");
@@ -320,7 +335,15 @@ const UserDashboard = () => {
         load();
         intervalId = setInterval(load, 30000);
         return () => clearInterval(intervalId);
-    }, [userId, checkForNewOrders]);
+    }, [userId, syncOrderNotifications]);
+
+    // ── Bildirim Polling (15 saniye) ──
+    useEffect(() => {
+        if (!userId) return;
+        loadNotifications(); // İlk yükleme
+        const iv = setInterval(loadNotifications, 15000);
+        return () => clearInterval(iv);
+    }, [userId, loadNotifications]);
 
     // ── Ürün Yönetimi Dashboard (gerçek) ──
     useEffect(() => {
@@ -337,9 +360,35 @@ const UserDashboard = () => {
     const particlesInit = async engine => { await loadSlim(engine); };
 
     // ── Bildirim yardımcıları ──
-    const unreadCount = notifications.filter(n => !n.read).length;
-    const markAllRead = () => setNotifications(prev => prev.map(n => ({ ...n, read: true })));
-    const dismissNotif = (id) => setNotifications(prev => prev.filter(n => n.id !== id));
+    const unreadCount = notifCounts.total || 0;
+    const markAllRead = async () => {
+        try {
+            await markNotificationAsRead("all");
+            setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
+            setNotifCounts({ total: 0, order: 0, admin: 0, ai: 0, stock: 0, system: 0 });
+        } catch { /* sessiz */ }
+    };
+    const dismissNotif = async (id) => {
+        try {
+            await apiDismissNotif(id);
+            setNotifications(prev => prev.filter(n => n._id !== id));
+            loadNotifications(); // Sayıları güncelle
+        } catch { /* sessiz */ }
+    };
+    const handleNotifClick = async (n) => {
+        try {
+            if (!n.isRead) {
+                await markNotificationAsRead(n._id);
+                setNotifications(prev => prev.map(x => x._id === n._id ? { ...x, isRead: true } : x));
+                setNotifCounts(prev => ({ ...prev, total: Math.max(0, prev.total - 1), [n.type]: Math.max(0, (prev[n.type] || 0) - 1) }));
+            }
+        } catch { /* sessiz */ }
+        setShowNotifPanel(false);
+        if (n.actionLink) handlePanelChange(n.actionLink);
+        else if (n.type === "order") handlePanelChange("orders");
+    };
+
+    const filteredNotifs = notifFilter === "all" ? notifications : notifications.filter(n => n.type === notifFilter);
 
     /* ═══════════════════════════════════════════════════════
        GERÇEK VERİ HESAPLAMALARI
@@ -498,7 +547,7 @@ const UserDashboard = () => {
                                         transition={{ duration: 0.2 }}
                                         style={{
                                             position: "absolute", top: "calc(100% + 8px)", right: 0,
-                                            width: 380, maxHeight: 440,
+                                            width: 400, maxHeight: 520,
                                             background: "linear-gradient(135deg, #1a1f35 0%, #0f1419 100%)",
                                             border: `1px solid ${C.border}`,
                                             borderRadius: 16, overflow: "hidden",
@@ -507,7 +556,7 @@ const UserDashboard = () => {
                                         }}
                                     >
                                         {/* Panel Header */}
-                                        <div style={{ padding: "1rem 1.25rem", borderBottom: `1px solid ${C.glassBr}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                        <div style={{ padding: "0.85rem 1.25rem", borderBottom: `1px solid ${C.glassBr}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                                             <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
                                                 <FaBell style={{ color: C.accent, fontSize: "0.9rem" }} />
                                                 <span style={{ color: "#fff", fontSize: "0.9rem", fontWeight: 700 }}>Bildirimler</span>
@@ -530,53 +579,86 @@ const UserDashboard = () => {
                                             </div>
                                         </div>
 
-                                        {/* Bildirim Listesi */}
-                                        <div style={{ maxHeight: 340, overflowY: "auto", padding: "0.5rem" }}>
-                                            {notifications.length > 0 ? notifications.slice(0, 20).map((n, i) => (
-                                                <motion.div key={n.id}
-                                                    initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.02 }}
+                                        {/* Filtre Tabları */}
+                                        <div style={{ display: "flex", gap: "0.25rem", padding: "0.5rem 0.75rem", borderBottom: `1px solid ${C.glassBr}`, overflowX: "auto" }}>
+                                            {[
+                                                { key: "all", label: "Tümü", icon: "📋", count: notifCounts.total },
+                                                { key: "order", label: "Siparişler", icon: "🛒", count: notifCounts.order },
+                                                { key: "admin", label: "Duyurular", icon: "📢", count: notifCounts.admin },
+                                                { key: "ai", label: "AI", icon: "🧠", count: notifCounts.ai },
+                                            ].map(tab => (
+                                                <motion.button key={tab.key} whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+                                                    onClick={() => { setNotifFilter(tab.key); lastCheckRef.current = null; loadNotifications(); }}
                                                     style={{
-                                                        background: n.read ? "transparent" : `${C.accent}08`,
-                                                        border: `1px solid ${n.read ? "transparent" : C.accent + "15"}`,
-                                                        borderRadius: 10, padding: "0.7rem 0.85rem", marginBottom: "0.3rem",
-                                                        display: "flex", alignItems: "flex-start", gap: "0.6rem",
-                                                        cursor: "pointer", transition: "all 0.2s",
-                                                    }}
-                                                    onClick={() => {
-                                                        setNotifications(prev => prev.map(x => x.id === n.id ? { ...x, read: true } : x));
-                                                        setShowNotifPanel(false);
-                                                        handlePanelChange("orders");
-                                                    }}
-                                                    whileHover={{ background: `${C.accent}10` }}
-                                                >
-                                                    <div style={{
-                                                        width: 32, height: 32, borderRadius: 8, flexShrink: 0,
-                                                        background: n.type === "new_order" ? `linear-gradient(135deg, ${C.green}, #059669)` : `linear-gradient(135deg, ${C.accent}, #44a08d)`,
-                                                        display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.9rem",
+                                                        background: notifFilter === tab.key ? `${C.accent}20` : "transparent",
+                                                        border: `1px solid ${notifFilter === tab.key ? C.accent + "40" : "transparent"}`,
+                                                        borderRadius: 8, padding: "0.3rem 0.6rem", cursor: "pointer",
+                                                        color: notifFilter === tab.key ? C.accent : C.muted,
+                                                        fontSize: "0.7rem", fontWeight: 600, whiteSpace: "nowrap",
+                                                        display: "flex", alignItems: "center", gap: "0.3rem",
                                                     }}>
-                                                        {n.type === "new_order" ? "🛒" : "📋"}
-                                                    </div>
-                                                    <div style={{ flex: 1, minWidth: 0 }}>
-                                                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.15rem" }}>
-                                                            <span style={{ color: "#fff", fontSize: "0.8rem", fontWeight: 700 }}>{n.title}</span>
-                                                            {!n.read && <div style={{ width: 6, height: 6, borderRadius: "50%", background: C.accent, flexShrink: 0 }} />}
+                                                    <span>{tab.icon}</span> {tab.label}
+                                                    {tab.count > 0 && <span style={{ background: C.red, color: "#fff", fontSize: "0.55rem", fontWeight: 800, borderRadius: 6, padding: "0.1rem 0.3rem", minWidth: 16, textAlign: "center" }}>{tab.count}</span>}
+                                                </motion.button>
+                                            ))}
+                                        </div>
+
+                                        {/* Bildirim Listesi */}
+                                        <div style={{ maxHeight: 360, overflowY: "auto", padding: "0.5rem" }}>
+                                            {filteredNotifs.length > 0 ? filteredNotifs.slice(0, 30).map((n, i) => {
+                                                const iconMap = { order: "🛒", admin: "📢", ai: "🧠", stock: "📦", system: "⚙️" };
+                                                const gradMap = { order: `linear-gradient(135deg, ${C.green}, #059669)`, admin: `linear-gradient(135deg, ${C.purple}, #6d28d9)`, ai: `linear-gradient(135deg, ${C.blue}, #0284c7)`, stock: `linear-gradient(135deg, ${C.yellow}, #d97706)`, system: `linear-gradient(135deg, ${C.accent}, #44a08d)` };
+                                                const priorityDot = { critical: C.red, high: C.yellow, medium: C.blue, low: C.dim };
+                                                return (
+                                                    <motion.div key={n._id}
+                                                        initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.02 }}
+                                                        style={{
+                                                            background: n.isRead ? "transparent" : `${C.accent}08`,
+                                                            border: `1px solid ${n.isRead ? "transparent" : C.accent + "15"}`,
+                                                            borderRadius: 10, padding: "0.7rem 0.85rem", marginBottom: "0.3rem",
+                                                            display: "flex", alignItems: "flex-start", gap: "0.6rem",
+                                                            cursor: "pointer", transition: "all 0.2s",
+                                                        }}
+                                                        onClick={() => handleNotifClick(n)}
+                                                        whileHover={{ background: `${C.accent}10` }}
+                                                    >
+                                                        <div style={{
+                                                            width: 32, height: 32, borderRadius: 8, flexShrink: 0,
+                                                            background: gradMap[n.type] || gradMap.system,
+                                                            display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.9rem",
+                                                        }}>
+                                                            {n.icon || iconMap[n.type] || "🔔"}
                                                         </div>
-                                                        <p style={{ color: C.muted, fontSize: "0.73rem", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{n.message}</p>
-                                                        <span style={{ color: C.dim, fontSize: "0.65rem" }}>
-                                                            {n.time ? new Date(n.time).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" }) : ""}
-                                                        </span>
-                                                    </div>
-                                                    <motion.button whileHover={{ scale: 1.2 }} whileTap={{ scale: 0.8 }}
-                                                        onClick={(e) => { e.stopPropagation(); dismissNotif(n.id); }}
-                                                        style={{ background: "none", border: "none", color: C.dim, cursor: "pointer", fontSize: "0.7rem", padding: "0.2rem", flexShrink: 0 }}>
-                                                        ✕
-                                                    </motion.button>
-                                                </motion.div>
-                                            )) : (
+                                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.15rem" }}>
+                                                                <span style={{ color: "#fff", fontSize: "0.8rem", fontWeight: 700 }}>{n.title}</span>
+                                                                <div style={{ display: "flex", alignItems: "center", gap: "0.3rem", flexShrink: 0 }}>
+                                                                    {n.priority && n.priority !== "medium" && <div style={{ width: 6, height: 6, borderRadius: "50%", background: priorityDot[n.priority] || C.dim }} title={n.priority} />}
+                                                                    {!n.isRead && <div style={{ width: 6, height: 6, borderRadius: "50%", background: C.accent }} />}
+                                                                </div>
+                                                            </div>
+                                                            <p style={{ color: C.muted, fontSize: "0.73rem", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{n.message}</p>
+                                                            <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginTop: "0.15rem" }}>
+                                                                <span style={{ color: C.dim, fontSize: "0.6rem", background: `${C.glass}`, border: `1px solid ${C.glassBr}`, borderRadius: 4, padding: "0.05rem 0.3rem" }}>
+                                                                    {n.type === "order" ? "Sipariş" : n.type === "admin" ? "Duyuru" : n.type === "ai" ? "AI" : n.type === "stock" ? "Stok" : "Sistem"}
+                                                                </span>
+                                                                <span style={{ color: C.dim, fontSize: "0.62rem" }}>
+                                                                    {n.createdAt ? new Date(n.createdAt).toLocaleString("tr-TR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : ""}
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                        <motion.button whileHover={{ scale: 1.2 }} whileTap={{ scale: 0.8 }}
+                                                            onClick={(e) => { e.stopPropagation(); dismissNotif(n._id); }}
+                                                            style={{ background: "none", border: "none", color: C.dim, cursor: "pointer", fontSize: "0.7rem", padding: "0.2rem", flexShrink: 0 }}>
+                                                            ✕
+                                                        </motion.button>
+                                                    </motion.div>
+                                                );
+                                            }) : (
                                                 <div style={{ textAlign: "center", padding: "2.5rem 1rem", color: C.dim }}>
                                                     <span style={{ fontSize: "2rem", display: "block", marginBottom: "0.5rem" }}>🔔</span>
                                                     <p style={{ fontSize: "0.85rem", margin: 0 }}>Henüz bildirim yok</p>
-                                                    <p style={{ fontSize: "0.73rem", margin: "0.25rem 0 0", color: C.dim }}>Yeni sipariş geldiğinde burada görünecek</p>
+                                                    <p style={{ fontSize: "0.73rem", margin: "0.25rem 0 0", color: C.dim }}>Siparişler, AI önerileri ve duyurular burada görünecek</p>
                                                 </div>
                                             )}
                                         </div>
@@ -1046,41 +1128,45 @@ const UserDashboard = () => {
                 {/* ── TOAST BİLDİRİMLER (Sağ alt köşe) ── */}
                 <div style={{ position: "fixed", bottom: 20, right: 20, zIndex: 9998, display: "flex", flexDirection: "column", gap: "0.5rem", pointerEvents: "none" }}>
                     <AnimatePresence>
-                        {notifications.filter(n => !n.read).slice(0, 3).map((n, i) => (
-                            <motion.div key={n.id}
-                                initial={{ opacity: 0, x: 80, scale: 0.9 }}
-                                animate={{ opacity: 1, x: 0, scale: 1 }}
-                                exit={{ opacity: 0, x: 80, scale: 0.9 }}
-                                transition={{ duration: 0.3 }}
-                                style={{
-                                    background: "linear-gradient(135deg, #1a2332 0%, #0f1419 100%)",
-                                    border: `1px solid ${C.green}40`,
-                                    borderRadius: 14, padding: "0.85rem 1.1rem",
-                                    minWidth: 300, maxWidth: 380,
-                                    boxShadow: `0 8px 32px rgba(0,0,0,0.5), 0 0 20px ${C.green}15`,
-                                    pointerEvents: "auto",
-                                    display: "flex", alignItems: "center", gap: "0.7rem",
-                                }}
-                            >
-                                <div style={{
-                                    width: 36, height: 36, borderRadius: 10, flexShrink: 0,
-                                    background: `linear-gradient(135deg, ${C.green}, #059669)`,
-                                    display: "flex", alignItems: "center", justifyContent: "center",
-                                    fontSize: "1.1rem", boxShadow: `0 4px 12px ${C.green}40`,
-                                }}>
-                                    🛒
-                                </div>
-                                <div style={{ flex: 1, minWidth: 0 }}>
-                                    <p style={{ color: "#fff", fontSize: "0.8rem", fontWeight: 700, margin: 0 }}>{n.title}</p>
-                                    <p style={{ color: C.muted, fontSize: "0.72rem", margin: "0.1rem 0 0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{n.message}</p>
-                                </div>
-                                <motion.button whileHover={{ scale: 1.2 }} whileTap={{ scale: 0.8 }}
-                                    onClick={() => { dismissNotif(n.id); }}
-                                    style={{ background: "none", border: "none", color: C.dim, cursor: "pointer", fontSize: "0.8rem", padding: "0.2rem", flexShrink: 0 }}>
-                                    ✕
-                                </motion.button>
-                            </motion.div>
-                        ))}
+                        {notifications.filter(n => !n.isRead).slice(0, 3).map((n, i) => {
+                            const toastColor = n.type === "order" ? C.green : n.type === "admin" ? C.purple : n.type === "ai" ? C.blue : C.accent;
+                            const toastIcon = n.icon || (n.type === "order" ? "🛒" : n.type === "admin" ? "📢" : n.type === "ai" ? "🧠" : "🔔");
+                            return (
+                                <motion.div key={n._id}
+                                    initial={{ opacity: 0, x: 80, scale: 0.9 }}
+                                    animate={{ opacity: 1, x: 0, scale: 1 }}
+                                    exit={{ opacity: 0, x: 80, scale: 0.9 }}
+                                    transition={{ duration: 0.3 }}
+                                    style={{
+                                        background: "linear-gradient(135deg, #1a2332 0%, #0f1419 100%)",
+                                        border: `1px solid ${toastColor}40`,
+                                        borderRadius: 14, padding: "0.85rem 1.1rem",
+                                        minWidth: 300, maxWidth: 380,
+                                        boxShadow: `0 8px 32px rgba(0,0,0,0.5), 0 0 20px ${toastColor}15`,
+                                        pointerEvents: "auto",
+                                        display: "flex", alignItems: "center", gap: "0.7rem",
+                                    }}
+                                >
+                                    <div style={{
+                                        width: 36, height: 36, borderRadius: 10, flexShrink: 0,
+                                        background: `linear-gradient(135deg, ${toastColor}, ${toastColor}99)`,
+                                        display: "flex", alignItems: "center", justifyContent: "center",
+                                        fontSize: "1.1rem", boxShadow: `0 4px 12px ${toastColor}40`,
+                                    }}>
+                                        {toastIcon}
+                                    </div>
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                        <p style={{ color: "#fff", fontSize: "0.8rem", fontWeight: 700, margin: 0 }}>{n.title}</p>
+                                        <p style={{ color: C.muted, fontSize: "0.72rem", margin: "0.1rem 0 0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{n.message}</p>
+                                    </div>
+                                    <motion.button whileHover={{ scale: 1.2 }} whileTap={{ scale: 0.8 }}
+                                        onClick={() => { dismissNotif(n._id); }}
+                                        style={{ background: "none", border: "none", color: C.dim, cursor: "pointer", fontSize: "0.8rem", padding: "0.2rem", flexShrink: 0 }}>
+                                        ✕
+                                    </motion.button>
+                                </motion.div>
+                            );
+                        })}
                     </AnimatePresence>
                 </div>
 

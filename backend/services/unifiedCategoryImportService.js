@@ -1,8 +1,8 @@
 /**
  * BİRLEŞİK KATEGORİ İMPORT SERVİSİ
  *
- * 3 platformun (Trendyol, N11, ÇiçekSepeti) Excel'lerinden kategori verilerini
- * okur, normalize eder, eşleştirir ve UnifiedCategoryMap tablosuna kaydeder.
+ * 5 platformun (Trendyol, N11, ÇiçekSepeti, Hepsiburada, Amazon) Excel'lerinden
+ * kategori verilerini okur, normalize eder, eşleştirir ve UnifiedCategoryMap tablosuna kaydeder.
  */
 
 const XLSX = require("xlsx");
@@ -65,15 +65,17 @@ const parseExcelBuffer = (buffer) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * 3 platformun verilerini normalize isim bazlı eşleştir.
+ * 5 platformun verilerini normalize isim bazlı eşleştir.
  */
-const buildUnifiedMap = (trendyolRows, n11Rows, ciceksepetiRows) => {
-    logger.info(`${LOG_PREFIX} Eşleştirme — T:${trendyolRows.length} N:${n11Rows.length} C:${ciceksepetiRows.length}`);
+const buildUnifiedMap = (trendyolRows, n11Rows, ciceksepetiRows, hepsiburadaRows = [], amazonRows = []) => {
+    logger.info(`${LOG_PREFIX} Eşleştirme — T:${trendyolRows.length} N:${n11Rows.length} C:${ciceksepetiRows.length} H:${hepsiburadaRows.length} A:${amazonRows.length}`);
 
     // Her platformu normalizedKey ile indexle
     const tMap = new Map();
     const nMap = new Map();
     const cMap = new Map();
+    const hMap = new Map();
+    const aMap = new Map();
 
     for (const row of trendyolRows) {
         const key = normalizeKey(row.categoryName);
@@ -87,33 +89,45 @@ const buildUnifiedMap = (trendyolRows, n11Rows, ciceksepetiRows) => {
         const key = normalizeKey(row.categoryName);
         if (key && !cMap.has(key)) cMap.set(key, row);
     }
+    for (const row of hepsiburadaRows) {
+        const key = normalizeKey(row.categoryName);
+        if (key && !hMap.has(key)) hMap.set(key, row);
+    }
+    for (const row of amazonRows) {
+        const key = normalizeKey(row.categoryName);
+        if (key && !aMap.has(key)) aMap.set(key, row);
+    }
 
     // Tüm benzersiz anahtarları topla
-    const allKeys = new Set([...tMap.keys(), ...nMap.keys(), ...cMap.keys()]);
-    logger.info(`${LOG_PREFIX} Unique: T:${tMap.size} N:${nMap.size} C:${cMap.size} → Toplam: ${allKeys.size}`);
+    const allKeys = new Set([...tMap.keys(), ...nMap.keys(), ...cMap.keys(), ...hMap.keys(), ...aMap.keys()]);
+    logger.info(`${LOG_PREFIX} Unique: T:${tMap.size} N:${nMap.size} C:${cMap.size} H:${hMap.size} A:${aMap.size} → Toplam: ${allKeys.size}`);
 
     const records = [];
-    let exact3 = 0, match2 = 0, single = 0;
+    let exactAll = 0, match2 = 0, single = 0;
 
     for (const key of allKeys) {
         const tRow = tMap.get(key) || null;
         const nRow = nMap.get(key) || null;
         const cRow = cMap.get(key) || null;
+        const hRow = hMap.get(key) || null;
+        const aRow = aMap.get(key) || null;
 
         let platformCount = 0;
         if (tRow) platformCount++;
         if (nRow) platformCount++;
         if (cRow) platformCount++;
+        if (hRow) platformCount++;
+        if (aRow) platformCount++;
 
         let matchType = "single";
-        if (platformCount === 3) { matchType = "exact"; exact3++; }
+        if (platformCount >= 3) { matchType = "exact"; exactAll++; }
         else if (platformCount === 2) { matchType = "2of3"; match2++; }
         else { single++; }
 
-        const canonicalName = (tRow?.categoryName || nRow?.categoryName || cRow?.categoryName || "").trim();
-        const paths = [tRow?.categoryPath, nRow?.categoryPath, cRow?.categoryPath].filter(Boolean);
+        const canonicalName = (tRow?.categoryName || nRow?.categoryName || cRow?.categoryName || hRow?.categoryName || aRow?.categoryName || "").trim();
+        const paths = [tRow?.categoryPath, nRow?.categoryPath, cRow?.categoryPath, hRow?.categoryPath, aRow?.categoryPath].filter(Boolean);
         const canonicalPath = paths.sort((a, b) => (b || "").split(" > ").length - (a || "").split(" > ").length)[0] || "";
-        const isLeaf = (tRow?.isLeaf || nRow?.isLeaf || cRow?.isLeaf) || false;
+        const isLeaf = (tRow?.isLeaf || nRow?.isLeaf || cRow?.isLeaf || hRow?.isLeaf || aRow?.isLeaf) || false;
 
         const buildPlatform = (row) => row ? {
             categoryId:   row.categoryId,
@@ -133,6 +147,8 @@ const buildUnifiedMap = (trendyolRows, n11Rows, ciceksepetiRows) => {
             trendyol:     buildPlatform(tRow),
             n11:          buildPlatform(nRow),
             ciceksepeti:  buildPlatform(cRow),
+            hepsiburada:  buildPlatform(hRow),
+            amazon:       buildPlatform(aRow),
             platformCount,
             matchType,
             isLeaf,
@@ -140,10 +156,11 @@ const buildUnifiedMap = (trendyolRows, n11Rows, ciceksepetiRows) => {
         });
     }
 
-    const stats = { totalUnique: allKeys.size, exact3, match2, single,
-        trendyolTotal: tMap.size, n11Total: nMap.size, ciceksepetiTotal: cMap.size };
+    const stats = { totalUnique: allKeys.size, exact3: exactAll, match2, single,
+        trendyolTotal: tMap.size, n11Total: nMap.size, ciceksepetiTotal: cMap.size,
+        hepsiburadaTotal: hMap.size, amazonTotal: aMap.size };
 
-    logger.info(`${LOG_PREFIX} Sonuç — 3'ü ortak: ${exact3}, 2'si ortak: ${match2}, tekil: ${single}`);
+    logger.info(`${LOG_PREFIX} Sonuç — 3+ ortak: ${exactAll}, 2'si ortak: ${match2}, tekil: ${single}`);
     return { records, stats };
 };
 
@@ -175,6 +192,8 @@ const saveToDatabase = async (records, options = {}) => {
                         trendyol:       record.trendyol,
                         n11:            record.n11,
                         ciceksepeti:    record.ciceksepeti,
+                        hepsiburada:    record.hepsiburada,
+                        amazon:         record.amazon,
                         platformCount:  record.platformCount,
                         matchType:      record.matchType,
                         isLeaf:         record.isLeaf
@@ -212,18 +231,20 @@ const saveToDatabase = async (records, options = {}) => {
 // ANA IMPORT
 // ─────────────────────────────────────────────────────────────────────────────
 
-const importFromBuffers = async (trendyolBuffer, n11Buffer, ciceksepetiBuffer, options = {}) => {
+const importFromBuffers = async (trendyolBuffer, n11Buffer, ciceksepetiBuffer, hepsiburadaBuffer = null, amazonBuffer = null, options = {}) => {
     logger.info(`${LOG_PREFIX} Import başlıyor...`);
 
     const tRows = trendyolBuffer ? parseExcelBuffer(trendyolBuffer) : [];
     const nRows = n11Buffer ? parseExcelBuffer(n11Buffer) : [];
     const cRows = ciceksepetiBuffer ? parseExcelBuffer(ciceksepetiBuffer) : [];
+    const hRows = hepsiburadaBuffer ? parseExcelBuffer(hepsiburadaBuffer) : [];
+    const aRows = amazonBuffer ? parseExcelBuffer(amazonBuffer) : [];
 
-    const { records, stats } = buildUnifiedMap(tRows, nRows, cRows);
+    const { records, stats } = buildUnifiedMap(tRows, nRows, cRows, hRows, aRows);
     const dbResult = await saveToDatabase(records, options);
 
     return {
-        parseStats: { trendyol: tRows.length, n11: nRows.length, ciceksepeti: cRows.length },
+        parseStats: { trendyol: tRows.length, n11: nRows.length, ciceksepeti: cRows.length, hepsiburada: hRows.length, amazon: aRows.length },
         matchStats: stats,
         dbResult
     };
@@ -242,17 +263,21 @@ const manualMerge = async (targetId, sourceId) => {
     if (source.trendyol?.categoryId && !target.trendyol?.categoryId) target.trendyol = source.trendyol;
     if (source.n11?.categoryId && !target.n11?.categoryId) target.n11 = source.n11;
     if (source.ciceksepeti?.categoryId && !target.ciceksepeti?.categoryId) target.ciceksepeti = source.ciceksepeti;
+    if (source.hepsiburada?.categoryId && !target.hepsiburada?.categoryId) target.hepsiburada = source.hepsiburada;
+    if (source.amazon?.categoryId && !target.amazon?.categoryId) target.amazon = source.amazon;
 
     // platformCount yeniden hesapla
     let count = 0;
     if (target.trendyol?.categoryId) count++;
     if (target.n11?.categoryId) count++;
     if (target.ciceksepeti?.categoryId) count++;
+    if (target.hepsiburada?.categoryId) count++;
+    if (target.amazon?.categoryId) count++;
     target.platformCount = count;
-    target.matchType = count === 3 ? "exact" : count === 2 ? "2of3" : "single";
+    target.matchType = count >= 3 ? "exact" : count === 2 ? "2of3" : "single";
 
     // En derin path'i al
-    const paths = [target.trendyol?.categoryPath, target.n11?.categoryPath, target.ciceksepeti?.categoryPath].filter(Boolean);
+    const paths = [target.trendyol?.categoryPath, target.n11?.categoryPath, target.ciceksepeti?.categoryPath, target.hepsiburada?.categoryPath, target.amazon?.categoryPath].filter(Boolean);
     target.canonicalPath = paths.sort((a, b) => b.split(" > ").length - a.split(" > ").length)[0] || "";
     target.rootCategory = extractRoot(target.canonicalPath);
 
@@ -268,7 +293,7 @@ const manualMerge = async (targetId, sourceId) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const getStats = async () => {
-    const [total, exact3, match2, singleCount, manual, leafCount, trendyolCount, n11Count, ciceksepetiCount] = await Promise.all([
+    const [total, exact3, match2, singleCount, manual, leafCount, trendyolCount, n11Count, ciceksepetiCount, hepsiburadaCount, amazonCount] = await Promise.all([
         UnifiedCategoryMap.countDocuments({}),
         UnifiedCategoryMap.countDocuments({ matchType: "exact" }),
         UnifiedCategoryMap.countDocuments({ matchType: "2of3" }),
@@ -277,7 +302,9 @@ const getStats = async () => {
         UnifiedCategoryMap.countDocuments({ isLeaf: true }),
         UnifiedCategoryMap.countDocuments({ "trendyol.categoryId": { $ne: null } }),
         UnifiedCategoryMap.countDocuments({ "n11.categoryId": { $ne: null } }),
-        UnifiedCategoryMap.countDocuments({ "ciceksepeti.categoryId": { $ne: null } })
+        UnifiedCategoryMap.countDocuments({ "ciceksepeti.categoryId": { $ne: null } }),
+        UnifiedCategoryMap.countDocuments({ "hepsiburada.categoryId": { $ne: null } }),
+        UnifiedCategoryMap.countDocuments({ "amazon.categoryId": { $ne: null } })
     ]);
 
     const rootDistribution = await UnifiedCategoryMap.aggregate([
@@ -288,7 +315,7 @@ const getStats = async () => {
 
     return {
         total, exact3, match2, single: singleCount, manual, leafCount,
-        platforms: { trendyol: trendyolCount, n11: n11Count, ciceksepeti: ciceksepetiCount },
+        platforms: { trendyol: trendyolCount, n11: n11Count, ciceksepeti: ciceksepetiCount, hepsiburada: hepsiburadaCount, amazon: amazonCount },
         rootDistribution: rootDistribution.map(r => ({ name: r._id || "Bilinmeyen", count: r.count }))
     };
 };

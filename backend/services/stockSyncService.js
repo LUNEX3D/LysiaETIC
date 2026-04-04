@@ -191,11 +191,13 @@ const updateStockAfterOrder = async (orderId) => {
                 const { mapping, oldStock, newStock, marketplaceStock } = reserveResult;
 
                 // ⚡ TÜM pazaryerlerine ANLIK push (güvenlik stoğu düşülmüş hali)
+                // ✅ FIX: excludeMarketplace=null — kaynak platform dahil tüm platformlara push
+                // ESKİ: order.marketplaceName geçiliyordu → kaynak platformdaki stok güncellenmiyordu
                 const syncResults = await syncStockToAllMarketplaces(
                     order.user,
                     mapping,
                     marketplaceStock,
-                    order.marketplaceName
+                    null
                 );
 
                 // Log oluştur
@@ -285,16 +287,14 @@ const syncStockToAllMarketplaces = async (userId, productMapping, newStock, excl
         const mpName = normalizeMarketplaceName(marketplaceMapping.marketplaceName);
         const excludeName = excludeMarketplace ? normalizeMarketplaceName(excludeMarketplace) : null;
 
-        // Siparişin geldiği pazaryerini atla (zaten güncel)
-        if (excludeName && mpName === excludeName) {
-            results.push({
-                name: mpName,
-                syncStatus: "skipped",
-                syncedAt: new Date(),
-                error: "Sipariş kaynağı - güncelleme gerekmiyor"
-            });
-            continue;
-        }
+        // ✅ FIX: Sipariş kaynağı platformu artık ATLANMIYOR!
+        // ESKİ (YANLIŞ): Siparişin geldiği platform atlanıyordu → "zaten güncel" varsayımı
+        // SORUN: Platform kendi stokunu düşürdü (5→4) ama bizim hesapladığımız stok
+        //   (safetyStock düşülmüş) farklı olabilir. Ayrıca DB'deki mapping.stock
+        //   güncellenmezse bir sonraki cron döngüsünde "fark var" diye tekrar push eder.
+        // YENİ (DOĞRU): Tüm platformlara (kaynak dahil) tutarlı stok push edilir.
+        // NOT: excludeMarketplace parametresi geriye dönük uyumluluk için korunuyor
+        //   ama artık kullanılmıyor (null geçilmeli).
 
         try {
             // Pazaryeri entegrasyonunu al (case-insensitive)
@@ -316,7 +316,7 @@ const syncStockToAllMarketplaces = async (userId, productMapping, newStock, excl
             // Trendyol → barcode ile çalışır
             // N11 → stockCode (sku) ile çalışır
             // Hepsiburada → merchantSku ile çalışır
-            // ÇiçekSepeti → ürün ID ile çalışır
+            // ÇiçekSepeti → stockCode ile çalışır (PUT /api/v1/Products/price-and-stock)
             let productIdForMarketplace;
             switch (mpName) {
                 case "Trendyol":
@@ -614,44 +614,84 @@ const updateN11Stock = async (credentials, productId, newStock, priceUpdate = nu
 };
 
 // ÇiçekSepeti stok + fiyat güncelleme
-const updateCicekSepetiStock = async (credentials, productId, newStock, priceUpdate = null) => {
+// ✅ FIX: Doğru endpoint — PUT /api/v1/Products/price-and-stock
+// ESKİ (YANLIŞ): PUT /api/v1/Products/${productId}/Stock  → 400 hata (endpoint yok!)
+// ESKİ (YANLIŞ): PUT /api/v1/Products/${productId}/Price  → 400 hata (endpoint yok!)
+// DOĞRU: PUT /api/v1/Products/price-and-stock → stockCode bazlı toplu güncelleme
+// NOT: Stok ve fiyat aynı anda gönderilemez — ayrı ayrı istek atılmalı
+const updateCicekSepetiStock = async (credentials, stockCode, newStock, priceUpdate = null) => {
     try {
-        // ÇiçekSepeti hem apiSecret hem apiKey adını kullanabilir
-        const apiSecret  = credentials.apiSecret  || credentials.apiKey;
-        const supplierId = credentials.supplierId || credentials.merchantId;
-        if (!apiSecret || !supplierId) {
-            return { success: false, error: "ÇiçekSepeti credentials eksik: apiSecret ve supplierId gerekli" };
+        const apiKey       = credentials.apiKey       || credentials.apiSecret;
+        const sellerId     = credentials.sellerId     || credentials.supplierId;
+        const integratorName = credentials.integratorName || "";
+        if (!apiKey) {
+            return { success: false, error: "ÇiçekSepeti credentials eksik: apiKey gerekli" };
         }
 
+        // ÇiçekSepeti API header'ları: x-api-key + user-agent (ASCII only)
+        const cleanSellerId = String(sellerId || '').replace(/[^\x00-\x7F]/g, '');
+        const cleanIntegrator = integratorName ? String(integratorName).replace(/[^\x00-\x7F]/g, '') : '';
+        const userAgent = cleanIntegrator ? `${cleanSellerId} - ${cleanIntegrator}` : (cleanSellerId || "CicekSepetiIntegration");
+
         const headers = {
-            "x-api-key":    apiSecret,
-            "supplierId":   supplierId,
+            "x-api-key":    apiKey,
+            "user-agent":   userAgent,
             "Content-Type": "application/json"
         };
 
-        // Stok güncelleme
-        const stockResponse = await axios.put(
-            `https://apis.ciceksepeti.com/api/v1/Products/${productId}/Stock`,
-            { stockQuantity: parseInt(newStock) || 0 },
-            { headers, timeout: 10000 }
-        );
+        const endpoint = "https://apis.ciceksepeti.com/api/v1/Products/price-and-stock";
 
-        // Fiyat güncelleme varsa ayrı endpoint'e istek at
-        if (priceUpdate?.salePrice) {
-            await axios.put(
-                `https://apis.ciceksepeti.com/api/v1/Products/${productId}/Price`,
-                {
-                    salesPrice: parseFloat(priceUpdate.salePrice),
-                    listPrice:  parseFloat(priceUpdate.listPrice || priceUpdate.salePrice)
-                },
-                { headers, timeout: 10000 }
-            );
+        // ✅ Stok güncelleme — stockCode bazlı
+        const stockPayload = {
+            items: [{
+                stockCode:     stockCode,
+                stockQuantity: parseInt(newStock) || 0
+            }]
+        };
+
+        logger.info(`[CICEKSEPETI STOCK] Güncelleniyor — stockCode: ${stockCode}, stok: ${parseInt(newStock) || 0}`);
+
+        const stockResponse = await axios.put(endpoint, stockPayload, { headers, timeout: 15000 });
+
+        const batchId = stockResponse.data?.batchId;
+        if (batchId) {
+            logger.info(`[CICEKSEPETI STOCK] ✅ Stok güncellendi — stockCode: ${stockCode}, batchId: ${batchId}`);
         }
 
-        return { success: true, response: stockResponse.data };
+        // ✅ Fiyat güncelleme varsa ayrı istek at (stok + fiyat aynı anda gönderilemez)
+        if (priceUpdate?.salePrice) {
+            const pricePayload = {
+                items: [{
+                    stockCode:  stockCode,
+                    salesPrice: parseFloat(priceUpdate.salePrice),
+                    listPrice:  parseFloat(priceUpdate.listPrice || priceUpdate.salePrice)
+                }]
+            };
+
+            logger.info(`[CICEKSEPETI PRICE] Güncelleniyor — stockCode: ${stockCode}, fiyat: ${priceUpdate.salePrice} TL`);
+
+            const priceResponse = await axios.put(endpoint, pricePayload, { headers, timeout: 15000 });
+
+            const priceBatchId = priceResponse.data?.batchId;
+            if (priceBatchId) {
+                logger.info(`[CICEKSEPETI PRICE] ✅ Fiyat güncellendi — stockCode: ${stockCode}, batchId: ${priceBatchId}`);
+            }
+        }
+
+        return { success: true, batchId, response: stockResponse.data };
     } catch (error) {
-        logger.error("[CICEKSEPETI STOCK] Hata:", error.response?.data || error.message);
-        return { success: false, error: error.response?.data?.message || error.message };
+        // ✅ FIX: Hata detayını düzgün logla — obje ise JSON.stringify ile yazdır
+        const errData = error.response?.data;
+        const errCode = error.response?.status;
+        let errMsg = error.message;
+        if (errData) {
+            if (errData.message)      errMsg = errData.message;
+            else if (errData.Message) errMsg = errData.Message;
+            else if (typeof errData === "string") errMsg = errData;
+            else errMsg = JSON.stringify(errData);
+        }
+        logger.error(`[CICEKSEPETI STOCK] ❌ Hata — stockCode: ${stockCode} | status: ${errCode} | error: ${errMsg}`);
+        return { success: false, error: errMsg };
     }
 };
 

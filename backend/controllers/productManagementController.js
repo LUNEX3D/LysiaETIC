@@ -9,7 +9,7 @@ const CategoryMapping = require("../models/CategoryMapping");
 const StockSyncLog = require("../models/StockSyncLog");
 const Marketplace = require("../models/Marketplace");
 const logger = require("../config/logger");
-const { syncProductsFromMarketplace, distributeProductToMarketplaces, checkPendingN11Tasks } = require("../services/productSyncService");
+const { syncProductsFromMarketplace, distributeProductToMarketplaces, checkPendingN11Tasks, deleteProductFromMarketplaces } = require("../services/productSyncService");
 const { manualStockSync, autoStockSync, syncStockToAllMarketplaces } = require("../services/stockSyncService");
 const n11Service = require("../services/n11Service");
 const xlsx = require("xlsx");
@@ -555,7 +555,12 @@ exports.updateProduct = async (req, res) => {
 };
 
 /**
- * Ürün sil
+ * Ürün sil (opsiyonel: pazaryerlerinden de kaldır)
+ *
+ * DELETE /product-management/products/:productId
+ * Query params:
+ *   deleteFromMarketplaces=true  — pazaryerlerinden de kaldır
+ *   platforms=Trendyol,N11       — sadece belirli platformlardan kaldır (virgülle ayrılmış)
  */
 exports.deleteProduct = async (req, res) => {
     try {
@@ -563,20 +568,71 @@ exports.deleteProduct = async (req, res) => {
         if (!userId) return res.status(401).json({ error: "Yetkilendirme hatası" });
 
         const { productId } = req.params;
+        const deleteFromMarketplaces = req.query.deleteFromMarketplaces === "true";
+        const platforms = req.query.platforms ? req.query.platforms.split(",").map(p => p.trim()).filter(Boolean) : [];
 
-        const product = await ProductMapping.findOneAndDelete({ _id: productId, userId });
+        // Ürünü bul (silmeden önce marketplace bilgilerine ihtiyacımız var)
+        const product = await ProductMapping.findOne({ _id: productId, userId });
         if (!product) {
             return res.status(404).json({ error: "Ürün bulunamadı" });
         }
 
+        const productName = product.masterProduct?.name || "İsimsiz";
+        let marketplaceResults = [];
+
+        // Pazaryerlerinden kaldır
+        if (deleteFromMarketplaces && product.marketplaceMappings?.length > 0) {
+            logger.info(`[PRODUCT DELETE] "${productName}" — pazaryerlerinden kaldırılıyor (${platforms.length > 0 ? platforms.join(", ") : "tümü"})...`);
+            marketplaceResults = await deleteProductFromMarketplaces(userId, product, platforms);
+            logger.info(`[PRODUCT DELETE] "${productName}" — pazaryeri sonuçları: ${JSON.stringify(marketplaceResults)}`);
+        }
+
+        // Yerel kaydı sil
+        await ProductMapping.findOneAndDelete({ _id: productId, userId });
+
+        // Log oluştur (hata olursa silme işlemini engellemesin)
+        try {
+            await StockSyncLog.create({
+                userId,
+                actionType: "product_deleted",
+                product: {
+                    productMappingId: product._id,
+                    barcode: product.masterProduct?.barcode,
+                    sku: product.masterProduct?.sku,
+                    name: productName
+                },
+                changes: {
+                    field: "delete",
+                    oldValue: 1,
+                    newValue: 0
+                },
+                status: "success",
+                affectedMarketplaces: marketplaceResults.map(r => ({
+                    name: r.name,
+                    syncStatus: r.status === "success" ? "success" : r.status === "skipped" ? "skipped" : "error",
+                    syncedAt: r.status === "success" ? new Date() : undefined,
+                    error: r.status === "error" ? r.message : undefined
+                })),
+                notification: { priority: "high" }
+            });
+        } catch (logErr) {
+            logger.warn(`[PRODUCT DELETE] Log kaydı oluşturulamadı: ${logErr.message}`);
+        }
+
+        logger.info(`[PRODUCT DELETE] ✅ "${productName}" silindi${deleteFromMarketplaces ? " (pazaryerlerinden de kaldırıldı)" : ""}`);
+
         return res.status(200).json({
             success: true,
-            message: "Ürün silindi"
+            message: deleteFromMarketplaces
+                ? `Ürün silindi ve pazaryerlerinden kaldırıldı`
+                : "Ürün silindi (sadece yerel kayıt)",
+            marketplaceResults
         });
 
     } catch (error) {
-        logger.error("[PRODUCT DELETE] Hata:", error.message);
-        return res.status(500).json({ error: "Ürün silinemedi", details: error.message });
+        logger.error("[PRODUCT DELETE] Hata:", error.message || error);
+        logger.error("[PRODUCT DELETE] Stack:", error.stack);
+        return res.status(500).json({ error: "Ürün silinemedi", details: error.message || String(error) });
     }
 };
 
@@ -3222,57 +3278,109 @@ exports.bulkUpdateStocks = async (req, res) => {
 };
 
 /**
- * Toplu ürün silme
+ * Toplu ürün silme (opsiyonel: pazaryerlerinden de kaldır)
  * POST /product-management/bulk/delete
  *
  * Body:
  *   productIds: [String]
+ *   deleteFromMarketplaces: Boolean (opsiyonel, default: false)
+ *   platforms: [String] (opsiyonel — boş = tümü)
  */
 exports.bulkDeleteProducts = async (req, res) => {
     try {
         const userId = toObjectId(req.user?._id || req.user?.id);
         if (!userId) return res.status(401).json({ error: "Yetkilendirme hatası" });
 
-        const { productIds } = req.body;
+        const { productIds, deleteFromMarketplaces = false, platforms = [] } = req.body;
 
         if (!productIds || !Array.isArray(productIds) || productIds.length === 0) {
             return res.status(400).json({ error: "Ürün listesi boş olamaz" });
         }
 
-        logger.info(`[BULK DELETE] ${productIds.length} ürün silinecek`);
+        logger.info(`[BULK DELETE] ${productIds.length} ürün silinecek${deleteFromMarketplaces ? " (pazaryerlerinden de)" : ""}`);
 
-        // Silinecek ürünlerin bilgilerini al (log için)
-        const toDelete = await ProductMapping.find({ _id: { $in: productIds }, userId })
-            .select("masterProduct.name masterProduct.barcode")
-            .lean();
+        // Silinecek ürünlerin bilgilerini al (marketplace silme + log için)
+        const toDelete = await ProductMapping.find({ _id: { $in: productIds }, userId });
 
+        // Pazaryerlerinden kaldır (sıralı — rate limit'e takılmamak için)
+        let allMarketplaceResults = [];
+        if (deleteFromMarketplaces) {
+            for (const product of toDelete) {
+                if (product.marketplaceMappings?.length > 0) {
+                    const productName = product.masterProduct?.name || "İsimsiz";
+                    logger.info(`[BULK DELETE] "${productName}" — pazaryerlerinden kaldırılıyor...`);
+                    try {
+                        const mpResults = await deleteProductFromMarketplaces(userId, product, platforms);
+                        allMarketplaceResults.push({
+                            productId: product._id,
+                            name: productName,
+                            barcode: product.masterProduct?.barcode,
+                            results: mpResults
+                        });
+                    } catch (mpErr) {
+                        logger.error(`[BULK DELETE] "${productName}" pazaryeri silme hatası: ${mpErr.message}`);
+                        allMarketplaceResults.push({
+                            productId: product._id,
+                            name: productName,
+                            barcode: product.masterProduct?.barcode,
+                            results: [{ name: "Genel", status: "error", message: mpErr.message }]
+                        });
+                    }
+                }
+            }
+        }
+
+        // Yerel kayıtları sil
         const result = await ProductMapping.deleteMany({
             _id: { $in: productIds },
             userId
         });
 
-        // Log
-        await StockSyncLog.create({
-            userId,
-            actionType: "bulk_update",
-            product: { barcode: "BULK_DELETE", name: `Toplu silme: ${result.deletedCount} ürün` },
-            changes: { field: "delete", oldValue: productIds.length, newValue: result.deletedCount },
-            status: "success",
-            notification: { priority: "high" }
-        });
+        // Log (hata olursa silme işlemini engellemesin)
+        try {
+            await StockSyncLog.create({
+                userId,
+                actionType: "bulk_delete",
+                product: { barcode: "BULK_DELETE", name: `Toplu silme: ${result.deletedCount} ürün` },
+                changes: { field: "delete", oldValue: productIds.length, newValue: result.deletedCount },
+                status: "success",
+                affectedMarketplaces: allMarketplaceResults.length > 0
+                    ? allMarketplaceResults.flatMap(r => (r.results || []).map(x => ({
+                        name: x.name,
+                        syncStatus: x.status === "success" ? "success" : x.status === "skipped" ? "skipped" : "error",
+                        syncedAt: x.status === "success" ? new Date() : undefined,
+                        error: x.status === "error" ? x.message : undefined
+                    })))
+                    : undefined,
+                notification: { priority: "high" }
+            });
+        } catch (logErr) {
+            logger.warn(`[BULK DELETE] Log kaydı oluşturulamadı: ${logErr.message}`);
+        }
 
-        logger.info(`[BULK DELETE] ${result.deletedCount} ürün silindi`);
+        // İstatistik hesapla
+        const mpSuccessCount = allMarketplaceResults.reduce((sum, r) =>
+            sum + (r.results || []).filter(x => x.status === "success").length, 0);
+        const mpErrorCount = allMarketplaceResults.reduce((sum, r) =>
+            sum + (r.results || []).filter(x => x.status === "error").length, 0);
+
+        logger.info(`[BULK DELETE] ✅ ${result.deletedCount} ürün silindi${deleteFromMarketplaces ? ` | Pazaryeri: ${mpSuccessCount} başarılı, ${mpErrorCount} hata` : ""}`);
 
         return res.status(200).json({
             success: true,
-            message: `${result.deletedCount} ürün başarıyla silindi`,
+            message: deleteFromMarketplaces
+                ? `${result.deletedCount} ürün silindi ve pazaryerlerinden kaldırıldı`
+                : `${result.deletedCount} ürün başarıyla silindi`,
             deletedCount: result.deletedCount,
-            deletedProducts: toDelete.map(p => ({ name: p.masterProduct?.name, barcode: p.masterProduct?.barcode }))
+            deletedProducts: toDelete.map(p => ({ name: p.masterProduct?.name, barcode: p.masterProduct?.barcode })),
+            marketplaceResults: deleteFromMarketplaces ? allMarketplaceResults : undefined,
+            marketplaceStats: deleteFromMarketplaces ? { success: mpSuccessCount, error: mpErrorCount } : undefined
         });
 
     } catch (error) {
-        logger.error("[BULK DELETE] Hata:", error.message);
-        return res.status(500).json({ error: "Toplu silme başarısız", details: error.message });
+        logger.error("[BULK DELETE] Hata:", error.message || error);
+        logger.error("[BULK DELETE] Stack:", error.stack);
+        return res.status(500).json({ error: "Toplu silme başarısız", details: error.message || String(error) });
     }
 };
 

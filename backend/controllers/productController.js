@@ -197,18 +197,26 @@ exports.getAllProducts = async (req, res) => {
 
         // ✅ ÇiçekSepeti
         else if (marketplaceName === "ÇiçekSepeti") {
-            const { apiSecret, supplierId } = credentials;
+            // ✅ FIX: DB'de apiKey/sellerId olarak saklanıyor — doğru alan adlarını kullan
+            const apiKey       = credentials.apiKey       || credentials.apiSecret;
+            const sellerId     = credentials.sellerId     || credentials.supplierId;
+            const integratorName = credentials.integratorName || "";
             const pageSize = 60;
             let page = 1;
             let totalPages = 1;
+
+            // ÇiçekSepeti API header'ları: x-api-key + user-agent (ASCII only)
+            const cleanSellerId = String(sellerId || '').replace(/[^\x00-\x7F]/g, '');
+            const cleanIntegrator = integratorName ? String(integratorName).replace(/[^\x00-\x7F]/g, '') : '';
+            const userAgent = cleanIntegrator ? `${cleanSellerId} - ${cleanIntegrator}` : (cleanSellerId || "CicekSepetiIntegration");
 
             try {
                 while (page <= totalPages) {
                     const url = `https://apis.ciceksepeti.com/api/v1/Products?Page=${page}&PageSize=${pageSize}`;
                     const response = await axios.get(url, {
                         headers: {
-                            "x-api-key": apiSecret,
-                            "supplierId": supplierId,
+                            "x-api-key": apiKey,
+                            "user-agent": userAgent,
                             "Content-Type": "application/json",
                             Accept: "application/json"
                         },

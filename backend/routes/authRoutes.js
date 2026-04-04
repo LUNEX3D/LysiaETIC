@@ -13,7 +13,8 @@ const {
     googleAuth,
     forgotPassword,
     verifyResetCode,
-    resetPassword
+    resetPassword,
+    refreshToken
 } = require("../controllers/authController");
 const { authMiddleware } = require("../middlewares/authMiddleware");
 const { authLimiter } = require("../middlewares/rateLimiter");
@@ -35,5 +36,8 @@ router.post("/google", authLimiter, googleAuth);
 router.post("/forgot-password", authLimiter, validateForgotPassword, forgotPassword);
 router.post("/verify-reset-code", authLimiter, verifyResetCode);
 router.post("/reset-password", authLimiter, validateResetPassword, resetPassword);
+
+// 🛡️ FIX #12: Refresh Token — access token süresi dolduğunda yenile
+router.post("/refresh-token", refreshToken);
 
 module.exports = router;

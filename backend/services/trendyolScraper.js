@@ -24,17 +24,18 @@ const TRENDYOL_BASE = "https://www.trendyol.com";
 const IS_WINDOWS = os.platform() === "win32";
 
 // ─── Trendyol Kategorileri (Ana kategoriler) ────────────────────────────────
+// slug: Trendyol'un gerçek en çok satanlar URL'si (ör: /kadin?sst=BEST_SELLER)
 const TRENDYOL_CATEGORIES = {
-    "kadin": { id: "x-g1-c1", slug: "kadin", name: "Kadın", subCategories: ["elbise", "tişört", "pantolon", "etek", "ceket", "mont", "kazak", "gömlek"] },
-    "erkek": { id: "x-g2-c1", slug: "erkek", name: "Erkek", subCategories: ["tişört", "pantolon", "gömlek", "mont", "ceket", "kazak", "eşofman"] },
-    "aksesuar": { id: "x-g1-c103", slug: "aksesuar", name: "Aksesuar", subCategories: ["çanta", "cüzdan", "saat", "güneş gözlüğü", "bileklik", "kolye"] },
-    "ayakkabi": { id: "x-g1-c110", slug: "ayakkabi", name: "Ayakkabı", subCategories: ["sneaker", "topuklu", "bot", "sandalet", "terlik", "spor ayakkabı"] },
-    "ev-mobilya": { id: "x-g1-c1009", slug: "ev-mobilya", name: "Ev & Mobilya", subCategories: ["nevresim", "yastık", "halı", "perde", "aydınlatma", "mutfak"] },
-    "kozmetik": { id: "x-g1-c1049", slug: "kozmetik", name: "Kozmetik", subCategories: ["ruj", "fondöten", "maskara", "parfüm", "cilt bakım", "saç bakım"] },
-    "elektronik": { id: "x-g1-c1081", slug: "elektronik", name: "Elektronik", subCategories: ["telefon", "kulaklık", "tablet", "laptop", "powerbank", "akıllı saat"] },
-    "supermarket": { id: "x-g1-c1163", slug: "supermarket", name: "Süpermarket", subCategories: ["atıştırmalık", "içecek", "temizlik", "kişisel bakım"] },
-    "anne-bebek": { id: "x-g1-c1091", slug: "anne-bebek", name: "Anne & Bebek", subCategories: ["bebek giyim", "bebek bezi", "mama", "oyuncak", "bebek arabası"] },
-    "spor-outdoor": { id: "x-g1-c1117", slug: "spor-outdoor", name: "Spor & Outdoor", subCategories: ["eşofman", "spor ayakkabı", "yoga", "kamp", "bisiklet"] },
+    "kadin":         { slug: "kadin",         name: "Kadın",          subCategories: ["elbise", "tişört", "pantolon", "etek", "ceket", "mont", "kazak", "gömlek", "trençkot", "bluz", "tayt", "şort", "hırka", "yelek"] },
+    "erkek":         { slug: "erkek",         name: "Erkek",          subCategories: ["tişört", "pantolon", "gömlek", "mont", "ceket", "kazak", "eşofman", "şort", "polo yaka", "sweatshirt", "yelek", "kaban"] },
+    "aksesuar":      { slug: "aksesuar",      name: "Aksesuar",       subCategories: ["çanta", "cüzdan", "saat", "güneş gözlüğü", "bileklik", "kolye", "şapka", "kemer", "yüzük", "küpe"] },
+    "ayakkabi":      { slug: "ayakkabi",      name: "Ayakkabı",       subCategories: ["sneaker", "topuklu", "bot", "sandalet", "terlik", "spor ayakkabı", "babet", "loafer", "çizme", "günlük ayakkabı"] },
+    "ev-mobilya":    { slug: "ev-dekorasyon", name: "Ev & Mobilya",   subCategories: ["nevresim", "yastık", "halı", "perde", "aydınlatma", "mutfak", "banyo", "dekorasyon", "mobilya", "yatak"] },
+    "kozmetik":      { slug: "kozmetik",      name: "Kozmetik",       subCategories: ["ruj", "fondöten", "maskara", "parfüm", "cilt bakım", "saç bakım", "makyaj", "göz farı", "allık", "serum", "krem", "güneş kremi"] },
+    "elektronik":    { slug: "elektronik",    name: "Elektronik",     subCategories: ["telefon", "kulaklık", "tablet", "laptop", "powerbank", "akıllı saat", "televizyon", "kamera", "hoparlör", "oyun konsolu", "bilgisayar"] },
+    "supermarket":   { slug: "supermarket",   name: "Süpermarket",    subCategories: ["atıştırmalık", "içecek", "temizlik", "kişisel bakım", "kahve", "çay", "deterjan", "bebek maması", "organik", "vitamin"] },
+    "anne-bebek":    { slug: "giyim",         name: "Anne & Bebek",   subCategories: ["bebek giyim", "bebek bezi", "mama", "oyuncak", "bebek arabası", "emzirme", "bebek bakım", "hamile giyim", "çocuk ayakkabı"] },
+    "spor-outdoor":  { slug: "outdoor",       name: "Spor & Outdoor", subCategories: ["eşofman", "spor ayakkabı", "yoga", "kamp", "bisiklet", "koşu", "fitness", "outdoor mont", "spor çanta", "trekking"] },
 };
 
 // ─── HTTP İstek Yardımcısı ──────────────────────────────────────────────────
@@ -218,35 +219,85 @@ async function searchProducts(query, options = {}) {
     } = options;
 
     try {
-        // URL oluştur: www.trendyol.com/sr?q=elbise&sst=BEST_SELLER&pi=1
-        const params = new URLSearchParams();
-        params.set("q", query);
-        if (sort && sort !== "SCORE") params.set("sst", sort);
-        if (page > 1) params.set("pi", String(page));
+        // Kaç sayfa çekmemiz gerekiyor? (Her sayfa 24 ürün)
+        const PRODUCTS_PER_PAGE = 24;
+        const pagesToFetch = Math.min(Math.ceil(limit / PRODUCTS_PER_PAGE), 8); // Max 8 sayfa (192 ürün)
 
-        const url = `${TRENDYOL_BASE}/sr?${params.toString()}`;
+        let allProducts = [];
+        let totalCount = 0;
+        let sortValue = sort;
 
-        const data = await fetchTrendyolPage(url, "__single-search-result__PROPS");
-
-        if (!data || !data.data || !data.data.products) {
-            logger.warn(`[TrendyolScraper] Arama sonucu boş: "${query}"`);
+        // İlk sayfayı çek
+        const firstPageData = await fetchSearchPage(query, sort, page);
+        if (!firstPageData) {
             return { products: [], totalCount: 0, query, page, sort };
         }
 
-        const products = data.data.products.map(p => parseSearchProduct(p)).slice(0, limit);
-        const totalCount = data.data.total || data.data.roughTotal || products.length;
+        allProducts = firstPageData.products.map(p => parseSearchProduct(p));
+        totalCount = firstPageData.totalCount;
+        sortValue = firstPageData.sortValue || sort;
+
+        // Ek sayfaları paralel çek (limit > 24 ise)
+        if (pagesToFetch > 1 && allProducts.length >= PRODUCTS_PER_PAGE) {
+            const extraPages = [];
+            for (let pi = page + 1; pi < page + pagesToFetch; pi++) {
+                extraPages.push(pi);
+            }
+
+            const extraResults = await Promise.allSettled(
+                extraPages.map(pi => fetchSearchPage(query, sort, pi))
+            );
+
+            extraResults.forEach(r => {
+                if (r.status === "fulfilled" && r.value?.products?.length > 0) {
+                    allProducts = allProducts.concat(r.value.products.map(p => parseSearchProduct(p)));
+                }
+            });
+        }
+
+        // Duplicate kaldır
+        const seen = new Set();
+        allProducts = allProducts.filter(p => {
+            if (seen.has(p.id)) return false;
+            seen.add(p.id);
+            return true;
+        });
 
         return {
-            products,
-            totalCount: typeof totalCount === "string" ? parseInt(totalCount.replace(/[^\d]/g, ""), 10) || 0 : totalCount,
+            products: allProducts.slice(0, limit),
+            totalCount: typeof totalCount === "string" ? parseInt(String(totalCount).replace(/[^\d]/g, ""), 10) || 0 : totalCount,
             query,
             page,
-            sort: data.data.sortValue || sort,
+            sort: sortValue,
         };
     } catch (err) {
         logger.warn(`[TrendyolScraper] Arama hatası: ${err.message}`);
         return { products: [], totalCount: 0, query, page, sort };
     }
+}
+
+/**
+ * Tek bir arama sayfası çek (dahili yardımcı)
+ * @returns {{ products: Array, totalCount: number, sortValue: string } | null}
+ */
+async function fetchSearchPage(query, sort, page) {
+    const params = new URLSearchParams();
+    params.set("q", query);
+    if (sort && sort !== "SCORE") params.set("sst", sort);
+    if (page > 1) params.set("pi", String(page));
+
+    const url = `${TRENDYOL_BASE}/sr?${params.toString()}`;
+    const data = await fetchTrendyolPage(url, "__single-search-result__PROPS");
+
+    if (!data || !data.data || !data.data.products) {
+        return null;
+    }
+
+    return {
+        products: data.data.products,
+        totalCount: data.data.total || data.data.roughTotal || data.data.products.length,
+        sortValue: data.data.sortValue || sort,
+    };
 }
 
 
@@ -255,7 +306,8 @@ async function searchProducts(query, options = {}) {
 // ═════════════════════════════════════════════════════════════════════════════
 
 /**
- * Kategori bazlı ürünleri getir
+ * Kategori bazlı ürünleri getir — Trendyol'un gerçek kategori sayfalarından
+ * URL formatı: https://www.trendyol.com/kadin?sst=BEST_SELLER
  * @param {string} categoryKey - Kategori anahtarı (ör: "kadin", "elektronik")
  * @param {object} options
  */
@@ -269,29 +321,55 @@ async function getCategoryProducts(categoryKey, options = {}) {
     }
 
     try {
-        // URL: www.trendyol.com/kadin-x-g1-c1?sst=BEST_SELLER&pi=1
-        const params = new URLSearchParams();
-        if (sort && sort !== "SCORE") params.set("sst", sort);
-        if (page > 1) params.set("pi", String(page));
+        // Kaç sayfa çekmemiz gerekiyor? (Her sayfa 24 ürün)
+        const PRODUCTS_PER_PAGE = 24;
+        const pagesToFetch = Math.min(Math.ceil(limit / PRODUCTS_PER_PAGE), 8); // Max 8 sayfa
 
-        const paramStr = params.toString();
-        const url = `${TRENDYOL_BASE}/${category.slug}-${category.id}${paramStr ? "?" + paramStr : ""}`;
+        // İlk sayfayı çek
+        const firstPageData = await fetchCategoryPage(category.slug, sort, page);
 
-        const data = await fetchTrendyolPage(url, "__single-search-result__PROPS");
-
-        if (data?.data?.products) {
-            return {
-                products: data.data.products.map(p => parseSearchProduct(p)).slice(0, limit),
-                totalCount: data.data.total || 0,
-                categoryName: category.name,
-                categoryId: category.id,
-                page,
-                sort,
-            };
+        if (!firstPageData) {
+            logger.warn(`[TrendyolScraper] Kategori sayfası boş, arama fallback: ${category.slug}`);
+            return searchProducts(category.name, options);
         }
 
-        // Fallback: kategori adıyla arama yap
-        return searchProducts(category.name, options);
+        let allProducts = firstPageData.products.map(p => parseSearchProduct(p));
+        const totalCount = firstPageData.totalCount;
+
+        // Ek sayfaları paralel çek (limit > 24 ise)
+        if (pagesToFetch > 1 && allProducts.length >= PRODUCTS_PER_PAGE) {
+            const extraPages = [];
+            for (let pi = page + 1; pi < page + pagesToFetch; pi++) {
+                extraPages.push(pi);
+            }
+
+            const extraResults = await Promise.allSettled(
+                extraPages.map(pi => fetchCategoryPage(category.slug, sort, pi))
+            );
+
+            extraResults.forEach(r => {
+                if (r.status === "fulfilled" && r.value?.products?.length > 0) {
+                    allProducts = allProducts.concat(r.value.products.map(p => parseSearchProduct(p)));
+                }
+            });
+        }
+
+        // Duplicate kaldır
+        const seen = new Set();
+        allProducts = allProducts.filter(p => {
+            if (seen.has(p.id)) return false;
+            seen.add(p.id);
+            return true;
+        });
+
+        return {
+            products: allProducts.slice(0, limit),
+            totalCount: totalCount || allProducts.length,
+            categoryName: category.name,
+            page,
+            sort,
+            source: "trendyol_category_live",
+        };
     } catch (err) {
         logger.warn(`[TrendyolScraper] Kategori hatası: ${err.message}`);
         return searchProducts(category.name, options);
@@ -299,28 +377,416 @@ async function getCategoryProducts(categoryKey, options = {}) {
 }
 
 /**
- * Tüm kategorilerde en çok satanları getir
+ * Tek bir kategori sayfası çek (dahili yardımcı)
+ * @returns {{ products: Array, totalCount: number } | null}
  */
-async function getBestSellers(categoryKey = "", limit = 20) {
-    if (categoryKey && TRENDYOL_CATEGORIES[categoryKey]) {
-        return getCategoryProducts(categoryKey, { sort: "BEST_SELLER", limit });
-    }
+async function fetchCategoryPage(slug, sort, page) {
+    const params = new URLSearchParams();
+    if (sort && sort !== "SCORE") params.set("sst", sort);
+    if (page > 1) params.set("pi", String(page));
 
-    // Tüm kategorilerden en çok satanları topla
-    const allProducts = [];
-    const categoryKeys = Object.keys(TRENDYOL_CATEGORIES).slice(0, 5); // İlk 5 kategori
+    const paramStr = params.toString();
+    const url = `${TRENDYOL_BASE}/${slug}${paramStr ? "?" + paramStr : ""}`;
 
-    for (const key of categoryKeys) {
-        const result = await getCategoryProducts(key, { sort: "BEST_SELLER", limit: 5 });
-        if (result.products?.length > 0) {
-            allProducts.push(...result.products.map(p => ({ ...p, categoryKey: key, categoryName: TRENDYOL_CATEGORIES[key].name })));
-        }
+    const data = await fetchTrendyolPage(url, "__single-search-result__PROPS");
+
+    if (!data?.data?.products || data.data.products.length === 0) {
+        return null;
     }
 
     return {
-        products: allProducts.slice(0, limit),
-        totalCount: allProducts.length,
-        source: "all_categories",
+        products: data.data.products,
+        totalCount: data.data.total || data.data.products.length,
+    };
+}
+
+/**
+ * En çok satanları getir — Trendyol'un gerçek kategori sayfalarından
+ * Kategori verilmişse o kategorinin sayfasından, verilmemişse birden fazla
+ * ana kategoriden paralel çekerek birleştirir.
+ *
+ * Doğru URL: https://www.trendyol.com/kadin?sst=BEST_SELLER (gerçek en çok satanlar)
+ * ESKİ YANLIŞ: /butik/liste/en-cok-satanlar (kişiselleştirilmiş öneriler — GERÇEK DEĞİL)
+ */
+async function getBestSellers(categoryKey = "", limit = 20, sort = "BEST_SELLER") {
+    // Belirli kategori seçildiyse direkt o kategoriden çek
+    if (categoryKey && TRENDYOL_CATEGORIES[categoryKey]) {
+        const result = await getCategoryProducts(categoryKey, { sort, limit });
+        return {
+            products: (result.products || []).slice(0, limit),
+            totalCount: result.totalCount || result.products?.length || 0,
+            source: result.source || "trendyol_category_live",
+        };
+    }
+
+    // Genel en çok satanlar — TÜM ana kategorilerden paralel çek ve birleştir
+    const allCategoryKeys = Object.keys(TRENDYOL_CATEGORIES);
+    // Her kategoriden eşit pay çek, minimum 24 (1 sayfa)
+    const perCategory = Math.max(24, Math.ceil(limit / allCategoryKeys.length) + 4);
+
+    try {
+        const results = await Promise.allSettled(
+            allCategoryKeys.map(catKey => getCategoryProducts(catKey, { sort, limit: perCategory }))
+        );
+
+        let allProducts = [];
+        results.forEach((r, idx) => {
+            if (r.status === "fulfilled" && r.value?.products?.length > 0) {
+                // Her ürüne hangi kategoriden geldiğini ekle
+                r.value.products.forEach(p => {
+                    p.sourceCategory = TRENDYOL_CATEGORIES[allCategoryKeys[idx]]?.name || allCategoryKeys[idx];
+                });
+                allProducts = allProducts.concat(r.value.products);
+            }
+        });
+
+        if (allProducts.length > 0) {
+            // Sıralama — sort parametresine göre
+            if (sort === "PRICE_BY_ASC") {
+                allProducts.sort((a, b) => (a.price || 0) - (b.price || 0));
+            } else if (sort === "PRICE_BY_DESC") {
+                allProducts.sort((a, b) => (b.price || 0) - (a.price || 0));
+            } else if (sort === "MOST_RATED") {
+                allProducts.sort((a, b) => (b.ratingCount || 0) - (a.ratingCount || 0));
+            } else if (sort === "MOST_RECENT") {
+                // Trendyol zaten sıralı döndürüyor, karıştırmayalım
+            } else {
+                // BEST_SELLER default — favori + sipariş sayısına göre
+                allProducts.sort((a, b) => {
+                    const scoreA = (a.favoriteCount || 0) + (a.orderCount || 0) * 10;
+                    const scoreB = (b.favoriteCount || 0) + (b.orderCount || 0) * 10;
+                    return scoreB - scoreA;
+                });
+            }
+
+            // Duplicate'leri kaldır (aynı id)
+            const seen = new Set();
+            allProducts = allProducts.filter(p => {
+                if (seen.has(p.id)) return false;
+                seen.add(p.id);
+                return true;
+            });
+
+            logger.info(`[TrendyolScraper] En çok satanlar: ${allProducts.length} ürün (${allCategoryKeys.length} kategoriden)`);
+            return {
+                products: allProducts.slice(0, limit),
+                totalCount: allProducts.length,
+                source: "trendyol_multi_category_live",
+            };
+        }
+    } catch (err) {
+        logger.warn(`[TrendyolScraper] Paralel kategori çekme hatası: ${err.message}`);
+    }
+
+    // Fallback: arama ile en çok satanları getir
+    logger.warn("[TrendyolScraper] Kategori sayfaları başarısız, arama fallback kullanılıyor");
+    const result = await searchProducts("en çok satan", { sort, limit });
+    return {
+        products: result.products.slice(0, limit),
+        totalCount: result.totalCount,
+        source: "search_fallback",
+    };
+}
+
+/**
+ * Flaş ürünleri getir — Trendyol'un gerçek indirimli ürünleri
+ * Butik sayfasındaki FLASH_SALES widget'ı + kategori sayfalarından indirimli ürünler
+ */
+async function getFlashProducts(categoryKey = "", limit = 24) {
+    if (categoryKey && TRENDYOL_CATEGORIES[categoryKey]) {
+        // Kategori bazlı: o kategoriden daha fazla çek, indirimli olanları filtrele
+        const fetchLimit = Math.max(96, limit * 3); // İndirimli olanları filtreleyeceğiz, fazla çek
+        const result = await getCategoryProducts(categoryKey, { sort: "BEST_SELLER", limit: fetchLimit });
+        const flashProds = (result.products || [])
+            .filter(p => p.discountPercentage > 5)
+            .sort((a, b) => b.discountPercentage - a.discountPercentage)
+            .slice(0, limit);
+        return {
+            products: flashProds,
+            totalCount: flashProds.length,
+            source: "trendyol_category_flash",
+        };
+    }
+
+    // Genel flaş ürünler — butik sayfasındaki FLASH_SALES widget'ı hâlâ gerçek flaş ürünler
+    let butikFlash = [];
+    try {
+        const realData = await fetchBestSellersPage();
+        if (realData && realData.flash.length > 0) {
+            butikFlash = realData.flash;
+        }
+    } catch (err) {
+        logger.warn(`[TrendyolScraper] Butik flaş ürünler hatası: ${err.message}`);
+    }
+
+    // TÜM kategorilerden indirimli ürünleri topla
+    const allCategoryKeys = Object.keys(TRENDYOL_CATEGORIES);
+    try {
+        const results = await Promise.allSettled(
+            allCategoryKeys.map(catKey => getCategoryProducts(catKey, { sort: "BEST_SELLER", limit: 48 }))
+        );
+
+        let allFlash = [...butikFlash]; // Butik flaş ürünleri de ekle
+        results.forEach(r => {
+            if (r.status === "fulfilled" && r.value?.products?.length > 0) {
+                const discounted = r.value.products.filter(p => p.discountPercentage > 5);
+                allFlash = allFlash.concat(discounted);
+            }
+        });
+
+        if (allFlash.length > 0) {
+            allFlash.sort((a, b) => b.discountPercentage - a.discountPercentage);
+            // Duplicate kaldır
+            const seen = new Set();
+            allFlash = allFlash.filter(p => {
+                if (seen.has(p.id)) return false;
+                seen.add(p.id);
+                return true;
+            });
+
+            logger.info(`[TrendyolScraper] Flaş ürünler: ${allFlash.length} ürün (${allCategoryKeys.length} kategoriden + butik)`);
+            return {
+                products: allFlash.slice(0, limit),
+                totalCount: allFlash.length,
+                source: "trendyol_multi_category_flash",
+            };
+        }
+    } catch (err) {
+        logger.warn(`[TrendyolScraper] Paralel flaş çekme hatası: ${err.message}`);
+    }
+
+    // Butik flaş varsa onu döndür
+    if (butikFlash.length > 0) {
+        return {
+            products: butikFlash.slice(0, limit),
+            totalCount: butikFlash.length,
+            source: "trendyol_flash_live",
+        };
+    }
+
+    // Son fallback: arama
+    const result = await searchProducts("indirim fırsat", { sort: "BEST_SELLER", limit: 96 });
+    const flashProds = (result.products || [])
+        .filter(p => p.discountPercentage > 5)
+        .sort((a, b) => b.discountPercentage - a.discountPercentage)
+        .slice(0, limit);
+    return {
+        products: flashProds,
+        totalCount: flashProds.length,
+        source: "search_flash_fallback",
+    };
+}
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 2B. BUTIK SAYFASI — Gerçek En Çok Satanlar & Flaş Ürünler
+// ═════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Butik kategori URL eşlemeleri (Trendyol'un gerçek butik sayfaları)
+ */
+const BUTIK_CATEGORIES = {
+    "kadin":         "/butik/liste/1/kadin",
+    "erkek":         "/butik/liste/2/erkek",
+    "anne-bebek":    "/butik/liste/3/anne-cocuk",
+    "ev-mobilya":    "/butik/liste/12/ev-yasam",
+    "supermarket":   "/butik/liste/16/supermarket",
+    "kozmetik":      "/butik/liste/11/kozmetik",
+    "ayakkabi":      "/butik/liste/9/ayakkabi-canta",
+    "elektronik":    "/butik/liste/5/elektronik",
+    "aksesuar":      "/butik/liste/10/saat-aksesuar",
+    "spor-outdoor":  "/butik/liste/22/spor-outdoor",
+};
+
+/**
+ * Trendyol butik "En Çok Satanlar" sayfasından gerçek anlık veri çeker
+ * Bu sayfa iki önemli widget içerir:
+ *   - JUST_FOR_YOU_SLIDER → Popüler / En Çok Satan ürünler (20 ürün)
+ *   - FLASH_SALES → Flaş Ürünler (24 ürün)
+ *
+ * @param {string} categoryKey - Opsiyonel kategori (ör: "kadin", "elektronik")
+ * @returns {{ popular: Array, flash: Array } | null}
+ */
+async function fetchBestSellersPage(categoryKey = "") {
+    try {
+        const butikPath = (categoryKey && BUTIK_CATEGORIES[categoryKey])
+            ? BUTIK_CATEGORIES[categoryKey]
+            : "/butik/liste/en-cok-satanlar";
+
+        const url = `${TRENDYOL_BASE}${butikPath}`;
+        const data = await fetchTrendyolPage(url, "__widget-list-v2__PROPS");
+
+        if (!data || !data.widgetList || !data.widgetList.widgets) {
+            logger.warn(`[TrendyolScraper] Butik widget verisi bulunamadı: ${url}`);
+            return null;
+        }
+
+        const widgets = data.widgetList.widgets;
+
+        // Popüler ürünler (JUST_FOR_YOU_SLIDER)
+        const popularWidget = widgets.find(w => w.widgetType === "JUST_FOR_YOU_SLIDER");
+        const popularItems = popularWidget?.items || [];
+
+        // Flaş ürünler (FLASH_SALES)
+        const flashWidget = widgets.find(w => w.widgetType === "FLASH_SALES");
+        const flashItems = flashWidget?.items || [];
+
+        logger.info(`[TrendyolScraper] Butik sayfası başarılı: ${popularItems.length} popüler, ${flashItems.length} flaş ürün`);
+
+        return {
+            popular: popularItems.map(p => parseWidgetProduct(p, "popular")),
+            flash: flashItems.map(p => parseWidgetProduct(p, "flash")),
+        };
+    } catch (err) {
+        logger.warn(`[TrendyolScraper] Butik sayfası hatası: ${err.message}`);
+        return null;
+    }
+}
+
+/**
+ * Widget ürün verisini standart formata dönüştür
+ * Widget ürünleri arama sonuçlarından farklı bir formata sahip:
+ *   - Popüler: socialProofs dizisi (type/value), price.sellingPrice, merchantListings
+ *   - Flaş: socialProof dizisi (key/value), price.sellingPrice/discountedPrice, winnerVariant
+ */
+function parseWidgetProduct(p, widgetType = "popular") {
+    // ── Fiyat bilgileri ──
+    let priceCurrent = 0;
+    let priceOriginal = 0;
+    let discountPercentage = 0;
+    let freeCargo = false;
+    let merchantName = "";
+
+    if (widgetType === "flash") {
+        // Flaş ürün fiyat yapısı — sanitizedPrice en güvenilir kaynak
+        if (p.sanitizedPrice?.finalPrice?.value) {
+            priceCurrent = p.sanitizedPrice.finalPrice.value;
+            priceOriginal = p.sanitizedPrice.strikeThroughPrice?.value || p.price?.oldPrice || priceCurrent;
+        } else {
+            priceCurrent = p.price?.discountedPrice || p.price?.sellingPrice || 0;
+            priceOriginal = p.price?.oldPrice || p.price?.sellingPrice || priceCurrent;
+        }
+        // İndirim yüzdesi — birden fazla kaynaktan kontrol
+        discountPercentage = p.discountPercentage || 0;
+        if (!discountPercentage && p.sanitizedPrice?.strikeThroughPrice?.discountPercentage?.value) {
+            discountPercentage = p.sanitizedPrice.strikeThroughPrice.discountPercentage.value;
+        }
+        if (!discountPercentage && p.recommendedRetailPrice?.lowestRecentPercentage) {
+            const lrp = p.recommendedRetailPrice.lowestRecentPercentage;
+            discountPercentage = typeof lrp === "string" ? parseInt(lrp.replace(/[^\d]/g, ""), 10) || 0 : lrp;
+        }
+        if (!discountPercentage && p.price?.lowestPriceBadge?.discountPercentage) {
+            discountPercentage = p.price.lowestPriceBadge.discountPercentage;
+        }
+        if (!discountPercentage && priceOriginal > priceCurrent && priceCurrent > 0) {
+            discountPercentage = Math.round(((priceOriginal - priceCurrent) / priceOriginal) * 100);
+        }
+        if (typeof discountPercentage === "string") {
+            discountPercentage = parseInt(discountPercentage.replace(/[^\d]/g, ""), 10) || 0;
+        }
+        freeCargo = p.winnerVariant?.freeCargo || p.badges?.freeCargo || false;
+        merchantName = p.winnerVariant?.merchantName || "";
+    } else {
+        // Popüler ürün fiyat yapısı — sanitizedPrice en güvenilir
+        if (p.sanitizedPrice?.finalPrice?.value) {
+            priceCurrent = p.sanitizedPrice.finalPrice.value;
+            priceOriginal = p.sanitizedPrice.strikeThroughPrice?.value || p.price?.oldPrice || p.price?.originalPrice || priceCurrent;
+        } else {
+            priceCurrent = p.price?.sellingPrice || p.price?.discountedPrice || 0;
+            priceOriginal = p.price?.originalPrice || p.price?.oldPrice || priceCurrent;
+        }
+        if (priceOriginal > priceCurrent && priceCurrent > 0) {
+            discountPercentage = Math.round(((priceOriginal - priceCurrent) / priceOriginal) * 100);
+        }
+        // merchantListings'den bilgi al
+        const firstMerchant = p.merchantListings?.[0];
+        freeCargo = p.winnerVariant?.freeCargo || firstMerchant?.freeCargo || false;
+        merchantName = firstMerchant?.merchant?.name || p.winnerVariant?.merchantName || "";
+        // Promosyonlardan kargo bilgisi
+        const promos = firstMerchant?.promotions || p.promotions || [];
+        if (!freeCargo && promos.some(pr => pr.promotionDiscountType === "Cargo" || pr.shortName?.includes("Kargo"))) {
+            freeCargo = true;
+        }
+    }
+
+    // ── socialProof verileri ──
+    // Popüler: socialProofs dizisi [{type, value}]
+    // Flaş: socialProof dizisi [{key, value}]
+    const socialMap = {};
+    const socialArr = p.socialProofs || p.socialProofV2 || p.socialProof || [];
+    if (Array.isArray(socialArr)) {
+        socialArr.forEach(sp => {
+            const key = sp.type || sp.key;
+            if (key && sp.value) socialMap[key] = sp.value;
+        });
+    }
+
+    const favoriteCount = parseSocialProofValue(socialMap.favoriteCount || "0");
+    const basketCount = parseSocialProofValue(socialMap.basketCount || "0");
+    const orderCount = parseSocialProofValue(socialMap.orderCount || "0");
+    const pageViewCount = parseSocialProofValue(socialMap.pageViewCount || "0");
+
+    // ── Görsel URL ──
+    let imageUrl = "";
+    if (p.image) {
+        imageUrl = p.image.startsWith("http") ? p.image : `https://cdn.dsmcdn.com/${p.image}`;
+    } else if (p.imageUrl) {
+        imageUrl = p.imageUrl.startsWith("http") ? p.imageUrl : `https://cdn.dsmcdn.com/${p.imageUrl}`;
+    } else if (p.images && p.images.length > 0) {
+        const firstImg = p.images[0];
+        imageUrl = firstImg.startsWith("http") ? firstImg : `https://cdn.dsmcdn.com/${firstImg}`;
+    }
+
+    // ── Ürün URL ──
+    const productUrl = p.url ? (p.url.startsWith("http") ? p.url : `${TRENDYOL_BASE}${p.url}`) : "";
+
+    // ── Rating ──
+    const ratingScore = p.ratingScore?.averageRating || 0;
+    const ratingCount = p.ratingScore?.totalCount || 0;
+
+    // ── Stok bilgisi ──
+    const quantity = p.winnerVariant?.quantity || 0;
+
+    // ── Tag bilgileri ──
+    const tags = (p.tagDetails || []).map(t => t.displayName).filter(Boolean);
+    const isBestSeller = (p.tagDetails || []).some(t => t.tag === "kategori_encoksatanlar") ||
+                          (p.badges?.categoryRanking || []).some(r => r.name === "bestSeller");
+
+    return {
+        id: p.id || 0,
+        contentId: p.id || 0,
+        name: p.name || "",
+        brand: p.brand || p.brandInfo?.name || p.webBrand?.name || "",
+        brandId: p.brandId || p.brandInfo?.id || 0,
+        category: p.category?.name || "",
+        categoryId: p.category?.id || 0,
+        price: typeof priceCurrent === "number" ? Math.round(priceCurrent * 100) / 100 : 0,
+        originalPrice: typeof priceOriginal === "number" ? Math.round(priceOriginal * 100) / 100 : 0,
+        discountedPrice: typeof priceCurrent === "number" ? Math.round(priceCurrent * 100) / 100 : 0,
+        discountPercentage,
+        currency: p.price?.currency || "TL",
+        imageUrl,
+        favoriteCount,
+        basketCount,
+        orderCount,
+        pageViewCount,
+        hasRating: ratingCount > 0,
+        ratingScore: Math.round(ratingScore * 10) / 10,
+        ratingCount,
+        reviewCount: ratingCount,
+        merchantName,
+        merchantId: p.merchantId || 0,
+        url: productUrl,
+        estimatedDailySales: estimateDailySalesFromSocialProof(favoriteCount, orderCount, basketCount),
+        estimatedMonthlyRevenue: estimateMonthlyRevenueFromSocialProof(favoriteCount, orderCount, basketCount, priceCurrent),
+        freeCargo,
+        isInStock: p.inStock !== false,
+        quantity,
+        promotions: (p.promotions || []).map(pr => pr.shortName || pr.name || "").filter(Boolean),
+        tags,
+        isBestSeller,
+        socialProofRaw: socialMap,
+        dataSource: widgetType === "flash" ? "trendyol_flash_live" : "trendyol_popular_live",
     };
 }
 
@@ -651,22 +1117,31 @@ function parseSearchProduct(p) {
     const originalPrice = p.price?.originalPrice || priceCurrent;
     const discountedPrice = p.price?.discountedPrice || priceCurrent;
 
-    // İndirim yüzdesi
+    // İndirim yüzdesi — birden fazla kaynaktan kontrol et
     let discountPercentage = 0;
     if (p.recommendedRetailPrice?.promotionDiscountPercentage) {
         discountPercentage = p.recommendedRetailPrice.promotionDiscountPercentage;
+    } else if (p.price?.lowestPriceBadge?.discountPercentage) {
+        discountPercentage = p.price.lowestPriceBadge.discountPercentage;
     } else if (priceOld > 0 && priceCurrent < priceOld) {
         discountPercentage = Math.round(((priceOld - priceCurrent) / priceOld) * 100);
+    } else if (originalPrice > priceCurrent && priceCurrent > 0) {
+        discountPercentage = Math.round(((originalPrice - priceCurrent) / originalPrice) * 100);
     }
 
     // socialProof'tan verileri çıkar
+    // Format: [{ key: "favoriteCount", value: "632K" }, { key: "orderCount", value: "3000+" }]
     const socialProofMap = {};
     if (Array.isArray(p.socialProof)) {
         p.socialProof.forEach(sp => {
-            socialProofMap[sp.key] = sp.value;
+            const key = sp.key || sp.type;
+            if (key && sp.value) socialProofMap[key] = sp.value;
         });
-    } else if (p.socialProof && typeof p.socialProof === "object" && p.socialProof.key) {
-        socialProofMap[p.socialProof.key] = p.socialProof.value;
+    } else if (p.socialProof && typeof p.socialProof === "object") {
+        // Tek obje formatı
+        if (p.socialProof.key && p.socialProof.value) {
+            socialProofMap[p.socialProof.key] = p.socialProof.value;
+        }
     }
 
     // "25K" → 25000, "152K" → 152000, "1,2B" → 1200, "200+" → 200 gibi dönüşümler
@@ -706,11 +1181,11 @@ function parseSearchProduct(p) {
         basketCount,
         orderCount,
         pageViewCount,
-        // Rating
-        hasRating: p.emptyRating === false,
-        ratingScore: 0, // Arama sonuçlarında rating detayı yok
-        ratingCount: 0,
-        reviewCount: 0,
+        // Rating — kategori sayfalarında ratingScore objesi geliyor
+        hasRating: p.emptyRating === false || (p.ratingScore?.totalCount > 0),
+        ratingScore: Math.round((p.ratingScore?.averageRating || 0) * 10) / 10,
+        ratingCount: p.ratingScore?.totalCount || 0,
+        reviewCount: p.ratingScore?.totalCount || 0,
         // Satıcı
         merchantName: p.merchantName || "",
         merchantId: p.merchantId || 0,
@@ -721,6 +1196,8 @@ function parseSearchProduct(p) {
         // Ek bilgiler
         freeCargo: p.freeCargo || false,
         isInStock: p.stock !== false,
+        isBestSeller: p.badges?.topRankingBadge?.type === "BEST_SELLER" || false,
+        rushDelivery: p.rushDelivery || false,
         promotions: extractPromotions(p),
         socialProofRaw: socialProofMap,
     };
@@ -868,8 +1345,8 @@ function extractSearchKeywords(productName) {
 function getCategories() {
     return Object.entries(TRENDYOL_CATEGORIES).map(([key, cat]) => ({
         key,
-        id: cat.id,
         name: cat.name,
+        slug: cat.slug,
         subCategories: cat.subCategories,
     }));
 }
@@ -883,6 +1360,8 @@ module.exports = {
     searchProducts,
     getCategoryProducts,
     getBestSellers,
+    getFlashProducts,
+    fetchBestSellersPage,
     getProductDetail,
     getProductDetailById,
     findCompetitors,
@@ -892,6 +1371,7 @@ module.exports = {
     analyzeKeyword,
     getCategories,
     parseSearchProduct,
+    parseWidgetProduct,
     parseSocialProofValue,
     estimateDailySales,
     estimateMonthlyRevenue,
@@ -899,4 +1379,5 @@ module.exports = {
     estimateMonthlyRevenueFromSocialProof,
     extractSearchKeywords,
     TRENDYOL_CATEGORIES,
+    BUTIK_CATEGORIES,
 };

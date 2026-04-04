@@ -19,16 +19,32 @@ exports.getUserMarketplaces = async (req, res) => {
             return res.status(200).json([]);
         }
 
-        // Credential'ları decrypt et
-        const decryptedMarketplaces = marketplaces.map(mp => {
+        // 🛡️ FIX #9: Credential'ları maskeleyerek döndür — frontend'e tam credential gönderme
+        const maskedMarketplaces = marketplaces.map(mp => {
             const mpObj = mp.toObject();
             if (mpObj.credentials) {
-                mpObj.credentials = decryptCredentials(mpObj.credentials);
+                try {
+                    const decrypted = decryptCredentials(mpObj.credentials);
+                    // Her credential alanını maskele: sadece son 4 karakteri göster
+                    const masked = {};
+                    for (const [key, value] of Object.entries(decrypted)) {
+                        if (typeof value === "string" && value.length > 4) {
+                            masked[key] = "••••••" + value.slice(-4);
+                        } else {
+                            masked[key] = value ? "••••" : "";
+                        }
+                    }
+                    mpObj.credentials = masked;
+                    mpObj.hasCredentials = true;
+                } catch {
+                    mpObj.credentials = {};
+                    mpObj.hasCredentials = false;
+                }
             }
             return mpObj;
         });
 
-        res.status(200).json(decryptedMarketplaces);
+        res.status(200).json(maskedMarketplaces);
     } catch (error) {
         logger.error("Pazaryeri bilgileri alınırken hata", { error: error.message });
         res.status(500).json({ message: "❌ Sunucu hatası!" });

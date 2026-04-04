@@ -78,17 +78,18 @@ exports.getCategories = async (req, res) => {
 
 /**
  * POST /research/products — Trendyol'da ürün araştırması
- * Body: { query?, categoryName?, sort?, page? }
+ * Body: { query?, categoryName?, sort?, page?, limit? }
  */
 exports.researchProducts = async (req, res) => {
     try {
-        const { query, categoryName, sort, page } = req.body;
+        const { query, categoryName, sort, page, limit } = req.body;
         if (!query && !categoryName) {
             return res.status(400).json({ success: false, message: "Arama kelimesi veya kategori gerekli" });
         }
         const result = await roketfyService.researchProducts(uid(req), {
             query: query || "", categoryName: categoryName || "",
             sort: sort || "BEST_SELLER", page: page || 1,
+            limit: parseInt(limit) || 100,
         });
         res.json({ success: true, research: result });
     } catch (err) {
@@ -103,9 +104,11 @@ exports.researchProducts = async (req, res) => {
  */
 exports.getBestSellers = async (req, res) => {
     try {
-        const { category, limit } = req.query;
+        const { category, limit, sort } = req.query;
         const result = await roketfyService.getBestSellers(uid(req), {
-            categoryKey: category || "", limit: parseInt(limit) || 20,
+            categoryKey: category || "",
+            limit: parseInt(limit) || 100,
+            sort: sort || "BEST_SELLER",
         });
         res.json({ success: true, bestSellers: result });
     } catch (err) {
@@ -138,20 +141,39 @@ exports.researchKeywords = async (req, res) => {
 
 /**
  * POST /competitor/analyze — Rakip analizi
- * Body: { productUrl?, searchQuery?, categoryName? }
+ * Body: { productUrl?, searchQuery?, categoryName?, barcode? }
  */
 exports.analyzeCompetitor = async (req, res) => {
     try {
-        const { productUrl, searchQuery, categoryName } = req.body;
+        const { productUrl, searchQuery, categoryName, barcode } = req.body;
         const result = await roketfyService.analyzeCompetitor(uid(req), {
             productUrl: productUrl || "",
             searchQuery: searchQuery || "",
             categoryName: categoryName || "",
+            barcode: barcode || "",
         });
         res.json({ success: true, competitor: result });
     } catch (err) {
         logger.error(`[Roketfy] Rakip analizi hatası: ${err.message}`);
         res.status(500).json({ success: false, message: "Rakip analizi başarısız", error: err.message });
+    }
+};
+
+/**
+ * GET /competitor/my-products — Kullanıcının kendi ürünlerini listele (rakip analizi için)
+ * Hafif veri: sadece ad, barkod, fiyat, görsel, kategori, stok
+ */
+exports.getMyProducts = async (req, res) => {
+    try {
+        const { search, limit } = req.query;
+        const result = await roketfyService.getMyProducts(uid(req), {
+            search: search || "",
+            limit: parseInt(limit) || 500,
+        });
+        res.json({ success: true, ...result });
+    } catch (err) {
+        logger.error(`[Roketfy] Ürünlerim hatası: ${err.message}`);
+        res.status(500).json({ success: false, message: "Ürünler yüklenemedi", error: err.message });
     }
 };
 
@@ -263,5 +285,40 @@ exports.suggestPrice = async (req, res) => {
     } catch (err) {
         logger.error(`[Roketfy] Fiyat önerisi hatası: ${err.message}`);
         res.status(500).json({ success: false, message: "Fiyat önerisi başarısız", error: err.message });
+    }
+};
+
+// ═════════════════════════════════════════════════════════════════════════════
+// FLAŞ ÜRÜNLER — Anlık yüksek indirimli ürünler
+// ═════════════════════════════════════════════════════════════════════════════
+
+/**
+ * GET /research/flash-products — Flaş ürünler (yüksek indirimli)
+ * Query: ?category=elektronik&limit=20
+ */
+exports.getFlashProducts = async (req, res) => {
+    try {
+        const { category, limit } = req.query;
+        const result = await roketfyService.getFlashProducts(uid(req), {
+            categoryKey: category || "", limit: parseInt(limit) || 100,
+        });
+        res.json({ success: true, flashProducts: result });
+    } catch (err) {
+        logger.error(`[Roketfy] Flaş ürünler hatası: ${err.message}`);
+        res.status(500).json({ success: false, message: "Flaş ürünler yüklenemedi", error: err.message });
+    }
+};
+
+// ═════════════════════════════════════════════════════════════════════════════
+// GELİŞMİŞ KATEGORİ — Alt kategori desteği
+// ═════════════════════════════════════════════════════════════════════════════
+
+exports.getDetailedCategories = async (req, res) => {
+    try {
+        const categories = roketfyService.getDetailedCategories();
+        res.json({ success: true, categories });
+    } catch (err) {
+        logger.error(`[Roketfy] Detaylı kategori hatası: ${err.message}`);
+        res.status(500).json({ success: false, message: "Kategoriler yüklenemedi", error: err.message });
     }
 };

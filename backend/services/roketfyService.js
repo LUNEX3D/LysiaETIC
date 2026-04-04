@@ -109,7 +109,7 @@ async function getTrendyolCredentials(userId) {
  * Kategori veya anahtar kelime ile Trendyol'daki ürünleri arar
  * Her ürün için: fiyat, görüntüleme, favori, tahmini günlük satış, aylık ciro
  */
-async function researchProducts(userId, { query, categoryName, sort, page }) {
+async function researchProducts(userId, { query, categoryName, sort, page, limit }) {
     const startTime = Date.now();
 
     let result;
@@ -117,14 +117,14 @@ async function researchProducts(userId, { query, categoryName, sort, page }) {
         result = await trendyol.getCategoryProducts(categoryName.toLowerCase(), {
             sort: sort || "BEST_SELLER",
             page: page || 1,
-            limit: 48,
+            limit: limit || 100,
         });
     } else {
         const searchTerm = query || categoryName || "";
         result = await trendyol.searchProducts(searchTerm, {
             sort: sort || "BEST_SELLER",
             page: page || 1,
-            limit: 48,
+            limit: limit || 100,
         });
     }
 
@@ -213,9 +213,9 @@ async function researchProducts(userId, { query, categoryName, sort, page }) {
 /**
  * En çok satanlar — Roketfy'ın ana sayfasındaki "En Çok Satılan Trendyol Ürünleri"
  */
-async function getBestSellers(userId, { categoryKey, limit }) {
+async function getBestSellers(userId, { categoryKey, limit, sort }) {
     const startTime = Date.now();
-    const result = await trendyol.getBestSellers(categoryKey || "", limit || 20);
+    const result = await trendyol.getBestSellers(categoryKey || "", limit || 100, sort || "BEST_SELLER");
 
     await RoketfyAnalysis.create({
         userId,
@@ -246,11 +246,83 @@ function getCategories() {
 // ═════════════════════════════════════════════════════════════════════════════
 
 /**
+ * Kullanıcının kendi ürünlerini listele — Rakip Araştırması için hafif liste
+ * Sadece ad, barkod, fiyat, görsel, kategori, stok bilgisi döndürür
+ */
+async function getMyProducts(userId, { search, limit }) {
+    const filter = {
+        userId,
+        // Sadece stoğu olan ürünleri getir
+        $or: [
+            { "stockTracking.isOutOfStock": { $ne: true } },
+            { "stockTracking.totalStock": { $gt: 0 } },
+        ],
+    };
+    if (search) {
+        filter.$and = [
+            {
+                $or: [
+                    { "masterProduct.name": { $regex: search, $options: "i" } },
+                    { "masterProduct.barcode": { $regex: search, $options: "i" } },
+                    { "masterProduct.sku": { $regex: search, $options: "i" } },
+                ],
+            },
+        ];
+    }
+
+    const products = await ProductMapping.find(filter)
+        .select("masterProduct.name masterProduct.barcode masterProduct.sku masterProduct.price masterProduct.listPrice masterProduct.images masterProduct.category masterProduct.brand stockTracking.totalStock stockTracking.isOutOfStock marketplaceMappings.marketplaceName marketplaceMappings.isActive")
+        .sort({ updatedAt: -1 })
+        .limit(limit || 500)
+        .lean();
+
+    return {
+        products: products.map(p => ({
+            barcode: p.masterProduct?.barcode || "",
+            sku: p.masterProduct?.sku || "",
+            name: p.masterProduct?.name || "",
+            price: p.masterProduct?.price || 0,
+            listPrice: p.masterProduct?.listPrice || 0,
+            imageUrl: (p.masterProduct?.images || [])[0] || "",
+            category: p.masterProduct?.category || "",
+            brand: p.masterProduct?.brand || "",
+            stock: p.stockTracking?.totalStock || 0,
+            isOutOfStock: p.stockTracking?.isOutOfStock || false,
+            marketplaces: (p.marketplaceMappings || [])
+                .filter(m => m.isActive)
+                .map(m => m.marketplaceName),
+        })),
+        totalCount: await ProductMapping.countDocuments(filter),
+    };
+}
+
+/**
  * Rakip ürün analizi — Bir ürünün Trendyol'daki rakiplerini bul
  * Roketfy'ın "Rakip Araştırması > Ürün Dedektifi" özelliği
+ * barcode: Kullanıcının kendi ürünü — otomatik anahtar kelime çıkarır
  */
-async function analyzeCompetitor(userId, { productUrl, searchQuery, categoryName }) {
+async function analyzeCompetitor(userId, { productUrl, searchQuery, categoryName, barcode }) {
     const startTime = Date.now();
+
+    // Kendi ürünümüzden bilgi çek (barcode verilmişse)
+    let myProduct = null;
+    if (barcode) {
+        const mapping = await ProductMapping.findOne({
+            userId, "masterProduct.barcode": barcode,
+        }).lean();
+        if (mapping) {
+            myProduct = {
+                name: mapping.masterProduct?.name || "",
+                barcode: mapping.masterProduct?.barcode || "",
+                price: mapping.masterProduct?.price || 0,
+                listPrice: mapping.masterProduct?.listPrice || 0,
+                imageUrl: (mapping.masterProduct?.images || [])[0] || "",
+                category: mapping.masterProduct?.category || "",
+                brand: mapping.masterProduct?.brand || "",
+                stock: mapping.stockTracking?.totalStock || 0,
+            };
+        }
+    }
 
     // Ürün URL'sinden detay çek
     let productDetail = null;
@@ -260,8 +332,13 @@ async function analyzeCompetitor(userId, { productUrl, searchQuery, categoryName
 
     // Arama terimi belirle
     let query = searchQuery || "";
+    if (!query && myProduct) {
+        // Kendi ürünümüzün adından anahtar kelimeler çıkar
+        const keywords = trendyol.extractSearchKeywords(myProduct.name);
+        query = keywords.slice(0, 4).join(" ");
+    }
     if (!query && productDetail) {
-        // Ürün adından anahtar kelimeler çıkar
+        // Trendyol ürün adından anahtar kelimeler çıkar
         const keywords = trendyol.extractSearchKeywords(productDetail.name);
         query = keywords.slice(0, 3).join(" ");
     }
@@ -272,10 +349,10 @@ async function analyzeCompetitor(userId, { productUrl, searchQuery, categoryName
         query = "en çok satan";
     }
 
-    // Rakipleri bul
+    // Rakipleri bul — daha fazla ürün çek
     const searchResult = await trendyol.searchProducts(query, {
         sort: "BEST_SELLER",
-        limit: 50,
+        limit: 100,
     });
 
     const competitors = searchResult.products || [];
@@ -349,8 +426,34 @@ async function analyzeCompetitor(userId, { productUrl, searchQuery, categoryName
         }
     }
 
+    // myProduct varsa ek karşılaştırma insight'ları ekle
+    if (myProduct) {
+        if (myProduct.price > avgPrice * 1.2) {
+            insights.push(`Ürününüz (₺${myProduct.price}) pazar ortalamasından (₺${avgPrice}) %${Math.round(((myProduct.price - avgPrice) / avgPrice) * 100)} daha pahalı`);
+        } else if (myProduct.price < avgPrice * 0.8) {
+            insights.push(`Ürününüz (₺${myProduct.price}) pazar ortalamasından (₺${avgPrice}) %${Math.round(((avgPrice - myProduct.price) / avgPrice) * 100)} daha ucuz — kâr marjını kontrol edin`);
+        } else {
+            insights.push(`Ürününüzün fiyatı (₺${myProduct.price}) rekabetçi bir konumda (pazar ort: ₺${avgPrice})`);
+        }
+
+        // Fiyat sıralamasındaki pozisyon
+        const cheaperCount = competitors.filter(p => p.price < myProduct.price && p.price > 0).length;
+        const totalWithPrice = competitors.filter(p => p.price > 0).length;
+        if (totalWithPrice > 0) {
+            const percentile = Math.round((cheaperCount / totalWithPrice) * 100);
+            insights.push(`Fiyat sıralamasında ${totalWithPrice} rakip arasında ${cheaperCount + 1}. sıradasınız (rakiplerin %${percentile}'inden pahalı)`);
+        }
+
+        if (myProduct.stock <= 0) {
+            insights.push("⚠️ Ürününüz stokta yok — rakipleriniz satış yaparken siz kaçırıyorsunuz!");
+        } else if (myProduct.stock < 5) {
+            insights.push(`⚠️ Stok seviyeniz çok düşük (${myProduct.stock} adet) — stok yenilemesi yapın`);
+        }
+    }
+
     const result = {
         searchQuery: query,
+        myProduct: myProduct || null,
         analyzedProduct: productDetail ? {
             name: productDetail.name,
             brand: productDetail.brand,
@@ -364,6 +467,12 @@ async function analyzeCompetitor(userId, { productUrl, searchQuery, categoryName
         priceAnalysis: {
             avgPrice, minPrice, maxPrice,
             priceRange: { min: minPrice, max: maxPrice },
+            myPricePosition: myProduct ? {
+                price: myProduct.price,
+                cheaperThanPercent: competitors.filter(p => p.price > 0).length > 0
+                    ? Math.round((competitors.filter(p => p.price > myProduct.price && p.price > 0).length / competitors.filter(p => p.price > 0).length) * 100)
+                    : 0,
+            } : null,
         },
         topCompetitorBrands,
         productComparison,
@@ -1071,12 +1180,65 @@ async function getAnalysisHistory(userId, { type, limit = 20, page = 0 }) {
 // EXPORTS
 // ═════════════════════════════════════════════════════════════════════════════
 
+// ═════════════════════════════════════════════════════════════════════════════
+// 8. FLAŞ ÜRÜNLER — Anlık yüksek indirimli ürünler
+// ═════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Flaş ürünler — Trendyol'un GERÇEK flaş ürünlerini anlık çeker
+ * Trendyol butik sayfasındaki FLASH_SALES widget'ından veri alır
+ */
+async function getFlashProducts(userId, { categoryKey, limit }) {
+    const startTime = Date.now();
+
+    const result = await trendyol.getFlashProducts(categoryKey || "", limit || 24);
+
+    await RoketfyAnalysis.create({
+        userId,
+        analysisType: "product_research",
+        target: { categoryName: categoryKey || "flash_products" },
+        productResearch: {
+            searchQuery: "flash_products",
+            categoryName: categoryKey || "Tüm Kategoriler",
+            totalResults: result.products?.length || 0,
+        },
+        status: "completed",
+        processingTimeMs: Date.now() - startTime,
+    });
+
+    return result;
+}
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 9. GELİŞMİŞ KATEGORİ — Alt kategori desteği ile hiyerarşik liste
+// ═════════════════════════════════════════════════════════════════════════════
+
+function getDetailedCategories() {
+    return Object.entries(trendyol.TRENDYOL_CATEGORIES).map(([key, cat]) => ({
+        key,
+        name: cat.name,
+        slug: cat.slug,
+        subCategories: (cat.subCategories || []).map(sub => ({
+            key: `${key}--${sub.replace(/\s+/g, "-").toLowerCase()}`,
+            name: sub.charAt(0).toUpperCase() + sub.slice(1),
+            searchTerm: `${cat.name} ${sub}`,
+        })),
+    }));
+}
+
+
 module.exports = {
     // Ürün Araştırması (Trendyol pazar verisi)
     researchProducts,
     getBestSellers,
     getCategories,
+    // Flaş Ürünler
+    getFlashProducts,
+    // Gelişmiş Kategori
+    getDetailedCategories,
     // Rakip Araştırması
+    getMyProducts,
     analyzeCompetitor,
     // Listeleme Analisti
     analyzeListingByBarcode,

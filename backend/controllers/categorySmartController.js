@@ -74,7 +74,9 @@ const unifiedUpload = multer({
 }).fields([
     { name: "trendyol", maxCount: 1 },
     { name: "n11", maxCount: 1 },
-    { name: "ciceksepeti", maxCount: 1 }
+    { name: "ciceksepeti", maxCount: 1 },
+    { name: "hepsiburada", maxCount: 1 },
+    { name: "amazon", maxCount: 1 }
 ]);
 
 // userId helper
@@ -2489,6 +2491,8 @@ exports.exportMarketplaceCategoriesPDF = async (req, res) => {
  *   - trendyol: Excel file
  *   - n11: Excel file
  *   - ciceksepeti: Excel file
+ *   - hepsiburada: Excel file
+ *   - amazon: Excel file
  *   - clearExisting: boolean (optional)
  */
 exports.importUnifiedCategories = [
@@ -2501,20 +2505,24 @@ exports.importUnifiedCategories = [
             const tBuffer = files.trendyol?.[0]?.buffer || null;
             const nBuffer = files.n11?.[0]?.buffer || null;
             const cBuffer = files.ciceksepeti?.[0]?.buffer || null;
+            const hBuffer = files.hepsiburada?.[0]?.buffer || null;
+            const aBuffer = files.amazon?.[0]?.buffer || null;
 
-            if (!tBuffer && !nBuffer && !cBuffer) {
+            if (!tBuffer && !nBuffer && !cBuffer && !hBuffer && !aBuffer) {
                 return res.status(400).json({
                     success: false,
                     message: "En az bir platform Excel dosyası yüklemelisiniz"
                 });
             }
 
-            logger.info(`[UNIFIED CAT] Import başlıyor — T:${!!tBuffer} N:${!!nBuffer} C:${!!cBuffer} clear:${clearExisting}`);
+            logger.info(`[UNIFIED CAT] Import başlıyor — T:${!!tBuffer} N:${!!nBuffer} C:${!!cBuffer} H:${!!hBuffer} A:${!!aBuffer} clear:${clearExisting}`);
 
             const result = await unifiedImportService.importFromBuffers(
                 tBuffer,
                 nBuffer,
                 cBuffer,
+                hBuffer,
+                aBuffer,
                 { clearExisting: clearExisting === "true" }
             );
 
@@ -2661,7 +2669,7 @@ exports.mergeUnifiedCategories = async (req, res) => {
 exports.updateUnifiedCategory = async (req, res) => {
     try {
         const { id } = req.params;
-        const { canonicalName, notes, trendyol, n11, ciceksepeti } = req.body;
+        const { canonicalName, notes, trendyol, n11, ciceksepeti, hepsiburada, amazon } = req.body;
 
         const category = await UnifiedCategoryMap.findById(id);
         if (!category) {
@@ -2679,18 +2687,22 @@ exports.updateUnifiedCategory = async (req, res) => {
         if (trendyol !== undefined) category.trendyol = trendyol;
         if (n11 !== undefined) category.n11 = n11;
         if (ciceksepeti !== undefined) category.ciceksepeti = ciceksepeti;
+        if (hepsiburada !== undefined) category.hepsiburada = hepsiburada;
+        if (amazon !== undefined) category.amazon = amazon;
 
         // platformCount ve matchType'ı yeniden hesapla
         let count = 0;
         if (category.trendyol?.categoryId) count++;
         if (category.n11?.categoryId) count++;
         if (category.ciceksepeti?.categoryId) count++;
+        if (category.hepsiburada?.categoryId) count++;
+        if (category.amazon?.categoryId) count++;
         category.platformCount = count;
 
         // matchType güncelle (manuel ekleme varsa "manual" yap)
-        const hasManualAddition = (trendyol !== undefined || n11 !== undefined || ciceksepeti !== undefined);
+        const hasManualAddition = (trendyol !== undefined || n11 !== undefined || ciceksepeti !== undefined || hepsiburada !== undefined || amazon !== undefined);
         if (hasManualAddition && category.matchType !== "exact") {
-            category.matchType = count === 3 ? "exact" : count === 2 ? "2of3" : count === 1 ? "single" : "manual";
+            category.matchType = count >= 3 ? "exact" : count === 2 ? "2of3" : count === 1 ? "single" : "manual";
         }
 
         await category.save();
@@ -2763,6 +2775,8 @@ exports.exportUnifiedCategoriesExcel = async (req, res) => {
              "Trendyol ID", "Trendyol Adı", "Trendyol Yolu",
              "N11 ID", "N11 Adı", "N11 Yolu",
              "ÇiçekSepeti ID", "ÇiçekSepeti Adı", "ÇiçekSepeti Yolu",
+             "Hepsiburada ID", "Hepsiburada Adı", "Hepsiburada Yolu",
+             "Amazon ID", "Amazon Adı", "Amazon Yolu",
              "Notlar"]
         ];
 
@@ -2784,6 +2798,12 @@ exports.exportUnifiedCategoriesExcel = async (req, res) => {
                 cat.ciceksepeti?.categoryId || "",
                 cat.ciceksepeti?.categoryName || "",
                 cat.ciceksepeti?.categoryPath || "",
+                cat.hepsiburada?.categoryId || "",
+                cat.hepsiburada?.categoryName || "",
+                cat.hepsiburada?.categoryPath || "",
+                cat.amazon?.categoryId || "",
+                cat.amazon?.categoryName || "",
+                cat.amazon?.categoryPath || "",
                 cat.notes || ""
             ]);
         }
@@ -2791,6 +2811,8 @@ exports.exportUnifiedCategoriesExcel = async (req, res) => {
         const ws = XLSX.utils.aoa_to_sheet(rows);
         ws["!cols"] = [
             { wch: 30 }, { wch: 50 }, { wch: 20 }, { wch: 12 }, { wch: 12 }, { wch: 8 }, { wch: 8 },
+            { wch: 12 }, { wch: 30 }, { wch: 50 },
+            { wch: 12 }, { wch: 30 }, { wch: 50 },
             { wch: 12 }, { wch: 30 }, { wch: 50 },
             { wch: 12 }, { wch: 30 }, { wch: 50 },
             { wch: 12 }, { wch: 30 }, { wch: 50 },
@@ -2812,7 +2834,9 @@ exports.exportUnifiedCategoriesExcel = async (req, res) => {
             ["Platform Dağılımı", ""],
             ["Trendyol", stats.platforms.trendyol],
             ["N11", stats.platforms.n11],
-            ["ÇiçekSepeti", stats.platforms.ciceksepeti]
+            ["ÇiçekSepeti", stats.platforms.ciceksepeti],
+            ["Hepsiburada", stats.platforms.hepsiburada],
+            ["Amazon", stats.platforms.amazon]
         ];
         const statsWs = XLSX.utils.aoa_to_sheet(statsRows);
         statsWs["!cols"] = [{ wch: 25 }, { wch: 15 }];
