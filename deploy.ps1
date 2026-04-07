@@ -33,9 +33,9 @@ git commit -m "deploy: $(Get-Date -Format 'yyyy-MM-dd HH:mm')"
 git push Etic main --force
 Write-Host "[2/5] Git push tamamlandı!" -ForegroundColor Green
 
-## 3. AWS Git Pull + Backend Restart
+## 3. AWS Git Pull + npm install + Backend Restart
 Write-Host "[3/5] AWS sunucusu güncelleniyor..." -ForegroundColor Yellow
-ssh -i $KEY -o StrictHostKeyChecking=no $SERVER "cd ~/LysiaETIC && git pull origin main && cd backend && pm2 restart backend"
+ssh -i $KEY -o StrictHostKeyChecking=no $SERVER "cd ~/LysiaETIC && git pull origin main && cd backend && npm install --omit=dev && pm2 restart backend"
 Write-Host "[3/5] Backend güncellendi!" -ForegroundColor Green
 
 ## 4. Build dosyalarını SCP ile yükle
