@@ -465,7 +465,7 @@ const UserDashboard = () => {
                     borderBottom: `1px solid ${C.border}`,
                     position: "sticky", top: 0, zIndex: 100,
                     backdropFilter: "blur(12px)",
-                    padding: "1.25rem clamp(1rem, 4vw, 3rem)",
+                    padding: isMobile ? "0.75rem 1rem" : "1.25rem clamp(1rem, 4vw, 3rem)",
                 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "1rem" }}>
                         {/* Sol: Karşılama */}
@@ -533,8 +533,8 @@ const UserDashboard = () => {
                                         exit={{ opacity: 0, y: -8, scale: 0.95 }}
                                         transition={{ duration: 0.2 }}
                                         style={{
-                                            position: "absolute", top: "calc(100% + 8px)", right: 0,
-                                            width: 400, maxHeight: 520,
+                                            position: "absolute", top: "calc(100% + 8px)", right: isMobile ? -60 : 0,
+                                            width: isMobile ? "calc(100vw - 24px)" : 400, maxWidth: 400, maxHeight: 520,
                                             background: isDark ? "linear-gradient(135deg, #1a1f35 0%, #0f1419 100%)" : "linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)",
                                             border: `1px solid ${C.border}`,
                                             borderRadius: 16, overflow: "hidden",
@@ -694,7 +694,7 @@ const UserDashboard = () => {
                     </motion.div>
 
                     {/* ── KPI KARTLARI ── */}
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: "1rem", marginBottom: "1.5rem" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(auto-fill, minmax(210px, 1fr))", gap: isMobile ? "0.6rem" : "1rem", marginBottom: "1.5rem" }}>
                         <KpiCard C={C} icon="📦" label={t("dashboard.totalOrders")} value={fmtNum(allOrders.total, language)}
                             sub={`🆕 ${allOrders.statusCounts.new} ${t("dashboard.new")} · ⚙️ ${allOrders.statusCounts.processing} ${t("dashboard.processing")} · 🚚 ${allOrders.statusCounts.shipping} ${t("dashboard.shipping")}`}
                             color={C.accent} delay={0.05} onClick={() => setShowOrderDetailsModal(true)} />
@@ -716,14 +716,14 @@ const UserDashboard = () => {
                     </div>
 
                     {/* ── PAZARYERI TABLOSU + CANLI SİPARİŞ AKIŞI ── */}
-                    <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: "1.5rem", marginBottom: "1.5rem" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "2fr 1fr", gap: isMobile ? "1rem" : "1.5rem", marginBottom: "1.5rem" }}>
 
                         {/* Pazaryeri Durumu */}
                         {marketplaceEntries.length > 0 && (
                             <GlassCard C={C}>
                                 <SectionTitle C={C} icon="🏪" title={t("dashboard.marketplaceStatus")} badge={`${marketplaceEntries.length} ${t("dashboard.channel")}`} />
                                 <div style={{ overflowX: "auto" }}>
-                                    <table style={{ width: "100%", minWidth: 500, borderCollapse: "separate", borderSpacing: "0 0.35rem" }}>
+                                    <table style={{ width: "100%", minWidth: isMobile ? "auto" : 500, borderCollapse: "separate", borderSpacing: "0 0.35rem" }}>
                                         <thead>
                                             <tr style={{ color: C.muted, fontSize: "0.68rem", fontWeight: 600, textTransform: "uppercase" }}>
                                                 <th style={{ textAlign: "left", padding: "0.4rem 0.8rem" }}>{t("dashboard.channel")}</th>
@@ -809,7 +809,7 @@ const UserDashboard = () => {
                     </div>
 
                     {/* ── TREND + ÜRÜN SAĞLIĞI ── */}
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.5rem", marginBottom: "1.5rem" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: isMobile ? "1rem" : "1.5rem", marginBottom: "1.5rem" }}>
                         {/* 7 Günlük Trend */}
                         <GlassCard C={C}>
                             <SectionTitle C={C} icon="📈" title={t("dashboard.weeklyTrend")} badge={`${fmtNum(trendOrderTotal, language)} ${t("dashboard.orders").toLowerCase()} · ${fmtCurrency(trendRevenueTotal, language)}`} />
@@ -893,7 +893,7 @@ const UserDashboard = () => {
                     </div>
 
                     {/* ── UYARILAR + CİRO DAĞILIMI + HIZLI AKSİYONLAR ── */}
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "1.5rem", marginBottom: "1.5rem" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: isMobile ? "1rem" : "1.5rem", marginBottom: "1.5rem" }}>
 
                         {/* Uyarılar */}
                         <GlassCard C={C}>
@@ -983,7 +983,7 @@ const UserDashboard = () => {
                                 </motion.button>
                             }
                         />
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: "0.4rem" }}>
+                        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill, minmax(300px, 1fr))", gap: "0.4rem" }}>
                             {logs.length > 0 ? logs.slice(0, 8).map((log, i) => (
                                 <motion.div key={log.id || i} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 + i * 0.02 }}
                                     style={{ background: C.glass, border: `1px solid ${C.glassBr}`, borderRadius: 8, padding: "0.55rem 0.75rem", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.4rem" }}>
@@ -1288,19 +1288,25 @@ const UserDashboard = () => {
                 }}
             />
 
-            <AnimatePresence>
-                {isMobile && menuOpen && (
-                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}
-                        className="tw-fixed tw-inset-0 tw-bg-black/60 tw-backdrop-blur-sm tw-z-[9998]"
-                        onClick={() => setMenuOpen(false)} />
-                )}
-            </AnimatePresence>
+            {/* ── Mobile Hamburger Button ── */}
+            <button
+                className={`mobile-hamburger ${menuOpen && isMobile ? 'hidden' : ''}`}
+                onClick={() => setMenuOpen(true)}
+                aria-label="Menü"
+            >
+                <FaBars />
+            </button>
+
+            {/* ── Mobile Overlay ── */}
+            <div
+                className={`mobile-overlay ${menuOpen && isMobile ? 'visible' : ''}`}
+                onClick={() => setMenuOpen(false)}
+            />
 
             <motion.aside
                 className={`sidebar ${menuOpen ? "open" : "closed"}`}
-                animate={{ width: isMobile ? (menuOpen ? 280 : 0) : (menuOpen ? 260 : 72) }}
+                animate={isMobile ? {} : { width: menuOpen ? 260 : 72 }}
                 transition={{ duration: 0.25, ease: [0.25, 0.1, 0.25, 1] }}
-                style={isMobile ? { transform: menuOpen ? "translateX(0)" : "translateX(-100%)" } : {}}
             >
                 <div className="sidebar-header">
                     <motion.div className="logo-container" animate={{ opacity: menuOpen ? 1 : 0 }} transition={{ duration: 0.12 }}>

@@ -1581,26 +1581,98 @@
 }
 
 /* ═══════════════════════════════════════════════════════════
+   MOBILE HAMBURGER BUTTON — Sidebar kapalıyken görünür
+   ═══════════════════════════════════════════════════════════ */
+.mobile-hamburger {
+    display: none;
+    position: fixed;
+    top: 12px;
+    left: 12px;
+    z-index: 9997;
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(10, 13, 24, 0.95);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 1.1rem;
+    cursor: pointer;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+    transition: all 0.2s ease;
+    /* ✅ Safe area for notched devices */
+    top: calc(12px + env(safe-area-inset-top));
+    left: calc(12px + env(safe-area-inset-left));
+}
+
+.mobile-hamburger:active {
+    transform: scale(0.92);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   MOBILE OVERLAY — Sidebar açıkken arka plan karartma
+   ═══════════════════════════════════════════════════════════ */
+.mobile-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 9998;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+}
+
+/* ═══════════════════════════════════════════════════════════
    MOBILE (max-width: 768px)
    ═══════════════════════════════════════════════════════════ */
 @media (max-width: 768px) {
-    /* Sidebar — full overlay on mobile (width & transform Framer Motion kontrolünde) */
+    /* ── Hamburger button — always visible on mobile ── */
+    .mobile-hamburger {
+        display: flex;
+    }
+
+    /* Sidebar açıkken hamburger'ı gizle */
+    .mobile-hamburger.hidden {
+        display: none;
+    }
+
+    /* ── Overlay — sidebar açıkken göster ── */
+    .mobile-overlay.visible {
+        display: block;
+    }
+
+    /* ── Sidebar — full overlay on mobile ── */
     .sidebar {
         position: fixed;
         z-index: 9999;
+        width: 280px !important;
+        transform: translateX(-100%);
+        transition: transform 0.3s cubic-bezier(0.25, 0.1, 0.25, 1);
+    }
+
+    .sidebar.open {
+        transform: translateX(0) !important;
     }
 
     .sidebar.closed {
-        /* Framer Motion kontrol ediyor */
+        transform: translateX(-100%) !important;
+        width: 0 !important;
     }
 
+    /* ── Content area — full width on mobile ── */
     .content-area {
         left: 0 !important;
         width: 100% !important;
         padding: 0.75rem;
+        /* ✅ Space for hamburger button */
+        padding-top: calc(60px + env(safe-area-inset-top));
     }
 
-    .sidebar.closed + .content-area {
+    .sidebar.closed + .content-area,
+    .sidebar.open + .content-area {
         left: 0 !important;
     }
 
@@ -1698,6 +1770,16 @@
 @media (max-width: 480px) {
     .content-area {
         padding: 0.5rem;
+        padding-top: calc(56px + env(safe-area-inset-top));
+    }
+
+    .mobile-hamburger {
+        width: 40px;
+        height: 40px;
+        border-radius: 10px;
+        font-size: 1rem;
+        top: calc(10px + env(safe-area-inset-top));
+        left: calc(10px + env(safe-area-inset-left));
     }
 
     .content-title {
@@ -1772,5 +1854,7 @@
         font-size: 0.9rem;
     }
 
-    /* Sidebar — Framer Motion kontrol ediyor */
+    .sidebar {
+        width: 260px !important;
+    }
 }
