@@ -200,10 +200,216 @@ exports.getCargoTrackingOrders = async (req, res) => {
             }
         };
 
-        // Hepsiburada için kargo çekme fonksiyonu (placeholder - API eklendiğinde doldurulacak)
-        const fetchHepsiburadaCargo = async (merchantId, serviceKey, startDate, endDate) => {
-            logger.info("Hepsiburada kargo API henüz entegre edilmedi");
-            return [];
+        // Hepsiburada için kargo çekme fonksiyonu
+        // Hepsiburada OMS API: oms-external.hepsiburada.com
+        // Dokümantasyon: https://developers.hepsiburada.com/hepsiburada/reference/siparis-entegrasyonu-onemli-bilgiler
+        //
+        // Strateji:
+        //   1) Paket Bilgilerini Listeleme → tüm paketler (barcode, cargoCompany, packageNumber, items)
+        //   2) Her paket için Kargo Bilgilerini Listeleme → trackingInfoCode, trackingInfoUrl, status
+        //
+        // Parametreler (dokümantasyondan):
+        //   - beginDate & endDate: 24 saatlik aralıklar (zorunlu)
+        //   - VEYA timespan: saat cinsinden (tek başına max 24)
+        //   - limit: max 10 (limit-offset ile birlikte)
+        //   - offset: pagination
+        const fetchHepsiburadaCargo = async (merchantId, authUser, authPass, startDate, endDate) => {
+            let cargoOrdersFetched = [];
+
+            try {
+                if (!merchantId || !authUser || !authPass) {
+                    logger.warn("[Hepsiburada Cargo] MerchantId veya Auth bilgileri eksik");
+                    return [];
+                }
+
+                // Debug: credential'ların gelip gelmediğini logla (değerleri değil, varlığını)
+                logger.info(`🔑 [Hepsiburada Cargo] Auth — merchantId: ${merchantId?.substring(0, 6)}..., authUser: ${authUser?.substring(0, 6)}..., authPass: ${authPass ? "***(" + authPass.length + " chars)" : "MISSING"}`);
+
+                const authHeader = `Basic ${Buffer.from(`${authUser}:${authPass}`, "utf-8").toString("base64")}`;
+                const headers = {
+                    Authorization: authHeader,
+                    "Content-Type": "application/json",
+                    "User-Agent": "LysiaETIC"
+                };
+
+                const OMS_BASE = "https://oms-external.hepsiburada.com";
+                const seenPackages = new Set();
+
+                // ── Tarih aralığını 24 saatlik dilimlere böl ──
+                // stockCronService 2 saatlik dilim kullanıyor, biz 90 güne kadar çektiğimiz için 24h
+                const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+                const timeWindows = [];
+                let windowStart = startDate;
+                while (windowStart < endDate) {
+                    const windowEnd = Math.min(windowStart + ONE_DAY_MS, endDate);
+                    timeWindows.push({ begin: windowStart, end: windowEnd });
+                    windowStart = windowEnd;
+                }
+
+                logger.info(`📦 [Hepsiburada Cargo] OMS Packages API — ${timeWindows.length} adet 24h dilim ile çekilecek`);
+
+                // ── 1) Her 24 saatlik dilim için paketleri çek ──
+                for (const window of timeWindows) {
+                    const beginDate = new Date(window.begin).toISOString();
+                    const endDateStr = new Date(window.end).toISOString();
+
+                    let offset = 0;
+                    const limit = 50; // stockCronService ile aynı limit
+                    let hasMore = true;
+
+                    while (hasMore) {
+                        try {
+                            const url = `${OMS_BASE}/packages/merchantid/${merchantId}` +
+                                `?startDate=${encodeURIComponent(beginDate)}` +
+                                `&endDate=${encodeURIComponent(endDateStr)}` +
+                                `&limit=${limit}&offset=${offset}`;
+
+                            const response = await axios.get(url, { headers, timeout: 20000 });
+
+                            // Response header'dan totalCount alınabilir
+                            const rawData = response.data;
+                            // API array veya object dönebilir
+                            const packages = Array.isArray(rawData) ? rawData : (rawData?.packages || rawData?.content || []);
+
+                            if (!Array.isArray(packages) || packages.length === 0) {
+                                hasMore = false;
+                                break;
+                            }
+
+                            for (const pkg of packages) {
+                                const packageNumber = String(pkg.packageNumber || pkg.id || "");
+                                if (!packageNumber || seenPackages.has(packageNumber)) continue;
+                                seenPackages.add(packageNumber);
+
+                                // Paket bilgilerinden kargo verilerini çıkar
+                                const barcode = pkg.barcode || "";
+                                const cargoCompany = pkg.cargoCompany || "Bilinmiyor";
+                                const orderNumber = String(pkg.orderNumber || packageNumber);
+                                const recipientName = pkg.recipientName || pkg.customerName || pkg.customerId || "Hepsiburada Müşteri";
+                                const pkgStatus = pkg.status || "Open";
+
+                                const orderTimestamp = pkg.orderDate
+                                    ? new Date(pkg.orderDate).getTime()
+                                    : Date.now();
+
+                                // Ürün bilgileri (items array)
+                                const products = (pkg.items || pkg.lines || []).map(item => ({
+                                    productName: item.productName || item.name || "Ürün",
+                                    quantity: item.quantity || 1,
+                                    barcode: item.merchantSku || item.hepsiburadaSku || item.sku || item.productBarcode || "",
+                                    imageUrl: item.imageUrl || "/default-image.jpg"
+                                }));
+
+                                cargoOrdersFetched.push({
+                                    uniqueId: packageNumber,
+                                    orderNumber,
+                                    packageNumber,
+                                    timestamp: orderTimestamp,
+                                    orderDate: new Date(orderTimestamp).toLocaleString("tr-TR", { timeZone: "Europe/Istanbul" }),
+                                    customerName: recipientName,
+                                    status: pkgStatus,
+                                    trackingNumber: barcode, // Kargo barkodu — detay aşamasında trackingInfoCode ile güncellenecek
+                                    cargoProviderName: cargoCompany,
+                                    cargoTrackingLink: "",
+                                    marketplace: "Hepsiburada",
+                                    products: products.length > 0 ? products : [{ productName: "Ürün", quantity: 1, barcode: "", imageUrl: "/default-image.jpg" }]
+                                });
+                            }
+
+                            if (packages.length < limit) {
+                                hasMore = false;
+                            } else {
+                                offset += limit;
+                                await new Promise(resolve => setTimeout(resolve, 200));
+                            }
+                        } catch (err) {
+                            if (err.response?.status === 401) {
+                                logger.error("❌ [Hepsiburada Cargo] OMS 401 Unauthorized — credentials hatalı", {
+                                    responseData: err.response?.data,
+                                    responseHeaders: err.response?.headers,
+                                    requestUrl: err.config?.url?.replace(/merchantid\/[^/]+/, "merchantid/***")
+                                });
+                                // 401 ise diğer dilimleri de denemeye gerek yok
+                                return cargoOrdersFetched;
+                            } else if (err.response?.status === 404) {
+                                logger.info(`ℹ️ [Hepsiburada Cargo] Bu dilimde paket bulunamadı`);
+                            } else {
+                                logger.error(`❌ [Hepsiburada Cargo] OMS API hatası (offset: ${offset})`, {
+                                    error: err.message,
+                                    status: err.response?.status,
+                                    data: err.response?.data
+                                });
+                            }
+                            hasMore = false;
+                        }
+                    }
+
+                    // Rate limiting — dilimler arası bekleme
+                    await new Promise(resolve => setTimeout(resolve, 300));
+                }
+
+                logger.info(`✅ [Hepsiburada Cargo] OMS'den ${cargoOrdersFetched.length} paket çekildi`);
+
+                // ── 2) Her paket için kargo takip bilgilerini çek ──
+                // Endpoint: GET /packages/merchantid/{merchantId}/packagenumber/{packageNumber}
+                // Response: { packageNumber, barcode, status, cargoCompany, trackingInfoCode, trackingInfoUrl }
+                if (cargoOrdersFetched.length > 0) {
+                    logger.info(`🔍 [Hepsiburada Cargo] ${cargoOrdersFetched.length} paket için kargo takip detayları çekiliyor...`);
+
+                    let trackingFetched = 0;
+                    for (const cargo of cargoOrdersFetched) {
+                        if (!cargo.packageNumber) continue;
+
+                        try {
+                            const trackUrl = `${OMS_BASE}/packages/merchantid/${merchantId}/packagenumber/${cargo.packageNumber}`;
+                            const trackResponse = await axios.get(trackUrl, { headers, timeout: 10000 });
+                            const trackData = trackResponse.data;
+
+                            if (trackData) {
+                                // trackingInfoCode = kargo takip numarası
+                                if (trackData.trackingInfoCode) {
+                                    cargo.trackingNumber = trackData.trackingInfoCode;
+                                }
+                                // trackingInfoUrl = kargo takip linki
+                                if (trackData.trackingInfoUrl) {
+                                    cargo.cargoTrackingLink = trackData.trackingInfoUrl;
+                                }
+                                // Kargo durumu güncelle (InTransit, Delivered vb.)
+                                if (trackData.status) {
+                                    cargo.status = trackData.status;
+                                }
+                                // Kargo firması güncelle
+                                if (trackData.cargoCompany) {
+                                    cargo.cargoProviderName = trackData.cargoCompany;
+                                }
+                                trackingFetched++;
+                            }
+                        } catch (trackErr) {
+                            // 404 = henüz kargo bilgisi yok, normal durum
+                            if (trackErr.response?.status !== 404) {
+                                logger.warn(`⚠️ [Hepsiburada Cargo] Paket ${cargo.packageNumber} kargo detayı alınamadı: ${trackErr.message}`);
+                            }
+                        }
+
+                        // Rate limiting
+                        await new Promise(resolve => setTimeout(resolve, 100));
+                    }
+
+                    logger.info(`✅ [Hepsiburada Cargo] ${trackingFetched}/${cargoOrdersFetched.length} paket için kargo takip detayı alındı`);
+                }
+
+                // Takip numarası olmayan paketleri filtrele (barcode bile yoksa kargo bilgisi yok demektir)
+                cargoOrdersFetched = cargoOrdersFetched.filter(c =>
+                    c.trackingNumber && c.trackingNumber !== "Yok" && c.trackingNumber !== ""
+                );
+
+                logger.info(`✅ [Hepsiburada Cargo] Toplam ${cargoOrdersFetched.length} kargo kaydı döndürülüyor`);
+
+            } catch (error) {
+                logger.error("❌ [Hepsiburada Cargo] Genel hata", { error: error.message });
+            }
+
+            return cargoOrdersFetched;
         };
 
         // ÇiçekSepeti için kargo çekme fonksiyonu
@@ -273,9 +479,20 @@ exports.getCargoTrackingOrders = async (req, res) => {
                         break;
 
                     case "hepsiburada":
-                        const { merchantId, apiKey: hbApiKey } = integration.credentials;
-                        if (merchantId && hbApiKey) {
-                            cargoOrders = await fetchHepsiburadaCargo(merchantId, hbApiKey, startDate, endDate);
+                        // ✅ Hepsiburada Auth: Basic base64(merchantId:serviceKey)
+                        // hepsiburadaService.js ve marketplaceController.js ile aynı format
+                        // merchantId = URL'de ve auth user olarak kullanılır
+                        // serviceKey = auth password (DB'de serviceKey, apiKey veya password olarak kayıtlı olabilir)
+                        const {
+                            merchantId,
+                            serviceKey: hbServiceKey, apiKey: hbApiKey,
+                            password: hbPass, apiSecret: hbApiSecret
+                        } = integration.credentials;
+                        const hbAuthPass = hbServiceKey || hbApiKey || hbPass || hbApiSecret;
+                        if (merchantId && hbAuthPass) {
+                            cargoOrders = await fetchHepsiburadaCargo(merchantId, merchantId, hbAuthPass, startDate, endDate);
+                        } else {
+                            logger.warn(`[Hepsiburada Cargo] Credential eksik — merchantId: ${!!merchantId}, serviceKey: ${!!hbAuthPass}`);
                         }
                         break;
 

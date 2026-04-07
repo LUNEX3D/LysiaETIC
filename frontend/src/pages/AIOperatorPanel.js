@@ -8,6 +8,7 @@ import API from "../services/api";
 import { motion, AnimatePresence } from "framer-motion";
 import Particles from "react-tsparticles";
 import { loadSlim } from "tsparticles-slim";
+import { useApp } from "../context/AppContext";
 
 const C = {
     bg: "#050a12", bgAlt: "#0a1020",
@@ -238,6 +239,8 @@ const TypingIndicator = () => (
    MAIN COMPONENT
    ═══════════════════════════════════════════════════════════ */
 const AIOperatorPanel = () => {
+    const { theme: _theme } = useApp();
+    void _theme; // tema değişikliğinde re-render tetiklenir
     const [loading, setLoading] = useState(true);
     const [cycleLoading, setCycleLoading] = useState(false);
     const [operatorStatus, setOperatorStatus] = useState(null);

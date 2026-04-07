@@ -27,6 +27,7 @@ const StockSyncLogSchema = new mongoose.Schema({
             "order_placed",      // Sipariş verildi
             "auto_sync",         // Otomatik senkronizasyon
             "manual_sync",       // Manuel senkronizasyon
+            "webhook_order",     // ✅ FIX #3: Webhook ile gelen sipariş
             "bulk_update",       // Toplu güncelleme
             "bulk_delete"        // Toplu silme
         ]
@@ -115,6 +116,22 @@ StockSyncLogSchema.index({ userId: 1, timestamp: -1 });
 StockSyncLogSchema.index({ "product.barcode": 1, timestamp: -1 });
 StockSyncLogSchema.index({ actionType: 1, status: 1 });
 StockSyncLogSchema.index({ "notification.sent": 1, "notification.read": 1 });
+
+// ✅ FIX #8: TTL Index — 90 günden eski logları otomatik sil
+// MongoDB TTL index: createdAt alanı 90 gün (7.776.000 saniye) geçince otomatik silinir
+// Bu sayede StockSyncLog koleksiyonu sınırsız büyümez
+StockSyncLogSchema.index({ createdAt: 1 }, { expireAfterSeconds: 90 * 24 * 60 * 60 });
+
+// ✅ FIX #8: Sipariş tekrar işleme kontrolü için compound index (performans)
+// isOrderAlreadyProcessed() fonksiyonu bu alanları sorgular
+StockSyncLogSchema.index({
+    userId: 1,
+    "order.orderId": 1,
+    "product.barcode": 1,
+    "marketplace.name": 1,
+    actionType: 1,
+    status: 1
+});
 
 // Bildirimi okundu olarak işaretle
 StockSyncLogSchema.methods.markAsRead = function() {

@@ -1,0 +1,16 @@
+# ═══════════════════════════════════════════════════════════════
+# LysiaETIC Frontend — Development Dockerfile (hot-reload)
+# ═══════════════════════════════════════════════════════════════
+FROM node:18-alpine
+
+WORKDIR /app
+COPY package.json package-lock.json* ./
+RUN npm install && npm cache clean --force
+
+COPY . .
+
+ENV NODE_OPTIONS=--openssl-legacy-provider
+
+EXPOSE 3000
+
+CMD ["npm", "start"]

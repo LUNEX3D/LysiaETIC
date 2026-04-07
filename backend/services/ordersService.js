@@ -34,24 +34,33 @@ const fetchTrendyolOrders = async (sellerId, apiKey, apiSecret, startDate, endDa
 
                 if (!response.data || !Array.isArray(response.data.content)) break;
 
-                orders.push(...response.data.content.map(pkg => ({
-                    orderNumber: pkg.orderNumber,
-                    customerName: pkg.shipmentAddress?.fullName || "Unknown",
-                    totalPrice: pkg.grossAmount ? pkg.grossAmount.toFixed(2) : "0.00",
-                    status: pkg.status,
-                    orderDate: new Date(pkg.orderDate).toLocaleString("tr-TR", { timeZone: "Europe/Istanbul" }),
-                    orderDateRaw: pkg.orderDate, // epoch ms — sync için
-                    products: pkg.lines.map(line => ({
-                        productName: line.productName,
-                        quantity: line.quantity,
-                        price: line.amount || line.price || 0,
-                        barcode: line.barcode || line.productBarcode || "",
-                        merchantSku: line.merchantSku || line.sku || "",
-                        productCode: line.productCode || "",
-                        imageUrl: line.imageUrl || "/default-product.jpg",
-                        commissionAmount: line.commissionFee || 0
-                    }))
-                })));
+                orders.push(...response.data.content.map(pkg => {
+                    // ✅ FIX: Tutar hesaplama — grossAmount, totalPrice, packageTotalPrice, packageGrossAmount veya line toplamı
+                    const lineTotal = Array.isArray(pkg.lines)
+                        ? pkg.lines.reduce((sum, line) => sum + (Number(line.amount || line.price || line.lineGrossAmount || 0) * Number(line.quantity || 1)), 0)
+                        : 0;
+                    const rawTotal = Number(pkg.grossAmount || pkg.totalPrice || pkg.packageTotalPrice || pkg.packageGrossAmount || 0);
+                    const finalTotal = rawTotal > 0 ? rawTotal : lineTotal;
+
+                    return {
+                        orderNumber: pkg.orderNumber,
+                        customerName: pkg.shipmentAddress?.fullName || "Unknown",
+                        totalPrice: finalTotal > 0 ? finalTotal.toFixed(2) : "0.00",
+                        status: pkg.status,
+                        orderDate: new Date(pkg.orderDate).toLocaleString("tr-TR", { timeZone: "Europe/Istanbul" }),
+                        orderDateRaw: pkg.orderDate, // epoch ms — sync için
+                        products: pkg.lines.map(line => ({
+                            productName: line.productName,
+                            quantity: line.quantity,
+                            price: line.amount || line.price || line.lineGrossAmount || 0,
+                            barcode: line.barcode || line.productBarcode || "",
+                            merchantSku: line.merchantSku || line.sku || "",
+                            productCode: line.productCode || "",
+                            imageUrl: line.imageUrl || "/default-product.jpg",
+                            commissionAmount: line.commissionFee || 0
+                        }))
+                    };
+                }));
 
                 totalPages = response.data.totalPages;
                 page++;
@@ -137,16 +146,24 @@ const fetchHepsiburadaOrders = async (merchantId, serviceKey, startDate, endDate
                     logger.info(`✅ [Hepsiburada] ${orders.length} sipariş bulundu (Offset: ${currentOffset})`);
 
                     // Siparişleri formatla ve ekle
-                    const formattedOrders = orders.map(order => ({
+                    const formattedOrders = orders.map(order => {
+                        // ✅ FIX: Tutar hesaplama — birden fazla alan kontrol et + item toplamı fallback
+                        const rawItems = order.items || order.orderItems || [];
+                        const itemTotal = rawItems.reduce((sum, item) => {
+                            const p = Number(item.price || item.unitPrice || item.amount || 0);
+                            const q = Number(item.quantity || 1);
+                            return sum + (p * q);
+                        }, 0);
+                        const rawTotal = Number(order.totalPrice || order.totalAmount || order.grandTotal || order.orderTotal || 0);
+                        const finalTotal = rawTotal > 0 ? rawTotal : itemTotal;
+
+                        return {
                         orderNumber: order.orderNumber || order.merchantOrderNumber || order.id,
                         orderDate: order.orderDate || order.createdDate || order.orderCreatedDate
                             ? new Date(order.orderDate || order.createdDate || order.orderCreatedDate).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' })
                             : 'Bilinmiyor',
                         customerName: order.customerName || order.customerId || order.buyerName || 'Hepsiburada Müşteri',
-                        totalPrice: order.totalPrice?.toFixed?.(2) ||
-                            order.totalAmount?.toFixed?.(2) ||
-                            order.grandTotal?.toFixed?.(2) ||
-                            Number(order.totalPrice || order.totalAmount || 0).toFixed(2),
+                        totalPrice: finalTotal > 0 ? finalTotal.toFixed(2) : '0.00',
                         status: order.status || 'UNKNOWN',
                         trackingNumber: order.trackingNumber || order.cargoTrackingNumber || 'Yok',
                         cargoCompany: order.cargoCompany || order.cargoProviderName || 'Bilinmiyor',
@@ -177,7 +194,8 @@ const fetchHepsiburadaOrders = async (merchantId, serviceKey, startDate, endDate
                                     price: '0.00',
                                     imageUrl: '/default-product.jpg'
                                 }]
-                    }));
+                    };
+                    });
 
                     allOrders.push(...formattedOrders);
 

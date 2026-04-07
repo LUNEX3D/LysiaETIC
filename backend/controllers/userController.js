@@ -254,6 +254,339 @@ exports.updateNotificationSettings = async (req, res) => {
     }
 };
 
+// ═══════════════════════════════════════════════════════════════
+// 🔧 ÜRÜN EŞLEŞTİRME ÖNCELİK AYARLARI
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Ürün eşleştirme öncelik sırasını getir
+ * GET /user/product-match-priority
+ */
+exports.getProductMatchPriority = async (req, res) => {
+    try {
+        const userId = req.user._id || req.userId;
+        const user = await User.findById(userId).select("preferences.productMatchPriority");
+
+        if (!user) {
+            return res.status(404).json({ success: false, message: "Kullanıcı bulunamadı" });
+        }
+
+        const priority = user.preferences?.productMatchPriority || {
+            primary: "sku",
+            secondary: "barcode",
+            tertiary: "name"
+        };
+
+        res.json({ success: true, productMatchPriority: priority });
+    } catch (error) {
+        logger.error("❌ Ürün eşleştirme ayarı getirme hatası:", error);
+        res.status(500).json({ success: false, message: "Ayar getirilemedi", error: error.message });
+    }
+};
+
+/**
+ * Ürün eşleştirme öncelik sırasını güncelle
+ * PUT /user/product-match-priority
+ * Body: { primary: "sku"|"barcode"|"name", secondary: ..., tertiary: ... }
+ */
+exports.updateProductMatchPriority = async (req, res) => {
+    try {
+        const userId = req.user._id || req.userId;
+        const { primary, secondary, tertiary } = req.body;
+
+        const validValues = ["sku", "barcode", "name"];
+
+        // Validasyon: 3 değer de farklı olmalı
+        if (!validValues.includes(primary) || !validValues.includes(secondary) || !validValues.includes(tertiary)) {
+            return res.status(400).json({
+                success: false,
+                message: "Geçersiz değer. Kabul edilen: sku, barcode, name"
+            });
+        }
+
+        const uniqueCheck = new Set([primary, secondary, tertiary]);
+        if (uniqueCheck.size !== 3) {
+            return res.status(400).json({
+                success: false,
+                message: "Her öncelik farklı bir alan olmalıdır"
+            });
+        }
+
+        logger.info(`🔧 Ürün eşleştirme önceliği güncelleniyor — userId: ${userId} → 1: ${primary}, 2: ${secondary}, 3: ${tertiary}`);
+
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ success: false, message: "Kullanıcı bulunamadı" });
+        }
+
+        if (!user.preferences) user.preferences = {};
+        if (!user.preferences.productMatchPriority) user.preferences.productMatchPriority = {};
+
+        user.preferences.productMatchPriority.primary = primary;
+        user.preferences.productMatchPriority.secondary = secondary;
+        user.preferences.productMatchPriority.tertiary = tertiary;
+
+        user.markModified("preferences");
+        await user.save();
+
+        logger.info(`✅ Ürün eşleştirme önceliği güncellendi — userId: ${userId}`);
+
+        res.json({
+            success: true,
+            message: "Ürün eşleştirme önceliği kaydedildi",
+            productMatchPriority: { primary, secondary, tertiary }
+        });
+    } catch (error) {
+        logger.error("❌ Ürün eşleştirme ayarı güncelleme hatası:", error);
+        res.status(500).json({ success: false, message: "Ayar kaydedilemedi", error: error.message });
+    }
+};
+
+// ═══════════════════════════════════════════════════════════════
+// 🔧 GENEL TERCİHLER (PREFERENCES) — GET & UPDATE
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Tüm kullanıcı tercihlerini getir
+ * GET /user/preferences
+ */
+exports.getPreferences = async (req, res) => {
+    try {
+        const userId = req.user._id || req.userId;
+        const user = await User.findById(userId).select("preferences");
+
+        if (!user) {
+            return res.status(404).json({ success: false, message: "Kullanıcı bulunamadı" });
+        }
+
+        const prefs = user.preferences || {};
+
+        res.json({
+            success: true,
+            preferences: {
+                language: prefs.language || "tr",
+                timezone: prefs.timezone || "Europe/Istanbul",
+                currency: prefs.currency || "TRY",
+                dateFormat: prefs.dateFormat || "DD/MM/YYYY",
+                tablePageSize: prefs.tablePageSize || 25,
+                notifications: prefs.notifications || { email: true, sms: false, push: true },
+                orderNotifications: prefs.orderNotifications !== false,
+                stockNotifications: prefs.stockNotifications !== false,
+                financeNotifications: prefs.financeNotifications !== false,
+                syncErrorNotifications: prefs.syncErrorNotifications !== false,
+                lowStockAlertThreshold: prefs.lowStockAlertThreshold || 10,
+                productMatchPriority: prefs.productMatchPriority || { primary: "sku", secondary: "barcode", tertiary: "name" },
+                defaultSafetyStock: prefs.defaultSafetyStock || 0,
+                defaultVatRate: prefs.defaultVatRate != null ? prefs.defaultVatRate : 20,
+                autoSyncEnabled: prefs.autoSyncEnabled !== false,
+                autoSyncStock: prefs.autoSyncStock !== false,
+                autoSyncPrice: prefs.autoSyncPrice !== false,
+                autoSyncInterval: prefs.autoSyncInterval || 5,
+                platformPriceMultipliers: prefs.platformPriceMultipliers || { Trendyol: 0, Hepsiburada: 0, N11: 0, Amazon: 0, "ÇiçekSepeti": 0 },
+                platformCommissionRates: prefs.platformCommissionRates || { Trendyol: 0, Hepsiburada: 0, N11: 0, Amazon: 0, "ÇiçekSepeti": 0 },
+            }
+        });
+    } catch (error) {
+        logger.error("❌ Tercihler getirme hatası:", error);
+        res.status(500).json({ success: false, message: "Tercihler getirilemedi", error: error.message });
+    }
+};
+
+/**
+ * Kullanıcı tercihlerini güncelle (kısmi güncelleme destekli)
+ * PUT /user/preferences
+ * Body: { timezone?, currency?, dateFormat?, tablePageSize?, defaultSafetyStock?, ... }
+ */
+exports.updatePreferences = async (req, res) => {
+    try {
+        const userId = req.user._id || req.userId;
+        const updates = req.body;
+
+        logger.info(`🔧 Tercihler güncelleniyor — userId: ${userId}`);
+
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ success: false, message: "Kullanıcı bulunamadı" });
+        }
+
+        if (!user.preferences) user.preferences = {};
+
+        // Basit alanlar — doğrudan güncelle
+        const simpleFields = [
+            "timezone", "currency", "dateFormat", "tablePageSize",
+            "orderNotifications", "stockNotifications", "financeNotifications",
+            "syncErrorNotifications", "lowStockAlertThreshold",
+            "defaultSafetyStock", "defaultVatRate",
+            "autoSyncEnabled", "autoSyncStock", "autoSyncPrice", "autoSyncInterval"
+        ];
+
+        for (const field of simpleFields) {
+            if (updates[field] !== undefined) {
+                user.preferences[field] = updates[field];
+            }
+        }
+
+        // Nested notifications objesi
+        if (updates.notifications) {
+            if (!user.preferences.notifications) user.preferences.notifications = {};
+            if (updates.notifications.email !== undefined) user.preferences.notifications.email = updates.notifications.email;
+            if (updates.notifications.sms !== undefined) user.preferences.notifications.sms = updates.notifications.sms;
+            if (updates.notifications.push !== undefined) user.preferences.notifications.push = updates.notifications.push;
+        }
+
+        // Platform çarpanları
+        if (updates.platformPriceMultipliers) {
+            if (!user.preferences.platformPriceMultipliers) user.preferences.platformPriceMultipliers = {};
+            for (const [platform, value] of Object.entries(updates.platformPriceMultipliers)) {
+                user.preferences.platformPriceMultipliers[platform] = Number(value) || 0;
+            }
+        }
+
+        // Platform komisyon oranları
+        if (updates.platformCommissionRates) {
+            if (!user.preferences.platformCommissionRates) user.preferences.platformCommissionRates = {};
+            for (const [platform, value] of Object.entries(updates.platformCommissionRates)) {
+                user.preferences.platformCommissionRates[platform] = Number(value) || 0;
+            }
+        }
+
+        // productMatchPriority ayrı endpoint'ten yönetiliyor ama buradan da güncellenebilir
+        if (updates.productMatchPriority) {
+            const { primary, secondary, tertiary } = updates.productMatchPriority;
+            const validValues = ["sku", "barcode", "name"];
+            if (validValues.includes(primary) && validValues.includes(secondary) && validValues.includes(tertiary)) {
+                const uniqueCheck = new Set([primary, secondary, tertiary]);
+                if (uniqueCheck.size === 3) {
+                    if (!user.preferences.productMatchPriority) user.preferences.productMatchPriority = {};
+                    user.preferences.productMatchPriority.primary = primary;
+                    user.preferences.productMatchPriority.secondary = secondary;
+                    user.preferences.productMatchPriority.tertiary = tertiary;
+                }
+            }
+        }
+
+        user.markModified("preferences");
+        await user.save();
+
+        logger.info(`✅ Tercihler güncellendi — userId: ${userId}`);
+
+        res.json({
+            success: true,
+            message: "Tercihler kaydedildi",
+            preferences: user.preferences
+        });
+    } catch (error) {
+        logger.error("❌ Tercihler güncelleme hatası:", error);
+        res.status(500).json({ success: false, message: "Tercihler kaydedilemedi", error: error.message });
+    }
+};
+
+/**
+ * Aktif oturumları getir
+ * GET /user/sessions
+ */
+exports.getActiveSessions = async (req, res) => {
+    try {
+        const userId = req.user._id || req.userId;
+        const user = await User.findById(userId).select("refreshTokens security.loginHistory");
+
+        if (!user) {
+            return res.status(404).json({ success: false, message: "Kullanıcı bulunamadı" });
+        }
+
+        // Aktif refresh token'lar (süresi dolmamış)
+        const now = new Date();
+        const activeSessions = (user.refreshTokens || [])
+            .filter(rt => rt.expiresAt > now)
+            .map(rt => ({
+                id: rt._id,
+                device: rt.device || "Bilinmeyen Cihaz",
+                createdAt: rt.createdAt,
+                expiresAt: rt.expiresAt
+            }));
+
+        // Son giriş geçmişi (son 20)
+        const loginHistory = (user.security?.loginHistory || [])
+            .slice(-20)
+            .reverse()
+            .map(lh => ({
+                ip: lh.ip || "—",
+                device: lh.device || "—",
+                location: lh.location || "—",
+                timestamp: lh.timestamp
+            }));
+
+        res.json({
+            success: true,
+            activeSessions,
+            loginHistory,
+            totalActive: activeSessions.length
+        });
+    } catch (error) {
+        logger.error("❌ Oturum bilgisi getirme hatası:", error);
+        res.status(500).json({ success: false, message: "Oturum bilgileri getirilemedi", error: error.message });
+    }
+};
+
+/**
+ * Belirli bir oturumu sonlandır
+ * DELETE /user/sessions/:sessionId
+ */
+exports.revokeSession = async (req, res) => {
+    try {
+        const userId = req.user._id || req.userId;
+        const { sessionId } = req.params;
+
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ success: false, message: "Kullanıcı bulunamadı" });
+        }
+
+        const initialLen = (user.refreshTokens || []).length;
+        user.refreshTokens = (user.refreshTokens || []).filter(rt => rt._id.toString() !== sessionId);
+
+        if (user.refreshTokens.length === initialLen) {
+            return res.status(404).json({ success: false, message: "Oturum bulunamadı" });
+        }
+
+        await user.save();
+
+        logger.info(`✅ Oturum sonlandırıldı — userId: ${userId}, sessionId: ${sessionId}`);
+
+        res.json({ success: true, message: "Oturum sonlandırıldı" });
+    } catch (error) {
+        logger.error("❌ Oturum sonlandırma hatası:", error);
+        res.status(500).json({ success: false, message: "Oturum sonlandırılamadı", error: error.message });
+    }
+};
+
+/**
+ * Tüm oturumları sonlandır (mevcut hariç)
+ * DELETE /user/sessions
+ */
+exports.revokeAllSessions = async (req, res) => {
+    try {
+        const userId = req.user._id || req.userId;
+        const currentToken = req.headers.authorization?.replace("Bearer ", "");
+
+        const user = await User.findById(userId);
+        if (!user) {
+            return res.status(404).json({ success: false, message: "Kullanıcı bulunamadı" });
+        }
+
+        const count = (user.refreshTokens || []).length;
+        user.refreshTokens = [];
+        await user.save();
+
+        logger.info(`✅ Tüm oturumlar sonlandırıldı — userId: ${userId}, count: ${count}`);
+
+        res.json({ success: true, message: `${count} oturum sonlandırıldı`, count });
+    } catch (error) {
+        logger.error("❌ Toplu oturum sonlandırma hatası:", error);
+        res.status(500).json({ success: false, message: "Oturumlar sonlandırılamadı", error: error.message });
+    }
+};
+
 // Generate API key
 exports.generateApiKey = async (req, res) => {
     try {

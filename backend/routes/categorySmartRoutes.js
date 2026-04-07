@@ -49,6 +49,7 @@ router.get("/platform-categories", ctrl.getPlatformCategories);
 
 // ── Pazar Yeri Kategori Listeleme & Export ───────────────────────────────────
 router.get("/marketplace-categories",              ctrl.getMarketplaceCategories);
+router.get("/marketplace-categories/tree",         ctrl.getMarketplaceCategoriesTree);
 router.get("/marketplace-categories/export/excel", ctrl.exportMarketplaceCategoriesExcel);
 router.get("/marketplace-categories/export/pdf",   ctrl.exportMarketplaceCategoriesPDF);
 
@@ -70,5 +71,9 @@ router.get("/unified/export/excel",  ctrl.exportUnifiedCategoriesExcel);
 router.post("/unified/merge",        ctrl.mergeUnifiedCategories);
 router.put("/unified/:id",           ctrl.updateUnifiedCategory);
 router.delete("/unified/:id",        ctrl.deleteUnifiedCategory);
+
+// ── Manuel Eşleştirme Yardımcıları ──────────────────────────────────────────
+router.post("/unified/suggest-platform", ctrl.suggestPlatformCategory);
+router.get("/unified/incomplete",        ctrl.getIncompleteCategories);
 
 module.exports = router;

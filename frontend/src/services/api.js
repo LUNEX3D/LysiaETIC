@@ -2,14 +2,31 @@
  * API Service — LysiaETIC
  * ✅ FIX #20: 401 interceptor eklendi — token expire olunca login'e yönlendir
  * ✅ FIX #21: baseURL environment'tan alınıyor
+ * ✅ SEC #2: Refresh token rotation desteği — yeni refresh token da kaydedilir
+ * ✅ SEC #3: clearSession helper + logout API çağrısı
  */
 import axios from "axios";
 
+const BASE_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
+
 // Axios instance oluştur
 const API = axios.create({
-    baseURL: (process.env.REACT_APP_API_URL || "http://localhost:5000") + "/api",
+    baseURL: BASE_URL + "/api",
     timeout: 120000, // 2 dakika — toplu dağıtım ve karşılaştırma uzun sürebilir
 });
+
+// ─── Oturum temizleme helper'ı ─────────────────────────────────────────────────
+const clearSession = () => {
+    localStorage.removeItem("token");
+    localStorage.removeItem("refreshToken");
+    sessionStorage.removeItem("token");
+    sessionStorage.removeItem("refreshToken");
+    localStorage.removeItem("userId");
+    localStorage.removeItem("userEmail");
+    localStorage.removeItem("userName");
+    localStorage.removeItem("userRole");
+    localStorage.removeItem("adminLoginTime");
+};
 
 // ✅ FIX H7: rememberMe — hem localStorage hem sessionStorage'dan token oku
 API.interceptors.request.use(
@@ -23,7 +40,7 @@ API.interceptors.request.use(
     (error) => Promise.reject(error)
 );
 
-// 🛡️ FIX #12: Response interceptor — 401 gelirse refresh token ile yenile, başarısızsa login'e yönlendir
+// 🛡️ SEC #2: Response interceptor — 401 gelirse refresh token rotation ile yenile
 let isRefreshing = false;
 let failedQueue = [];
 
@@ -69,16 +86,20 @@ API.interceptors.response.use(
 
                 try {
                     const { data } = await axios.post(
-                        (process.env.REACT_APP_API_URL || "http://localhost:5000") + "/api/auth/refresh-token",
+                        BASE_URL + "/api/auth/refresh-token",
                         { refreshToken }
                     );
 
                     const newToken = data.token;
-                    // Token'ı kaydet (hangi storage kullanılıyorsa oraya)
+                    const newRefreshToken = data.refreshToken;
+
+                    // ✅ SEC #2: Token rotation — yeni access + refresh token'ı kaydet
                     if (localStorage.getItem("token")) {
                         localStorage.setItem("token", newToken);
+                        if (newRefreshToken) localStorage.setItem("refreshToken", newRefreshToken);
                     } else {
                         sessionStorage.setItem("token", newToken);
+                        if (newRefreshToken) sessionStorage.setItem("refreshToken", newRefreshToken);
                     }
 
                     processQueue(null, newToken);
@@ -87,14 +108,7 @@ API.interceptors.response.use(
                 } catch (refreshError) {
                     processQueue(refreshError, null);
                     // Refresh de başarısız — oturumu temizle
-                    localStorage.removeItem("token");
-                    localStorage.removeItem("refreshToken");
-                    sessionStorage.removeItem("token");
-                    sessionStorage.removeItem("refreshToken");
-                    localStorage.removeItem("userId");
-                    localStorage.removeItem("userEmail");
-                    localStorage.removeItem("userName");
-                    localStorage.removeItem("userRole");
+                    clearSession();
                     window.location.href = "/login";
                     return Promise.reject(refreshError);
                 } finally {
@@ -102,18 +116,15 @@ API.interceptors.response.use(
                 }
             } else {
                 // Refresh token yok — direkt login'e yönlendir
-                localStorage.removeItem("token");
-                sessionStorage.removeItem("token");
-                localStorage.removeItem("userId");
-                localStorage.removeItem("userEmail");
-                localStorage.removeItem("userName");
-                localStorage.removeItem("userRole");
+                clearSession();
                 window.location.href = "/login";
             }
         }
         return Promise.reject(error);
     }
 );
+
+// ─── API Helper Fonksiyonları ──────────────────────────────────────────────────
 
 // Kategorileri çekmek için fonksiyon
 export const getCategories = async () => {
@@ -155,4 +166,17 @@ export const registerUser = async (userData) => {
     }
 };
 
+// ✅ SEC #2: Logout — backend'e refresh token revoke isteği gönder + oturumu temizle
+export const logoutUser = async () => {
+    try {
+        const refreshToken = localStorage.getItem("refreshToken") || sessionStorage.getItem("refreshToken");
+        if (refreshToken) {
+            await API.post("/auth/logout", { refreshToken }).catch(() => {});
+        }
+    } finally {
+        clearSession();
+    }
+};
+
+export { clearSession };
 export default API;

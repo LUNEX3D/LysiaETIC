@@ -1,0 +1,54 @@
+# ═══════════════════════════════════════════════════════════════
+# LysiaETIC — Docker Compose (Development)
+# Hot-reload destekli geliştirme ortamı
+#
+# Kullanım:
+#   docker-compose -f docker-compose.dev.yml up --build
+# ═══════════════════════════════════════════════════════════════
+
+version: "3.8"
+
+services:
+  # ── Backend (Nodemon ile hot-reload) ─────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    container_name: lysiaetic-backend-dev
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    environment:
+      - NODE_ENV=development
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    networks:
+      - lysiaetic-dev
+
+  # ── Frontend (React Dev Server) ──────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: lysiaetic-frontend-dev
+    restart: unless-stopped
+    environment:
+      - REACT_APP_API_URL=http://localhost:5000
+      - CHOKIDAR_USEPOLLING=true
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+      - /app/node_modules
+    depends_on:
+      - backend
+    networks:
+      - lysiaetic-dev
+
+networks:
+  lysiaetic-dev:
+    driver: bridge

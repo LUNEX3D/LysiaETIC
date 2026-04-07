@@ -2854,3 +2854,324 @@ exports.exportUnifiedCategoriesExcel = async (req, res) => {
         res.status(500).json({ success: false, message: err.message });
     }
 };
+
+/**
+ * POST /api/category-smart/unified/suggest-platform
+ * Bir kategori için belirli bir platformda akıllı öneri getir
+ *
+ * Body: {
+ *   categoryName: string,
+ *   targetPlatform: "Trendyol" | "N11" | "ÇiçekSepeti" | "Hepsiburada" | "Amazon",
+ *   limit?: number
+ * }
+ */
+exports.suggestPlatformCategory = async (req, res) => {
+    try {
+        const userId = toObjectId(req.user?._id || req.user?.id);
+        if (!userId) return res.status(401).json({ success: false, message: "Yetkilendirme hatası" });
+
+        const { categoryName, targetPlatform, limit = 5 } = req.body;
+
+        if (!categoryName || !targetPlatform) {
+            return res.status(400).json({
+                success: false,
+                message: "categoryName ve targetPlatform zorunludur"
+            });
+        }
+
+        // Platform kategorilerini çek
+        const platformCats = await fetchPlatformCategories(userId, targetPlatform);
+        if (!platformCats || platformCats.length === 0) {
+            return res.json({
+                success: true,
+                suggestions: [],
+                message: `${targetPlatform} kategorileri çekilemedi`
+            });
+        }
+
+        // Fuzzy match ile öneri getir
+        const suggestions = fuzzyService.fuzzyMatchCategories(
+            categoryName,
+            platformCats,
+            { limit, minScore: 0.3 }
+        );
+
+        res.json({
+            success: true,
+            categoryName,
+            targetPlatform,
+            suggestions
+        });
+    } catch (err) {
+        logger.error("[UNIFIED CAT] suggestPlatformCategory hatası:", err.message);
+        res.status(500).json({ success: false, message: err.message });
+    }
+};
+
+/**
+ * GET /api/category-smart/unified/incomplete
+ * Eksik eşleşmeleri olan kategorileri getir
+ *
+ * Query:
+ *   missingPlatform?: "Trendyol" | "N11" | "ÇiçekSepeti" | "Hepsiburada" | "Amazon"
+ *   minPlatformCount?: number (varsayılan: 1, en az kaç platformda olmalı)
+ *   maxPlatformCount?: number (varsayılan: 4, en fazla kaç platformda olmalı - 5'ten az)
+ *   page?: number
+ *   limit?: number
+ */
+exports.getIncompleteCategories = async (req, res) => {
+    try {
+        const {
+            missingPlatform = "",
+            minPlatformCount = "1",
+            maxPlatformCount = "4",
+            page = 1,
+            limit = 50
+        } = req.query;
+
+        const filter = {
+            platformCount: {
+                $gte: parseInt(minPlatformCount),
+                $lt: 5  // 5'ten az = eksik var
+            }
+        };
+
+        // maxPlatformCount filtresi
+        const maxCount = parseInt(maxPlatformCount);
+        if (maxCount < 5) {
+            filter.platformCount.$lte = maxCount;
+        }
+
+        // Belirli bir platform eksikse
+        if (missingPlatform) {
+            const platformField = missingPlatform.toLowerCase();
+            filter[`${platformField}.categoryId`] = { $exists: false };
+        }
+
+        const skip = (parseInt(page) - 1) * parseInt(limit);
+        const total = await UnifiedCategoryMap.countDocuments(filter);
+
+        const categories = await UnifiedCategoryMap.find(filter)
+            .sort({ platformCount: 1, canonicalName: 1 })  // En az eşleşmesi olanlar önce
+            .skip(skip)
+            .limit(parseInt(limit))
+            .lean();
+
+        // Her kategori için eksik platformları belirle
+        const enriched = categories.map(cat => {
+            const missing = [];
+            const existing = [];
+
+            ["trendyol", "n11", "ciceksepeti", "hepsiburada", "amazon"].forEach(p => {
+                if (cat[p]?.categoryId) {
+                    existing.push(p);
+                } else {
+                    missing.push(p);
+                }
+            });
+
+            return {
+                ...cat,
+                missingPlatforms: missing,
+                existingPlatforms: existing,
+                completionRate: Math.round((existing.length / 5) * 100)
+            };
+        });
+
+        res.json({
+            success: true,
+            categories: enriched,
+            pagination: {
+                page: parseInt(page),
+                limit: parseInt(limit),
+                total,
+                totalPages: Math.ceil(total / parseInt(limit))
+            },
+            summary: {
+                totalIncomplete: total,
+                avgCompletionRate: enriched.length > 0
+                    ? Math.round(enriched.reduce((sum, c) => sum + c.completionRate, 0) / enriched.length)
+                    : 0
+            }
+        });
+    } catch (err) {
+        logger.error("[UNIFIED CAT] getIncompleteCategories hatası:", err.message);
+        res.status(500).json({ success: false, message: err.message });
+    }
+};
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 🌳 PAZAR YERİ KATEGORİ AĞACI (Tree View)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * GET /api/category-smart/marketplace-categories/tree
+ * Pazar yeri kategorilerini AĞAÇ YAPISI (nested tree) olarak döndürür.
+ *
+ * Örnek çıktı:
+ *   Takı & Mücevher
+ *   ├── Bileklik
+ *   │   ├── Altın Bileklik
+ *   │   └── Gümüş Bileklik
+ *   └── Kolye
+ *       ├── Altın Kolye
+ *       └── Gümüş Kolye
+ *
+ * Query:
+ *   marketplace — "Trendyol" | "N11" | "Hepsiburada" | "ÇiçekSepeti" | "Amazon" | "all" (varsayılan: all)
+ *   search      — Arama filtresi (isim veya path içinde, eşleşen dalın tüm üst/alt düğümleri dahil edilir)
+ */
+exports.getMarketplaceCategoriesTree = async (req, res) => {
+    try {
+        const userId = toObjectId(req.user?._id || req.user?.id);
+        if (!userId) return res.status(401).json({ success: false, message: "Yetkilendirme hatası" });
+
+        const { marketplace = "all", search } = req.query;
+        const mp = marketplace === "all" ? null : marketplace;
+
+        // Flat listeyi çek (mevcut fonksiyon)
+        const flatCategories = await fetchAllMarketplaceCategories(userId, mp, false);
+
+        if (!flatCategories || flatCategories.length === 0) {
+            return res.json({
+                success: true,
+                trees: [],
+                summary: {},
+                totalCategories: 0,
+                totalRoots: 0
+            });
+        }
+
+        // Platform bazlı grupla
+        const platformGroups = {};
+        for (const cat of flatCategories) {
+            const mpName = cat.marketplace;
+            if (!platformGroups[mpName]) platformGroups[mpName] = [];
+            platformGroups[mpName].push(cat);
+        }
+
+        const result = {};
+        const summary = {};
+
+        for (const [mpName, cats] of Object.entries(platformGroups)) {
+            // Flat → Tree dönüşümü
+            const tree = buildCategoryTree(cats, search);
+            result[mpName] = tree.roots;
+            summary[mpName] = {
+                totalCategories: cats.length,
+                rootCount: tree.roots.length,
+                leafCount: cats.filter(c => c.isLeaf).length,
+                maxDepth: tree.maxDepth,
+                matchedCount: tree.matchedCount // arama varsa eşleşen sayısı
+            };
+        }
+
+        res.json({
+            success: true,
+            trees: result,
+            summary,
+            totalCategories: flatCategories.length,
+            totalRoots: Object.values(result).reduce((sum, roots) => sum + roots.length, 0)
+        });
+    } catch (err) {
+        logger.error("[CATEGORY SMART] getMarketplaceCategoriesTree hatası:", err.message);
+        res.status(500).json({ success: false, message: err.message });
+    }
+};
+
+/**
+ * Flat kategori listesini nested ağaç yapısına dönüştürür.
+ * Arama varsa eşleşen dalları (ve üst/alt düğümlerini) filtreler.
+ *
+ * @param {Array} flatCats - [{id, name, path, parentId, parentName, depth, isLeaf, hasChildren, childCount, pathSegments}]
+ * @param {string} search - Arama terimi (opsiyonel)
+ * @returns {{ roots: Array, maxDepth: number, matchedCount: number }}
+ */
+function buildCategoryTree(flatCats, search = "") {
+    // 1) ID → node map oluştur
+    const nodeMap = new Map();
+    let maxDepth = 0;
+
+    for (const cat of flatCats) {
+        const id = String(cat.id);
+        nodeMap.set(id, {
+            id: cat.id,
+            name: cat.name || "",
+            path: cat.path || "",
+            pathSegments: cat.pathSegments || [],
+            depth: cat.depth || 0,
+            isLeaf: !!cat.isLeaf,
+            hasChildren: !!cat.hasChildren,
+            childCount: cat.childCount || 0,
+            parentId: cat.parentId != null ? String(cat.parentId) : null,
+            parentName: cat.parentName || null,
+            children: [],
+            _matched: false // arama eşleşmesi
+        });
+        if ((cat.depth || 0) > maxDepth) maxDepth = cat.depth;
+    }
+
+    // 2) Parent-child ilişkilerini kur
+    const roots = [];
+    for (const [id, node] of nodeMap) {
+        if (node.parentId && nodeMap.has(node.parentId)) {
+            nodeMap.get(node.parentId).children.push(node);
+        } else {
+            roots.push(node);
+        }
+    }
+
+    // 3) Children'ları isme göre sırala (Türkçe)
+    const sortChildren = (nodes) => {
+        nodes.sort((a, b) => (a.name || "").localeCompare(b.name || "", "tr"));
+        for (const n of nodes) {
+            if (n.children.length > 0) sortChildren(n.children);
+        }
+    };
+    sortChildren(roots);
+
+    // 4) Arama filtresi (varsa)
+    let matchedCount = 0;
+    if (search && search.trim()) {
+        const q = search.trim().toLowerCase();
+
+        // Eşleşen node'ları işaretle
+        const markMatched = (node) => {
+            const nameMatch = (node.name || "").toLowerCase().includes(q);
+            const pathMatch = (node.path || "").toLowerCase().includes(q);
+            const idMatch = String(node.id || "").toLowerCase().includes(q);
+
+            if (nameMatch || pathMatch || idMatch) {
+                node._matched = true;
+                matchedCount++;
+            }
+
+            for (const child of node.children) {
+                markMatched(child);
+            }
+        };
+        roots.forEach(r => markMatched(r));
+
+        // Eşleşen node'un tüm üst zincirini de dahil et
+        const hasMatchInSubtree = (node) => {
+            if (node._matched) return true;
+            for (const child of node.children) {
+                if (hasMatchInSubtree(child)) return true;
+            }
+            return false;
+        };
+
+        // Ağacı filtrele — sadece eşleşen dalları tut
+        const filterTree = (nodes) => {
+            return nodes.filter(node => {
+                node.children = filterTree(node.children);
+                return node._matched || node.children.length > 0;
+            });
+        };
+
+        const filteredRoots = filterTree(roots);
+        return { roots: filteredRoots, maxDepth, matchedCount };
+    }
+
+    return { roots, maxDepth, matchedCount: 0 };
+}

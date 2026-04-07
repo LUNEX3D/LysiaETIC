@@ -62,24 +62,72 @@ router.post("/documents/search", eInvoiceController.searchDocuments);
 router.post("/trendyol/documents/search", eInvoiceController.searchDocuments);
 
 // ═══════════════════════════════════════════════════════════════════════════
-//  QNB eSolutions
+//  QNB eSolutions (SOAP API)
+//  connectorService → e-Fatura & e-İrsaliye
+//  EarsivWebService → e-Arşiv
+//  userService      → Oturum (wsLogin / logout)
 // ═══════════════════════════════════════════════════════════════════════════
 
-// Auth
+// Oturum
 router.post("/qnb/login", eInvoiceController.qnbLogin);
+router.post("/qnb/logout", eInvoiceController.qnbLogout);
 
-// e-Fatura
-router.post("/qnb/einvoice/send", eInvoiceController.qnbSendEInvoice);
+// e-Fatura — Kullanıcı & Mükellef Sorgulama
 router.post("/qnb/einvoice/user-check", eInvoiceController.qnbCheckUser);
+router.post("/qnb/einvoice/user-info", eInvoiceController.qnbGetUserInfo);
+router.post("/qnb/einvoice/etiket-list", eInvoiceController.qnbGetEtiketList);
 
-// e-Arşiv
-router.post("/qnb/earchive/send", eInvoiceController.qnbSendEArchive);
+// e-Fatura — Numara Üretme & Gönderme
+router.post("/qnb/einvoice/generate-no", eInvoiceController.qnbGenerateInvoiceNo);
+router.post("/qnb/einvoice/send", eInvoiceController.qnbSendEInvoice);
+
+// e-Fatura — Durum Sorgulama
+router.post("/qnb/einvoice/status", eInvoiceController.qnbGetOutgoingStatus);
+router.post("/qnb/einvoice/status-ettn", eInvoiceController.qnbGetOutgoingStatusByEttn);
+router.post("/qnb/einvoice/history", eInvoiceController.qnbGetInvoiceHistory);
+
+// e-Fatura — Listeleme
+router.post("/qnb/einvoice/outgoing/list", eInvoiceController.qnbListOutgoing);
+router.post("/qnb/einvoice/incoming/list", eInvoiceController.qnbListIncoming);
+router.post("/qnb/einvoice/incoming/fetch", eInvoiceController.qnbFetchIncoming);
+
+// e-Fatura — İndirme
+router.post("/qnb/einvoice/outgoing/download", eInvoiceController.qnbDownloadOutgoing);
+router.post("/qnb/einvoice/incoming/download", eInvoiceController.qnbDownloadIncoming);
+router.post("/qnb/einvoice/outgoing/download-ettn", eInvoiceController.qnbDownloadOutgoingByEttn);
+router.post("/qnb/einvoice/incoming/download-ettn", eInvoiceController.qnbDownloadIncomingByEttn);
+
+// e-Fatura — Kontör & Mail & Alındı
+router.post("/qnb/einvoice/kontor", eInvoiceController.qnbGetKontorInfo);
+router.post("/qnb/einvoice/mail", eInvoiceController.qnbSendInvoiceMail);
+router.post("/qnb/einvoice/mark-received", eInvoiceController.qnbMarkReceived);
 
 // e-İrsaliye
+router.post("/qnb/despatch/user-check", eInvoiceController.qnbCheckDespatchUser);
+router.post("/qnb/despatch/generate-no", eInvoiceController.qnbGenerateDespatchNo);
 router.post("/qnb/despatch/send", eInvoiceController.qnbSendDespatch);
 
-// Belge Arama
+// e-Arşiv — Numara & Oluşturma
+router.post("/qnb/earchive/generate-no", eInvoiceController.qnbGenerateEArchiveNo);
+router.post("/qnb/earchive/create", eInvoiceController.qnbCreateEArchive);
+router.post("/qnb/earchive/create-from-form", eInvoiceController.qnbCreateEArchiveFromForm);
+
+// e-Arşiv — Sorgulama & Listeleme
+router.post("/qnb/earchive/query", eInvoiceController.qnbQueryEArchive);
+router.post("/qnb/earchive/list", eInvoiceController.qnbListEArchive);
+
+// e-Arşiv — İptal & Önizleme & İndirme
+router.post("/qnb/earchive/cancel", eInvoiceController.qnbCancelEArchive);
+router.post("/qnb/earchive/preview", eInvoiceController.qnbPreviewEArchive);
+router.post("/qnb/earchive/download-zip", eInvoiceController.qnbDownloadEArchiveZip);
+
+// e-Arşiv — Bildirim (E-Posta & SMS)
+router.post("/qnb/earchive/send-email", eInvoiceController.qnbSendEArchiveEmail);
+router.post("/qnb/earchive/send-sms", eInvoiceController.qnbSendEArchiveSms);
+
+// Genel Belge Arama & Servis Durumu
 router.post("/qnb/documents/search", eInvoiceController.qnbSearchDocuments);
+router.post("/qnb/status", eInvoiceController.qnbCheckServiceStatus);
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  SOVOS (Foriba)

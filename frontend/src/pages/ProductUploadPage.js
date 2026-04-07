@@ -162,8 +162,18 @@ const ProductUploadPage = () => {
                 setTimeout(() => navigate("/product-management"), 2000);
             }
         } catch (error) {
-            const errMsg = error.response?.data?.error || "Ürün kaydedilemedi.";
-            setMessage({ text: errMsg, type: "error" });
+            const errData = error.response?.data;
+            if (error.response?.status === 409 && errData?.type) {
+                // 🛡️ Duplike ürün hatası — kullanıcıya detaylı bilgi göster
+                const conflict = errData.conflicts?.[errData.type];
+                const typeLabel = errData.type === "sku" ? "Model Kodu" : errData.type === "barcode" ? "Stok Kodu" : "Ürün";
+                const conflictInfo = conflict
+                    ? `\n\nMevcut ürün: "${conflict.name}"\nModel: ${conflict.sku || "-"} | Stok Kodu: ${conflict.barcode || "-"}`
+                    : "";
+                setMessage({ text: `⚠️ ${typeLabel} zaten kullanılıyor!\n${errData.error}${conflictInfo}`, type: "error" });
+            } else {
+                setMessage({ text: errData?.error || "Ürün kaydedilemedi.", type: "error" });
+            }
         } finally {
             setSaving(false);
         }

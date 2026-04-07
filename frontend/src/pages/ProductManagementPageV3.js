@@ -42,6 +42,7 @@ import {
     markNotificationRead,
     getProductManagementDashboard,
     distributeProduct,
+    distributeUndistributed,
 } from "../services/productManagementApi";
 import { getUserMarketplaces } from "../services/marketplaceApi";
 import "../styles/ProductManagementCenter.css";
@@ -154,7 +155,6 @@ const ProductManagementPageV3 = () => {
 
     // ── Silme onay ───────────────────────────────────────────────────────────
     const [deleteModal,     setDeleteModal]     = useState(null);
-    const [deleteFromMP,    setDeleteFromMP]    = useState(true);  // pazaryerlerinden de sil
     const [deleteResults,   setDeleteResults]   = useState(null);  // silme sonuçları
     const [deleting,        setDeleting]        = useState(false); // silme işlemi devam ediyor
 
@@ -363,20 +363,20 @@ const ProductManagementPageV3 = () => {
         } finally { setLoading(false); }
     };
 
-    // ─── Ürün sil (tekli — pazaryerlerinden de kaldırma opsiyonlu) ────────────
+    // ─── Ürün sil (tekli — pazaryerlerinden de zorunlu kaldırma) ────────────
     const handleDelete = async () => {
         if (!deleteModal) return;
         setDeleting(true);
         setDeleteResults(null);
         try {
             const res = await deleteProduct(deleteModal._id, {
-                deleteFromMarketplaces: deleteFromMP
+                deleteFromMarketplaces: true
             });
             setDeleteResults(res.marketplaceResults || []);
             showToast("✅ " + (res.message || "Ürün silindi"), "success");
             // Sonuçları 3sn göster, sonra kapat
             setTimeout(() => {
-                setDeleteModal(null); setDeleteResults(null); setDeleteFromMP(true);
+                setDeleteModal(null); setDeleteResults(null);
                 loadProducts(); loadDashboard(); loadComparison();
             }, res.marketplaceResults?.length > 0 ? 3000 : 500);
         } catch (e) {
@@ -428,7 +428,15 @@ const ProductManagementPageV3 = () => {
             setNewProductTargets([]);
             loadProducts(); loadDashboard(); loadComparison();
         } catch (e) {
-            showToast("Ürün oluşturulamadı: " + (e.response?.data?.error || e.message), "error");
+            const errData = e.response?.data;
+            if (e.response?.status === 409 && errData?.type) {
+                // 🛡️ Duplike ürün hatası — kullanıcıya detaylı bilgi göster
+                const conflict = errData.conflicts?.[errData.type];
+                const conflictInfo = conflict ? `\nMevcut ürün: "${conflict.name}" (Model: ${conflict.sku || "-"}, Stok Kodu: ${conflict.barcode || "-"})` : "";
+                showToast(`⚠️ ${errData.error}${conflictInfo}`, "error");
+            } else {
+                showToast("Ürün oluşturulamadı: " + (errData?.error || e.message), "error");
+            }
         } finally { setLoading(false); }
     };
 
@@ -449,15 +457,21 @@ const ProductManagementPageV3 = () => {
         setNewProductTargets(prev => prev.includes(name) ? prev.filter(x => x !== name) : [...prev, name]);
 
     // ─── Dağıtım yardımcıları ─────────────────────────────────────────────────
+    // ⚠️ FIX: syncStatus: "error" olan mapping'ler platformdan kaldırılmış/bulunamıyor demektir.
+    //   Bu mapping'ler platform listesinde gösterilmez — ürün o platformda "yok" sayılır.
     const getProductSyncStatus = (product, mpName) => {
         const m = (product.marketplaceMappings || []).find(
             x => (x.marketplaceName || "").toLowerCase() === (mpName || "").toLowerCase()
+                && x.syncStatus !== "error"
         );
         return m?.syncStatus || null;
     };
 
     const getProductMPs = (product) =>
-        (product.marketplaceMappings || []).map(m => m.marketplaceName).filter(Boolean);
+        (product.marketplaceMappings || [])
+            .filter(m => m.syncStatus !== "error") // error = platformda yok
+            .map(m => m.marketplaceName)
+            .filter(Boolean);
 
     const getMissingMPs = (product) =>
         marketplaces.map(m => m.name).filter(
@@ -495,20 +509,24 @@ const ProductManagementPageV3 = () => {
         const syncedProducts       = products.filter(p =>
             (p.marketplaceMappings || []).some(m => m.syncStatus === "synced")
         ).length;
-        // Hatalı: en az 1 platformda "error" olan ürün sayısı
-        const errorProducts        = products.filter(p =>
-            (p.marketplaceMappings || []).some(m => m.syncStatus === "error")
-        ).length;
-        // Hiç platforma dağıtılmamış ürünler
+        // Hatalı: TÜM mapping'leri "error" olan ürün sayısı (en az 1 mapping olmalı)
+        // Not: error = platformdan kaldırılmış/bulunamıyor. Sadece error mapping'i olan ürünler sayılır.
+        const errorProducts        = products.filter(p => {
+            const mps = (p.marketplaceMappings || []);
+            return mps.length > 0 && mps.every(m => m.syncStatus === "error");
+        }).length;
+        // Hiç platforma dağıtılmamış ürünler (error mapping'ler sayılmaz — platformda yok demek)
         const undistributedProducts = products.filter(p =>
-            (p.marketplaceMappings || []).length === 0
+            (p.marketplaceMappings || []).filter(m => m.syncStatus !== "error").length === 0
         ).length;
 
         // ── Pazaryeri başına ürün sayısı (unique ürün bazında) ──
+        // ⚠️ FIX: syncStatus: "error" olan mapping'ler sayılmaz — platformda yok demek
         const mpProductCounts = marketplaces.map(mp => {
             const count = products.filter(p =>
                 (p.marketplaceMappings || []).some(
                     m => (m.marketplaceName || "").toLowerCase() === (mp.name || "").toLowerCase()
+                        && m.syncStatus !== "error"
                 )
             ).length;
             const synced = products.filter(p =>
@@ -827,6 +845,22 @@ const ProductManagementPageV3 = () => {
                             action: () => setActiveTab("comparison")
                         },
                         {
+                            icon: <FaRocket />, label: "Eksikleri Dağıt",
+                            desc: "Platformlarda eksik ürünleri dağıt",
+                            color: "#f59e0b",
+                            action: async () => {
+                                try {
+                                    showToast("🚀 Dağıtım başlatılıyor...", "info");
+                                    const r = await distributeUndistributed({});
+                                    const s = r.stats || {};
+                                    showToast(`✅ ${s.distributed || 0} ürün dağıtıldı${s.error > 0 ? `, ${s.error} hata` : ""}`, "success");
+                                    loadProducts(); loadDashboard(); loadComparison();
+                                } catch (e) {
+                                    showToast(e.response?.data?.error || "Dağıtım hatası", "error");
+                                }
+                            }
+                        },
+                        {
                             icon: <FaListAlt />, label: "İşlem Logları",
                             desc: `${unreadCount > 0 ? `${unreadCount} okunmamış bildirim` : "Tüm işlem geçmişi"}`,
                             color: unreadCount > 0 ? "#ec4899" : "#64748b",
@@ -1004,7 +1038,7 @@ const ProductManagementPageV3 = () => {
                                 const img   = safeImg(mp.images);
                                 const stock = product.stockTracking?.totalStock ?? mp.stock ?? 0;
                                 const threshold = product.stockTracking?.lowStockThreshold || 10;
-                                const mappings  = product.marketplaceMappings || [];
+                                const mappings  = (product.marketplaceMappings || []).filter(m => m.syncStatus !== "error");
                                 const stockColor = stock === 0 ? "#ef4444" : stock <= threshold ? "#f59e0b" : "#22c55e";
                                 return (
                                     <tr key={product._id}>
@@ -1122,14 +1156,16 @@ const ProductManagementPageV3 = () => {
         });
 
         // ── Özet istatistikler: her ürün 1 kez sayılır (çift sayma YOK) ──
+        // ⚠️ FIX: syncStatus: "error" = platformda yok demek, aktif platform sayılmaz
         // Senkron: en az 1 platformda "synced" olan benzersiz ürün sayısı
         const totalSynced  = products.filter(p =>
             (p.marketplaceMappings || []).some(m => m.syncStatus === "synced")
         ).length;
-        // Hata: en az 1 platformda "error" olan benzersiz ürün sayısı
-        const totalError   = products.filter(p =>
-            (p.marketplaceMappings || []).some(m => m.syncStatus === "error")
-        ).length;
+        // Hata: TÜM mapping'leri "error" olan ürün sayısı (platformdan kaldırılmış)
+        const totalError   = products.filter(p => {
+            const mps = (p.marketplaceMappings || []);
+            return mps.length > 0 && mps.every(m => m.syncStatus === "error");
+        }).length;
         // Eksik platform: en az 1 platformda hiç kaydı olmayan benzersiz ürün sayısı
         const totalMissing = products.filter(p => getMissingMPs(p).length > 0).length;
         // Bekliyor: en az 1 platformda "pending" olan benzersiz ürün sayısı
@@ -2848,14 +2884,14 @@ const ProductManagementPageV3 = () => {
                 {deleteModal && (
                     <motion.div className="pmv4-modal-overlay"
                         initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                        onClick={() => { if (!deleting) { setDeleteModal(null); setDeleteResults(null); setDeleteFromMP(true); } }}>
+                        onClick={() => { if (!deleting) { setDeleteModal(null); setDeleteResults(null); } }}>
                         <motion.div className="pmv4-modal pmv4-modal-danger"
                             initial={{ scale: 0.9 }} animate={{ scale: 1 }} exit={{ scale: 0.9 }}
                             onClick={e => e.stopPropagation()}
                             style={{ maxWidth: 520 }}>
                             <div className="pmv4-modal-header">
                                 <h3><FaTrash /> Ürünü Sil</h3>
-                                <button onClick={() => { if (!deleting) { setDeleteModal(null); setDeleteResults(null); setDeleteFromMP(true); } }}><FaTimes /></button>
+                                <button onClick={() => { if (!deleting) { setDeleteModal(null); setDeleteResults(null); } }}><FaTimes /></button>
                             </div>
                             <div className="pmv4-modal-body">
                                 <p>Bu ürünü silmek istediğinizden emin misiniz?</p>
@@ -2864,7 +2900,12 @@ const ProductManagementPageV3 = () => {
                                 {/* Pazaryeri bilgisi */}
                                 {deleteModal.marketplaceMappings?.length > 0 && (
                                     <div style={{ margin: "12px 0", padding: 12, borderRadius: 8, background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.15)" }}>
-                                        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: "#ef4444" }}>📡 Pazaryeri Bağlantıları</div>
+                                        <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: "#ef4444", display: "flex", alignItems: "center", gap: 6 }}>
+                                            <FaGlobe /> Tüm pazaryerlerinden kaldırılacak
+                                        </div>
+                                        <div style={{ fontSize: 11, color: "#aaa", marginBottom: 8 }}>
+                                            Ürün aşağıdaki platformlardan tamamen silinecek veya stok 0'a çekilecek:
+                                        </div>
                                         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                                             {deleteModal.marketplaceMappings.map((mp, i) => {
                                                 const name = mp.marketplaceName || "?";
@@ -2882,13 +2923,6 @@ const ProductManagementPageV3 = () => {
                                                 );
                                             })}
                                         </div>
-
-                                        {/* Pazaryerlerinden de sil toggle */}
-                                        <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, cursor: "pointer", fontSize: 13 }}>
-                                            <input type="checkbox" checked={deleteFromMP} onChange={e => setDeleteFromMP(e.target.checked)}
-                                                style={{ width: 16, height: 16, accentColor: "#ef4444" }} />
-                                            <span style={{ color: "#ccc" }}>Pazaryerlerinden de kaldır <span style={{ opacity: 0.6 }}>(stok 0'a çekilir)</span></span>
-                                        </label>
                                     </div>
                                 )}
 
@@ -2909,16 +2943,16 @@ const ProductManagementPageV3 = () => {
                                 <div className="pmv4-modal-info-box pmv4-info-danger">
                                     <FaExclamationTriangle />
                                     <span>
-                                        {deleteFromMP && deleteModal.marketplaceMappings?.length > 0
-                                            ? "Bu işlem geri alınamaz. Ürün yerel kayıttan silinecek ve pazaryerlerinde stok 0'a çekilecektir."
-                                            : "Bu işlem geri alınamaz. Sadece yerel kayıt silinecek, pazaryerlerindeki ürünler etkilenmez."}
+                                        {deleteModal.marketplaceMappings?.length > 0
+                                            ? "Bu işlem geri alınamaz. Ürün yerel kayıttan silinecek ve tüm pazaryerlerinden kaldırılacaktır (stok 0 / tamamen silinir)."
+                                            : "Bu işlem geri alınamaz. Ürün sadece yerel kayıttan silinecektir."}
                                     </span>
                                 </div>
                             </div>
                             <div className="pmv4-modal-footer">
-                                <button className="pmv4-btn pmv4-btn-outline" onClick={() => { setDeleteModal(null); setDeleteResults(null); setDeleteFromMP(true); }} disabled={deleting}>İptal</button>
+                                <button className="pmv4-btn pmv4-btn-outline" onClick={() => { setDeleteModal(null); setDeleteResults(null); }} disabled={deleting}>İptal</button>
                                 <button className="pmv4-btn pmv4-btn-danger" onClick={handleDelete} disabled={deleting || deleteResults}>
-                                    {deleting ? <><Spinner /> Siliniyor...</> : <><FaTrash /> {deleteFromMP && deleteModal.marketplaceMappings?.length > 0 ? "Her Yerden Sil" : "Sil"}</>}
+                                    {deleting ? <><Spinner /> Siliniyor...</> : <><FaTrash /> {deleteModal.marketplaceMappings?.length > 0 ? "Her Yerden Sil" : "Sil"}</>}
                                 </button>
                             </div>
                         </motion.div>

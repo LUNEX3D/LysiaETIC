@@ -7,6 +7,14 @@ const axios = require("axios");
 const n11Service = require("./n11Service");
 // ✅ FIX H5: Credential'ları decrypt ederek kullan
 const { decryptCredentials } = require("../utils/encryption");
+// ✅ FIX #1: Amazon stok push — gerçek API entegrasyonu
+let amazonSpApiService;
+try {
+    amazonSpApiService = require("./amazon/amazonSpApiService");
+} catch (e) {
+    // Amazon servisi yüklenemezse null kalır — updateAmazonStock simüle eder
+    amazonSpApiService = null;
+}
 
 // Pazaryeri isimlerini normalize et
 const normalizeMarketplaceName = (name) => {
@@ -423,6 +431,8 @@ const updateStockOnMarketplace = async (marketplace, productId, newStock, priceU
                 return await updateN11Stock(credentials, productId, newStock, priceUpdate);
             case "ÇiçekSepeti":
                 return await updateCicekSepetiStock(credentials, productId, newStock, priceUpdate);
+            case "Amazon":
+                return await updateAmazonStock(credentials, productId, newStock, priceUpdate);
             default:
                 logger.warn(`[STOCK UPDATE] ${marketplaceName} için stok güncelleme API'si henüz eklenmedi`);
                 return { success: true, simulated: true, message: `${marketplaceName} stok güncelleme simüle edildi` };
@@ -615,10 +625,16 @@ const updateN11Stock = async (credentials, productId, newStock, priceUpdate = nu
 
 // ÇiçekSepeti stok + fiyat güncelleme
 // ✅ FIX: Doğru endpoint — PUT /api/v1/Products/price-and-stock
-// ESKİ (YANLIŞ): PUT /api/v1/Products/${productId}/Stock  → 400 hata (endpoint yok!)
-// ESKİ (YANLIŞ): PUT /api/v1/Products/${productId}/Price  → 400 hata (endpoint yok!)
 // DOĞRU: PUT /api/v1/Products/price-and-stock → stockCode bazlı toplu güncelleme
 // NOT: Stok ve fiyat aynı anda gönderilemez — ayrı ayrı istek atılmalı
+// 🛡️ Rate Limit: ÇiçekSepeti "farklı istekleri 5 saniyede 1 kez" kuralı uyguluyor
+// ✅ FIX #5: Per-tenant rate limiter — her kullanıcının kendi rate limit'i var
+// ESKİ: Global _csLastRequestTime → multi-tenant SaaS'ta farklı kullanıcıların
+//   istekleri birbirini engelliyordu (Kullanıcı A'nın isteği Kullanıcı B'yi bekletti)
+// YENİ: sellerId bazlı Map → her kullanıcı kendi rate limit'ini takip eder
+const _csRateLimitMap = new Map(); // sellerId → lastRequestTime
+const CS_RATE_LIMIT_MS = 5500; // 5.5 saniye güvenlik payı
+
 const updateCicekSepetiStock = async (credentials, stockCode, newStock, priceUpdate = null) => {
     try {
         const apiKey       = credentials.apiKey       || credentials.apiSecret;
@@ -627,6 +643,16 @@ const updateCicekSepetiStock = async (credentials, stockCode, newStock, priceUpd
         if (!apiKey) {
             return { success: false, error: "ÇiçekSepeti credentials eksik: apiKey gerekli" };
         }
+
+        // 🛡️ Per-tenant rate limit — bu kullanıcının son isteğinden 5.5 saniye geçmemişse bekle
+        const rateLimitKey = sellerId || apiKey; // sellerId yoksa apiKey ile ayır
+        const lastReqTime = _csRateLimitMap.get(rateLimitKey) || 0;
+        const now = Date.now();
+        const elapsed = now - lastReqTime;
+        if (lastReqTime > 0 && elapsed < CS_RATE_LIMIT_MS) {
+            await new Promise(resolve => setTimeout(resolve, CS_RATE_LIMIT_MS - elapsed));
+        }
+        _csRateLimitMap.set(rateLimitKey, Date.now());
 
         // ÇiçekSepeti API header'ları: x-api-key + user-agent (ASCII only)
         const cleanSellerId = String(sellerId || '').replace(/[^\x00-\x7F]/g, '');
@@ -660,6 +686,10 @@ const updateCicekSepetiStock = async (credentials, stockCode, newStock, priceUpd
 
         // ✅ Fiyat güncelleme varsa ayrı istek at (stok + fiyat aynı anda gönderilemez)
         if (priceUpdate?.salePrice) {
+            // 🛡️ Per-tenant rate limit — fiyat isteği de aynı endpoint'e gidiyor
+            await new Promise(resolve => setTimeout(resolve, CS_RATE_LIMIT_MS));
+            _csRateLimitMap.set(rateLimitKey, Date.now());
+
             const pricePayload = {
                 items: [{
                     stockCode:  stockCode,
@@ -691,6 +721,75 @@ const updateCicekSepetiStock = async (credentials, stockCode, newStock, priceUpd
             else errMsg = JSON.stringify(errData);
         }
         logger.error(`[CICEKSEPETI STOCK] ❌ Hata — stockCode: ${stockCode} | status: ${errCode} | error: ${errMsg}`);
+        return { success: false, error: errMsg };
+    }
+};
+
+// ═══════════════════════════════════════════════════════════════
+// 🛒 AMAZON STOK + FİYAT GÜNCELLEME
+// ✅ FIX #1: Amazon stok push — artık gerçek SP-API Listings API kullanılıyor
+// ESKİ: Sadece simüle ediliyordu, Amazon'daki stok hiç güncellenmiyordu
+// YENİ: amazonSpApiService.updateListingStock() ile gerçek PATCH isteği
+// ═══════════════════════════════════════════════════════════════
+
+const updateAmazonStock = async (credentials, sku, newStock, priceUpdate = null) => {
+    try {
+        if (!amazonSpApiService) {
+            logger.warn(`[AMAZON STOCK] ⚠️ Amazon SP-API servisi yüklenemedi — stok güncelleme simüle edildi (sku: ${sku})`);
+            return { success: true, simulated: true, message: "Amazon SP-API servisi mevcut değil" };
+        }
+
+        const { sellerId, clientId, clientSecret, refreshToken, accessKeyId, secretAccessKey } = credentials;
+
+        if (!sellerId || !clientId || !refreshToken) {
+            return { success: false, error: "Amazon credentials eksik: sellerId, clientId, refreshToken gerekli" };
+        }
+        if (!accessKeyId || !secretAccessKey) {
+            return { success: false, error: "Amazon AWS credentials eksik: accessKeyId, secretAccessKey gerekli" };
+        }
+        if (!sku) {
+            return { success: false, error: "Amazon stok güncelleme: SKU gerekli" };
+        }
+
+        const stockQty = parseInt(newStock) || 0;
+
+        logger.info(`[AMAZON STOCK] Güncelleniyor — sku: ${sku}, stok: ${stockQty}, sellerId: ${sellerId}`);
+
+        // ✅ Amazon Listings API — PATCH /listings/2021-08-01/items/{sellerId}/{sku}
+        // fulfillment_availability attribute'unu günceller
+        const stockResult = await amazonSpApiService.updateListingStock(credentials, sku, stockQty);
+
+        if (!stockResult.success) {
+            logger.error(`[AMAZON STOCK] ❌ Stok güncelleme başarısız — sku: ${sku}, error: ${stockResult.error}`);
+            return { success: false, error: stockResult.error || "Amazon stok güncelleme başarısız" };
+        }
+
+        logger.info(`[AMAZON STOCK] ✅ Stok güncellendi — sku: ${sku}, stok: ${stockQty}`);
+
+        // ✅ Fiyat güncelleme varsa ayrı PATCH isteği at
+        if (priceUpdate?.salePrice) {
+            try {
+                const priceResult = await amazonSpApiService.updateListingPrice(
+                    credentials,
+                    sku,
+                    parseFloat(priceUpdate.salePrice)
+                );
+
+                if (priceResult.success) {
+                    logger.info(`[AMAZON PRICE] ✅ Fiyat güncellendi — sku: ${sku}, fiyat: ${priceUpdate.salePrice}`);
+                } else {
+                    // Fiyat hatası stok güncellemeyi başarısız yapmaz — sadece logla
+                    logger.warn(`[AMAZON PRICE] ⚠️ Fiyat güncelleme başarısız — sku: ${sku}, error: ${priceResult.error}`);
+                }
+            } catch (priceErr) {
+                logger.warn(`[AMAZON PRICE] ⚠️ Fiyat güncelleme hatası — sku: ${sku}, error: ${priceErr.message}`);
+            }
+        }
+
+        return { success: true, result: stockResult.result };
+    } catch (error) {
+        const errMsg = error.response?.data?.errors?.[0]?.message || error.message;
+        logger.error(`[AMAZON STOCK] ❌ Hata — sku: ${sku}, error: ${errMsg}`);
         return { success: false, error: errMsg };
     }
 };

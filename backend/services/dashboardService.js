@@ -5,6 +5,8 @@ const Marketplace = require("../models/Marketplace");
 const Order = require("../models/Order");
 const Product = require("../models/Product");
 const logger = require("../config/logger");
+// ✅ FIX: Credential'ları decrypt et — DB'de şifreli saklanıyor
+const { decryptCredentials } = require("../utils/encryption");
 
 const REQUEST_TIMEOUT_MS = 15000; // 15 saniye timeout
 const RETRY_LIMIT = 3;
@@ -629,24 +631,26 @@ const fetchStockMismatch = async (name, credentials, productMap) => {
 const collectMarketplaceMetrics = async (marketplace, windowStart, windowEnd, productMap) => {
     const name = marketplace.marketplaceName;
     const normalized = normalizeName(name);
+    // ✅ FIX: Credential'ları decrypt et — DB'de AES-256-GCM ile şifreli saklanıyor
+    const credentials = decryptCredentials(marketplace.credentials);
     try {
         let metrics;
         switch (normalized) {
             case "trendyol":
-                metrics = await fetchTrendyolOrders(marketplace.credentials, windowStart, windowEnd);
+                metrics = await fetchTrendyolOrders(credentials, windowStart, windowEnd);
                 break;
             case "hepsiburada":
-                metrics = await fetchHepsiburadaOrders(marketplace.credentials, windowStart, windowEnd);
+                metrics = await fetchHepsiburadaOrders(credentials, windowStart, windowEnd);
                 break;
             case "n11":
-                metrics = await fetchN11Orders(marketplace.credentials, windowStart, windowEnd);
+                metrics = await fetchN11Orders(credentials, windowStart, windowEnd);
                 break;
             case "amazon":
-                metrics = await fetchAmazonOrders(marketplace.credentials, windowStart, windowEnd);
+                metrics = await fetchAmazonOrders(credentials, windowStart, windowEnd);
                 break;
             case "çiçeksepeti":
             case "ciceksepeti":
-                metrics = await fetchCiceksepetiOrders(marketplace.credentials, windowStart, windowEnd);
+                metrics = await fetchCiceksepetiOrders(credentials, windowStart, windowEnd);
                 break;
             default: {
                 logger.warn(`Unsupported marketplace: ${name}`);
@@ -655,8 +659,8 @@ const collectMarketplaceMetrics = async (marketplace, windowStart, windowEnd, pr
                 throw error;
             }
         }
-        const stockMismatch = await fetchStockMismatch(name, marketplace.credentials, productMap);
-        const pendingSync = await fetchPendingSync(normalized, marketplace.credentials);
+        const stockMismatch = await fetchStockMismatch(name, credentials, productMap);
+        const pendingSync = await fetchPendingSync(normalized, credentials);
 
         const result = {
             marketplaceId: marketplace._id,

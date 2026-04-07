@@ -232,6 +232,114 @@ const getCategoryAttributesCached = async (userId, credentials, categoryId) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
+ * Renk eşanlamlıları — N11'de karşılığı olmayan renk değerlerini
+ * tanınan renk adlarına eşler. Anahtar: küçük harf normalize edilmiş ürün değeri.
+ * Değer: N11'de aranacak alternatif renk adları (öncelik sırasıyla).
+ */
+const COLOR_SYNONYMS = {
+    "taş":          ["gri", "bej", "krem", "açık gri"],
+    "stone":        ["gri", "bej", "krem", "açık gri"],
+    "kum":          ["bej", "krem", "ten"],
+    "sand":         ["bej", "krem", "ten"],
+    "mint":         ["yeşil", "açık yeşil", "su yeşili"],
+    "mercan":       ["turuncu", "pembe", "kırmızı"],
+    "coral":        ["turuncu", "pembe", "kırmızı"],
+    "mürdüm":       ["mor", "bordo"],
+    "plum":         ["mor", "bordo"],
+    "petrol":       ["mavi", "lacivert", "koyu mavi"],
+    "petrol mavisi":["mavi", "lacivert", "koyu mavi"],
+    "indigo":       ["lacivert", "mavi", "koyu mavi"],
+    "lila":         ["mor", "pembe", "açık mor"],
+    "lavanta":      ["mor", "lila", "açık mor"],
+    "lavender":     ["mor", "lila", "açık mor"],
+    "somon":        ["pembe", "turuncu", "açık pembe"],
+    "salmon":       ["pembe", "turuncu", "açık pembe"],
+    "haki":         ["yeşil", "koyu yeşil"],
+    "khaki":        ["yeşil", "koyu yeşil"],
+    "füme":         ["gri", "koyu gri", "siyah"],
+    "antrasit":     ["gri", "koyu gri", "füme"],
+    "anthracite":   ["gri", "koyu gri"],
+    "ekru":         ["krem", "beyaz", "bej"],
+    "ecru":         ["krem", "beyaz", "bej"],
+    "ten":          ["bej", "krem"],
+    "nude":         ["bej", "krem", "ten"],
+    "altın":        ["sarı", "gold"],
+    "gold":         ["sarı", "altın"],
+    "gümüş":        ["gri", "silver"],
+    "silver":       ["gri", "gümüş"],
+    "bakır":        ["kahverengi", "turuncu"],
+    "copper":       ["kahverengi", "turuncu"],
+    "turkuaz":      ["mavi", "yeşil", "açık mavi"],
+    "turquoise":    ["mavi", "yeşil", "açık mavi"],
+    "bordo":        ["kırmızı", "koyu kırmızı"],
+    "burgundy":     ["kırmızı", "koyu kırmızı"],
+    "hardal":       ["sarı", "turuncu"],
+    "mustard":      ["sarı", "turuncu"],
+    "pudra":        ["pembe", "açık pembe", "krem"],
+    "powder":       ["pembe", "açık pembe", "krem"],
+    "rose":         ["pembe", "açık pembe"],
+    "gül":          ["pembe", "açık pembe"],
+    "gül kurusu":   ["pembe", "bordo", "kırmızı"],
+    "kiremit":      ["turuncu", "kahverengi", "kırmızı"],
+    "vizon":        ["kahverengi", "bej", "gri"],
+    "mink":         ["kahverengi", "bej", "gri"],
+    "camel":        ["kahverengi", "bej"],
+    "deve tüyü":    ["kahverengi", "bej"],
+    "taba":         ["kahverengi", "bej"],
+    "tan":          ["kahverengi", "bej"],
+    "safir":        ["mavi", "koyu mavi"],
+    "zümrüt":       ["yeşil", "koyu yeşil"],
+    "nar":          ["kırmızı", "pembe"],
+    "çilek":        ["kırmızı", "pembe"],
+    "leylak":       ["mor", "lila", "pembe"],
+    "okyanus":      ["mavi", "koyu mavi"],
+    "gökyüzü":      ["mavi", "açık mavi"],
+    "kar":          ["beyaz"],
+    "kömür":        ["siyah", "koyu gri"],
+    "charcoal":     ["siyah", "koyu gri"],
+    "navy":         ["lacivert", "koyu mavi"],
+    "ivory":        ["krem", "beyaz", "bej"],
+    "fildişi":      ["krem", "beyaz", "bej"],
+    "magenta":      ["pembe", "mor", "kırmızı"],
+    "fuşya":        ["pembe", "mor"],
+    "fuchsia":      ["pembe", "mor"],
+    "aqua":         ["mavi", "turkuaz", "açık mavi"],
+    "şeftali":      ["turuncu", "pembe", "bej"],
+    "peach":        ["turuncu", "pembe", "bej"],
+    "çok renkli":   ["karışık", "renkli"],
+    "multicolor":   ["karışık", "renkli"],
+    "multi":        ["karışık", "renkli"],
+};
+
+/**
+ * Renk attribute'u için eşanlamlı eşleşme dene.
+ * @param {string} normalizedVal - Küçük harfe çevrilmiş ürün renk değeri
+ * @param {Array} attrValues     - N11 attribute value listesi
+ * @returns {Object|null}        - Eşleşen attrValue veya null
+ */
+const findColorSynonymMatch = (normalizedVal, attrValues) => {
+    const synonyms = COLOR_SYNONYMS[normalizedVal];
+    if (!synonyms) return null;
+    for (const syn of synonyms) {
+        const synLower = syn.toLowerCase();
+        // Tam eşleşme
+        const exact = attrValues.find(
+            v => v.value && v.value.toString().toLowerCase() === synLower
+        );
+        if (exact) return exact;
+        // Kısmi eşleşme (synonym N11 değerinin içinde veya tersi)
+        const partial = attrValues.find(
+            v => v.value && (
+                v.value.toString().toLowerCase().includes(synLower) ||
+                synLower.includes(v.value.toString().toLowerCase())
+            )
+        );
+        if (partial) return partial;
+    }
+    return null;
+};
+
+/**
  * Tek bir N11 attribute'unu ürün değerinden dönüştür.
  *
  * KURAL:
@@ -239,14 +347,18 @@ const getCategoryAttributesCached = async (userId, credentials, categoryId) => {
  *   isCustomValue: false → SADECE valueId ile gönder
  *     1. Tam eşleşme ara
  *     2. Kısmi eşleşme ara
- *     3. Eşleşme yoksa:
+ *     3. Renk eşanlamlı eşleşme (COLOR_SYNONYMS — sadece renk attribute'ları)
+ *     4. Eşleşme yoksa:
  *        - Zorunlu attribute → ilk geçerli valueId kullan (güvenli fallback)
  *        - Opsiyonel attribute → null döner (attribute ATLANIR)
- *     4. attributeValues tamamen boşsa → null döner (attribute ATLANIR)
+ *     5. attributeValues tamamen boşsa → null döner (attribute ATLANIR)
  *
  * @param {Object} catAttr      - N11 kategori attribute tanımı
  * @param {string|null} productValue - Ürünün bu attribute için değeri
  * @returns {Object|null}       - { id, valueId, customValue } veya null (atlanacak)
+ *
+ * NOT: Renk attribute'u (attrName "renk" içeriyorsa) için eşanlamlı eşleşme
+ *      (COLOR_SYNONYMS) da denenir — tam/kısmi eşleşme bulunamazsa.
  */
 const transformAttribute = (catAttr, productValue) => {
     const attrId        = Number(catAttr.attributeId || catAttr.id);
@@ -327,9 +439,20 @@ const transformAttribute = (catAttr, productValue) => {
                 )
             );
         }
+
+        // 3. Renk eşanlamlı eşleşme (sadece renk attribute'ları için)
+        if (!match && attrName.toLowerCase().includes("renk")) {
+            match = findColorSynonymMatch(normalizedVal, attrValues);
+            if (match) {
+                logger.info(
+                    `[N11 MAPPING] 🎨 Renk eşanlamlı eşleşme: "${rawValue}" → ` +
+                    `"${match.value}" (valueId: ${match.id}) — attr "${attrName}" (${attrId})`
+                );
+            }
+        }
     }
 
-    // 3. Eşleşme yoksa → zorunlu attribute için fallback, opsiyonel için atla
+    // 4. Eşleşme yoksa → zorunlu attribute için fallback, opsiyonel için atla
     if (!match) {
         if (isMandatory) {
             // Zorunlu attribute → ilk geçerli valueId kullan
@@ -357,7 +480,7 @@ const transformAttribute = (catAttr, productValue) => {
         }
     }
 
-    // 4. Hiç geçerli valueId yoksa → attribute atlanır
+    // 5. Hiç geçerli valueId yoksa → attribute atlanır
     if (!match || !match.id || Number(match.id) <= 0) {
         logger.warn(
             `[N11 MAPPING] Attr "${attrName}" (${attrId}): ` +

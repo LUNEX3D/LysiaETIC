@@ -11,6 +11,7 @@ const Order = require("../models/Order");
 const Product = require("../models/Product");
 const logger = require("../config/logger");
 const { decryptCredentials } = require("../utils/encryption");
+const { processAutoInvoice } = require("../services/autoInvoiceService");
 
 const getIstanbulTimestamp = () => {
     return new Date(new Date().toLocaleString("en-US", { timeZone: "Europe/Istanbul" })).getTime();
@@ -22,16 +23,30 @@ const getIstanbulTimestamp = () => {
 // Idempotent: ayni siparis tekrar kaydedilmez (orderNumber + marketplace)
 // ═══════════════════════════════════════════════════════════════════════
 
+// 🔒 Concurrency lock — aynı user+marketplace için paralel sync engelle
+// Frontend hızlı sayfa geçişlerinde aynı marketplace için birden fazla
+// getAllOrders çağrısı gelebilir → syncOrdersBackground paralel çalışır → duplicate risk
+const activeSyncs = new Set();
+
 async function syncOrdersBackground(userId, marketplaceName, rawOrders) {
     if (!rawOrders || rawOrders.length === 0) {
-        logger.info(`[OrderSync] ${marketplaceName}: rawOrders boş, sync atlanıyor`);
         return { synced: 0, skipped: 0 };
     }
 
+    // 🔒 Aynı user+marketplace için zaten sync çalışıyorsa atla
+    const lockKey = `${userId}_${marketplaceName}`;
+    if (activeSyncs.has(lockKey)) {
+        logger.info(`[OrderSync] ${marketplaceName}: zaten sync çalışıyor, atlanıyor`);
+        return { synced: 0, skipped: 0 };
+    }
+    activeSyncs.add(lockKey);
+
+    try {
     logger.info(`[OrderSync] ${marketplaceName}: ${rawOrders.length} sipariş sync ediliyor`);
 
     let synced = 0;
     let skipped = 0;
+    const syncedOrderIds = [];
 
     // Urun maliyet bilgilerini onceden cek (kar hesabi icin)
     const products = await Product.find({ userId }).select("barcode costPrice commissionRate shippingCost packagingCost otherCost category").lean();
@@ -146,6 +161,10 @@ async function syncOrdersBackground(userId, marketplaceName, rawOrders) {
                 orderDate = new Date();
             }
 
+            // ── Müşteri bilgilerini çıkar (fatura için) ──────────────────
+            const rawCustomerName = order.customerName || order.buyerName || order.recipientName || "";
+            const rawAddress = order.shippingAddress || order.shipmentAddress || order.address || {};
+
             const newOrder = new Order({
                 user: userId,
                 marketplace: undefined, // marketplace ObjectId opsiyonel
@@ -154,6 +173,15 @@ async function syncOrdersBackground(userId, marketplaceName, rawOrders) {
                 orderDate: orderDate,
                 status: status,
                 trackingNumber: String(orderNumber),
+                customerName: rawCustomerName,
+                customerAddress: {
+                    city: rawAddress.city || rawAddress.province || "",
+                    district: rawAddress.district || rawAddress.county || rawAddress.town || "",
+                    street: rawAddress.fullAddress || rawAddress.address || rawAddress.addressLine1 || rawAddress.street || "",
+                    country: rawAddress.country || rawAddress.countryCode || "Turkiye",
+                    phone: rawAddress.phone || rawAddress.phoneNumber || order.customerPhone || "",
+                    email: rawAddress.email || order.customerEmail || "",
+                },
                 items: items,
                 costSummary: {
                     totalCost: totalCost,
@@ -170,6 +198,7 @@ async function syncOrdersBackground(userId, marketplaceName, rawOrders) {
             });
 
             await newOrder.save();
+            syncedOrderIds.push(newOrder._id);
             synced++;
         } catch (err) {
             if (err.code === 11000) { skipped++; continue; } // duplicate
@@ -188,7 +217,27 @@ async function syncOrdersBackground(userId, marketplaceName, rawOrders) {
 
     logger.info("[OrderSync] " + marketplaceName + ": " + synced + " yeni siparis kaydedildi, " + skipped + " atlandi");
 
-    return { synced, skipped };
+    // ── Otomatik Fatura Tetikleme ─────────────────────────────────────────
+    // NOT: Stok güncelleme stockCronService tarafından yapılır (her 5dk).
+    // Burada updateStockAfterOrder çağrılmaz — çünkü cron da aynı siparişi
+    // işleyince çift stok düşürme (double deduction) oluşuyordu.
+    // Yeni kaydedilen siparişler varsa, arka planda otomatik fatura kes
+    if (syncedOrderIds.length > 0 && userId) {
+        processAutoInvoice(userId, marketplaceName, syncedOrderIds).then(invoiceStats => {
+            if (invoiceStats.invoiced > 0) {
+                logger.info("[AutoInvoice] " + marketplaceName + ": " + invoiceStats.invoiced + " otomatik fatura kesildi");
+            }
+        }).catch(err => {
+            logger.warn("[AutoInvoice] Arka plan fatura hatası: " + err.message);
+        });
+    }
+
+    return { synced, skipped, syncedOrderIds };
+
+    } finally {
+        // 🔓 Lock'u serbest bırak — hata olsa bile
+        activeSyncs.delete(lockKey);
+    }
 }
 
 const convertToGMT3Timestamp = (dateStr, isStart = true) => {
@@ -289,16 +338,27 @@ exports.getAllOrders = async (req, res) => {
                 });
         }
 
-        orders = rawOrders.map(order => ({
-            orderNumber: order.orderNumber,
-            orderDate: order.orderDate,
-            customerName: order.customerName,
-            totalPrice: order.totalPrice,
-            status: order.status,
-            trackingNumber: order.trackingNumber || "Yok",
-            cargoCompany: order.cargoCompany || "Bilinmiyor",
-            products: order.products
-        }));
+        orders = rawOrders.map(order => {
+            // ✅ FIX: totalPrice "0.00" veya boş ise ürün fiyatlarından hesapla
+            let total = parseFloat(order.totalPrice) || 0;
+            if (total === 0 && Array.isArray(order.products) && order.products.length > 0) {
+                total = order.products.reduce((sum, p) => {
+                    const price = parseFloat(p.price || p.unitPrice || p.amount || 0);
+                    const qty = parseInt(p.quantity || 1);
+                    return sum + (price * qty);
+                }, 0);
+            }
+            return {
+                orderNumber: order.orderNumber,
+                orderDate: order.orderDate,
+                customerName: order.customerName,
+                totalPrice: total > 0 ? total.toFixed(2) : (order.totalPrice || "0.00"),
+                status: order.status,
+                trackingNumber: order.trackingNumber || "Yok",
+                cargoCompany: order.cargoCompany || "Bilinmiyor",
+                products: order.products
+            };
+        });
 
         // ── Arka planda siparisleri MongoDB'ye kaydet (Gelismis Analiz icin) ──
         // Response'u bekletmeden async olarak calistir

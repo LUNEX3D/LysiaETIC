@@ -48,7 +48,12 @@ export const fetchDashboardData = async () => {
         });
 
         if (response.status === 200) {
-            return response.data;
+            // Backend ok() helper'ı { success, message, data: {...} } formatında döndürür
+            // Gerçek dashboard verisi response.data.data içinde
+            const body = response.data;
+            if (body && body.data) return body.data;
+            // Eski format veya doğrudan veri döndüren endpoint için fallback
+            return body;
         } else {
             throw new Error("Genel bakış verileri yüklenirken hata oluştu.");
         }

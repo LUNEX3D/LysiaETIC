@@ -1,0 +1,62 @@
+# ═══════════════════════════════════════════════════════════════
+# LysiaETIC — Docker Compose (Production)
+# ✅ P1-4: Backend + Frontend + Nginx tek komutla ayağa kalkar
+#
+# Kullanım:
+#   docker-compose up -d --build        # Başlat
+#   docker-compose down                 # Durdur
+#   docker-compose logs -f backend      # Backend logları
+#   docker-compose ps                   # Durum
+# ═══════════════════════════════════════════════════════════════
+
+version: "3.8"
+
+services:
+  # ── Backend (Node.js + Express) ──────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: lysiaetic-backend
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    environment:
+      - NODE_ENV=production
+    ports:
+      - "5000:5000"
+    volumes:
+      - backend-logs:/app/logs
+    networks:
+      - lysiaetic-net
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5000/api/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ── Frontend (React + Nginx) ─────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        REACT_APP_API_URL: ""
+    container_name: lysiaetic-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - lysiaetic-net
+
+volumes:
+  backend-logs:
+    driver: local
+
+networks:
+  lysiaetic-net:
+    driver: bridge

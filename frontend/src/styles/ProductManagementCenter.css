@@ -1565,3 +1565,77 @@
 .ud-pm-root ::-webkit-scrollbar-thumb:hover {
     background: rgba(255, 255, 255, 0.2);
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   KATEGORİ AĞACI (Tree View)
+   ═══════════════════════════════════════════════════════════════ */
+
+.ud-pm-cat-tree-node {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.12s, border-color 0.12s;
+    border: 1px solid transparent;
+    font-size: 12px;
+    color: var(--ud-pm-text);
+    user-select: none;
+}
+
+.ud-pm-cat-tree-node:hover {
+    background: rgba(78, 205, 196, 0.06);
+    border-color: rgba(78, 205, 196, 0.12);
+}
+
+.ud-pm-cat-tree-node.selected {
+    background: rgba(78, 205, 196, 0.1);
+    border-color: rgba(78, 205, 196, 0.25);
+}
+
+.ud-pm-cat-tree-node.leaf {
+    color: var(--ud-pm-text-sub);
+}
+
+.ud-pm-cat-tree-node.leaf:hover {
+    background: rgba(139, 92, 246, 0.06);
+    border-color: rgba(139, 92, 246, 0.12);
+}
+
+.ud-pm-cat-tree-node.leaf.selected {
+    background: rgba(139, 92, 246, 0.1);
+    border-color: rgba(139, 92, 246, 0.25);
+}
+
+.ud-pm-cat-tree-toggle {
+    flex-shrink: 0;
+    color: var(--ud-pm-text-dim);
+    transition: transform 0.15s;
+}
+
+.ud-pm-cat-tree-icon {
+    flex-shrink: 0;
+}
+
+.ud-pm-cat-tree-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ud-pm-cat-tree-children {
+    /* indent handled by paddingLeft inline */
+}
+
+/* Spin animation for loading spinners in tree */
+.ud-pm-spin {
+    animation: ud-pm-spin-anim 1s linear infinite;
+}
+
+@keyframes ud-pm-spin-anim {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}

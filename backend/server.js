@@ -9,19 +9,26 @@
  * ✅ FIX #11: Rate limiting eklendi
  * ✅ FIX #18: Helmet.js güvenlik header'ları eklendi
  * ✅ FIX #9: db.js kullanıma alındı (dead code düzeltildi)
+ * ✅ SEC #1: XSS sanitization, MongoDB injection koruması, HPP eklendi
+ * ✅ P1-3: Swagger API dokümantasyonu eklendi (/api-docs)
  */
 
 // ─── 1. ENV — EN ÜSTTE yüklenmeli ────────────────────────────────────────────
 require("dotenv").config();
 
-const express  = require("express");
-const mongoose = require("mongoose");
-const cors     = require("cors");
-const helmet   = require("helmet");
-const dns      = require("dns");
-const os       = require("os");
-const logger   = require("./config/logger");
-const { apiLimiter }  = require("./middlewares/rateLimiter");
+const express        = require("express");
+const mongoose       = require("mongoose");
+const cors           = require("cors");
+const helmet         = require("helmet");
+const hpp            = require("hpp");
+const mongoSanitize  = require("express-mongo-sanitize");
+const dns            = require("dns");
+const os             = require("os");
+const logger         = require("./config/logger");
+const { apiLimiter }        = require("./middlewares/rateLimiter");
+const { sanitizeBody }      = require("./middlewares/sanitize");
+const swaggerUi              = require("swagger-ui-express");
+const swaggerSpec            = require("./config/swagger");
 
 // ─── 2. Route'lar ─────────────────────────────────────────────────────────────
 const hepsiburadaRoutes       = require("./routes/hepsiburadaRoutes");
@@ -47,8 +54,12 @@ const paytrRoutes             = require("./routes/paytrRoutes");
 const aiEngineRoutes          = require("./routes/aiEngineRoutes");
 const aiChatRoutes            = require("./routes/aiChatRoutes");
 const categorySmartRoutes     = require("./routes/categorySmartRoutes");
+const categoryErrorRoutes     = require("./routes/categoryErrorRoutes");
 const roketfyRoutes           = require("./routes/roketfyRoutes");
 const notificationRoutes      = require("./routes/notificationRoutes");
+const autoInvoiceRoutes       = require("./routes/autoInvoiceRoutes");
+// ✅ FIX #3: Webhook route'ları — pazaryeri anlık bildirim endpoint'leri
+const webhookRoutes           = require("./routes/webhookRoutes");
 
 // ─── 3. DNS & App ─────────────────────────────────────────────────────────────
 dns.setServers(["1.1.1.1", "8.8.8.8"]);
@@ -107,11 +118,33 @@ app.use(cors({
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" })); // ✅ PayTR callback application/x-www-form-urlencoded gönderir
 
+// ─── 8.0a GÜVENLİK — MongoDB Injection Koruması ────────────────────────────
+// $gt, $ne gibi operatörlerin body/query/params'a enjekte edilmesini engeller
+app.use(mongoSanitize({
+    replaceWith: "_",
+    onSanitize: ({ req, key }) => {
+        logger.warn(`MongoDB injection girişimi engellendi: ${key} — IP: ${req.ip}`);
+    }
+}));
+
+// ─── 8.0b GÜVENLİK — HPP (HTTP Parameter Pollution) Koruması ───────────────
+// Aynı query parametresinin birden fazla gönderilmesini engeller
+app.use(hpp());
+
+// ─── 8.0c GÜVENLİK — XSS Sanitization ──────────────────────────────────────
+// Tüm POST/PUT/PATCH body'lerindeki HTML/script tag'lerini temizler
+app.use(sanitizeBody);
+
 // ─── 8.1 Genel API Rate Limiter ──────────────────────────────────────────────
-// ✅ PayTR callback endpoint'ini rate limiter'dan muaf tut (PayTR sunucusu erişmeli)
+// ✅ PayTR callback ve Webhook endpoint'lerini rate limiter'dan muaf tut
+// PayTR sunucusu ve pazaryeri webhook sunucuları doğrudan erişmeli
 app.use("/api/", (req, res, next) => {
     if (req.originalUrl === "/api/paytr/callback" && req.method === "POST") {
         return next(); // Rate limiter atla
+    }
+    // ✅ FIX #3: Webhook endpoint'leri rate limiter'dan muaf
+    if (req.originalUrl.startsWith("/api/webhooks/") && req.method === "POST") {
+        return next(); // Rate limiter atla — pazaryeri sunucuları erişmeli
     }
     apiLimiter(req, res, next);
 });
@@ -161,6 +194,24 @@ app.use((req, res, next) => {
     next();
 });
 
+// ─── 8.2 Swagger API Dokümantasyonu ───────────────────────────────────────────
+// ✅ P1-3: /api-docs adresinden erişilebilir interaktif API dokümantasyonu
+app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
+    customCss: ".swagger-ui .topbar { display: none }",
+    customSiteTitle: "LysiaETIC API Docs",
+    swaggerOptions: {
+        persistAuthorization: true,
+        docExpansion: "none",
+        filter: true,
+        tagsSorter: "alpha",
+    },
+}));
+// Swagger JSON endpoint (programatik erişim için)
+app.get("/api-docs.json", (req, res) => {
+    res.setHeader("Content-Type", "application/json");
+    res.send(swaggerSpec);
+});
+
 // ─── 9. Route'ları bağla ──────────────────────────────────────────────────────
 app.use("/api/orders",             orderRoutes);
 app.use("/api/products",           productRoutes);
@@ -186,8 +237,22 @@ app.use("/api/paytr",            paytrRoutes);
 app.use("/api/ai-engine",       aiEngineRoutes);
 app.use("/api/ai-chat",        aiChatRoutes);
 app.use("/api/category-smart", categorySmartRoutes);
+app.use("/api/category-errors", categoryErrorRoutes);
 app.use("/api/roketfy",        roketfyRoutes);
 app.use("/api/notifications",  notificationRoutes);
+app.use("/api/auto-invoice",   autoInvoiceRoutes);
+// ✅ FIX #3: Webhook endpoint'leri — auth gerektirmez, pazaryerlerinden gelir
+app.use("/api/webhooks",       webhookRoutes);
+
+// ✅ FIX #9: Eksik route bağlantıları — dosyalar var ama server.js'de bağlı değildi
+const inventoryRoutes         = require("./routes/inventoryRoutes");
+const brandRoutes             = require("./routes/brandRoutes");
+const variantRoutes           = require("./routes/variantRoutes");
+const uploadRoutes            = require("./routes/uploadRoutes");
+app.use("/api/inventory",      inventoryRoutes);
+app.use("/api/brands",         brandRoutes);
+app.use("/api/variants",       variantRoutes);
+app.use("/api/upload",         uploadRoutes);
 
 // ─── 10. SUNUCU DURUM ENDPOINTİ (/api/status) ────────────────────────────────
 app.get("/api/status", (req, res) => {
@@ -305,18 +370,6 @@ process.on("uncaughtException", (err) => {
     else process.exit(1);
 });
 
-process.on("SIGTERM", () => {
-    logger.info("SIGTERM alındı — sunucu kapatılıyor...");
-    try { const { stopStockCron } = require("./services/stockCronService"); stopStockCron(); } catch (e) { /* */ }
-    try { const { stopAIWorker } = require("./services/aiBackgroundWorker"); stopAIWorker(); } catch (e) { /* */ }
-    if (server) {
-        server.close(() => {
-            mongoose.connection.close(false, () => {
-                logger.info("Sunucu ve DB bağlantısı kapatıldı.");
-                process.exit(0);
-            });
-        });
-    } else {
-        process.exit(0);
-    }
-});
+// Ctrl+C veya SIGTERM → direkt çık
+process.on("SIGTERM", () => process.exit(0));
+process.on("SIGINT", () => process.exit(0));

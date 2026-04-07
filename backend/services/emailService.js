@@ -148,6 +148,114 @@ Eğer bu hesabı siz oluşturmadıysanız, bu e-postayı görmezden gelebilirsin
 };
 
 /**
+ * 2FA doğrulama kodu e-postası gönder
+ * ✅ P2-3: İki faktörlü kimlik doğrulama
+ */
+exports.send2FACodeEmail = async (user, code) => {
+    const htmlContent = `
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2FA Doğrulama Kodu</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f4f4f7;font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f4f7;padding:40px 0;">
+        <tr>
+            <td align="center">
+                <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="background-color:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.06);">
+                    <!-- Header -->
+                    <tr>
+                        <td style="background:linear-gradient(135deg,#059669,#10b981);padding:40px 40px 32px;text-align:center;">
+                            <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto;">
+                                <tr>
+                                    <td style="background:rgba(255,255,255,0.2);border-radius:12px;padding:10px 14px;display:inline-block;">
+                                        <span style="color:#ffffff;font-size:22px;font-weight:800;letter-spacing:0.08em;">LysiaETİC</span>
+                                    </td>
+                                </tr>
+                            </table>
+                            <p style="color:rgba(255,255,255,0.85);font-size:14px;margin:16px 0 0;font-weight:500;">
+                                🔐 İki Faktörlü Doğrulama
+                            </p>
+                        </td>
+                    </tr>
+                    <!-- Body -->
+                    <tr>
+                        <td style="padding:40px 44px;">
+                            <h1 style="color:#1a1a2e;font-size:24px;font-weight:700;margin:0 0 8px;text-align:center;">
+                                Giriş Doğrulama Kodu
+                            </h1>
+                            <p style="color:#64748b;font-size:15px;line-height:1.6;text-align:center;margin:0 0 32px;">
+                                Merhaba <strong style="color:#1a1a2e;">${user.name}</strong>,<br>
+                                Hesabınıza giriş yapmak için aşağıdaki kodu kullanın.
+                            </p>
+                            <!-- Code Box -->
+                            <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto;">
+                                <tr>
+                                    <td style="background:#f0fdf4;border:2px dashed #059669;border-radius:16px;padding:24px 48px;text-align:center;">
+                                        <span style="font-size:36px;font-weight:900;letter-spacing:0.3em;color:#059669;font-family:monospace;">
+                                            ${code}
+                                        </span>
+                                    </td>
+                                </tr>
+                            </table>
+                            <p style="color:#94a3b8;font-size:13px;line-height:1.6;text-align:center;margin:28px 0 0;">
+                                Bu kod güvenliğiniz için <strong>5 dakika</strong> geçerlidir.<br>
+                                Eğer bu giriş denemesini siz yapmadıysanız, şifrenizi hemen değiştirin.
+                            </p>
+                        </td>
+                    </tr>
+                    <!-- Footer -->
+                    <tr>
+                        <td style="background-color:#f8fafc;padding:24px 44px;border-top:1px solid #e2e8f0;">
+                            <p style="color:#94a3b8;font-size:12px;line-height:1.6;text-align:center;margin:0;">
+                                Bu e-posta LysiaETİC iki faktörlü doğrulama için gönderilmiştir.<br>
+                                &copy; ${new Date().getFullYear()} LysiaETİC. Tüm hakları saklıdır.
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>`;
+
+    const textContent = `Merhaba ${user.name},
+
+Hesabınıza giriş yapmak için aşağıdaki doğrulama kodunu kullanın:
+
+${code}
+
+Bu kod 5 dakika geçerlidir.
+Eğer bu giriş denemesini siz yapmadıysanız, şifrenizi hemen değiştirin.
+
+© ${new Date().getFullYear()} LysiaETİC`;
+
+    try {
+        const { data, error } = await resend.emails.send({
+            from: FROM_EMAIL,
+            to: [user.email],
+            subject: "LysiaETİC — Giriş Doğrulama Kodu (2FA)",
+            html: htmlContent,
+            text: textContent,
+        });
+
+        if (error) {
+            logger.error(`Resend 2FA e-posta hatası: ${JSON.stringify(error)}`);
+            return { success: false, error };
+        }
+
+        logger.info(`2FA kodu gönderildi: ${user.email} (ID: ${data?.id})`);
+        return { success: true, id: data?.id };
+    } catch (err) {
+        logger.error(`2FA e-posta gönderim hatası: ${err.message}`);
+        return { success: false, error: err.message };
+    }
+};
+
+/**
  * Şifre sıfırlama kodu e-postası gönder
  */
 exports.sendPasswordResetEmail = async (user, code) => {

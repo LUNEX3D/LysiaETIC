@@ -1,29 +1,18 @@
 import React, { useState, useEffect } from "react";
 import { FaGlobe, FaKey, FaEdit, FaTrash, FaTimes, FaCheck, FaPlug, FaRocket } from "react-icons/fa";
 import { motion, AnimatePresence } from "framer-motion";
+import API from "../services/api";
+import { useApp } from "../context/AppContext";
 import World3D from "../components/World3D";
 import "../styles/MarketplaceIntegration.css";
 
-const API_URL = process.env.REACT_APP_API_URL || "http://13.51.158.124:5000";
-
-// ✅ Kullanıcının pazaryeri entegrasyonlarını getir
-const getUserIntegrations = async (userId) => {
+// ✅ FIX #3: fetch() → api.js (axios) — 401 interceptor + token refresh çalışır
+const getUserIntegrations = async () => {
     try {
-        const token = localStorage.getItem("token");
-        if (!token) { console.error("❌ Token eksik!"); return []; }
-
-        const response = await fetch(`${API_URL}/api/marketplace/user-marketplaces`, {
-            method: "GET",
-            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }
-        });
-
-        if (!response.ok) {
-            if (response.status === 404) return [];
-            throw new Error(`API Hatası: ${response.statusText}`);
-        }
-        return await response.json();
+        const response = await API.get("/marketplace/user-marketplaces");
+        return response.data || [];
     } catch (error) {
-        console.error("❌ API Hatası:", error);
+        if (error.response?.status === 404) return [];
         return [];
     }
 };
@@ -39,6 +28,7 @@ const REGION_CONFIG = {
 };
 
 const MarketplaceIntegration = () => {
+    const { t } = useApp();
     const regions = [
         {
             name: "Türkiye",
@@ -92,19 +82,16 @@ const MarketplaceIntegration = () => {
     useEffect(() => {
         const fetchIntegrations = async () => {
             try {
-                const data = await getUserIntegrations(userId);
+                const data = await getUserIntegrations();
                 setIntegrations(data);
-            } catch (error) {
-                console.error('❌ Entegrasyonlar yüklenemedi:', error);
-            }
+            } catch { /* silently handle */ }
         };
         if (userId) fetchIntegrations();
     }, [userId]);
 
     const handleIntegration = async (platform) => {
-        const token = localStorage.getItem("token");
         const uid = localStorage.getItem("userId");
-        if (!token || !uid) { alert("Yetkilendirme hatası! Lütfen tekrar giriş yapın."); return; }
+        if (!uid) { alert(t("mi.authError")); return; }
 
         const platformFormData = formData[platform.name] || {};
         const credentials = {};
@@ -112,60 +99,41 @@ const MarketplaceIntegration = () => {
             credentials[field] = platformFormData[field] || platform.fieldDefaults?.[field] || "";
         });
 
-        // Zorunlu alanları kontrol et (fieldRequired varsa onu kullan, yoksa tüm alanlar zorunlu)
         const hasEmptyRequiredFields = platform.fields.some(field => {
             const isRequired = platform.fieldRequired ? platform.fieldRequired[field] !== false : true;
             const val = credentials[field];
             return isRequired && (!val || !val.trim());
         });
-        if (hasEmptyRequiredFields) { alert(`❌ Lütfen ${platform.name} için zorunlu API bilgilerini doldurun!`); return; }
+        if (hasEmptyRequiredFields) { alert(`❌ ${t("mi.fillRequired")}`); return; }
 
         try {
-            const response = await fetch(`${API_URL}/api/marketplace/integrate`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-                body: JSON.stringify({ userId: uid, marketplaceName: platform.name, credentials })
+            const response = await API.post("/marketplace/integrate", {
+                userId: uid, marketplaceName: platform.name, credentials
             });
-            const data = await response.json();
-            if (response.ok) {
-                alert(data.isUpdate ? `✅ ${platform.name} güncellendi!` : `✅ ${platform.name} entegrasyonu başarılı!`);
-                const updated = await getUserIntegrations(uid);
-                setIntegrations(updated);
-                setFormData(prev => ({ ...prev, [platform.name]: {} }));
-                setExpandedPlatform(null);
-            } else {
-                alert(`❌ Hata: ${data.message}`);
-            }
+            const data = response.data;
+            alert(data.isUpdate ? `✅ ${platform.name} ${t("mi.updated")}` : `✅ ${platform.name} ${t("mi.integrationSuccess")}`);
+            const updated = await getUserIntegrations();
+            setIntegrations(updated);
+            setFormData(prev => ({ ...prev, [platform.name]: {} }));
+            setExpandedPlatform(null);
         } catch (error) {
-            alert("❌ Sunucuya erişilemiyor.");
+            alert(`❌ ${error.response?.data?.message || t("mi.serverError")}`);
         }
     };
 
     const handleDeleteIntegration = async (platform) => {
-        const token = localStorage.getItem("token");
-        const uid = localStorage.getItem("userId");
-        if (!token || !uid) { alert("Yetkilendirme hatası!"); return; }
-
         const toDelete = integrations.find(int => int.marketplaceName === platform.name);
-        if (!toDelete) { alert("❌ Entegrasyon bulunamadı!"); return; }
-        if (!window.confirm(`${platform.name} entegrasyonunu silmek istediğinize emin misiniz?`)) return;
+        if (!toDelete) return;
+        if (!window.confirm(`${platform.name} ${t("mi.deleteConfirm")}`)) return;
 
         try {
-            const response = await fetch(`${API_URL}/api/marketplace/${toDelete._id}`, {
-                method: "DELETE",
-                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }
-            });
-            const data = await response.json();
-            if (response.ok) {
-                alert(`✅ ${platform.name} silindi!`);
-                const updated = await getUserIntegrations(uid);
-                setIntegrations(updated);
-                setFormData(prev => ({ ...prev, [platform.name]: {} }));
-            } else {
-                alert(`❌ Hata: ${data.message}`);
-            }
+            await API.delete(`/marketplace/${toDelete._id}`);
+            alert(`✅ ${platform.name} ${t("mi.deleted")}`);
+            const updated = await getUserIntegrations();
+            setIntegrations(updated);
+            setFormData(prev => ({ ...prev, [platform.name]: {} }));
         } catch (error) {
-            alert("❌ Silme başarısız!");
+            alert(`❌ ${error.response?.data?.message || t("mi.deleteFailed")}`);
         }
     };
 

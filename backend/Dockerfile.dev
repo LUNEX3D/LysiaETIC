@@ -1,0 +1,15 @@
+# ═══════════════════════════════════════════════════════════════
+# LysiaETIC Backend — Development Dockerfile (hot-reload)
+# ═══════════════════════════════════════════════════════════════
+FROM node:18-alpine
+
+WORKDIR /app
+COPY package.json package-lock.json* ./
+RUN npm install && npm cache clean --force
+
+COPY . .
+RUN mkdir -p logs
+
+EXPOSE 5000
+
+CMD ["npx", "nodemon", "server.js"]

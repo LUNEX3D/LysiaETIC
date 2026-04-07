@@ -8,25 +8,15 @@
 const XLSX = require("xlsx");
 const UnifiedCategoryMap = require("../models/UnifiedCategoryMap");
 const logger = require("../config/logger");
+const { normalizeKey } = require("../utils/textNormalize");
 
 const LOG_PREFIX = "[UNIFIED CAT]";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// NORMALIZE
+// YARDIMCI
 // ─────────────────────────────────────────────────────────────────────────────
 
-const normalizeKey = (name) => {
-    if (!name) return "";
-    return name
-        .toLowerCase()
-        .trim()
-        .replace(/ğ/g, "g").replace(/ü/g, "u").replace(/ş/g, "s")
-        .replace(/ı/g, "i").replace(/ö/g, "o").replace(/ç/g, "c")
-        .replace(/â/g, "a").replace(/î/g, "i").replace(/û/g, "u")
-        .replace(/[^a-z0-9\s]/g, " ")
-        .replace(/\s+/g, " ")
-        .trim();
-};
+// normalizeKey artık utils/textNormalize.js'den geliyor (tek kaynak)
 
 const extractRoot = (path) => {
     if (!path) return "";
@@ -126,8 +116,8 @@ const buildUnifiedMap = (trendyolRows, n11Rows, ciceksepetiRows, hepsiburadaRows
 
         const canonicalName = (tRow?.categoryName || nRow?.categoryName || cRow?.categoryName || hRow?.categoryName || aRow?.categoryName || "").trim();
         const paths = [tRow?.categoryPath, nRow?.categoryPath, cRow?.categoryPath, hRow?.categoryPath, aRow?.categoryPath].filter(Boolean);
-        const canonicalPath = paths.sort((a, b) => (b || "").split(" > ").length - (a || "").split(" > ").length)[0] || "";
-        const isLeaf = (tRow?.isLeaf || nRow?.isLeaf || cRow?.isLeaf || hRow?.isLeaf || aRow?.isLeaf) || false;
+        const canonicalPath = [...paths].sort((a, b) => b.split(" > ").length - a.split(" > ").length)[0] || "";
+        const isLeaf = !!(tRow?.isLeaf || nRow?.isLeaf || cRow?.isLeaf || hRow?.isLeaf || aRow?.isLeaf);
 
         const buildPlatform = (row) => row ? {
             categoryId:   row.categoryId,
@@ -278,7 +268,7 @@ const manualMerge = async (targetId, sourceId) => {
 
     // En derin path'i al
     const paths = [target.trendyol?.categoryPath, target.n11?.categoryPath, target.ciceksepeti?.categoryPath, target.hepsiburada?.categoryPath, target.amazon?.categoryPath].filter(Boolean);
-    target.canonicalPath = paths.sort((a, b) => b.split(" > ").length - a.split(" > ").length)[0] || "";
+    target.canonicalPath = [...paths].sort((a, b) => b.split(" > ").length - a.split(" > ").length)[0] || "";
     target.rootCategory = extractRoot(target.canonicalPath);
 
     await target.save();
@@ -331,6 +321,6 @@ module.exports = {
     importFromBuffers,
     manualMerge,
     getStats,
-    normalizeKey,
+    normalizeKey,  // re-export — geriye uyumluluk (textNormalize'dan geliyor)
     extractRoot
 };

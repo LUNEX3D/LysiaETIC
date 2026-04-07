@@ -2,28 +2,8 @@ import React, { useState, useEffect, useMemo } from "react";
 import axios from "../services/api";
 import { motion, AnimatePresence } from "framer-motion";
 import { FaTruck, FaSearch, FaSync, FaExternalLinkAlt, FaChevronDown, FaChevronLeft, FaChevronRight, FaFilter, FaBoxOpen, FaCheckCircle, FaUndoAlt, FaTimesCircle, FaSortAmountDown, FaSortAmountUp } from "react-icons/fa";
+import { useApp } from "../context/AppContext";
 import "../styles/CargoTrackingPage.css";
-
-/* ═══════════════════════════════════════════════════════════
-   RENK PALETİ (Dashboard ile uyumlu)
-   ═══════════════════════════════════════════════════════════ */
-const C = {
-    bg:       "#0f1419",
-    card:     "rgba(26, 31, 53, 0.85)",
-    border:   "rgba(78, 205, 196, 0.18)",
-    accent:   "#4ecdc4",
-    green:    "#22c55e",
-    red:      "#ef4444",
-    yellow:   "#f59e0b",
-    purple:   "#8b5cf6",
-    blue:     "#06b6d4",
-    pink:     "#ec4899",
-    text:     "#e2e8f0",
-    muted:    "#94a3b8",
-    dim:      "#64748b",
-    glass:    "rgba(255,255,255,0.03)",
-    glassBr:  "rgba(255,255,255,0.06)",
-};
 
 const fmtDate = (d) => {
     if (!d) return "—";
@@ -33,6 +13,7 @@ const fmtDate = (d) => {
 };
 
 const CargoTrackingPage = ({ userId, marketplaceId, marketplace }) => {
+    const { theme: C, t } = useApp();
     const [orders, setOrders] = useState([]);
     const [searchQuery, setSearchQuery] = useState("");
     const [startDate, setStartDate] = useState("");
@@ -81,11 +62,11 @@ const CargoTrackingPage = ({ userId, marketplaceId, marketplace }) => {
     // Status helpers
     const getStatusInfo = (status) => {
         const s = (status || "").toLowerCase();
-        if (s.includes("shipped") || s.includes("kargoda") || s.includes("transit")) return { label: "Kargoda", color: C.yellow, icon: <FaTruck /> };
-        if (s.includes("delivered") || s.includes("teslim")) return { label: "Teslim Edildi", color: C.green, icon: <FaCheckCircle /> };
-        if (s.includes("returned") || s.includes("iade")) return { label: "İade", color: C.red, icon: <FaUndoAlt /> };
-        if (s.includes("undelivered") || s.includes("teslim edilemedi")) return { label: "Teslim Edilemedi", color: C.pink, icon: <FaTimesCircle /> };
-        return { label: status || "Bilinmiyor", color: C.muted, icon: <FaBoxOpen /> };
+        if (s.includes("shipped") || s.includes("kargoda") || s.includes("transit")) return { label: t("cargo.shipped"), color: C.yellow, icon: <FaTruck /> };
+        if (s.includes("delivered") || s.includes("teslim")) return { label: t("cargo.delivered"), color: C.green, icon: <FaCheckCircle /> };
+        if (s.includes("returned") || s.includes("iade")) return { label: t("cargo.returned"), color: C.red, icon: <FaUndoAlt /> };
+        if (s.includes("undelivered") || s.includes("teslim edilemedi")) return { label: t("cargo.undelivered"), color: C.pink, icon: <FaTimesCircle /> };
+        return { label: status || t("cargo.unknown"), color: C.muted, icon: <FaBoxOpen /> };
     };
 
     // Status counts
@@ -162,14 +143,14 @@ const CargoTrackingPage = ({ userId, marketplaceId, marketplace }) => {
                 <div className="cargo-page-header-left">
                     <h1>
                         <FaTruck style={{ color: C.accent }} />
-                        <span>{marketplace?.name || marketplace?.marketplaceName || "Kargo"} Yönetimi</span>
+                        <span>{marketplace?.name || marketplace?.marketplaceName || ""} {t("cargo.pageTitle")}</span>
                     </h1>
-                    <p>Kargo takip ve yönetim sistemi • {totalOrders} kargo</p>
+                    <p>{t("cargo.trackingSystem")} • {totalOrders} {t("cargo.cargo")}</p>
                 </div>
                 <div className="cargo-page-header-right">
                     <button className="cargo-refresh-btn" onClick={fetchCargoTrackingOrders} disabled={loading}>
                         <FaSync className={loading ? "cargo-spin" : ""} />
-                        {loading ? "Yükleniyor..." : "Güncelle"}
+                        {loading ? t("cargo.loading") : t("cargo.update")}
                     </button>
                 </div>
             </div>
@@ -177,10 +158,10 @@ const CargoTrackingPage = ({ userId, marketplaceId, marketplace }) => {
             {/* ── STAT CARDS ── */}
             <div className="cargo-stat-row">
                 {[
-                    { label: "Toplam", count: statusCounts.all, icon: "📦", color: C.accent },
-                    { label: "Kargoda", count: statusCounts.Shipped, icon: "🚚", color: C.yellow },
-                    { label: "Teslim Edildi", count: statusCounts.Delivered, icon: "✅", color: C.green },
-                    { label: "İade", count: statusCounts.Returned, icon: "↩️", color: C.red },
+                    { label: t("cargo.total"), count: statusCounts.all, icon: "📦", color: C.accent },
+                    { label: t("cargo.shipped"), count: statusCounts.Shipped, icon: "🚚", color: C.yellow },
+                    { label: t("cargo.delivered"), count: statusCounts.Delivered, icon: "✅", color: C.green },
+                    { label: t("cargo.returned"), count: statusCounts.Returned, icon: "↩️", color: C.red },
                 ].map((s, i) => (
                     <motion.div key={s.label} className="cargo-stat-card" whileHover={{ y: -3 }}
                         style={{ borderTop: `3px solid ${s.color}` }}>
@@ -197,10 +178,10 @@ const CargoTrackingPage = ({ userId, marketplaceId, marketplace }) => {
             <div className="cargo-filter-bar">
                 <div className="cargo-filter-tabs">
                     {[
-                        { id: "all", label: "Tümü", count: statusCounts.all },
-                        { id: "Shipped", label: "Kargoda", count: statusCounts.Shipped },
-                        { id: "Delivered", label: "Teslim", count: statusCounts.Delivered },
-                        { id: "Returned", label: "İade", count: statusCounts.Returned },
+                        { id: "all", label: t("cargo.all"), count: statusCounts.all },
+                        { id: "Shipped", label: t("cargo.shipped"), count: statusCounts.Shipped },
+                        { id: "Delivered", label: t("cargo.deliver"), count: statusCounts.Delivered },
+                        { id: "Returned", label: t("cargo.returned"), count: statusCounts.Returned },
                     ].map(tab => (
                         <button key={tab.id}
                             className={`cargo-filter-tab ${statusFilter === tab.id ? "active" : ""}`}
@@ -212,14 +193,14 @@ const CargoTrackingPage = ({ userId, marketplaceId, marketplace }) => {
                 <div className="cargo-filter-inputs">
                     <div className="cargo-search-wrap">
                         <FaSearch className="cargo-search-icon" />
-                        <input type="text" placeholder="Sipariş No, Müşteri, Takip No..."
+                        <input type="text" placeholder={t("cargo.searchPlaceholder")}
                             value={searchQuery} onChange={e => { setSearchQuery(e.target.value); setCurrentPage(1); }}
                             className="cargo-search-input" />
                     </div>
                     <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="cargo-date-input" />
                     <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="cargo-date-input" />
                     <button className="cargo-apply-btn" onClick={() => { fetchCargoTrackingOrders(); }}>
-                        <FaFilter /> Uygula
+                        <FaFilter /> {t("cargo.apply")}
                     </button>
                 </div>
             </div>
@@ -229,27 +210,27 @@ const CargoTrackingPage = ({ userId, marketplaceId, marketplace }) => {
                 {/* Table Header */}
                 <div className="cargo-table-header">
                     <div className="cargo-th cargo-th-order" onClick={() => handleSort("orderNumber")}>
-                        Sipariş No <SortIcon field="orderNumber" />
+                        {t("cargo.orderNo")} <SortIcon field="orderNumber" />
                     </div>
                     <div className="cargo-th cargo-th-customer" onClick={() => handleSort("customerName")}>
-                        Müşteri <SortIcon field="customerName" />
+                        {t("cargo.customer")} <SortIcon field="customerName" />
                     </div>
-                    <div className="cargo-th cargo-th-cargo">Kargo Firması</div>
-                    <div className="cargo-th cargo-th-tracking">Takip No</div>
+                    <div className="cargo-th cargo-th-cargo">{t("cargo.cargoCompany")}</div>
+                    <div className="cargo-th cargo-th-tracking">{t("cargo.trackingNo")}</div>
                     <div className="cargo-th cargo-th-date" onClick={() => handleSort("timestamp")}>
-                        Tarih <SortIcon field="timestamp" />
+                        {t("cargo.date")} <SortIcon field="timestamp" />
                     </div>
                     <div className="cargo-th cargo-th-status" onClick={() => handleSort("status")}>
-                        Durum <SortIcon field="status" />
+                        {t("cargo.status")} <SortIcon field="status" />
                     </div>
-                    <div className="cargo-th cargo-th-action">İşlem</div>
+                    <div className="cargo-th cargo-th-action">{t("cargo.action")}</div>
                 </div>
 
                 {/* Table Body */}
                 {loading ? (
                     <div className="cargo-loading">
                         <div className="cargo-loading-spinner"></div>
-                        <span>Kargo verileri yükleniyor...</span>
+                        <span>{t("cargo.loadingData")}</span>
                     </div>
                 ) : currentOrders.length > 0 ? (
                     <div className="cargo-table-body">
@@ -288,7 +269,7 @@ const CargoTrackingPage = ({ userId, marketplaceId, marketplace }) => {
                                             {order.cargoTrackingLink ? (
                                                 <a href={order.cargoTrackingLink} target="_blank" rel="noopener noreferrer"
                                                     className="cargo-track-link" onClick={e => e.stopPropagation()}>
-                                                    <FaExternalLinkAlt /> Takip
+                                                    <FaExternalLinkAlt /> {t("cargo.track")}
                                                 </a>
                                             ) : (
                                                 <span className="cargo-no-link">—</span>
@@ -305,25 +286,25 @@ const CargoTrackingPage = ({ userId, marketplaceId, marketplace }) => {
                                                 exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }}>
                                                 <div className="cargo-detail-grid">
                                                     <div className="cargo-detail-item">
-                                                        <span className="cargo-detail-label">Pazaryeri</span>
+                                                        <span className="cargo-detail-label">{t("cargo.marketplace")}</span>
                                                         <span className="cargo-detail-value" style={{ color: C.accent }}>{order.marketplace || marketplace?.marketplaceName || "—"}</span>
                                                     </div>
                                                     <div className="cargo-detail-item">
-                                                        <span className="cargo-detail-label">Sipariş Tarihi</span>
+                                                        <span className="cargo-detail-label">{t("cargo.orderDate")}</span>
                                                         <span className="cargo-detail-value">{fmtDate(order.orderDate)}</span>
                                                     </div>
                                                     <div className="cargo-detail-item">
-                                                        <span className="cargo-detail-label">Kargo Firması</span>
+                                                        <span className="cargo-detail-label">{t("cargo.cargoCompany")}</span>
                                                         <span className="cargo-detail-value">{order.cargoProviderName || "—"}</span>
                                                     </div>
                                                     <div className="cargo-detail-item">
-                                                        <span className="cargo-detail-label">Takip Numarası</span>
+                                                        <span className="cargo-detail-label">{t("cargo.trackingNo")}</span>
                                                         <span className="cargo-detail-value" style={{ fontFamily: "monospace" }}>{order.trackingNumber || "—"}</span>
                                                     </div>
                                                 </div>
                                                 {order.products && order.products.length > 0 && (
                                                     <div className="cargo-products-section">
-                                                        <span className="cargo-detail-label" style={{ marginBottom: "0.5rem", display: "block" }}>Ürünler ({order.products.length})</span>
+                                                        <span className="cargo-detail-label" style={{ marginBottom: "0.5rem", display: "block" }}>{t("cargo.productsLabel")} ({order.products.length})</span>
                                                         <div className="cargo-products-list">
                                                             {order.products.map((product, pidx) => (
                                                                 <div key={pidx} className="cargo-product-row">
@@ -349,8 +330,8 @@ const CargoTrackingPage = ({ userId, marketplaceId, marketplace }) => {
                 ) : (
                     <div className="cargo-empty">
                         <span className="cargo-empty-icon">📭</span>
-                        <h3>Kargo Bulunamadı</h3>
-                        <p>{marketplace?.name || marketplace?.marketplaceName || 'Seçili pazaryeri'} için kargo siparişi bulunamadı.</p>
+                        <h3>{t("cargo.notFound")}</h3>
+                        <p>{marketplace?.name || marketplace?.marketplaceName || ''} {t("cargo.notFoundDesc")}</p>
                     </div>
                 )}
             </div>
@@ -359,7 +340,7 @@ const CargoTrackingPage = ({ userId, marketplaceId, marketplace }) => {
             {totalPages > 1 && (
                 <div className="cargo-pagination">
                     <button className="cargo-page-btn" onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1}>
-                        <FaChevronLeft /> Önceki
+                        <FaChevronLeft /> {t("cargo.previous")}
                     </button>
                     <div className="cargo-page-numbers">
                         {Array.from({ length: Math.min(totalPages, 7) }, (_, i) => {
@@ -377,9 +358,9 @@ const CargoTrackingPage = ({ userId, marketplaceId, marketplace }) => {
                             );
                         })}
                     </div>
-                    <span className="cargo-page-info">{filteredOrders.length} kargo</span>
+                    <span className="cargo-page-info">{filteredOrders.length} {t("cargo.cargo")}</span>
                     <button className="cargo-page-btn" onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage >= totalPages}>
-                        Sonraki <FaChevronRight />
+                        {t("cargo.next")} <FaChevronRight />
                     </button>
                 </div>
             )}

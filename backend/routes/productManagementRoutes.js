@@ -81,6 +81,7 @@ router.get("/dashboard",   controller.getProductManagementDashboard);
 router.post("/sync/all",                       controller.syncAllMarketplaces);
 router.get("/comparison",                      controller.getComparisonMatrix);
 router.post("/sync/bulk-distribute-selected",  controller.bulkDistributeSelected);
+router.post("/sync/distribute-undistributed",  controller.distributeUndistributed);
 
 // ═══════════════════════════════════════════════════════════════
 // 📋 TOPLU ÜRÜN YÖNETİMİ (BULK OPERATIONS)

@@ -3,13 +3,68 @@ const ProductMapping         = require("../models/ProductMapping");
 const StockSyncLog           = require("../models/StockSyncLog");
 const Marketplace            = require("../models/Marketplace");
 const PendingDeletion        = require("../models/PendingDeletion");
+const User                   = require("../models/User");
+const CategoryErrorLog       = require("../models/CategoryErrorLog");
 const logger                 = require("../config/logger");
 const n11Service             = require("./n11Service");
 const n11MappingService      = require("./n11MappingService");
 const masterProductAdapter   = require("./masterProductAdapter");
-const categoryMappingService = require("./categoryMappingService");
 // ✅ FIX: Credential'ları decrypt ederek kullan
 const { decryptCredentials } = require("../utils/encryption");
+
+/**
+ * Kullanıcının ürün eşleştirme öncelik sırasını getir
+ * @param {ObjectId} userId
+ * @returns {Object} { primary: "sku"|"barcode"|"name", secondary: ..., tertiary: ... }
+ */
+const getUserMatchPriority = async (userId) => {
+    try {
+        const user = await User.findById(userId).select("preferences.productMatchPriority").lean();
+        const p = user?.preferences?.productMatchPriority;
+        if (p?.primary && p?.secondary && p?.tertiary) return p;
+    } catch (e) {
+        logger.warn(`[SYNC] Kullanıcı eşleştirme önceliği okunamadı: ${e.message}`);
+    }
+    return { primary: "sku", secondary: "barcode", tertiary: "name" };
+};
+
+/**
+ * Öncelik sırasına göre ürün eşleştirme yap
+ * @param {Object} product - { sku, barcode, name, marketplaceProductId }
+ * @param {Object} maps - { mappingBySku, mappingByBarcode, mappingByName, mappingByMpId }
+ * @param {Object} priority - { primary, secondary, tertiary }
+ * @returns {Object|null} - Eşleşen ProductMapping veya null
+ */
+const matchProductByPriority = (product, maps, priority) => {
+    const fieldMap = {
+        sku:     (p) => [
+            p.sku ? maps.mappingBySku.get(p.sku) : null,
+            p.sku ? maps.mappingByBarcode.get(p.sku) : null   // cross-match
+        ],
+        barcode: (p) => [
+            p.barcode ? maps.mappingByBarcode.get(p.barcode) : null,
+            p.barcode ? maps.mappingBySku.get(p.barcode) : null  // cross-match
+        ],
+        name:    (p) => [
+            p.name ? maps.mappingByName.get(p.name.trim().toLowerCase()) : null
+        ]
+    };
+
+    // Öncelik sırasına göre dene
+    for (const level of [priority.primary, priority.secondary, priority.tertiary]) {
+        const lookups = fieldMap[level]?.(product) || [];
+        for (const result of lookups) {
+            if (result) return result;
+        }
+    }
+
+    // Son çare: MarketplaceProductId
+    if (product.marketplaceProductId) {
+        return maps.mappingByMpId.get(product.marketplaceProductId) || null;
+    }
+
+    return null;
+};
 
 /**
  * ÜRÜN SENKRONİZASYON SERVİSİ
@@ -441,26 +496,42 @@ const syncProductsFromMarketplace = async (userId, marketplaceId, marketplaceNam
          */
 
         // ── Adım 1: Tüm mevcut eşleştirmeleri tek sorguda çek ──
-        // Her ürün için ayrı findOne yerine, tüm barkodları toplayıp tek find ile çek
-        const allLookupKeys = marketplaceProducts
-            .map(p => p.barcode || p.sku || p.marketplaceProductId)
-            .filter(Boolean);
+        // 🛡️ GELİŞTİRİLMİŞ LOOKUP: Barkod + SKU + MarketplaceProductId ile eşleştir
+        const allBarcodes = marketplaceProducts.map(p => p.barcode).filter(Boolean);
+        const allSkus = marketplaceProducts.map(p => p.sku).filter(Boolean);
+        const allMpIds = marketplaceProducts.map(p => p.marketplaceProductId).filter(Boolean);
+        const allLookupKeys = [...new Set([...allBarcodes, ...allSkus, ...allMpIds])];
 
         const existingMappings = await ProductMapping.find({
             userId,
             $or: [
                 { "masterProduct.barcode": { $in: allLookupKeys } },
-                { "masterProduct.sku": { $in: allLookupKeys } }
+                { "masterProduct.sku": { $in: allLookupKeys } },
+                { "masterProduct.sku": { $in: allSkus } },
+                { "marketplaceMappings.marketplaceProductId": { $in: allMpIds } }
             ]
         });
 
-        // Hızlı lookup için Map oluştur (barcode → mapping, sku → mapping)
+        // 🛡️ Hızlı lookup için 4 Map oluştur (barcode, sku, name, marketplaceProductId)
         const mappingByBarcode = new Map();
         const mappingBySku = new Map();
+        const mappingByName = new Map();
+        const mappingByMpId = new Map();
         for (const m of existingMappings) {
             if (m.masterProduct.barcode) mappingByBarcode.set(m.masterProduct.barcode, m);
             if (m.masterProduct.sku) mappingBySku.set(m.masterProduct.sku, m);
+            if (m.masterProduct.name) mappingByName.set(m.masterProduct.name.trim().toLowerCase(), m);
+            // Marketplace product ID ile de eşleştir
+            for (const mp of (m.marketplaceMappings || [])) {
+                if (mp.marketplaceProductId) mappingByMpId.set(mp.marketplaceProductId, m);
+            }
         }
+
+        // 🔧 Kullanıcının eşleştirme öncelik sırasını getir
+        const matchPriority = await getUserMatchPriority(userId);
+        logger.info(`[SYNC] Eşleştirme önceliği: 1) ${matchPriority.primary} 2) ${matchPriority.secondary} 3) ${matchPriority.tertiary}`);
+
+        const lookupMaps = { mappingBySku, mappingByBarcode, mappingByName, mappingByMpId };
 
         // ── Adım 2: Ürünleri işle ve kaydet (batch paralel) ──
         const logEntries = []; // Toplu log için biriktir
@@ -471,13 +542,13 @@ const syncProductsFromMarketplace = async (userId, marketplaceId, marketplaceNam
 
             const batchResults = await Promise.all(batch.map(async (product) => {
                 try {
-                    const lookupBarcode = product.barcode || product.sku || product.marketplaceProductId;
-                    if (!lookupBarcode) {
+                    if (!product.barcode && !product.sku && !product.marketplaceProductId) {
                         return { status: "skipped" };
                     }
 
-                    // Map'ten hızlı lookup (O(1) — eskisi O(N) findOne idi)
-                    let mapping = mappingByBarcode.get(lookupBarcode) || mappingBySku.get(lookupBarcode);
+                    // 🛡️ GELİŞTİRİLMİŞ EŞLEŞTIRME — Kullanıcı öncelik sırasına göre
+                    // Öncelik: Kullanıcı ayarından gelir (default: 1) SKU  2) Barkod  3) Ürün Adı)
+                    let mapping = matchProductByPriority(product, lookupMaps, matchPriority);
 
                     const mpData = {
                         marketplaceName: normalizedName,
@@ -507,14 +578,20 @@ const syncProductsFromMarketplace = async (userId, marketplaceId, marketplaceNam
                             mapping.marketplaceMappings.push(mpData);
                         }
 
-                        // Master product stok/fiyat güncelle
-                        if (product.stock !== undefined && product.stock !== null) {
-                            mapping.masterProduct.stock = product.stock;
-                            mapping.stockTracking.totalStock = product.stock;
-                            mapping.updateStockStatus();
-                        }
+                        // ⚠️ Master product stok/fiyat güncelleme — DİKKAT!
+                        // Master stoka DOKUNMA — sadece marketplace mapping stoku güncellenir
+                        //   Master stok sadece şu durumlarda değişir:
+                        //   1. Sipariş geldiğinde (stockCronService → reserveStock)
+                        //   2. Manuel güncelleme (kullanıcı UI'dan değiştirdiğinde)
+                        //   3. İlk kez oluşturulan ürünlerde (aşağıdaki else bloğu)
+                        // Fiyat güncelleme ise güvenli — master fiyatı pazaryerinden güncelleyebiliriz
                         if (product.price) mapping.masterProduct.price = product.price;
                         if (product.listPrice) mapping.masterProduct.listPrice = product.listPrice;
+
+                        // 🛡️ Eksik master verileri marketplace'ten doldur (kategorisi boş ise güncelle)
+                        if (!mapping.masterProduct.category && product.category) {
+                            mapping.masterProduct.category = product.category;
+                        }
 
                         await mapping.save();
 
@@ -535,8 +612,46 @@ const syncProductsFromMarketplace = async (userId, marketplaceId, marketplaceNam
 
                         return { status: "updated" };
                     } else {
-                        // Yeni ürün — oluştur
+                        // 🛡️ Yeni ürün oluşturmadan önce DB'de son kontrol (batch arası race condition)
+                        const finalCheck = await ProductMapping.findOne({
+                            userId,
+                            $or: [
+                                ...(product.sku ? [{ "masterProduct.sku": product.sku }] : []),
+                                ...(product.barcode ? [{ "masterProduct.barcode": product.barcode }] : []),
+                                ...(product.sku ? [{ "masterProduct.barcode": product.sku }] : []),
+                                ...(product.barcode ? [{ "masterProduct.sku": product.barcode }] : [])
+                            ]
+                        });
+
+                        if (finalCheck) {
+                            // DB'de bulundu — güncelle (duplike oluşturma!)
+                            const mpIdx = finalCheck.marketplaceMappings.findIndex(
+                                m => normalizeMarketplaceName(m.marketplaceName) === normalizedName
+                            );
+                            if (mpIdx >= 0) {
+                                Object.assign(finalCheck.marketplaceMappings[mpIdx], mpData);
+                            } else {
+                                finalCheck.marketplaceMappings.push(mpData);
+                            }
+                            if (product.price) finalCheck.masterProduct.price = product.price;
+                            if (product.listPrice) finalCheck.masterProduct.listPrice = product.listPrice;
+                            if (!finalCheck.masterProduct.category && product.category) {
+                                finalCheck.masterProduct.category = product.category;
+                            }
+                            await finalCheck.save();
+
+                            // Map'e ekle
+                            if (finalCheck.masterProduct.barcode) mappingByBarcode.set(finalCheck.masterProduct.barcode, finalCheck);
+                            if (finalCheck.masterProduct.sku) mappingBySku.set(finalCheck.masterProduct.sku, finalCheck);
+
+                            logger.info(`[SYNC] Duplike önlendi — mevcut ürün güncellendi: ${finalCheck.masterProduct.name} (SKU: ${finalCheck.masterProduct.sku})`);
+                            return { status: "updated" };
+                        }
+
+                        // Gerçekten yeni ürün — oluştur
                         const stockVal = product.stock || 0;
+                        const productCategory = (product.category || "").trim();
+
                         const newMapping = new ProductMapping({
                             userId,
                             masterProduct: {
@@ -548,7 +663,7 @@ const syncProductsFromMarketplace = async (userId, marketplaceId, marketplaceNam
                                 price: product.price || 0,
                                 listPrice: product.listPrice || product.price || 0,
                                 stock: stockVal,
-                                category: product.category || "",
+                                category: productCategory,
                                 attributes: product.attributes || {}
                             },
                             marketplaceMappings: [mpData],
@@ -565,6 +680,7 @@ const syncProductsFromMarketplace = async (userId, marketplaceId, marketplaceNam
                         // Map'e ekle (aynı batch'teki sonraki ürünler için)
                         if (product.barcode) mappingByBarcode.set(product.barcode, newMapping);
                         if (product.sku) mappingBySku.set(product.sku, newMapping);
+                        if (product.marketplaceProductId) mappingByMpId.set(product.marketplaceProductId, newMapping);
 
                         logEntries.push({
                             userId,
@@ -607,7 +723,86 @@ const syncProductsFromMarketplace = async (userId, marketplaceId, marketplaceNam
             }
         }
 
-        logger.info(`[SYNC] ${normalizedName} tamamlandı — Yeni: ${stats.new}, Güncellenen: ${stats.updated}, Atlanan: ${stats.skipped}, Hata: ${stats.errors}`);
+        // ── Adım 4: Hayalet (phantom) mapping temizliği ──
+        // Pazaryerinden çekilen ürün listesinde OLMAYAN ama DB'de bu pazaryeri mapping'i
+        // bulunan ürünleri tespit et ve mapping'lerini "error" olarak işaretle.
+        // Bu sayede N11'den silinen ürün programda hâlâ "var" görünmez.
+        let staleRemoved = 0;
+        try {
+            // Pazaryerinden gelen tüm barcode/sku'ları topla
+            const liveBarcodes = new Set();
+            const liveSkus = new Set();
+            for (const mp of marketplaceProducts) {
+                if (mp.barcode) liveBarcodes.add(mp.barcode);
+                if (mp.sku)     liveSkus.add(mp.sku);
+                if (mp.marketplaceProductId) liveBarcodes.add(mp.marketplaceProductId);
+            }
+
+            // DB'de bu pazaryeri mapping'i olan tüm ürünleri bul
+            const dbProductsWithMapping = await ProductMapping.find({
+                userId,
+                "marketplaceMappings": {
+                    $elemMatch: {
+                        marketplaceName: { $regex: new RegExp(`^${normalizedName}$`, "i") },
+                        syncStatus: { $in: ["synced", "pending"] }
+                    }
+                }
+            });
+
+            for (const dbProduct of dbProductsWithMapping) {
+                const mpMapping = dbProduct.marketplaceMappings.find(
+                    m => normalizeMarketplaceName(m.marketplaceName) === normalizedName &&
+                         (m.syncStatus === "synced" || m.syncStatus === "pending")
+                );
+                if (!mpMapping) continue;
+
+                // Bu ürünün barcode/sku'su pazaryerinden gelen listede var mı?
+                const masterBc = dbProduct.masterProduct?.barcode;
+                const masterSku = dbProduct.masterProduct?.sku;
+                const mpBc = mpMapping.marketplaceBarcode;
+                const mpSku = mpMapping.marketplaceSku;
+                const mpPid = mpMapping.marketplaceProductId;
+
+                const existsOnPlatform =
+                    (masterBc && (liveBarcodes.has(masterBc) || liveSkus.has(masterBc))) ||
+                    (masterSku && (liveBarcodes.has(masterSku) || liveSkus.has(masterSku))) ||
+                    (mpBc && liveBarcodes.has(mpBc)) ||
+                    (mpSku && liveSkus.has(mpSku)) ||
+                    (mpPid && liveBarcodes.has(mpPid));
+
+                if (!existsOnPlatform) {
+                    // Ürün pazaryerinde artık yok — mapping'i "error" olarak işaretle
+                    // ⚠️ save() yerine updateOne kullanıyoruz — Mongoose middleware bazen save'i engelliyor
+                    await ProductMapping.updateOne(
+                        { _id: dbProduct._id },
+                        {
+                            $set: {
+                                "marketplaceMappings.$[elem].syncStatus": "error",
+                                "marketplaceMappings.$[elem].syncError": `${normalizedName} platformunda bu ürün artık bulunamadı (son kontrol: ${new Date().toLocaleString("tr-TR")})`,
+                                "marketplaceMappings.$[elem].isSynced": false
+                            }
+                        },
+                        {
+                            arrayFilters: [{
+                                "elem.marketplaceName": { $regex: new RegExp(`^${normalizedName}$`, "i") },
+                                "elem.syncStatus": { $ne: "error" }
+                            }]
+                        }
+                    );
+                    staleRemoved++;
+                    logger.info(`[SYNC CLEANUP] 🧹 "${dbProduct.masterProduct?.name}" — ${normalizedName} mapping'i kaldırıldı (platformda bulunamadı)`);
+                }
+            }
+
+            if (staleRemoved > 0) {
+                logger.info(`[SYNC CLEANUP] ${normalizedName}: ${staleRemoved} hayalet mapping temizlendi`);
+            }
+        } catch (cleanupErr) {
+            logger.warn(`[SYNC CLEANUP] Hayalet mapping temizleme hatası: ${cleanupErr.message}`);
+        }
+
+        stats.staleRemoved = staleRemoved;
+        logger.info(`[SYNC] ${normalizedName} tamamlandı — Yeni: ${stats.new}, Güncellenen: ${stats.updated}, Atlanan: ${stats.skipped}, Hata: ${stats.errors}, Hayalet temizlenen: ${staleRemoved}`);
 
         return stats;
     } catch (error) {
@@ -751,11 +946,55 @@ const distributeProductToMarketplaces = async (userId, productMappingId, targetM
                         await mapping.save();
                     }
 
+                    // ✅ Kategori hatası ise CategoryErrorLog'a kaydet
+                    const errMsg = uploadResult.error || "Yükleme başarısız";
+                    const isCategoryError = errMsg.includes("categoryId") ||
+                        errMsg.includes("kategori") ||
+                        errMsg.includes("category") ||
+                        errMsg.includes("CATEGORY_MAPPING_MISSING") ||
+                        uploadResult.reason === "CATEGORY_MAPPING_MISSING";
+
+                    if (isCategoryError) {
+                        try {
+                            const mp = mapping.masterProduct || {};
+                            await CategoryErrorLog.findOneAndUpdate(
+                                { userId, productMappingId: mapping._id, marketplace: marketplaceName },
+                                {
+                                    $set: {
+                                        productName:     mp.name || "İsimsiz",
+                                        productBarcode:  mp.barcode || "",
+                                        productSku:      mp.sku || "",
+                                        productCategory: mp.category || "",
+                                        productImage:    (mp.images || [])[0] || "",
+                                        errorMessage:    errMsg,
+                                        errorType:       uploadResult.reason === "CATEGORY_MAPPING_MISSING"
+                                            ? "CATEGORY_MAPPING_MISSING"
+                                            : "CATEGORY_REJECTED",
+                                        lastSeenAt:      new Date(),
+                                        isResolved:      false,
+                                        retryStatus:     null
+                                    },
+                                    $inc: { hitCount: 1 },
+                                    $setOnInsert: { detectedAt: new Date() }
+                                },
+                                { upsert: true }
+                            );
+                            logger.info(
+                                `[DISTRIBUTE] 📋 Kategori hatası kaydedildi: "${mp.name}" → ${marketplaceName}`
+                            );
+                        } catch (logErr) {
+                            if (logErr.code !== 11000) {
+                                logger.warn(`[DISTRIBUTE] CategoryErrorLog kaydetme hatası: ${logErr.message}`);
+                            }
+                        }
+                    }
+
                     results.push({
                         marketplace: marketplaceName,
                         status:      "error",
                         taskId:      uploadResult.taskId,
-                        message:     uploadResult.error || "Yükleme başarısız"
+                        message:     errMsg,
+                        isCategoryError
                     });
                 }
 
@@ -815,21 +1054,64 @@ const uploadProductToTrendyol = async (credentials, product) => {
     }
 
     // 4. UnifiedCategoryMap'ten Trendyol categoryId
+    //    Önce normalizeKey ile exact match (en güvenilir), sonra regex fallback
     if (!categoryId) {
         try {
             const UnifiedCategoryMap = require("../models/UnifiedCategoryMap");
+            const { normalizeKey } = require("../utils/textNormalize");
             const categoryName = (product.category || product.categoryName || "").trim();
             if (categoryName) {
-                const catMap = await UnifiedCategoryMap.findOne({
-                    $or: [
-                        { "trendyol.categoryName": { $regex: new RegExp(categoryName, "i") } },
-                        { masterName: { $regex: new RegExp(categoryName, "i") } },
-                        { canonicalName: { $regex: new RegExp(categoryName, "i") } }
-                    ],
-                    "trendyol.categoryId": { $ne: null }
-                });
+                const nKey = normalizeKey(categoryName);
+
+                // 4a. normalizeKey ile exact match (ID bazlı mapping ile uyumlu)
+                let catMap = null;
+                if (nKey) {
+                    catMap = await UnifiedCategoryMap.findOne({
+                        normalizedKey: nKey,
+                        "trendyol.categoryId": { $ne: null }
+                    });
+                }
+
+                // 4b. Fallback: regex ile arama
+                if (!catMap) {
+                    const escaped = categoryName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+                    catMap = await UnifiedCategoryMap.findOne({
+                        $or: [
+                            { canonicalName: { $regex: new RegExp(`^${escaped}$`, "i") } },
+                            { "trendyol.categoryName": { $regex: new RegExp(`^${escaped}$`, "i") } }
+                        ],
+                        "trendyol.categoryId": { $ne: null }
+                    });
+                }
+
                 if (catMap && catMap.trendyol && catMap.trendyol.categoryId) {
-                    categoryId = parseInt(catMap.trendyol.categoryId);
+                    // ── isLeaf Kontrolü — parent kategori ise leaf child'a otomatik in ──
+                    if (catMap.trendyol.isLeaf === false) {
+                        logger.info(
+                            `[UPLOAD TRENDYOL] ⚠️ "${categoryName}" → parent kategori ` +
+                            `(ID: ${catMap.trendyol.categoryId}, isLeaf:false). Leaf child aranıyor...`
+                        );
+                        const leafChild = await UnifiedCategoryMap.findOne({
+                            "trendyol.parentId": catMap.trendyol.categoryId,
+                            "trendyol.categoryId": { $ne: null },
+                            "trendyol.isLeaf": true
+                        });
+                        if (leafChild && leafChild.trendyol?.categoryId) {
+                            categoryId = parseInt(leafChild.trendyol.categoryId);
+                            logger.info(
+                                `[UPLOAD TRENDYOL] ✅ Leaf child bulundu: "${categoryName}" → ` +
+                                `"${leafChild.trendyol.categoryName}" (ID: ${categoryId})`
+                            );
+                        } else {
+                            // Leaf bulunamadı — parent ID'yi kullan (platform reddedebilir)
+                            categoryId = parseInt(catMap.trendyol.categoryId);
+                            logger.warn(
+                                `[UPLOAD TRENDYOL] ⚠️ Leaf child bulunamadı — parent ID kullanılıyor: ${categoryId}`
+                            );
+                        }
+                    } else {
+                        categoryId = parseInt(catMap.trendyol.categoryId);
+                    }
                     logger.info(`[UPLOAD TRENDYOL] Kategori eşleştirildi — "${categoryName}" → categoryId: ${categoryId}`);
                 }
             }
@@ -1176,20 +1458,16 @@ const uploadProductToN11 = async (credentials, product, userId = null) => {
     try {
         n11Payload = await masterProductAdapter.toN11(fixed, userId, credentials);
     } catch (mappingErr) {
-        // Kategori mapping bulunamadı — ürünü gönderme, structured log yaz
+        // Kategori mapping bulunamadı — ürünü gönderme
         const isCategoryMissing = mappingErr.message.includes("CATEGORY_MAPPING_MISSING");
 
-        const skipResult = await categoryMappingService.skipProduct(
-            fixed,
-            isCategoryMissing ? "CATEGORY_MAPPING_MISSING" : "MAPPING_ERROR",
-            userId
-        );
+        logger.warn(`[UPLOAD N11] ⚠️ Kategori hatası — "${productName}": ${mappingErr.message}`);
+
         return {
             success: false,
             skipped: true,
-            reason:  skipResult.reason,
-            error:   mappingErr.message,
-            suggestions: skipResult.suggestions
+            reason:  isCategoryMissing ? "CATEGORY_MAPPING_MISSING" : "MAPPING_ERROR",
+            error:   mappingErr.message
         };
     }
 
@@ -1329,21 +1607,64 @@ const uploadProductToCicekSepeti = async (credentials, product) => {
     }
 
     // 4. UnifiedCategoryMap'ten ÇiçekSepeti categoryId'yi bul
+    //    Önce normalizeKey ile exact match (en güvenilir), sonra regex fallback
     if (!categoryId) {
         try {
             const UnifiedCategoryMap = require("../models/UnifiedCategoryMap");
+            const { normalizeKey } = require("../utils/textNormalize");
             const categoryName = (product.category || product.categoryName || "").trim();
             if (categoryName) {
-                const catMap = await UnifiedCategoryMap.findOne({
-                    $or: [
-                        { "ciceksepeti.categoryName": { $regex: new RegExp(categoryName, "i") } },
-                        { masterName: { $regex: new RegExp(categoryName, "i") } },
-                        { "trendyol.categoryName": { $regex: new RegExp(categoryName, "i") } }
-                    ],
-                    "ciceksepeti.categoryId": { $ne: null }
-                });
+                const nKey = normalizeKey(categoryName);
+
+                // 4a. normalizeKey ile exact match (ID bazlı mapping ile uyumlu)
+                let catMap = null;
+                if (nKey) {
+                    catMap = await UnifiedCategoryMap.findOne({
+                        normalizedKey: nKey,
+                        "ciceksepeti.categoryId": { $ne: null }
+                    });
+                }
+
+                // 4b. Fallback: regex ile arama (eski davranış)
+                if (!catMap) {
+                    const escaped = categoryName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+                    catMap = await UnifiedCategoryMap.findOne({
+                        $or: [
+                            { canonicalName: { $regex: new RegExp(`^${escaped}$`, "i") } },
+                            { "trendyol.categoryName": { $regex: new RegExp(`^${escaped}$`, "i") } }
+                        ],
+                        "ciceksepeti.categoryId": { $ne: null }
+                    });
+                }
+
                 if (catMap && catMap.ciceksepeti && catMap.ciceksepeti.categoryId) {
-                    categoryId = parseInt(catMap.ciceksepeti.categoryId);
+                    // ── isLeaf Kontrolü — parent kategori ise leaf child'a otomatik in ──
+                    if (catMap.ciceksepeti.isLeaf === false) {
+                        logger.info(
+                            `[UPLOAD CİÇEKSEPETİ] ⚠️ "${categoryName}" → parent kategori ` +
+                            `(ID: ${catMap.ciceksepeti.categoryId}, isLeaf:false). Leaf child aranıyor...`
+                        );
+                        const leafChild = await UnifiedCategoryMap.findOne({
+                            "ciceksepeti.parentId": catMap.ciceksepeti.categoryId,
+                            "ciceksepeti.categoryId": { $ne: null },
+                            "ciceksepeti.isLeaf": true
+                        });
+                        if (leafChild && leafChild.ciceksepeti?.categoryId) {
+                            categoryId = parseInt(leafChild.ciceksepeti.categoryId);
+                            logger.info(
+                                `[UPLOAD CİÇEKSEPETİ] ✅ Leaf child bulundu: "${categoryName}" → ` +
+                                `"${leafChild.ciceksepeti.categoryName}" (ID: ${categoryId})`
+                            );
+                        } else {
+                            // Leaf bulunamadı — parent ID'yi kullan (platform reddedebilir)
+                            categoryId = parseInt(catMap.ciceksepeti.categoryId);
+                            logger.warn(
+                                `[UPLOAD CİÇEKSEPETİ] ⚠️ Leaf child bulunamadı — parent ID kullanılıyor: ${categoryId}`
+                            );
+                        }
+                    } else {
+                        categoryId = parseInt(catMap.ciceksepeti.categoryId);
+                    }
                     logger.info(`[UPLOAD CİÇEKSEPETİ] Kategori eşleştirildi — "${categoryName}" → categoryId: ${categoryId}`);
                 }
             }

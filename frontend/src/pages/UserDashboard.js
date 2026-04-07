@@ -15,6 +15,7 @@ import AIOperatorPanel from "../pages/AIOperatorPanel";
 import AIChatWidget from "../components/AIChatWidget";
 import ProductManagementCenter from "../pages/ProductManagementCenter";
 import CategoryMappingPage from "../pages/CategoryMappingPage";
+import CategoryErrorCenter from "../pages/CategoryErrorCenter";
 import SettingsPage from "../pages/SettingsPage";
 import AdminPanelPage from "../pages/AdminPanelPage";
 import BillingPage from "../pages/BillingPage";
@@ -26,7 +27,8 @@ import {
     FaTruck, FaUsers, FaFileInvoice, FaPlug,
     FaChevronDown, FaBox, FaCrown,
     FaBrain, FaChartBar, FaBell, FaRocket,
-    FaCubes, FaSitemap, FaSignOutAlt, FaUserShield
+    FaCubes, FaSitemap, FaSignOutAlt, FaUserShield,
+    FaExclamationTriangle
 } from "react-icons/fa";
 import { motion, AnimatePresence } from "framer-motion";
 import Particles from "react-tsparticles";
@@ -34,38 +36,21 @@ import { loadSlim } from "tsparticles-slim";
 import "../styles/userDashboard.css";
 
 /* ═══════════════════════════════════════════════════════════
-   RENK PALETİ
-   ═══════════════════════════════════════════════════════════ */
-const C = {
-    bg:       "#0f1419",
-    card:     "rgba(26, 31, 53, 0.85)",
-    border:   "rgba(78, 205, 196, 0.18)",
-    accent:   "#4ecdc4",
-    green:    "#22c55e",
-    red:      "#ef4444",
-    yellow:   "#f59e0b",
-    purple:   "#8b5cf6",
-    blue:     "#06b6d4",
-    pink:     "#ec4899",
-    text:     "#e2e8f0",
-    muted:    "#94a3b8",
-    dim:      "#64748b",
-    glass:    "rgba(255,255,255,0.03)",
-    glassBr:  "rgba(255,255,255,0.06)",
-};
-
-/* ═══════════════════════════════════════════════════════════
    YARDIMCI FONKSİYONLAR
    ═══════════════════════════════════════════════════════════ */
-const fmtCurrency = (v) => {
+const fmtCurrency = (v, lang = "tr") => {
     try {
-        return new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY", maximumFractionDigits: 0 }).format(Number(v || 0));
+        const locale = lang === "en" ? "en-US" : "tr-TR";
+        return new Intl.NumberFormat(locale, { style: "currency", currency: "TRY", maximumFractionDigits: 0 }).format(Number(v || 0));
     } catch { return `${Number(v || 0).toFixed(0)} ₺`; }
 };
-const fmtNum = (v) => new Intl.NumberFormat("tr-TR").format(Number(v || 0));
+const fmtNum = (v, lang = "tr") => {
+    const locale = lang === "en" ? "en-US" : "tr-TR";
+    return new Intl.NumberFormat(locale).format(Number(v || 0));
+};
 
-const statusLabel = (s) => s === "active" ? "Aktif" : s === "slow" ? "Yavaş" : s === "error" ? "Hata" : "Bilinmiyor";
-const statusColor = (s) => s === "active" ? C.green : s === "slow" ? C.yellow : C.red;
+const statusLabel = (s, t) => s === "active" ? t("dashboard.active") : s === "slow" ? t("dashboard.slow") : s === "error" ? t("dashboard.error") : t("dashboard.unknown");
+const statusColor = (s, C) => s === "active" ? C.green : s === "slow" ? C.yellow : C.red;
 
 const getGreetingKey = () => {
     const h = new Date().getHours();
@@ -113,13 +98,13 @@ const playNotificationSound = () => {
 /* ═══════════════════════════════════════════════════════════
    KÜÇÜK BİLEŞENLER
    ═══════════════════════════════════════════════════════════ */
-const GlassCard = ({ children, style, ...rest }) => (
+const GlassCard = ({ children, style, C, ...rest }) => (
     <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4 }}
         style={{
-            background: `linear-gradient(135deg, ${C.card} 0%, rgba(15,20,25,0.85) 100%)`,
+            background: `linear-gradient(135deg, ${C.card} 0%, ${C.bg}dd 100%)`,
             border: `1px solid ${C.border}`,
             borderRadius: 16,
             padding: "1.5rem",
@@ -131,7 +116,7 @@ const GlassCard = ({ children, style, ...rest }) => (
     </motion.div>
 );
 
-const KpiCard = ({ icon, label, value, sub, color, delay = 0, onClick }) => (
+const KpiCard = ({ icon, label, value, sub, color, delay = 0, onClick, C }) => (
     <motion.div
         initial={{ opacity: 0, y: 24 }}
         animate={{ opacity: 1, y: 0 }}
@@ -139,7 +124,7 @@ const KpiCard = ({ icon, label, value, sub, color, delay = 0, onClick }) => (
         whileHover={{ y: -4, boxShadow: `0 12px 32px ${color}30` }}
         onClick={onClick}
         style={{
-            background: `linear-gradient(135deg, ${C.card} 0%, rgba(15,20,25,0.9) 100%)`,
+            background: `linear-gradient(135deg, ${C.card} 0%, ${C.bg}ee 100%)`,
             border: `1px solid ${color}30`,
             borderRadius: 14,
             padding: "1.25rem 1.5rem",
@@ -156,7 +141,7 @@ const KpiCard = ({ icon, label, value, sub, color, delay = 0, onClick }) => (
             <span style={{ color: C.muted, fontSize: "0.8rem", fontWeight: 600 }}>{label}</span>
         </div>
         <div style={{ position: "relative", zIndex: 1 }}>
-            <h3 style={{ fontSize: "1.75rem", fontWeight: 800, color: "#fff", margin: 0, lineHeight: 1.1 }}>{value}</h3>
+            <h3 style={{ fontSize: "1.75rem", fontWeight: 800, color: C.text, margin: 0, lineHeight: 1.1 }}>{value}</h3>
             {sub && <p style={{ color: C.dim, fontSize: "0.75rem", margin: "0.35rem 0 0", fontWeight: 500 }}>{sub}</p>}
         </div>
     </motion.div>
@@ -179,9 +164,9 @@ const Pill = ({ color, children }) => (
     </span>
 );
 
-const SectionTitle = ({ icon, title, badge, action }) => (
+const SectionTitle = ({ icon, title, badge, action, C }) => (
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem" }}>
-        <h2 style={{ fontSize: "1.1rem", fontWeight: 700, color: "#fff", margin: 0, display: "flex", alignItems: "center", gap: "0.6rem" }}>
+        <h2 style={{ fontSize: "1.1rem", fontWeight: 700, color: C.text, margin: 0, display: "flex", alignItems: "center", gap: "0.6rem" }}>
             <span style={{ fontSize: "1.3rem" }}>{icon}</span> {title}
         </h2>
         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
@@ -195,7 +180,8 @@ const SectionTitle = ({ icon, title, badge, action }) => (
    ANA BİLEŞEN
    ═══════════════════════════════════════════════════════════ */
 const UserDashboard = () => {
-    const { theme: CT, t, language, resolvedTheme } = useApp();
+    const { theme: C, t, language, resolvedTheme } = useApp();
+    const isDark = resolvedTheme === "dark";
     const [menuOpen, setMenuOpen] = useState(true);
     const [activePanel, setActivePanel] = useState("dashboard");
     const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
@@ -466,15 +452,16 @@ const UserDashboard = () => {
        ═══════════════════════════════════════════════════════ */
     const renderDashboard = () => {
         const now = new Date();
-        const timeStr = now.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" });
-        const dateStr = now.toLocaleDateString("tr-TR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+        const loc = language === "en" ? "en-US" : "tr-TR";
+        const timeStr = now.toLocaleTimeString(loc, { hour: "2-digit", minute: "2-digit" });
+        const dateStr = now.toLocaleDateString(loc, { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 
         return (
             <div style={{ width: "100%", minHeight: "100vh", background: C.bg, padding: 0, margin: 0 }}>
 
                 {/* ── HEADER ── */}
                 <div style={{
-                    background: "linear-gradient(135deg, #1a1f35 0%, #0f1419 100%)",
+                    background: isDark ? "linear-gradient(135deg, #1a1f35 0%, #0f1419 100%)" : "linear-gradient(135deg, #ffffff 0%, #f0f2f5 100%)",
                     borderBottom: `1px solid ${C.border}`,
                     position: "sticky", top: 0, zIndex: 100,
                     backdropFilter: "blur(12px)",
@@ -485,7 +472,7 @@ const UserDashboard = () => {
                         <div style={{ minWidth: 0 }}>
                             <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "0.25rem" }}>
                                 <h1 style={{
-                                    background: "linear-gradient(135deg, #4ecdc4 0%, #8b5cf6 100%)",
+                                    background: `linear-gradient(135deg, ${C.accent} 0%, ${C.purple} 100%)`,
                                     WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
                                     fontSize: "clamp(1.2rem, 2.5vw, 1.6rem)", fontWeight: 800, margin: 0,
                                 }}>
@@ -499,7 +486,7 @@ const UserDashboard = () => {
                                 <span>{dateStr}</span>
                                 <span style={{ color: C.accent, fontWeight: 700, fontFamily: "monospace" }}>{timeStr}</span>
                                 <span style={{ width: 4, height: 4, borderRadius: "50%", background: C.dim, display: "inline-block" }} />
-                                <span>{summary.activeMarketplaces || 0} aktif kanal</span>
+                                <span>{summary.activeMarketplaces || 0} {t("dashboard.activeChannels").toLowerCase()}</span>
                             </p>
                         </div>
 
@@ -548,7 +535,7 @@ const UserDashboard = () => {
                                         style={{
                                             position: "absolute", top: "calc(100% + 8px)", right: 0,
                                             width: 400, maxHeight: 520,
-                                            background: "linear-gradient(135deg, #1a1f35 0%, #0f1419 100%)",
+                                            background: isDark ? "linear-gradient(135deg, #1a1f35 0%, #0f1419 100%)" : "linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)",
                                             border: `1px solid ${C.border}`,
                                             borderRadius: 16, overflow: "hidden",
                                             boxShadow: "0 20px 60px rgba(0,0,0,0.6)",
@@ -559,13 +546,13 @@ const UserDashboard = () => {
                                         <div style={{ padding: "0.85rem 1.25rem", borderBottom: `1px solid ${C.glassBr}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                                             <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
                                                 <FaBell style={{ color: C.accent, fontSize: "0.9rem" }} />
-                                                <span style={{ color: "#fff", fontSize: "0.9rem", fontWeight: 700 }}>Bildirimler</span>
-                                                {unreadCount > 0 && <Pill color={C.red}>{unreadCount} yeni</Pill>}
+                                                <span style={{ color: C.text, fontSize: "0.9rem", fontWeight: 700 }}>{t("notif.title")}</span>
+                                                {unreadCount > 0 && <Pill color={C.red}>{unreadCount} {t("notif.new")}</Pill>}
                                             </div>
                                             <div style={{ display: "flex", gap: "0.4rem" }}>
                                                 <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
                                                     onClick={() => setNotifSoundEnabled(!notifSoundEnabled)}
-                                                    title={notifSoundEnabled ? "Sesi kapat" : "Sesi aç"}
+                                                    title={notifSoundEnabled ? t("notif.soundOn") : t("notif.soundOff")}
                                                     style={{ background: C.glass, border: `1px solid ${C.glassBr}`, borderRadius: 8, padding: "0.3rem 0.5rem", cursor: "pointer", color: notifSoundEnabled ? C.accent : C.dim, fontSize: "0.75rem" }}>
                                                     {notifSoundEnabled ? "🔔" : "🔕"}
                                                 </motion.button>
@@ -573,7 +560,7 @@ const UserDashboard = () => {
                                                     <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
                                                         onClick={markAllRead}
                                                         style={{ background: C.glass, border: `1px solid ${C.glassBr}`, borderRadius: 8, padding: "0.3rem 0.6rem", cursor: "pointer", color: C.muted, fontSize: "0.7rem", fontWeight: 600 }}>
-                                                        Tümünü oku
+                                                        {t("notif.markAllRead")}
                                                     </motion.button>
                                                 )}
                                             </div>
@@ -582,10 +569,10 @@ const UserDashboard = () => {
                                         {/* Filtre Tabları */}
                                         <div style={{ display: "flex", gap: "0.25rem", padding: "0.5rem 0.75rem", borderBottom: `1px solid ${C.glassBr}`, overflowX: "auto" }}>
                                             {[
-                                                { key: "all", label: "Tümü", icon: "📋", count: notifCounts.total },
-                                                { key: "order", label: "Siparişler", icon: "🛒", count: notifCounts.order },
-                                                { key: "admin", label: "Duyurular", icon: "📢", count: notifCounts.admin },
-                                                { key: "ai", label: "AI", icon: "🧠", count: notifCounts.ai },
+                                                { key: "all", label: t("notif.all"), icon: "📋", count: notifCounts.total },
+                                                { key: "order", label: t("notif.orders"), icon: "🛒", count: notifCounts.order },
+                                                { key: "admin", label: t("notif.announcements"), icon: "📢", count: notifCounts.admin },
+                                                { key: "ai", label: t("notif.ai"), icon: "🧠", count: notifCounts.ai },
                                             ].map(tab => (
                                                 <motion.button key={tab.key} whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
                                                     onClick={() => { setNotifFilter(tab.key); lastCheckRef.current = null; loadNotifications(); }}
@@ -631,7 +618,7 @@ const UserDashboard = () => {
                                                         </div>
                                                         <div style={{ flex: 1, minWidth: 0 }}>
                                                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.15rem" }}>
-                                                                <span style={{ color: "#fff", fontSize: "0.8rem", fontWeight: 700 }}>{n.title}</span>
+                                                                <span style={{ color: C.text, fontSize: "0.8rem", fontWeight: 700 }}>{n.title}</span>
                                                                 <div style={{ display: "flex", alignItems: "center", gap: "0.3rem", flexShrink: 0 }}>
                                                                     {n.priority && n.priority !== "medium" && <div style={{ width: 6, height: 6, borderRadius: "50%", background: priorityDot[n.priority] || C.dim }} title={n.priority} />}
                                                                     {!n.isRead && <div style={{ width: 6, height: 6, borderRadius: "50%", background: C.accent }} />}
@@ -640,10 +627,10 @@ const UserDashboard = () => {
                                                             <p style={{ color: C.muted, fontSize: "0.73rem", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{n.message}</p>
                                                             <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginTop: "0.15rem" }}>
                                                                 <span style={{ color: C.dim, fontSize: "0.6rem", background: `${C.glass}`, border: `1px solid ${C.glassBr}`, borderRadius: 4, padding: "0.05rem 0.3rem" }}>
-                                                                    {n.type === "order" ? "Sipariş" : n.type === "admin" ? "Duyuru" : n.type === "ai" ? "AI" : n.type === "stock" ? "Stok" : "Sistem"}
+                                                                    {n.type === "order" ? t("notif.order") : n.type === "admin" ? t("notif.announcement") : n.type === "ai" ? "AI" : n.type === "stock" ? t("notif.stock") : t("notif.system")}
                                                                 </span>
                                                                 <span style={{ color: C.dim, fontSize: "0.62rem" }}>
-                                                                    {n.createdAt ? new Date(n.createdAt).toLocaleString("tr-TR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : ""}
+                                                                    {n.createdAt ? new Date(n.createdAt).toLocaleString(language === "en" ? "en-US" : "tr-TR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : ""}
                                                                 </span>
                                                             </div>
                                                         </div>
@@ -657,8 +644,8 @@ const UserDashboard = () => {
                                             }) : (
                                                 <div style={{ textAlign: "center", padding: "2.5rem 1rem", color: C.dim }}>
                                                     <span style={{ fontSize: "2rem", display: "block", marginBottom: "0.5rem" }}>🔔</span>
-                                                    <p style={{ fontSize: "0.85rem", margin: 0 }}>Henüz bildirim yok</p>
-                                                    <p style={{ fontSize: "0.73rem", margin: "0.25rem 0 0", color: C.dim }}>Siparişler, AI önerileri ve duyurular burada görünecek</p>
+                                                    <p style={{ fontSize: "0.85rem", margin: 0 }}>{t("notif.noNotifications")}</p>
+                                                    <p style={{ fontSize: "0.73rem", margin: "0.25rem 0 0", color: C.dim }}>{t("notif.willAppearHere")}</p>
                                                 </div>
                                             )}
                                         </div>
@@ -692,11 +679,11 @@ const UserDashboard = () => {
                             border: `1px solid ${C.accent}15`,
                         }}>
                         {[
-                            { label: "Aktif Kanal", value: summary.activeMarketplaces || 0, color: C.green, icon: "🟢" },
-                            { label: "Hata", value: diagnostics.errorCount || 0, color: (diagnostics.errorCount || 0) > 0 ? C.red : C.green, icon: (diagnostics.errorCount || 0) > 0 ? "🔴" : "🟢" },
-                            { label: "Bekleyen Sync", value: summary.pendingSync || 0, color: (summary.pendingSync || 0) > 0 ? C.yellow : C.green, icon: "🔄" },
-                            { label: "Stok Farkı", value: summary.stockMismatchCount || 0, color: (summary.stockMismatchCount || 0) > 0 ? C.yellow : C.green, icon: "📦" },
-                            { label: "Son Güncelleme", value: summary.lastIntegrationUpdate ? new Date(summary.lastIntegrationUpdate).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" }) : "—", color: C.accent, icon: "🕐" },
+                            { label: t("dashboard.activeChannels"), value: summary.activeMarketplaces || 0, color: C.green, icon: "🟢" },
+                            { label: t("dashboard.error"), value: diagnostics.errorCount || 0, color: (diagnostics.errorCount || 0) > 0 ? C.red : C.green, icon: (diagnostics.errorCount || 0) > 0 ? "🔴" : "🟢" },
+                            { label: t("dashboard.pendingSync"), value: summary.pendingSync || 0, color: (summary.pendingSync || 0) > 0 ? C.yellow : C.green, icon: "🔄" },
+                            { label: t("dashboard.stockMismatch"), value: summary.stockMismatchCount || 0, color: (summary.stockMismatchCount || 0) > 0 ? C.yellow : C.green, icon: "📦" },
+                            { label: t("dashboard.lastUpdate"), value: summary.lastIntegrationUpdate ? new Date(summary.lastIntegrationUpdate).toLocaleTimeString(language === "en" ? "en-US" : "tr-TR", { hour: "2-digit", minute: "2-digit" }) : "—", color: C.accent, icon: "🕐" },
                         ].map((s, i) => (
                             <div key={s.label} style={{ display: "flex", alignItems: "center", gap: "0.35rem", padding: "0.2rem 0.6rem", borderRadius: 8, background: `${s.color}08` }}>
                                 <span style={{ fontSize: "0.7rem" }}>{s.icon}</span>
@@ -708,23 +695,23 @@ const UserDashboard = () => {
 
                     {/* ── KPI KARTLARI ── */}
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: "1rem", marginBottom: "1.5rem" }}>
-                        <KpiCard icon="📦" label="Toplam Sipariş" value={fmtNum(allOrders.total)}
-                            sub={`🆕 ${allOrders.statusCounts.new} yeni · ⚙️ ${allOrders.statusCounts.processing} işlemde · 🚚 ${allOrders.statusCounts.shipping} kargoda`}
+                        <KpiCard C={C} icon="📦" label={t("dashboard.totalOrders")} value={fmtNum(allOrders.total, language)}
+                            sub={`🆕 ${allOrders.statusCounts.new} ${t("dashboard.new")} · ⚙️ ${allOrders.statusCounts.processing} ${t("dashboard.processing")} · 🚚 ${allOrders.statusCounts.shipping} ${t("dashboard.shipping")}`}
                             color={C.accent} delay={0.05} onClick={() => setShowOrderDetailsModal(true)} />
-                        <KpiCard icon="💰" label="Toplam Ciro" value={fmtCurrency(summary.todayRevenue)}
-                            sub={`Ort. sepet: ${fmtCurrency(avgOrderValue)}`}
+                        <KpiCard C={C} icon="💰" label={t("dashboard.totalRevenue")} value={fmtCurrency(summary.todayRevenue, language)}
+                            sub={`${t("dashboard.avgBasket")}: ${fmtCurrency(avgOrderValue, language)}`}
                             color={C.green} delay={0.1} />
-                        <KpiCard icon="📊" label="Ürün Sayısı" value={fmtNum(summary.totalProducts || pmProducts.total || 0)}
-                            sub={`✅ ${fmtNum(summary.activeProducts || pmProducts.healthy || 0)} aktif · ⏸️ ${fmtNum(summary.passiveProducts || pmProducts.outOfStock || 0)} pasif`}
+                        <KpiCard C={C} icon="📊" label={t("dashboard.productCount")} value={fmtNum(summary.totalProducts || pmProducts.total || 0, language)}
+                            sub={`✅ ${fmtNum(summary.activeProducts || pmProducts.healthy || 0, language)} ${t("dashboard.active").toLowerCase()} · ⏸️ ${fmtNum(summary.passiveProducts || pmProducts.outOfStock || 0, language)} ${t("dashboard.passive").toLowerCase()}`}
                             color={C.purple} delay={0.15} />
-                        <KpiCard icon="⚠️" label="Düşük Stok" value={fmtNum(pmProducts.lowStock || 0)}
-                            sub={`Stok biten: ${fmtNum(pmProducts.outOfStock || 0)} ürün`}
+                        <KpiCard C={C} icon="⚠️" label={t("dashboard.lowStockAlert")} value={fmtNum(pmProducts.lowStock || 0, language)}
+                            sub={`${t("dashboard.outOfStock")}: ${fmtNum(pmProducts.outOfStock || 0, language)}`}
                             color={(pmProducts.lowStock || 0) > 0 ? C.yellow : C.green} delay={0.2} />
-                        <KpiCard icon="📈" label="7 Günlük Sipariş" value={fmtNum(trendOrderTotal)}
-                            sub={`Toplam ciro: ${fmtCurrency(trendRevenueTotal)}`}
+                        <KpiCard C={C} icon="📈" label={t("dashboard.weeklyOrders")} value={fmtNum(trendOrderTotal, language)}
+                            sub={`${t("dashboard.totalRevenue")}: ${fmtCurrency(trendRevenueTotal, language)}`}
                             color={C.blue} delay={0.25} />
-                        <KpiCard icon="✅" label="Teslim Edilen" value={fmtNum(allOrders.statusCounts.delivered)}
-                            sub={`❌ ${allOrders.statusCounts.cancelled} iptal · ↩️ ${allOrders.statusCounts.returned} iade`}
+                        <KpiCard C={C} icon="✅" label={t("dashboard.delivered")} value={fmtNum(allOrders.statusCounts.delivered, language)}
+                            sub={`❌ ${allOrders.statusCounts.cancelled} ${t("dashboard.cancelledOrders").toLowerCase()} · ↩️ ${allOrders.statusCounts.returned} ${t("dashboard.returnedOrders").toLowerCase()}`}
                             color={C.green} delay={0.3} />
                     </div>
 
@@ -733,17 +720,17 @@ const UserDashboard = () => {
 
                         {/* Pazaryeri Durumu */}
                         {marketplaceEntries.length > 0 && (
-                            <GlassCard>
-                                <SectionTitle icon="🏪" title="Pazaryeri Durumu" badge={`${marketplaceEntries.length} Kanal`} />
+                            <GlassCard C={C}>
+                                <SectionTitle C={C} icon="🏪" title={t("dashboard.marketplaceStatus")} badge={`${marketplaceEntries.length} ${t("dashboard.channel")}`} />
                                 <div style={{ overflowX: "auto" }}>
                                     <table style={{ width: "100%", minWidth: 500, borderCollapse: "separate", borderSpacing: "0 0.35rem" }}>
                                         <thead>
                                             <tr style={{ color: C.muted, fontSize: "0.68rem", fontWeight: 600, textTransform: "uppercase" }}>
-                                                <th style={{ textAlign: "left", padding: "0.4rem 0.8rem" }}>Kanal</th>
-                                                <th style={{ textAlign: "center", padding: "0.4rem" }}>Durum</th>
-                                                <th style={{ textAlign: "center", padding: "0.4rem" }}>Sipariş</th>
-                                                <th style={{ textAlign: "center", padding: "0.4rem" }}>Ciro</th>
-                                                <th style={{ textAlign: "center", padding: "0.4rem" }}>Hata</th>
+                                                <th style={{ textAlign: "left", padding: "0.4rem 0.8rem" }}>{t("dashboard.channel")}</th>
+                                                <th style={{ textAlign: "center", padding: "0.4rem" }}>{t("dashboard.status")}</th>
+                                                <th style={{ textAlign: "center", padding: "0.4rem" }}>{t("dashboard.orders")}</th>
+                                                <th style={{ textAlign: "center", padding: "0.4rem" }}>{t("dashboard.revenue")}</th>
+                                                <th style={{ textAlign: "center", padding: "0.4rem" }}>{t("dashboard.errors")}</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -755,23 +742,23 @@ const UserDashboard = () => {
                                                     style={{ background: C.glass, borderRadius: 8 }}>
                                                     <td style={{ padding: "0.7rem 0.8rem", borderRadius: "8px 0 0 8px" }}>
                                                         <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                                                            <div style={{ width: 8, height: 8, borderRadius: "50%", background: statusColor(mp.status), boxShadow: `0 0 6px ${statusColor(mp.status)}60` }} />
+                                                            <div style={{ width: 8, height: 8, borderRadius: "50%", background: statusColor(mp.status, C), boxShadow: `0 0 6px ${statusColor(mp.status, C)}60` }} />
                                                             <div>
-                                                                <p style={{ color: "#fff", fontWeight: 600, margin: 0, fontSize: "0.82rem" }}>{name}</p>
+                                                                <p style={{ color: C.text, fontWeight: 600, margin: 0, fontSize: "0.82rem" }}>{name}</p>
                                                                 <p style={{ color: C.dim, fontSize: "0.6rem", margin: 0 }}>
-                                                                    {mp.updatedAt ? new Date(mp.updatedAt).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" }) : "—"}
+                                                                    {mp.updatedAt ? new Date(mp.updatedAt).toLocaleTimeString(language === "en" ? "en-US" : "tr-TR", { hour: "2-digit", minute: "2-digit" }) : "—"}
                                                                 </p>
                                                             </div>
                                                         </div>
                                                     </td>
                                                     <td style={{ textAlign: "center", padding: "0.4rem" }}>
-                                                        <Pill color={statusColor(mp.status)}>{statusLabel(mp.status)}</Pill>
+                                                        <Pill color={statusColor(mp.status, C)}>{statusLabel(mp.status, t)}</Pill>
                                                     </td>
                                                     <td style={{ textAlign: "center", padding: "0.4rem" }}>
                                                         <span style={{ color: C.accent, fontWeight: 700, fontSize: "0.9rem" }}>{mp.orders || 0}</span>
                                                     </td>
                                                     <td style={{ textAlign: "center", padding: "0.4rem" }}>
-                                                        <span style={{ color: C.green, fontWeight: 700, fontSize: "0.82rem" }}>{fmtCurrency(mp.revenue || 0)}</span>
+                                                        <span style={{ color: C.green, fontWeight: 700, fontSize: "0.82rem" }}>{fmtCurrency(mp.revenue || 0, language)}</span>
                                                     </td>
                                                     <td style={{ textAlign: "center", padding: "0.4rem", borderRadius: "0 8px 8px 0" }}>
                                                         <Pill color={(mp.errors || 0) > 0 ? C.red : C.green}>{mp.errors || 0}</Pill>
@@ -785,13 +772,13 @@ const UserDashboard = () => {
                         )}
 
                         {/* Canlı Sipariş Akışı */}
-                        <GlassCard>
-                            <SectionTitle icon="🔴" title="Son Siparişler"
+                        <GlassCard C={C}>
+                            <SectionTitle C={C} icon="🔴" title={t("dashboard.recentOrders")}
                                 action={
                                     <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
                                         onClick={() => handlePanelChange("orders")}
                                         style={{ background: C.glass, border: `1px solid ${C.glassBr}`, borderRadius: 8, padding: "0.3rem 0.6rem", cursor: "pointer", color: C.accent, fontSize: "0.7rem", fontWeight: 600 }}>
-                                        Tümü →
+                                        {t("dashboard.viewAll")}
                                     </motion.button>
                                 }
                             />
@@ -802,19 +789,19 @@ const UserDashboard = () => {
                                         style={{ background: C.glass, border: `1px solid ${C.glassBr}`, borderRadius: 10, padding: "0.65rem 0.8rem" }}>
                                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.25rem" }}>
                                             <span style={{ color: C.accent, fontSize: "0.75rem", fontWeight: 700 }}>{o.marketplace}</span>
-                                            <span style={{ color: C.green, fontSize: "0.8rem", fontWeight: 800 }}>{fmtCurrency(o.totalPrice || 0)}</span>
+                                            <span style={{ color: C.green, fontSize: "0.8rem", fontWeight: 800 }}>{fmtCurrency(o.totalPrice || 0, language)}</span>
                                         </div>
                                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                                             <span style={{ color: C.dim, fontSize: "0.68rem", fontFamily: "monospace" }}>#{o.orderNumber || "—"}</span>
                                             <span style={{ color: C.dim, fontSize: "0.65rem" }}>
-                                                {o.orderDate ? new Date(o.orderDate).toLocaleString("tr-TR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : ""}
+                                                {o.orderDate ? new Date(o.orderDate).toLocaleString(language === "en" ? "en-US" : "tr-TR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : ""}
                                             </span>
                                         </div>
                                     </motion.div>
                                 )) : (
                                     <div style={{ textAlign: "center", padding: "2rem 0", color: C.dim, fontSize: "0.8rem" }}>
                                         <span style={{ fontSize: "1.5rem", display: "block", marginBottom: "0.3rem" }}>📭</span>
-                                        Henüz sipariş yok
+                                        {t("dashboard.noOrders")}
                                     </div>
                                 )}
                             </div>
@@ -824,18 +811,18 @@ const UserDashboard = () => {
                     {/* ── TREND + ÜRÜN SAĞLIĞI ── */}
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.5rem", marginBottom: "1.5rem" }}>
                         {/* 7 Günlük Trend */}
-                        <GlassCard>
-                            <SectionTitle icon="📈" title="7 Günlük Trend" badge={`${fmtNum(trendOrderTotal)} sipariş · ${fmtCurrency(trendRevenueTotal)}`} />
+                        <GlassCard C={C}>
+                            <SectionTitle C={C} icon="📈" title={t("dashboard.weeklyTrend")} badge={`${fmtNum(trendOrderTotal, language)} ${t("dashboard.orders").toLowerCase()} · ${fmtCurrency(trendRevenueTotal, language)}`} />
                             {trends.labels.length > 0 ? (
                                 <>
                                     <div style={{ display: "flex", gap: "1rem", marginBottom: "0.75rem" }}>
                                         <div style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
                                             <div style={{ width: 8, height: 8, borderRadius: 2, background: C.accent }} />
-                                            <span style={{ color: C.muted, fontSize: "0.68rem" }}>Sipariş</span>
+                                            <span style={{ color: C.muted, fontSize: "0.68rem" }}>{t("dashboard.orders")}</span>
                                         </div>
                                         <div style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
                                             <div style={{ width: 8, height: 8, borderRadius: 2, background: C.green }} />
-                                            <span style={{ color: C.muted, fontSize: "0.68rem" }}>Ciro</span>
+                                            <span style={{ color: C.muted, fontSize: "0.68rem" }}>{t("dashboard.revenue")}</span>
                                         </div>
                                     </div>
                                     <div style={{ display: "flex", gap: "0.35rem", height: 180, alignItems: "flex-end" }}>
@@ -847,10 +834,10 @@ const UserDashboard = () => {
                                                     <div style={{ width: "100%", display: "flex", gap: 2, alignItems: "flex-end", height: 150 }}>
                                                         <motion.div initial={{ height: 0 }} animate={{ height: `${rH}%` }} transition={{ delay: 0.3 + i * 0.04, duration: 0.4 }}
                                                             style={{ flex: 1, background: `linear-gradient(180deg, ${C.green}, #059669)`, borderRadius: "3px 3px 0 0", cursor: "pointer" }}
-                                                            title={`Ciro: ${fmtCurrency(trends.revenueTotals[i] || 0)}`} />
+                                                            title={`${t("dashboard.revenue")}: ${fmtCurrency(trends.revenueTotals[i] || 0, language)}`} />
                                                         <motion.div initial={{ height: 0 }} animate={{ height: `${oH}%` }} transition={{ delay: 0.3 + i * 0.04, duration: 0.4 }}
                                                             style={{ flex: 1, background: `linear-gradient(180deg, ${C.accent}, #44a08d)`, borderRadius: "3px 3px 0 0", cursor: "pointer" }}
-                                                            title={`Sipariş: ${trends.orderCounts[i] || 0}`} />
+                                                            title={`${t("dashboard.orders")}: ${trends.orderCounts[i] || 0}`} />
                                                     </div>
                                                     <span style={{ color: C.dim, fontSize: "0.6rem", fontWeight: 600 }}>{label}</span>
                                                 </div>
@@ -861,22 +848,22 @@ const UserDashboard = () => {
                             ) : (
                                 <div style={{ textAlign: "center", padding: "2.5rem 0", color: C.dim }}>
                                     <span style={{ fontSize: "2rem" }}>📭</span>
-                                    <p style={{ margin: "0.4rem 0 0", fontSize: "0.8rem" }}>Henüz trend verisi yok</p>
+                                    <p style={{ margin: "0.4rem 0 0", fontSize: "0.8rem" }}>{t("dashboard.noData")}</p>
                                 </div>
                             )}
                         </GlassCard>
 
                         {/* Ürün & Stok Sağlığı */}
-                        <GlassCard>
-                            <SectionTitle icon="📦" title="Ürün & Stok Sağlığı" />
+                        <GlassCard C={C}>
+                            <SectionTitle C={C} icon="📦" title={t("dashboard.productHealth")} />
                             <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
                                 {[
-                                    { label: "Toplam Ürün", value: fmtNum(summary.totalProducts || pmProducts.total || 0), color: C.accent, icon: "📊" },
-                                    { label: "Aktif Ürün", value: fmtNum(summary.activeProducts || pmProducts.healthy || 0), color: C.green, icon: "✅" },
-                                    { label: "Stok Biten", value: fmtNum(pmProducts.outOfStock || summary.passiveProducts || 0), color: C.red, icon: "🚫" },
-                                    { label: "Düşük Stok", value: fmtNum(pmProducts.lowStock || 0), color: C.yellow, icon: "⚠️" },
-                                    { label: "Stok Uyuşmazlığı", value: fmtNum(summary.stockMismatchCount || 0), color: (summary.stockMismatchCount || 0) > 0 ? C.red : C.green, icon: "📉" },
-                                    { label: "Kategori Eşleşme", value: fmtNum(pmDashboard?.totalCategories || 0), color: C.purple, icon: "🗂️" },
+                                    { label: t("dashboard.totalProducts"), value: fmtNum(summary.totalProducts || pmProducts.total || 0, language), color: C.accent, icon: "📊" },
+                                    { label: t("dashboard.activeProducts"), value: fmtNum(summary.activeProducts || pmProducts.healthy || 0, language), color: C.green, icon: "✅" },
+                                    { label: t("dashboard.outOfStock"), value: fmtNum(pmProducts.outOfStock || summary.passiveProducts || 0, language), color: C.red, icon: "🚫" },
+                                    { label: t("dashboard.lowStock"), value: fmtNum(pmProducts.lowStock || 0, language), color: C.yellow, icon: "⚠️" },
+                                    { label: t("dashboard.stockMismatchCount"), value: fmtNum(summary.stockMismatchCount || 0, language), color: (summary.stockMismatchCount || 0) > 0 ? C.red : C.green, icon: "📉" },
+                                    { label: t("dashboard.categoryMapping"), value: fmtNum(pmDashboard?.totalCategories || 0, language), color: C.purple, icon: "🗂️" },
                                 ].map((s, i) => (
                                     <motion.div key={s.label} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.2 + i * 0.03 }}
                                         style={{ background: C.glass, border: `1px solid ${C.glassBr}`, borderRadius: 8, padding: "0.55rem 0.75rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -890,13 +877,13 @@ const UserDashboard = () => {
                             </div>
                             {pmMarketplaces.length > 0 && (
                                 <div style={{ marginTop: "0.75rem", paddingTop: "0.75rem", borderTop: `1px solid ${C.glassBr}` }}>
-                                    <p style={{ color: C.muted, fontSize: "0.7rem", fontWeight: 600, marginBottom: "0.4rem" }}>Pazaryeri Ürün Dağılımı</p>
+                                    <p style={{ color: C.muted, fontSize: "0.7rem", fontWeight: 600, marginBottom: "0.4rem" }}>{t("dashboard.marketplaceDistribution")}</p>
                                     {pmMarketplaces.map(pm => (
                                         <div key={pm.name} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.25rem 0" }}>
                                             <span style={{ color: C.text, fontSize: "0.75rem" }}>{pm.name}</span>
                                             <div style={{ display: "flex", gap: "0.4rem" }}>
-                                                <Pill color={C.green}>{pm.syncedProducts || 0} sync</Pill>
-                                                {(pm.errorProducts || 0) > 0 && <Pill color={C.red}>{pm.errorProducts} hata</Pill>}
+                                                <Pill color={C.green}>{pm.syncedProducts || 0} {t("dashboard.synced")}</Pill>
+                                                {(pm.errorProducts || 0) > 0 && <Pill color={C.red}>{pm.errorProducts} {t("dashboard.errorProducts")}</Pill>}
                                             </div>
                                         </div>
                                     ))}
@@ -909,8 +896,8 @@ const UserDashboard = () => {
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "1.5rem", marginBottom: "1.5rem" }}>
 
                         {/* Uyarılar */}
-                        <GlassCard>
-                            <SectionTitle icon="🚨" title="Uyarılar" badge={alerts.length > 0 ? `${alerts.length}` : null} />
+                        <GlassCard C={C}>
+                            <SectionTitle C={C} icon="🚨" title={t("dashboard.alerts")} badge={alerts.length > 0 ? `${alerts.length}` : null} />
                             <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
                                 {alerts.length > 0 ? alerts.slice(0, 5).map((alert, i) => (
                                     <motion.div key={i} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 + i * 0.03 }}
@@ -920,21 +907,21 @@ const UserDashboard = () => {
                                     </motion.div>
                                 )) : (
                                     <div style={{ background: `${C.green}08`, border: `1px solid ${C.green}18`, borderRadius: 8, padding: "0.8rem", textAlign: "center" }}>
-                                        <p style={{ color: C.green, fontSize: "0.8rem", margin: 0, fontWeight: 600 }}>✅ Tüm sistemler normal</p>
+                                        <p style={{ color: C.green, fontSize: "0.8rem", margin: 0, fontWeight: 600 }}>✅ {t("dashboard.allSystemsNormal")}</p>
                                     </div>
                                 )}
                                 {(summary.stockMismatchCount || 0) > 0 && (
                                     <div style={{ background: `${C.yellow}08`, border: `1px solid ${C.yellow}18`, borderRadius: 8, padding: "0.6rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
                                         <span style={{ fontSize: "0.85rem" }}>📦</span>
-                                        <p style={{ color: C.yellow, fontSize: "0.75rem", margin: 0, fontWeight: 600 }}>{summary.stockMismatchCount} stok uyuşmazlığı</p>
+                                        <p style={{ color: C.yellow, fontSize: "0.75rem", margin: 0, fontWeight: 600 }}>{summary.stockMismatchCount} {t("dashboard.stockMismatchCount").toLowerCase()}</p>
                                     </div>
                                 )}
                             </div>
                         </GlassCard>
 
                         {/* Kanal Bazlı Ciro */}
-                        <GlassCard>
-                            <SectionTitle icon="💰" title="Kanal Ciro" badge={fmtCurrency(summary.todayRevenue || 0)} />
+                        <GlassCard C={C}>
+                            <SectionTitle C={C} icon="💰" title={t("dashboard.channelRevenue")} badge={fmtCurrency(summary.todayRevenue || 0, language)} />
                             {todayBreakdown.length > 0 ? (
                                 <div style={{ display: "flex", flexDirection: "column", gap: "0.65rem" }}>
                                     {todayBreakdown.map((b, i) => {
@@ -944,7 +931,7 @@ const UserDashboard = () => {
                                             <motion.div key={b.marketplace} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.2 + i * 0.04 }}>
                                                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.2rem" }}>
                                                     <span style={{ color: C.text, fontSize: "0.8rem", fontWeight: 600 }}>{b.marketplace}</span>
-                                                    <span style={{ color: C.green, fontSize: "0.78rem", fontWeight: 700 }}>{fmtCurrency(b.revenue)}</span>
+                                                    <span style={{ color: C.green, fontSize: "0.78rem", fontWeight: 700 }}>{fmtCurrency(b.revenue, language)}</span>
                                                 </div>
                                                 <div style={{ width: "100%", height: 5, background: `${C.accent}12`, borderRadius: 3, overflow: "hidden" }}>
                                                     <motion.div initial={{ width: 0 }} animate={{ width: `${pct}%` }} transition={{ delay: 0.3 + i * 0.04, duration: 0.5 }}
@@ -955,21 +942,21 @@ const UserDashboard = () => {
                                     })}
                                 </div>
                             ) : (
-                                <div style={{ textAlign: "center", padding: "1.5rem 0", color: C.dim, fontSize: "0.8rem" }}>📭 Veri yok</div>
+                                <div style={{ textAlign: "center", padding: "1.5rem 0", color: C.dim, fontSize: "0.8rem" }}>📭 {t("dashboard.noData")}</div>
                             )}
                         </GlassCard>
 
                         {/* Hızlı Aksiyonlar */}
-                        <GlassCard>
-                            <SectionTitle icon="⚡" title="Hızlı Erişim" />
+                        <GlassCard C={C}>
+                            <SectionTitle C={C} icon="⚡" title={t("dashboard.quickActions")} />
                             <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
                                 {[
-                                    { label: "Sipariş Yönetimi", icon: <FaClipboardList />, panel: "orders", color: C.accent },
-                                    { label: "Stok Yönetimi", icon: <FaBoxOpen />, panel: "inventory", color: C.green },
-                                    { label: "Ürün Merkezi", icon: <FaCubes />, panel: "pm-center", color: C.purple },
-                                    { label: "Entegrasyonlar", icon: <FaPlug />, panel: "integration", color: C.blue },
-                                    { label: "Finans", icon: <FaMoneyBillWave />, panel: "finance", color: C.yellow },
-                                    { label: "Kargo Takip", icon: <FaTruck />, panel: "shipping", color: C.pink },
+                                    { label: t("dashboard.orderManagement"), icon: <FaClipboardList />, panel: "orders", color: C.accent },
+                                    { label: t("dashboard.stockManagement"), icon: <FaBoxOpen />, panel: "inventory", color: C.green },
+                                    { label: t("dashboard.productCenter"), icon: <FaCubes />, panel: "pm-center", color: C.purple },
+                                    { label: t("dashboard.integrations"), icon: <FaPlug />, panel: "integration", color: C.blue },
+                                    { label: t("dashboard.finance"), icon: <FaMoneyBillWave />, panel: "finance", color: C.yellow },
+                                    { label: t("dashboard.shipping"), icon: <FaTruck />, panel: "shipping", color: C.pink },
                                 ].map((a, i) => (
                                     <motion.button key={a.panel}
                                         initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 + i * 0.03 }}
@@ -986,13 +973,13 @@ const UserDashboard = () => {
                     </div>
 
                     {/* ── SON İŞLEMLER ── */}
-                    <GlassCard>
-                        <SectionTitle icon="📋" title="Son İşlem Logları"
+                    <GlassCard C={C}>
+                        <SectionTitle C={C} icon="📋" title={t("dashboard.operationLogs")}
                             action={
                                 <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
                                     onClick={() => handlePanelChange("orders")}
                                     style={{ background: C.glass, border: `1px solid ${C.glassBr}`, borderRadius: 8, padding: "0.3rem 0.6rem", cursor: "pointer", color: C.accent, fontSize: "0.7rem", fontWeight: 600 }}>
-                                    Tümünü Gör →
+                                    {t("dashboard.viewAllLogs")}
                                 </motion.button>
                             }
                         />
@@ -1012,7 +999,7 @@ const UserDashboard = () => {
                                 </motion.div>
                             )) : (
                                 <div style={{ textAlign: "center", padding: "1.5rem 0", color: C.dim, fontSize: "0.8rem", gridColumn: "1 / -1" }}>
-                                    Henüz işlem kaydı yok
+                                    {t("dashboard.noLogs")}
                                 </div>
                             )}
                         </div>
@@ -1027,12 +1014,12 @@ const UserDashboard = () => {
                             style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem", background: "rgba(0,0,0,0.8)", backdropFilter: "blur(8px)" }}>
                             <motion.div initial={{ scale: 0.92, y: 40 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.92, y: 40 }}
                                 onClick={e => e.stopPropagation()}
-                                style={{ background: `linear-gradient(135deg, ${C.card} 0%, rgba(15,20,25,0.95) 100%)`, border: `1px solid ${C.border}`, borderRadius: 20, padding: "clamp(1rem, 3vw, 2rem)", maxWidth: 900, width: "100%", maxHeight: "90vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+                                style={{ background: `linear-gradient(135deg, ${C.card} 0%, ${C.bg}f2 100%)`, border: `1px solid ${C.border}`, borderRadius: 20, padding: "clamp(1rem, 3vw, 2rem)", maxWidth: 900, width: "100%", maxHeight: "90vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
 
                                 {/* Modal Header */}
                                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", flexShrink: 0 }}>
                                     <h2 style={{ background: `linear-gradient(135deg, ${C.accent}, ${C.purple})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", fontSize: "1.3rem", fontWeight: 800, margin: 0 }}>
-                                        📦 Siparişler ({allOrders.total})
+                                        📦 {t("dashboard.totalOrders")} ({allOrders.total})
                                     </h2>
                                     <motion.button whileHover={{ scale: 1.1, rotate: 90 }} whileTap={{ scale: 0.9 }}
                                         onClick={() => setShowOrderDetailsModal(false)}
@@ -1044,13 +1031,13 @@ const UserDashboard = () => {
                                 {/* Status Tabs */}
                                 <div style={{ display: "flex", gap: "0.35rem", marginBottom: "1rem", flexWrap: "nowrap", borderBottom: `1px solid ${C.glassBr}`, paddingBottom: "0.75rem", overflowX: "auto", flexShrink: 0 }}>
                                     {[
-                                        { id: "all", label: "Tümü", count: allOrders.total, color: C.accent },
-                                        { id: "new", label: "Yeni", count: allOrders.statusCounts.new, color: C.accent },
-                                        { id: "processing", label: "İşlemde", count: allOrders.statusCounts.processing, color: C.yellow },
-                                        { id: "shipping", label: "Kargoda", count: allOrders.statusCounts.shipping, color: C.purple },
-                                        { id: "delivered", label: "Teslim", count: allOrders.statusCounts.delivered, color: C.green },
-                                        { id: "cancelled", label: "İptal", count: allOrders.statusCounts.cancelled, color: C.red },
-                                        { id: "returned", label: "İade", count: allOrders.statusCounts.returned, color: C.yellow },
+                                        { id: "all", label: t("dashboard.all"), count: allOrders.total, color: C.accent },
+                                        { id: "new", label: t("dashboard.newOrders"), count: allOrders.statusCounts.new, color: C.accent },
+                                        { id: "processing", label: t("dashboard.processingOrders"), count: allOrders.statusCounts.processing, color: C.yellow },
+                                        { id: "shipping", label: t("dashboard.shippingOrders"), count: allOrders.statusCounts.shipping, color: C.purple },
+                                        { id: "delivered", label: t("dashboard.deliveredOrders"), count: allOrders.statusCounts.delivered, color: C.green },
+                                        { id: "cancelled", label: t("dashboard.cancelledOrders"), count: allOrders.statusCounts.cancelled, color: C.red },
+                                        { id: "returned", label: t("dashboard.returnedOrders"), count: allOrders.statusCounts.returned, color: C.yellow },
                                     ].map(tab => (
                                         <motion.button key={tab.id} whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }}
                                             onClick={() => setSelectedOrderTab(tab.id)}
@@ -1067,11 +1054,11 @@ const UserDashboard = () => {
 
                                 {/* Table Header */}
                                 <div style={{ display: "grid", gridTemplateColumns: "2fr 1.2fr 1fr 1.2fr 1fr", gap: "0.75rem", padding: "0.5rem 1rem", borderBottom: `2px solid ${C.accent}20`, marginBottom: "0.5rem", flexShrink: 0 }}>
-                                    <span style={{ color: C.muted, fontSize: "0.68rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>Sipariş No</span>
-                                    <span style={{ color: C.muted, fontSize: "0.68rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>Pazaryeri</span>
-                                    <span style={{ color: C.muted, fontSize: "0.68rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", textAlign: "right" }}>Tutar</span>
-                                    <span style={{ color: C.muted, fontSize: "0.68rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", textAlign: "center" }}>Tarih</span>
-                                    <span style={{ color: C.muted, fontSize: "0.68rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", textAlign: "center" }}>Durum</span>
+                                    <span style={{ color: C.muted, fontSize: "0.68rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>{t("dashboard.orderNumber")}</span>
+                                    <span style={{ color: C.muted, fontSize: "0.68rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>{t("dashboard.marketplace")}</span>
+                                    <span style={{ color: C.muted, fontSize: "0.68rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", textAlign: "right" }}>{t("dashboard.amount")}</span>
+                                    <span style={{ color: C.muted, fontSize: "0.68rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", textAlign: "center" }}>{t("dashboard.date")}</span>
+                                    <span style={{ color: C.muted, fontSize: "0.68rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", textAlign: "center" }}>{t("dashboard.orderStatus")}</span>
                                 </div>
 
                                 {/* Order Rows */}
@@ -1083,11 +1070,11 @@ const UserDashboard = () => {
                                                     initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: Math.min(idx * 0.01, 0.3) }}
                                                     style={{ display: "grid", gridTemplateColumns: "2fr 1.2fr 1fr 1.2fr 1fr", gap: "0.75rem", alignItems: "center", padding: "0.6rem 1rem", borderRadius: 8, background: idx % 2 === 0 ? C.glass : "transparent", border: `1px solid transparent`, transition: "background 0.15s ease, border-color 0.15s ease", cursor: "default" }}
                                                     whileHover={{ backgroundColor: `rgba(78,205,196,0.06)`, borderColor: `rgba(78,205,196,0.12)` }}>
-                                                    <span style={{ color: "#fff", fontSize: "0.8rem", fontWeight: 600, fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{order.orderNumber || "N/A"}</span>
+                                                    <span style={{ color: C.text, fontSize: "0.8rem", fontWeight: 600, fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{order.orderNumber || "N/A"}</span>
                                                     <span style={{ color: C.accent, fontSize: "0.8rem", fontWeight: 600 }}>{order.marketplace || "N/A"}</span>
-                                                    <span style={{ color: C.green, fontSize: "0.82rem", fontWeight: 700, textAlign: "right" }}>{fmtCurrency(order.totalPrice || 0)}</span>
+                                                    <span style={{ color: C.green, fontSize: "0.82rem", fontWeight: 700, textAlign: "right" }}>{fmtCurrency(order.totalPrice || 0, language)}</span>
                                                     <span style={{ color: C.muted, fontSize: "0.75rem", fontWeight: 500, textAlign: "center" }}>
-                                                        {order.orderDate ? new Date(order.orderDate).toLocaleString("tr-TR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "N/A"}
+                                                        {order.orderDate ? new Date(order.orderDate).toLocaleString(language === "en" ? "en-US" : "tr-TR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "N/A"}
                                                     </span>
                                                     <div style={{ textAlign: "center" }}>
                                                         <Pill color={
@@ -1095,7 +1082,7 @@ const UserDashboard = () => {
                                                             String(order.status || "").toLowerCase().includes("ship") || String(order.status || "").toLowerCase().includes("kargo") ? C.purple :
                                                             String(order.status || "").toLowerCase().includes("cancel") || String(order.status || "").toLowerCase().includes("iptal") ? C.red : C.yellow
                                                         }>
-                                                            {order.status || "Bilinmiyor"}
+                                                            {order.status || t("dashboard.unknown")}
                                                         </Pill>
                                                     </div>
                                                 </motion.div>
@@ -1104,7 +1091,7 @@ const UserDashboard = () => {
                                     ) : (
                                         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "3rem", color: C.dim }}>
                                             <span style={{ fontSize: "3rem", marginBottom: "0.5rem" }}>📭</span>
-                                            <p style={{ fontSize: "1rem", fontWeight: 600, margin: 0 }}>Bu kategoride sipariş bulunamadı</p>
+                                            <p style={{ fontSize: "1rem", fontWeight: 600, margin: 0 }}>{t("dashboard.noCategoryOrders")}</p>
                                         </div>
                                     )}
                                 </div>
@@ -1112,12 +1099,12 @@ const UserDashboard = () => {
                                 {/* Modal Footer */}
                                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: "0.75rem", borderTop: `1px solid ${C.glassBr}`, marginTop: "0.5rem", flexShrink: 0 }}>
                                     <span style={{ color: C.dim, fontSize: "0.75rem" }}>
-                                        {(allOrders.byStatus[selectedOrderTab] || []).length} sipariş gösteriliyor
+                                        {(allOrders.byStatus[selectedOrderTab] || []).length} {t("dashboard.showingOrders")}
                                     </span>
                                     <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
                                         onClick={() => { setShowOrderDetailsModal(false); handlePanelChange("orders"); }}
                                         style={{ background: `${C.accent}15`, border: `1px solid ${C.accent}30`, borderRadius: 8, padding: "0.4rem 0.8rem", cursor: "pointer", color: C.accent, fontSize: "0.78rem", fontWeight: 600 }}>
-                                        Sipariş Yönetimine Git →
+                                        {t("dashboard.goToOrderManagement")}
                                     </motion.button>
                                 </div>
                             </motion.div>
@@ -1138,7 +1125,7 @@ const UserDashboard = () => {
                                     exit={{ opacity: 0, x: 80, scale: 0.9 }}
                                     transition={{ duration: 0.3 }}
                                     style={{
-                                        background: "linear-gradient(135deg, #1a2332 0%, #0f1419 100%)",
+                                        background: isDark ? "linear-gradient(135deg, #1a2332 0%, #0f1419 100%)" : "linear-gradient(135deg, #ffffff 0%, #f0f2f5 100%)",
                                         border: `1px solid ${toastColor}40`,
                                         borderRadius: 14, padding: "0.85rem 1.1rem",
                                         minWidth: 300, maxWidth: 380,
@@ -1156,7 +1143,7 @@ const UserDashboard = () => {
                                         {toastIcon}
                                     </div>
                                     <div style={{ flex: 1, minWidth: 0 }}>
-                                        <p style={{ color: "#fff", fontSize: "0.8rem", fontWeight: 700, margin: 0 }}>{n.title}</p>
+                                        <p style={{ color: C.text, fontSize: "0.8rem", fontWeight: 700, margin: 0 }}>{n.title}</p>
                                         <p style={{ color: C.muted, fontSize: "0.72rem", margin: "0.1rem 0 0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{n.message}</p>
                                     </div>
                                     <motion.button whileHover={{ scale: 1.2 }} whileTap={{ scale: 0.8 }}
@@ -1194,15 +1181,16 @@ const UserDashboard = () => {
         { type: "divider", label: t("sidebar.productMgmt") },
         { id: "pm-center", icon: <FaCubes />, text: t("sidebar.productCenter") },
         { id: "pm-categories", icon: <FaSitemap />, text: t("sidebar.categoryMapping") },
+        { id: "pm-category-errors", icon: <FaExclamationTriangle />, text: language === "en" ? "Category Errors" : "Kategori Hataları" },
         { type: "divider", label: t("sidebar.analytics") },
         { id: "advanced-analytics", icon: <FaChartBar />, text: t("sidebar.advancedAnalytics") },
-        { id: "ai-operator", icon: <FaBrain />, text: "AI Operatör" },
+        { id: "ai-operator", icon: <FaBrain />, text: language === "en" ? "AI Operator" : "AI Operatör" },
         { id: "advanced-ai", icon: <FaBrain />, text: t("sidebar.aiAssistant") },
         { id: "roketfy", icon: <FaRocket />, text: t("sidebar.roketfy") },
         { type: "divider", label: t("sidebar.management") },
         { id: "users", icon: <FaUsers />, text: t("sidebar.userMgmt") },
         { id: "billing", icon: <FaFileInvoice />, text: t("sidebar.billing") },
-        { id: "subscription", icon: <FaCrown />, text: "Abonelik & Paket" },
+        { id: "subscription", icon: <FaCrown />, text: language === "en" ? "Subscription & Plans" : "Abonelik & Paket" },
         { id: "settings", icon: <FaCog />, text: t("sidebar.settings") },
         ...(isAdmin ? [
             { type: "divider", label: "Admin" },
@@ -1223,7 +1211,7 @@ const UserDashboard = () => {
                         <div className="submenu-item-icon">
                             {m.logo ? <img src={m.logo} alt={m.name} /> : <FaBox />}
                         </div>
-                        <span className="submenu-item-text">{m.name || "Bilinmeyen Pazaryeri"}</span>
+                        <span className="submenu-item-text">{m.name || t("dashboard.unknownMarketplace")}</span>
                     </div>
                 ))}
             </div>
@@ -1273,6 +1261,7 @@ const UserDashboard = () => {
             case "advanced-ai": return <AICommandCenter userId={userId} />;
             case "pm-center": return <ProductManagementCenter userId={userId} />;
             case "pm-categories": return <CategoryMappingPage userId={userId} />;
+            case "pm-category-errors": return <CategoryErrorCenter />;
             case "settings": return <SettingsPage userId={userId} />;
             case "billing": return <BillingPage userId={userId} />;
             case "subscription": return <SubscriptionPage />;
@@ -1287,7 +1276,7 @@ const UserDashboard = () => {
         <div className="dashboard-container">
             <Particles id="tsparticles" init={particlesInit}
                 options={{
-                    background: { color: "#0a0e1a" },
+                    background: { color: C.particleBg || C.bg },
                     particles: {
                         number: { value: 120 },
                         color: { value: ["#ff6b6b", "#4ecdc4", "#45b7d1"] },
@@ -1399,7 +1388,7 @@ const UserDashboard = () => {
                             initial={{ scale: 0.92, y: 40 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.92, y: 40 }}
                             onClick={e => e.stopPropagation()}
                             style={{
-                                background: `linear-gradient(135deg, ${C.card} 0%, rgba(15,20,25,0.98) 100%)`,
+                                background: `linear-gradient(135deg, ${C.card} 0%, ${C.bg}fa 100%)`,
                                 border: `1px solid ${C.border}`, borderRadius: 20,
                                 padding: "2rem", maxWidth: 420, width: "100%", textAlign: "center",
                             }}>
@@ -1446,7 +1435,7 @@ const UserDashboard = () => {
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -8 }}
                     transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }}
-                    style={{ color: "#ffffff" }}
+                    style={{ color: C.text }}
                 >
                     {renderActivePanel()}
                 </motion.main>

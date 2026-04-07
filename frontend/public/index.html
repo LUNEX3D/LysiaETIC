@@ -2,13 +2,16 @@
 <html lang="tr">
 <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes" />
+    <!-- ✅ WEB APP FIRST: viewport-fit=cover for notched devices (iPhone X+, Android punch-hole) -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover" />
     <meta http-equiv="X-UA-Compatible" content="IE=edge" />
     <title>LysiaETIC - Marketplace Yönetim Platformu</title>
     <meta name="description" content="E-ticaret pazaryeri entegrasyonu, ürün yönetimi, sipariş takibi ve AI destekli karar merkezi." />
 
-    <!-- PWA Meta Tags -->
-    <meta name="theme-color" content="#0f766e" />
+    <!-- ✅ PWA Meta Tags — Full cross-platform support -->
+    <meta name="theme-color" content="#0f766e" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0a0e1a" media="(prefers-color-scheme: dark)" />
+    <meta name="color-scheme" content="dark light" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -16,26 +19,70 @@
     <meta name="application-name" content="LysiaETIC" />
     <meta name="msapplication-TileColor" content="#0f766e" />
     <meta name="msapplication-TileImage" content="/icons/icon-144x144.png" />
+    <meta name="msapplication-starturl" content="/" />
     <meta name="msapplication-tap-highlight" content="no" />
     <meta name="format-detection" content="telephone=no" />
+    <!-- Disable auto-detection of emails/addresses on mobile -->
+    <meta name="format-detection" content="email=no" />
+    <meta name="format-detection" content="address=no" />
 
-    <!-- PWA Manifest -->
-    <link rel="manifest" href="/manifest.json" />
+    <!-- ✅ PWA Manifest -->
+    <link rel="manifest" href="/manifest.json" crossorigin="use-credentials" />
 
-    <!-- Favicons & Apple Touch Icons -->
+    <!-- ✅ Favicons & Apple Touch Icons — Full coverage -->
     <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192x192.png" />
     <link rel="icon" type="image/png" sizes="96x96" href="/icons/icon-96x96.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/icons/icon-96x96.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/icons/icon-72x72.png" />
     <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
+    <link rel="apple-touch-icon" sizes="120x120" href="/icons/icon-128x128.png" />
     <link rel="apple-touch-icon" sizes="152x152" href="/icons/icon-152x152.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/icons/icon-192x192.png" />
     <link rel="apple-touch-icon" sizes="384x384" href="/icons/icon-384x384.png" />
 
-    <!-- Splash Screen for iOS -->
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <!-- ✅ iOS Splash Screens — Apple Launch Images -->
+    <!-- iPhone SE, 8 (750x1334) -->
+    <link rel="apple-touch-startup-image" href="/icons/icon-384x384.png"
+          media="(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2)" />
+    <!-- iPhone X, XS, 11 Pro, 12 mini (1125x2436) -->
+    <link rel="apple-touch-startup-image" href="/icons/icon-512x512.png"
+          media="(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3)" />
+    <!-- iPhone XR, 11 (828x1792) -->
+    <link rel="apple-touch-startup-image" href="/icons/icon-512x512.png"
+          media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2)" />
+    <!-- iPhone 12, 13, 14 (1170x2532) -->
+    <link rel="apple-touch-startup-image" href="/icons/icon-512x512.png"
+          media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3)" />
+    <!-- iPhone 14 Pro, 15 (1179x2556) -->
+    <link rel="apple-touch-startup-image" href="/icons/icon-512x512.png"
+          media="(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3)" />
+    <!-- iPhone 14 Pro Max, 15 Plus/Pro Max (1290x2796) -->
+    <link rel="apple-touch-startup-image" href="/icons/icon-512x512.png"
+          media="(device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3)" />
+    <!-- iPad (1536x2048) -->
+    <link rel="apple-touch-startup-image" href="/icons/icon-512x512.png"
+          media="(device-width: 768px) and (device-height: 1024px) and (-webkit-device-pixel-ratio: 2)" />
+    <!-- iPad Pro 11" (1668x2388) -->
+    <link rel="apple-touch-startup-image" href="/icons/icon-512x512.png"
+          media="(device-width: 834px) and (device-height: 1194px) and (-webkit-device-pixel-ratio: 2)" />
+    <!-- iPad Pro 12.9" (2048x2732) -->
+    <link rel="apple-touch-startup-image" href="/icons/icon-512x512.png"
+          media="(device-width: 1024px) and (device-height: 1366px) and (-webkit-device-pixel-ratio: 2)" />
 
-    <!-- Google Fonts -->
+    <!-- ✅ Google Fonts — optimized loading -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+
+    <!-- ✅ WEB APP FIRST: Critical inline styles for instant first paint -->
+    <style>
+        /* Prevent FOUC and layout shift */
+        html { background: #0a0e1a; }
+        body { margin: 0; background: #0a0e1a; }
+        #root { min-height: 100vh; min-height: 100dvh; }
+        /* iOS rubber-band fix */
+        html, body { overscroll-behavior: none; }
+    </style>
 </head>
 <body>
     <noscript>LysiaETIC'i kullanabilmek için JavaScript'i etkinleştirmeniz gerekmektedir.</noscript>

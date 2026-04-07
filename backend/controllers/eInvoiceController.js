@@ -220,25 +220,108 @@ exports.searchDocuments = async (req, res) => {
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
-//  QNB eSolutions
+//  QNB eSolutions (SOAP API)
+//  connectorService → e-Fatura & e-İrsaliye
+//  EarsivWebService → e-Arşiv
+//  userService      → Oturum (wsLogin / logout)
 // ═══════════════════════════════════════════════════════════════════════════
 
-// ─── QNB Login ──────────────────────────────────────────────────────────────
+// ─── QNB Login (SOAP wsLogin) ───────────────────────────────────────────────
 exports.qnbLogin = async (req, res) => {
     try {
-        const { username, password, env } = req.body;
+        const { username, password, env, service } = req.body;
         if (!username || !password) {
             return res.status(400).json({ success: false, message: "Kullanıcı adı ve şifre gerekli" });
         }
 
-        const result = await qnbService.login({ username, password, env });
+        const result = await qnbService.login({ username, password, env, service });
         if (!result.success) {
             return res.status(result.status || 401).json({ success: false, message: result.error });
         }
 
         res.json({ success: true, data: result });
     } catch (error) {
-        logger.error("[QNB Controller] Login hatası:", error.message);
+        logger.error("[QNB Controller] Login hatası: " + error.message);
+        res.status(500).json({ success: false, message: "Sunucu hatası" });
+    }
+};
+
+// ─── QNB Logout ─────────────────────────────────────────────────────────────
+exports.qnbLogout = async (req, res) => {
+    try {
+        const { sessionId, env, service } = req.body;
+        if (!sessionId) {
+            return res.status(400).json({ success: false, message: "Session ID gerekli" });
+        }
+
+        const result = await qnbService.logout({ sessionId, env, service });
+        res.json(result);
+    } catch (error) {
+        logger.error("[QNB Controller] Logout hatası: " + error.message);
+        res.status(500).json({ success: false, message: "Sunucu hatası" });
+    }
+};
+
+// ─── QNB e-Fatura Kullanıcı Sorgula ────────────────────────────────────────
+exports.qnbCheckUser = async (req, res) => {
+    try {
+        const { sessionId, vkn, env } = req.body;
+        if (!sessionId || !vkn) {
+            return res.status(400).json({ success: false, message: "Session ID ve VKN gerekli" });
+        }
+
+        const result = await qnbService.checkEInvoiceUser({ sessionId, vkn, env });
+        res.json(result);
+    } catch (error) {
+        logger.error("[QNB Controller] Kullanıcı sorgu hatası: " + error.message);
+        res.status(500).json({ success: false, message: "Sunucu hatası" });
+    }
+};
+
+// ─── QNB e-Fatura Kullanıcı Bilgisi (detaylı) ──────────────────────────────
+exports.qnbGetUserInfo = async (req, res) => {
+    try {
+        const { sessionId, vkn, env } = req.body;
+        if (!sessionId || !vkn) {
+            return res.status(400).json({ success: false, message: "Session ID ve VKN gerekli" });
+        }
+
+        const result = await qnbService.getEInvoiceUserInfo({ sessionId, vkn, env });
+        res.json(result);
+    } catch (error) {
+        logger.error("[QNB Controller] Kullanıcı bilgi hatası: " + error.message);
+        res.status(500).json({ success: false, message: "Sunucu hatası" });
+    }
+};
+
+// ─── QNB Mükellef Etiket Listesi ────────────────────────────────────────────
+exports.qnbGetEtiketList = async (req, res) => {
+    try {
+        const { sessionId, vkn, env } = req.body;
+        if (!sessionId || !vkn) {
+            return res.status(400).json({ success: false, message: "Session ID ve VKN gerekli" });
+        }
+
+        const result = await qnbService.getMukellefEtiketList({ sessionId, vkn, env });
+        res.json(result);
+    } catch (error) {
+        logger.error("[QNB Controller] Etiket listesi hatası: " + error.message);
+        res.status(500).json({ success: false, message: "Sunucu hatası" });
+    }
+};
+
+// ─── QNB Fatura Numarası Üret ───────────────────────────────────────────────
+exports.qnbGenerateInvoiceNo = async (req, res) => {
+    try {
+        const { sessionId, vkn, faturaKodu, env } = req.body;
+        if (!sessionId) {
+            return res.status(400).json({ success: false, message: "Session ID gerekli" });
+        }
+
+        const result = await qnbService.generateInvoiceNumber({ sessionId, vkn, faturaKodu, env });
+        res.json(result);
+    } catch (error) {
+        logger.error("[QNB Controller] Fatura no üretme hatası: " + error.message);
         res.status(500).json({ success: false, message: "Sunucu hatası" });
     }
 };
@@ -246,39 +329,259 @@ exports.qnbLogin = async (req, res) => {
 // ─── QNB e-Fatura Gönder ────────────────────────────────────────────────────
 exports.qnbSendEInvoice = async (req, res) => {
     try {
-        const { token, invoiceData, env } = req.body;
-        if (!token || !invoiceData) {
-            return res.status(400).json({ success: false, message: "Token ve fatura verisi gerekli" });
+        const { sessionId, invoiceXml, vkn, belgeTuru, belgeNo, env } = req.body;
+        if (!sessionId || !invoiceXml) {
+            return res.status(400).json({ success: false, message: "Session ID ve fatura XML'i gerekli" });
         }
 
-        const result = await qnbService.sendEInvoice({ token, invoiceData, env });
+        const result = await qnbService.sendEInvoice({ sessionId, invoiceXml, vkn, belgeTuru, belgeNo, env });
         if (!result.success) {
             return res.status(result.status || 400).json({ success: false, message: result.error });
         }
 
-        res.json({ success: true, data: result.data });
+        res.json({ success: true, data: result });
     } catch (error) {
-        logger.error("[QNB Controller] e-Fatura gönderme hatası:", error.message);
+        logger.error("[QNB Controller] e-Fatura gönderme hatası: " + error.message);
         res.status(500).json({ success: false, message: "Sunucu hatası" });
     }
 };
 
-// ─── QNB e-Arşiv Gönder ────────────────────────────────────────────────────
-exports.qnbSendEArchive = async (req, res) => {
+// ─── QNB Giden Belge Durum Sorgula (belgeOid) ──────────────────────────────
+exports.qnbGetOutgoingStatus = async (req, res) => {
     try {
-        const { token, invoiceData, env } = req.body;
-        if (!token || !invoiceData) {
-            return res.status(400).json({ success: false, message: "Token ve fatura verisi gerekli" });
+        const { sessionId, vkn, belgeOid, env } = req.body;
+        if (!sessionId || !belgeOid) {
+            return res.status(400).json({ success: false, message: "Session ID ve belge OID gerekli" });
         }
 
-        const result = await qnbService.sendEArchive({ token, invoiceData, env });
-        if (!result.success) {
-            return res.status(result.status || 400).json({ success: false, message: result.error });
-        }
-
-        res.json({ success: true, data: result.data });
+        const result = await qnbService.getOutgoingStatus({ sessionId, vkn, belgeOid, env });
+        res.json(result);
     } catch (error) {
-        logger.error("[QNB Controller] e-Arşiv gönderme hatası:", error.message);
+        logger.error("[QNB Controller] Giden belge durum hatası: " + error.message);
+        res.status(500).json({ success: false, message: "Sunucu hatası" });
+    }
+};
+
+// ─── QNB Giden Belge Durum Sorgula (ETTN) ───────────────────────────────────
+exports.qnbGetOutgoingStatusByEttn = async (req, res) => {
+    try {
+        const { sessionId, vkn, ettn, env } = req.body;
+        if (!sessionId || !ettn) {
+            return res.status(400).json({ success: false, message: "Session ID ve ETTN gerekli" });
+        }
+
+        const result = await qnbService.getOutgoingStatusByEttn({ sessionId, vkn, ettn, env });
+        res.json(result);
+    } catch (error) {
+        logger.error("[QNB Controller] Giden belge durum (ETTN) hatası: " + error.message);
+        res.status(500).json({ success: false, message: "Sunucu hatası" });
+    }
+};
+
+// ─── QNB Fatura Tarihçesi ───────────────────────────────────────────────────
+exports.qnbGetInvoiceHistory = async (req, res) => {
+    try {
+        const { sessionId, vkn, ettn, faturaYonu, env } = req.body;
+        if (!sessionId || !ettn) {
+            return res.status(400).json({ success: false, message: "Session ID ve ETTN gerekli" });
+        }
+
+        const result = await qnbService.getInvoiceHistory({ sessionId, vkn, ettn, faturaYonu, env });
+        res.json(result);
+    } catch (error) {
+        logger.error("[QNB Controller] Fatura tarihçesi hatası: " + error.message);
+        res.status(500).json({ success: false, message: "Sunucu hatası" });
+    }
+};
+
+// ─── QNB Giden Belgeleri Listele ────────────────────────────────────────────
+exports.qnbListOutgoing = async (req, res) => {
+    try {
+        const { sessionId, vkn, searchParams, env } = req.body;
+        if (!sessionId) {
+            return res.status(400).json({ success: false, message: "Session ID gerekli" });
+        }
+
+        const result = await qnbService.listOutgoingDocuments({ sessionId, vkn, searchParams: searchParams || {}, env });
+        res.json(result);
+    } catch (error) {
+        logger.error("[QNB Controller] Giden belge listeleme hatası: " + error.message);
+        res.status(500).json({ success: false, message: "Sunucu hatası" });
+    }
+};
+
+// ─── QNB Gelen Belgeleri Listele ────────────────────────────────────────────
+exports.qnbListIncoming = async (req, res) => {
+    try {
+        const { sessionId, vkn, belgeTuru, sonSiraNo, env } = req.body;
+        if (!sessionId) {
+            return res.status(400).json({ success: false, message: "Session ID gerekli" });
+        }
+
+        const result = await qnbService.listIncomingDocuments({ sessionId, vkn, belgeTuru, sonSiraNo, env });
+        res.json(result);
+    } catch (error) {
+        logger.error("[QNB Controller] Gelen belge listeleme hatası: " + error.message);
+        res.status(500).json({ success: false, message: "Sunucu hatası" });
+    }
+};
+
+// ─── QNB Gelen Belgeleri Al (İndir) ────────────────────────────────────────
+exports.qnbFetchIncoming = async (req, res) => {
+    try {
+        const { sessionId, vkn, belgeTuru, sonSiraNo, env } = req.body;
+        if (!sessionId) {
+            return res.status(400).json({ success: false, message: "Session ID gerekli" });
+        }
+
+        const result = await qnbService.fetchIncomingDocuments({ sessionId, vkn, belgeTuru, sonSiraNo, env });
+        res.json(result);
+    } catch (error) {
+        logger.error("[QNB Controller] Gelen belge alma hatası: " + error.message);
+        res.status(500).json({ success: false, message: "Sunucu hatası" });
+    }
+};
+
+// ─── QNB Giden Belge İndir (belgeOid listesi) ──────────────────────────────
+exports.qnbDownloadOutgoing = async (req, res) => {
+    try {
+        const { sessionId, vkn, belgeOidListesi, belgeTuru, belgeFormati, env } = req.body;
+        if (!sessionId || !belgeOidListesi) {
+            return res.status(400).json({ success: false, message: "Session ID ve belge OID listesi gerekli" });
+        }
+
+        const result = await qnbService.downloadOutgoingDocuments({ sessionId, vkn, belgeOidListesi, belgeTuru, belgeFormati, env });
+        res.json(result);
+    } catch (error) {
+        logger.error("[QNB Controller] Giden belge indirme hatası: " + error.message);
+        res.status(500).json({ success: false, message: "Sunucu hatası" });
+    }
+};
+
+// ─── QNB Gelen Belge İndir (ETTN listesi) ──────────────────────────────────
+exports.qnbDownloadIncoming = async (req, res) => {
+    try {
+        const { sessionId, vkn, ettnler, belgeTuru, belgeFormati, env } = req.body;
+        if (!sessionId || !ettnler) {
+            return res.status(400).json({ success: false, message: "Session ID ve ETTN listesi gerekli" });
+        }
+
+        const result = await qnbService.downloadIncomingDocuments({ sessionId, vkn, ettnler, belgeTuru, belgeFormati, env });
+        res.json(result);
+    } catch (error) {
+        logger.error("[QNB Controller] Gelen belge indirme hatası: " + error.message);
+        res.status(500).json({ success: false, message: "Sunucu hatası" });
+    }
+};
+
+// ─── QNB Tek Belge İndir (ETTN ile — giden) ────────────────────────────────
+exports.qnbDownloadOutgoingByEttn = async (req, res) => {
+    try {
+        const { sessionId, vkn, ettn, belgeTuru, belgeFormati, env } = req.body;
+        if (!sessionId || !ettn) {
+            return res.status(400).json({ success: false, message: "Session ID ve ETTN gerekli" });
+        }
+
+        const result = await qnbService.downloadOutgoingByEttn({ sessionId, vkn, ettn, belgeTuru, belgeFormati, env });
+        res.json(result);
+    } catch (error) {
+        logger.error("[QNB Controller] Giden belge indirme (ETTN) hatası: " + error.message);
+        res.status(500).json({ success: false, message: "Sunucu hatası" });
+    }
+};
+
+// ─── QNB Tek Belge İndir (ETTN ile — gelen) ────────────────────────────────
+exports.qnbDownloadIncomingByEttn = async (req, res) => {
+    try {
+        const { sessionId, vkn, ettn, belgeTuru, belgeFormati, env } = req.body;
+        if (!sessionId || !ettn) {
+            return res.status(400).json({ success: false, message: "Session ID ve ETTN gerekli" });
+        }
+
+        const result = await qnbService.downloadIncomingByEttn({ sessionId, vkn, ettn, belgeTuru, belgeFormati, env });
+        res.json(result);
+    } catch (error) {
+        logger.error("[QNB Controller] Gelen belge indirme (ETTN) hatası: " + error.message);
+        res.status(500).json({ success: false, message: "Sunucu hatası" });
+    }
+};
+
+// ─── QNB Kontör Bilgisi ─────────────────────────────────────────────────────
+exports.qnbGetKontorInfo = async (req, res) => {
+    try {
+        const { sessionId, vkn, kontorTipi, kontorBirimi, env } = req.body;
+        if (!sessionId) {
+            return res.status(400).json({ success: false, message: "Session ID gerekli" });
+        }
+
+        const result = await qnbService.getKontorInfo({ sessionId, vkn, kontorTipi, kontorBirimi, env });
+        res.json(result);
+    } catch (error) {
+        logger.error("[QNB Controller] Kontör bilgisi hatası: " + error.message);
+        res.status(500).json({ success: false, message: "Sunucu hatası" });
+    }
+};
+
+// ─── QNB Fatura Mail Gönder ─────────────────────────────────────────────────
+exports.qnbSendInvoiceMail = async (req, res) => {
+    try {
+        const { sessionId, vkn, inOut, uuid, faturaNo, alicilar, belgeFormati, env } = req.body;
+        if (!sessionId || !uuid || !alicilar) {
+            return res.status(400).json({ success: false, message: "Session ID, UUID ve alıcılar gerekli" });
+        }
+
+        const result = await qnbService.sendInvoiceMail({ sessionId, vkn, inOut, uuid, faturaNo, alicilar, belgeFormati, env });
+        res.json(result);
+    } catch (error) {
+        logger.error("[QNB Controller] Fatura mail hatası: " + error.message);
+        res.status(500).json({ success: false, message: "Sunucu hatası" });
+    }
+};
+
+// ─── QNB Belgeleri Alındı İşaretle ──────────────────────────────────────────
+exports.qnbMarkReceived = async (req, res) => {
+    try {
+        const { sessionId, vkn, ettnList, belgeTuru, env } = req.body;
+        if (!sessionId || !ettnList) {
+            return res.status(400).json({ success: false, message: "Session ID ve ETTN listesi gerekli" });
+        }
+
+        const result = await qnbService.markDocumentsReceived({ sessionId, vkn, ettnList, belgeTuru, env });
+        res.json(result);
+    } catch (error) {
+        logger.error("[QNB Controller] Belge alındı işaretleme hatası: " + error.message);
+        res.status(500).json({ success: false, message: "Sunucu hatası" });
+    }
+};
+
+// ─── QNB e-İrsaliye Kullanıcı Sorgula ──────────────────────────────────────
+exports.qnbCheckDespatchUser = async (req, res) => {
+    try {
+        const { sessionId, vkn, env } = req.body;
+        if (!sessionId || !vkn) {
+            return res.status(400).json({ success: false, message: "Session ID ve VKN gerekli" });
+        }
+
+        const result = await qnbService.checkDespatchUser({ sessionId, vkn, env });
+        res.json(result);
+    } catch (error) {
+        logger.error("[QNB Controller] e-İrsaliye kullanıcı sorgu hatası: " + error.message);
+        res.status(500).json({ success: false, message: "Sunucu hatası" });
+    }
+};
+
+// ─── QNB İrsaliye Numarası Üret ─────────────────────────────────────────────
+exports.qnbGenerateDespatchNo = async (req, res) => {
+    try {
+        const { sessionId, vkn, irsaliyeKodu, env } = req.body;
+        if (!sessionId) {
+            return res.status(400).json({ success: false, message: "Session ID gerekli" });
+        }
+
+        const result = await qnbService.generateDespatchNumber({ sessionId, vkn, irsaliyeKodu, env });
+        res.json(result);
+    } catch (error) {
+        logger.error("[QNB Controller] İrsaliye no üretme hatası: " + error.message);
         res.status(500).json({ success: false, message: "Sunucu hatası" });
     }
 };
@@ -286,53 +589,242 @@ exports.qnbSendEArchive = async (req, res) => {
 // ─── QNB e-İrsaliye Gönder ─────────────────────────────────────────────────
 exports.qnbSendDespatch = async (req, res) => {
     try {
-        const { token, despatchData, env } = req.body;
-        if (!token || !despatchData) {
-            return res.status(400).json({ success: false, message: "Token ve irsaliye verisi gerekli" });
+        const { sessionId, despatchXml, vkn, belgeNo, env } = req.body;
+        if (!sessionId || !despatchXml) {
+            return res.status(400).json({ success: false, message: "Session ID ve irsaliye XML'i gerekli" });
         }
 
-        const result = await qnbService.sendDespatch({ token, despatchData, env });
+        const result = await qnbService.sendDespatch({ sessionId, despatchXml, vkn, belgeNo, env });
         if (!result.success) {
             return res.status(result.status || 400).json({ success: false, message: result.error });
         }
 
-        res.json({ success: true, data: result.data });
+        res.json({ success: true, data: result });
     } catch (error) {
-        logger.error("[QNB Controller] e-İrsaliye gönderme hatası:", error.message);
+        logger.error("[QNB Controller] e-İrsaliye gönderme hatası: " + error.message);
         res.status(500).json({ success: false, message: "Sunucu hatası" });
     }
 };
 
-// ─── QNB Kullanıcı Sorgula ─────────────────────────────────────────────────
-exports.qnbCheckUser = async (req, res) => {
+// ─── QNB e-Arşiv Fatura No Üret ────────────────────────────────────────────
+exports.qnbGenerateEArchiveNo = async (req, res) => {
     try {
-        const { token, vkn, env } = req.body;
-        if (!token || !vkn) {
-            return res.status(400).json({ success: false, message: "Token ve VKN gerekli" });
+        const { sessionId, vkn, faturaKodu, env } = req.body;
+        if (!sessionId) {
+            return res.status(400).json({ success: false, message: "Session ID gerekli" });
         }
 
-        const result = await qnbService.checkEInvoiceUser({ token, vkn, env });
+        const result = await qnbService.generateEArchiveNumber({ sessionId, vkn, faturaKodu, env });
         res.json(result);
     } catch (error) {
-        logger.error("[QNB Controller] Kullanıcı sorgu hatası:", error.message);
+        logger.error("[QNB Controller] e-Arşiv fatura no hatası: " + error.message);
         res.status(500).json({ success: false, message: "Sunucu hatası" });
     }
 };
 
-// ─── QNB Belge Arama ────────────────────────────────────────────────────────
+// ─── QNB e-Arşiv Fatura Oluştur (XML ile) ───────────────────────────────────
+exports.qnbCreateEArchive = async (req, res) => {
+    try {
+        const { sessionId, vkn, invoiceXml, sube, kasa, faturaTipi, env } = req.body;
+        if (!sessionId || !invoiceXml) {
+            return res.status(400).json({ success: false, message: "Session ID ve fatura XML'i gerekli" });
+        }
+
+        const result = await qnbService.createEArchiveInvoice({ sessionId, vkn, invoiceXml, sube, kasa, faturaTipi, env });
+        if (!result.success) {
+            return res.status(result.status || 400).json({ success: false, message: result.error });
+        }
+
+        res.json({ success: true, data: result });
+    } catch (error) {
+        logger.error("[QNB Controller] e-Arşiv oluşturma hatası: " + error.message);
+        res.status(500).json({ success: false, message: "Sunucu hatası" });
+    }
+};
+
+// ─── QNB e-Arşiv Fatura Oluştur (Form Verileri ile) ─────────────────────────
+exports.qnbCreateEArchiveFromForm = async (req, res) => {
+    try {
+        const { sessionId, vkn, invoiceData, env } = req.body;
+        if (!sessionId || !invoiceData) {
+            return res.status(400).json({ success: false, message: "Session ID ve fatura verileri gerekli" });
+        }
+        if (!invoiceData.lines || invoiceData.lines.length === 0) {
+            return res.status(400).json({ success: false, message: "En az bir fatura kalemi gerekli" });
+        }
+        if (!invoiceData.supplier || !invoiceData.supplier.vkn) {
+            return res.status(400).json({ success: false, message: "Satıcı VKN bilgisi gerekli" });
+        }
+        if (!invoiceData.customer || (!invoiceData.customer.vkn && !invoiceData.customer.name)) {
+            return res.status(400).json({ success: false, message: "Alıcı bilgileri gerekli" });
+        }
+
+        const result = await qnbService.createEArchiveFromForm({ sessionId, vkn, invoiceData, env });
+        if (!result.success) {
+            return res.status(result.status || 400).json({ success: false, message: result.error });
+        }
+
+        res.json({
+            success: true,
+            data: {
+                ...result,
+                message: "e-Arşiv fatura başarıyla oluşturuldu"
+            }
+        });
+    } catch (error) {
+        logger.error("[QNB Controller] e-Arşiv form oluşturma hatası: " + error.message);
+        res.status(500).json({ success: false, message: "Sunucu hatası" });
+    }
+};
+
+// ─── QNB e-Arşiv Fatura Sorgula ────────────────────────────────────────────
+exports.qnbQueryEArchive = async (req, res) => {
+    try {
+        const { sessionId, vkn, uuid, faturaNo, env } = req.body;
+        if (!sessionId) {
+            return res.status(400).json({ success: false, message: "Session ID gerekli" });
+        }
+
+        const result = await qnbService.queryEArchiveInvoice({ sessionId, vkn, uuid, faturaNo, env });
+        res.json(result);
+    } catch (error) {
+        logger.error("[QNB Controller] e-Arşiv sorgu hatası: " + error.message);
+        res.status(500).json({ success: false, message: "Sunucu hatası" });
+    }
+};
+
+// ─── QNB e-Arşiv Fatura Listele ────────────────────────────────────────────
+exports.qnbListEArchive = async (req, res) => {
+    try {
+        const { sessionId, vkn, searchParams, env } = req.body;
+        if (!sessionId) {
+            return res.status(400).json({ success: false, message: "Session ID gerekli" });
+        }
+
+        const result = await qnbService.listEArchiveInvoices({ sessionId, vkn, searchParams: searchParams || {}, env });
+        res.json(result);
+    } catch (error) {
+        logger.error("[QNB Controller] e-Arşiv listeleme hatası: " + error.message);
+        res.status(500).json({ success: false, message: "Sunucu hatası" });
+    }
+};
+
+// ─── QNB e-Arşiv Fatura İptal ──────────────────────────────────────────────
+exports.qnbCancelEArchive = async (req, res) => {
+    try {
+        const { sessionId, vkn, uuid, faturaNo, env } = req.body;
+        if (!sessionId || (!uuid && !faturaNo)) {
+            return res.status(400).json({ success: false, message: "Session ID ve UUID veya fatura numarası gerekli" });
+        }
+
+        const result = await qnbService.cancelEArchiveInvoice({ sessionId, vkn, uuid, faturaNo, env });
+        res.json(result);
+    } catch (error) {
+        logger.error("[QNB Controller] e-Arşiv iptal hatası: " + error.message);
+        res.status(500).json({ success: false, message: "Sunucu hatası" });
+    }
+};
+
+// ─── QNB e-Arşiv Önizleme ──────────────────────────────────────────────────
+exports.qnbPreviewEArchive = async (req, res) => {
+    try {
+        const { sessionId, vkn, invoiceXml, env } = req.body;
+        if (!sessionId || !invoiceXml) {
+            return res.status(400).json({ success: false, message: "Session ID ve fatura XML'i gerekli" });
+        }
+
+        const result = await qnbService.previewEArchiveInvoice({ sessionId, vkn, invoiceXml, env });
+        res.json(result);
+    } catch (error) {
+        logger.error("[QNB Controller] e-Arşiv önizleme hatası: " + error.message);
+        res.status(500).json({ success: false, message: "Sunucu hatası" });
+    }
+};
+
+// ─── QNB e-Arşiv ZIP İndir ─────────────────────────────────────────────────
+exports.qnbDownloadEArchiveZip = async (req, res) => {
+    try {
+        const { sessionId, vkn, uuid, faturaNo, env } = req.body;
+        if (!sessionId) {
+            return res.status(400).json({ success: false, message: "Session ID gerekli" });
+        }
+
+        const result = await qnbService.downloadEArchiveZip({ sessionId, vkn, uuid, faturaNo, env });
+        res.json(result);
+    } catch (error) {
+        logger.error("[QNB Controller] e-Arşiv ZIP hatası: " + error.message);
+        res.status(500).json({ success: false, message: "Sunucu hatası" });
+    }
+};
+
+// ─── QNB e-Arşiv E-Posta Gönder ────────────────────────────────────────────
+exports.qnbSendEArchiveEmail = async (req, res) => {
+    try {
+        const { sessionId, vkn, uuid, faturaNo, ilaveEposta, tanimliEpostayaGonder, env } = req.body;
+        if (!sessionId) {
+            return res.status(400).json({ success: false, message: "Session ID gerekli" });
+        }
+
+        const result = await qnbService.sendEArchiveEmail({ sessionId, vkn, uuid, faturaNo, ilaveEposta, tanimliEpostayaGonder, env });
+        res.json(result);
+    } catch (error) {
+        logger.error("[QNB Controller] e-Arşiv e-posta hatası: " + error.message);
+        res.status(500).json({ success: false, message: "Sunucu hatası" });
+    }
+};
+
+// ─── QNB e-Arşiv SMS Gönder ────────────────────────────────────────────────
+exports.qnbSendEArchiveSms = async (req, res) => {
+    try {
+        const { sessionId, vkn, uuid, faturaNo, ilaveTelefonNo, tanimliTelefonNoyaGonder, env } = req.body;
+        if (!sessionId) {
+            return res.status(400).json({ success: false, message: "Session ID gerekli" });
+        }
+
+        const result = await qnbService.sendEArchiveSms({ sessionId, vkn, uuid, faturaNo, ilaveTelefonNo, tanimliTelefonNoyaGonder, env });
+        res.json(result);
+    } catch (error) {
+        logger.error("[QNB Controller] e-Arşiv SMS hatası: " + error.message);
+        res.status(500).json({ success: false, message: "Sunucu hatası" });
+    }
+};
+
+// ─── QNB Belge Arama (Genel) ────────────────────────────────────────────────
 exports.qnbSearchDocuments = async (req, res) => {
     try {
-        const { token, searchParams, documentType, env } = req.body;
-        if (!token) {
-            return res.status(400).json({ success: false, message: "Token gerekli" });
+        const { sessionId, vkn, searchParams, documentType, env } = req.body;
+        if (!sessionId) {
+            return res.status(400).json({ success: false, message: "Session ID gerekli" });
         }
 
+        logger.info(`[QNB Search] type=${documentType}, vkn=${vkn}, params=${JSON.stringify(searchParams || {})}`);
+
         const result = await qnbService.searchDocuments({
-            token, searchParams: searchParams || {}, documentType, env
+            sessionId, vkn, searchParams: searchParams || {}, documentType, env
         });
+
+        logger.info(`[QNB Search] type=${documentType}, success=${result.success}, hasData=${!!result.data}, dataType=${typeof result.data}`);
+        if (result.data) {
+            const d = result.data;
+            const preview = typeof d === "string" ? d.substring(0, 200) : JSON.stringify(d).substring(0, 300);
+            logger.info(`[QNB Search] type=${documentType}, dataPreview=${preview}`);
+        }
+
         res.json(result);
     } catch (error) {
-        logger.error("[QNB Controller] Belge arama hatası:", error.message);
+        logger.error("[QNB Controller] Belge arama hatası: " + error.message);
+        res.status(500).json({ success: false, message: "Sunucu hatası" });
+    }
+};
+
+// ─── QNB Servis Durumu ──────────────────────────────────────────────────────
+exports.qnbCheckServiceStatus = async (req, res) => {
+    try {
+        const { env } = req.body;
+        const result = await qnbService.checkServiceStatus({ env });
+        res.json(result);
+    } catch (error) {
+        logger.error("[QNB Controller] Servis durum hatası: " + error.message);
         res.status(500).json({ success: false, message: "Sunucu hatası" });
     }
 };

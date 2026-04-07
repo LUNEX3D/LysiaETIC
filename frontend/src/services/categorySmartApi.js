@@ -215,6 +215,14 @@ export const getMarketplaceCategories = async (marketplace = "all", search = "",
     return res.data;
 };
 
+/** Pazar yeri kategorilerini AĞAÇ YAPISI (tree) olarak getir */
+export const getMarketplaceCategoriesTree = async (marketplace = "all", search = "") => {
+    const params = { marketplace };
+    if (search) params.search = search;
+    const res = await API.get(`${BASE}/marketplace-categories/tree`, { params });
+    return res.data;
+};
+
 /** Pazar yeri kategorilerini Excel olarak indir */
 export const exportMarketplaceCategoriesExcel = async (marketplace = "all", search = "", leafOnly = false) => {
     const params = { marketplace };
@@ -312,4 +320,26 @@ export const exportUnifiedCategoriesExcel = async (params = {}) => {
         responseType: "blob"
     });
     return res;
+};
+
+// ═══════════════════════════════════════════════════════════════
+// 🔧 MANUEL EŞLEŞTİRME YARDIMCILARI
+// ═══════════════════════════════════════════════════════════════
+
+/** Bir kategori için belirli platformda akıllı öneri getir */
+export const suggestPlatformCategory = async (categoryName, targetPlatform, limit = 5) => {
+    const res = await API.post(`${BASE}/unified/suggest-platform`, { categoryName, targetPlatform, limit });
+    return res.data;
+};
+
+/** Eksik eşleşmeleri olan kategorileri getir */
+export const getIncompleteCategories = async (params = {}) => {
+    const res = await API.get(`${BASE}/unified/incomplete`, { params });
+    return res.data;
+};
+
+/** Birleşik kategori kaydını güncelle (platform eşleştirmesi dahil) */
+export const updateUnifiedCategory = async (id, data) => {
+    const res = await API.put(`${BASE}/unified/${id}`, data);
+    return res.data;
 };

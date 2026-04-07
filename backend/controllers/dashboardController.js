@@ -1,5 +1,6 @@
 const { getDashboardData } = require("../services/dashboardService");
 const logger = require("../config/logger");
+const { ok, badRequest, serverError } = require("../utils/apiResponse");
 
 exports.getDashboardSummary = async (req, res) => {
     try {
@@ -8,13 +9,13 @@ exports.getDashboardSummary = async (req, res) => {
 
         if (!userId) {
             logger.warn("Dashboard request without userId");
-            return res.status(400).json({ error: "Missing userId." });
+            return badRequest(res, "Kullanıcı ID'si gerekli.");
         }
 
         const data = await getDashboardData(userId);
-        return res.status(200).json(data);
+        return ok(res, "Dashboard verileri.", data);
     } catch (error) {
         logger.error("Dashboard summary error", { error: error.message });
-        return res.status(500).json({ error: "Failed to load dashboard summary." });
+        return serverError(res, error, "Dashboard verileri yüklenemedi.");
     }
 };

@@ -1,46 +1,86 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 
 /**
- * PWA Install Prompt — Kullanıcıya uygulamayı ana ekrana ekleme teklifi sunar.
- * Ayrıca çevrimiçi/çevrimdışı durumunu gösterir.
+ * PWA Install Prompt — Cross-platform install support
+ * ✅ Android/Chrome: Native beforeinstallprompt
+ * ✅ iOS Safari: Manual instructions (Share → Add to Home Screen)
+ * ✅ Network status indicator (online/offline)
  */
 const PWAInstallPrompt = () => {
     const [deferredPrompt, setDeferredPrompt] = useState(null);
     const [showBanner, setShowBanner] = useState(false);
+    const [showIOSInstructions, setShowIOSInstructions] = useState(false);
     const [isOnline, setIsOnline] = useState(navigator.onLine);
     const [showOnlineStatus, setShowOnlineStatus] = useState(false);
 
+    // ✅ Detect iOS Safari
+    const isIOS = useCallback(() => {
+        const ua = window.navigator.userAgent;
+        return /iPad|iPhone|iPod/.test(ua) ||
+            (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    }, []);
+
+    const isInStandaloneMode = useCallback(() => {
+        return window.matchMedia("(display-mode: standalone)").matches ||
+            window.navigator.standalone === true;
+    }, []);
+
+    const isSafari = useCallback(() => {
+        const ua = window.navigator.userAgent;
+        return /Safari/.test(ua) && !/Chrome/.test(ua) && !/CriOS/.test(ua);
+    }, []);
+
     useEffect(() => {
-        // PWA Install Prompt
+        // ✅ Chrome/Android: Native install prompt
         const handleBeforeInstallPrompt = (e) => {
             e.preventDefault();
             setDeferredPrompt(e);
 
-            // Daha önce kapatılmış mı kontrol et
             const dismissed = localStorage.getItem("pwa-install-dismissed");
+            const dismissedAt = localStorage.getItem("pwa-install-dismissed-at");
+
+            // Re-show after 7 days if previously dismissed
+            if (dismissed && dismissedAt) {
+                const daysSince = (Date.now() - parseInt(dismissedAt, 10)) / (1000 * 60 * 60 * 24);
+                if (daysSince < 7) return;
+                localStorage.removeItem("pwa-install-dismissed");
+            }
+
             if (!dismissed) {
-                // 3 saniye sonra göster
                 setTimeout(() => setShowBanner(true), 3000);
             }
         };
 
         window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
 
+        // ✅ iOS Safari: Show manual instructions
+        if (isIOS() && isSafari() && !isInStandaloneMode()) {
+            const iosDismissed = localStorage.getItem("pwa-ios-dismissed");
+            const iosDismissedAt = localStorage.getItem("pwa-ios-dismissed-at");
+
+            let shouldShow = !iosDismissed;
+            if (iosDismissed && iosDismissedAt) {
+                const daysSince = (Date.now() - parseInt(iosDismissedAt, 10)) / (1000 * 60 * 60 * 24);
+                if (daysSince >= 14) {
+                    shouldShow = true;
+                    localStorage.removeItem("pwa-ios-dismissed");
+                }
+            }
+
+            if (shouldShow) {
+                setTimeout(() => setShowIOSInstructions(true), 5000);
+            }
+        }
+
         // Standalone modda çalışıyorsa body'ye class ekle
-        if (
-            window.matchMedia("(display-mode: standalone)").matches ||
-            window.navigator.standalone
-        ) {
+        if (isInStandaloneMode()) {
             document.body.classList.add("pwa-standalone");
         }
 
         return () => {
-            window.removeEventListener(
-                "beforeinstallprompt",
-                handleBeforeInstallPrompt
-            );
+            window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
         };
-    }, []);
+    }, [isIOS, isSafari, isInStandaloneMode]);
 
     // Network status listener
     useEffect(() => {
@@ -68,11 +108,7 @@ const PWAInstallPrompt = () => {
         if (!deferredPrompt) return;
 
         deferredPrompt.prompt();
-        const { outcome } = await deferredPrompt.userChoice;
-
-        if (outcome === "accepted") {
-            console.log("[PWA] Kullanıcı yüklemeyi kabul etti");
-        }
+        await deferredPrompt.userChoice;
 
         setDeferredPrompt(null);
         setShowBanner(false);
@@ -81,6 +117,13 @@ const PWAInstallPrompt = () => {
     const handleDismiss = () => {
         setShowBanner(false);
         localStorage.setItem("pwa-install-dismissed", "true");
+        localStorage.setItem("pwa-install-dismissed-at", Date.now().toString());
+    };
+
+    const handleIOSDismiss = () => {
+        setShowIOSInstructions(false);
+        localStorage.setItem("pwa-ios-dismissed", "true");
+        localStorage.setItem("pwa-ios-dismissed-at", Date.now().toString());
     };
 
     return (
@@ -94,7 +137,7 @@ const PWAInstallPrompt = () => {
                 </div>
             )}
 
-            {/* PWA Install Banner */}
+            {/* ✅ Chrome/Android: Native PWA Install Banner */}
             {showBanner && (
                 <div className="pwa-install-banner">
                     <div className="pwa-install-banner-text">
@@ -109,6 +152,44 @@ const PWAInstallPrompt = () => {
                     <button className="pwa-dismiss-btn" onClick={handleDismiss}>
                         Şimdi Değil
                     </button>
+                </div>
+            )}
+
+            {/* ✅ iOS Safari: Manual install instructions */}
+            {showIOSInstructions && (
+                <div className="pwa-ios-instructions">
+                    <div className="pwa-ios-instructions-title">
+                        📱 LysiaETIC&apos;i Ana Ekrana Ekleyin
+                    </div>
+                    <div className="pwa-ios-step">
+                        <span className="pwa-ios-step-num">1</span>
+                        <span>
+                            Alt menüdeki{" "}
+                            <strong style={{ fontSize: "1.1em" }}>⎙</strong>{" "}
+                            (Paylaş) butonuna dokunun
+                        </span>
+                    </div>
+                    <div className="pwa-ios-step">
+                        <span className="pwa-ios-step-num">2</span>
+                        <span>
+                            <strong>&quot;Ana Ekrana Ekle&quot;</strong> seçeneğini bulun
+                        </span>
+                    </div>
+                    <div className="pwa-ios-step">
+                        <span className="pwa-ios-step-num">3</span>
+                        <span>
+                            Sağ üstteki <strong>&quot;Ekle&quot;</strong> butonuna dokunun
+                        </span>
+                    </div>
+                    <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+                        <button
+                            className="pwa-dismiss-btn"
+                            onClick={handleIOSDismiss}
+                            style={{ flex: 1, textAlign: "center" }}
+                        >
+                            Anladım
+                        </button>
+                    </div>
                 </div>
             )}
         </>

@@ -40,6 +40,10 @@ export const deleteProduct = async (productId, options = {}) => {
 };
 
 // ═══════════════════════════════════════════════════════════════
+// ⚠️ KATEGORİ HATALI ÜRÜNLER
+// ═══════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════
 // 🔄 SENKRONİZASYON & DAĞITIM
 // ═══════════════════════════════════════════════════════════════
 
@@ -511,4 +515,139 @@ export const executeImport = async (file, options = {}) => {
 export const exportProducts = async (params = {}) => {
     const res = await API.get(`${BASE}/export`, { params, responseType: "blob" });
     return res;
+};
+
+// ═══════════════════════════════════════════════════════════════
+// 🚀 DAĞITILMAMIŞ ÜRÜNLERİ DAĞIT
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Platformlarda eksik olan ürünleri otomatik dağıt
+ * @param {Object} options - { targetMarketplaces: [String], onlyFullyUndistributed: Boolean }
+ */
+export const distributeUndistributed = async (options = {}) => {
+    const res = await API.post(`${BASE}/sync/distribute-undistributed`, options);
+    return res.data;
+};
+
+// ═══════════════════════════════════════════════════════════════
+// 🔧 ÜRÜN EŞLEŞTİRME ÖNCELİK AYARLARI
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Kullanıcının ürün eşleştirme öncelik sırasını getir
+ */
+export const getProductMatchPriority = async () => {
+    const res = await API.get("/user/product-match-priority");
+    return res.data;
+};
+
+/**
+ * Kullanıcının ürün eşleştirme öncelik sırasını güncelle
+ * @param {Object} priority - { primary, secondary, tertiary }
+ */
+export const updateProductMatchPriority = async (priority) => {
+    const res = await API.put("/user/product-match-priority", priority);
+    return res.data;
+};
+
+// ═══════════════════════════════════════════════════════════════
+// ⚙️ KULLANICI TERCİHLERİ (PREFERENCES)
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Tüm kullanıcı tercihlerini getir
+ */
+export const getUserPreferences = async () => {
+    const res = await API.get("/user/preferences");
+    return res.data;
+};
+
+/**
+ * Kullanıcı tercihlerini güncelle (kısmi güncelleme)
+ * @param {Object} updates - Güncellenecek alanlar
+ */
+export const updateUserPreferences = async (updates) => {
+    const res = await API.put("/user/preferences", updates);
+    return res.data;
+};
+
+// ═══════════════════════════════════════════════════════════════
+// 🔐 OTURUM YÖNETİMİ
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Aktif oturumları ve giriş geçmişini getir
+ */
+export const getActiveSessions = async () => {
+    const res = await API.get("/user/sessions");
+    return res.data;
+};
+
+/**
+ * Belirli bir oturumu sonlandır
+ * @param {String} sessionId
+ */
+export const revokeSession = async (sessionId) => {
+    const res = await API.delete(`/user/sessions/${sessionId}`);
+    return res.data;
+};
+
+/**
+ * Tüm oturumları sonlandır
+ */
+export const revokeAllSessions = async () => {
+    const res = await API.delete("/user/sessions");
+    return res.data;
+};
+
+// ═══════════════════════════════════════════════════════════════
+// 🔑 API ANAHTARI YÖNETİMİ
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Yeni API anahtarı oluştur
+ * @param {String} name - Anahtar adı
+ */
+export const generateApiKey = async (name) => {
+    const res = await API.post("/user/api-key", { name });
+    return res.data;
+};
+
+/**
+ * API anahtarını iptal et
+ * @param {String} keyId
+ */
+export const revokeApiKey = async (keyId) => {
+    const res = await API.delete(`/user/api-key/${keyId}`);
+    return res.data;
+};
+
+// ═══════════════════════════════════════════════════════════════
+// 📄 OTOMATİK FATURA AYARLARI
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Otomatik fatura ayarlarını getir
+ */
+export const getAutoInvoiceConfig = async () => {
+    const res = await API.get("/auto-invoice/config");
+    return res.data;
+};
+
+/**
+ * Otomatik fatura ayarlarını güncelle
+ * @param {Object} config
+ */
+export const updateAutoInvoiceConfig = async (config) => {
+    const res = await API.put("/auto-invoice/config", config);
+    return res.data;
+};
+
+/**
+ * Otomatik faturayı aç/kapa
+ */
+export const toggleAutoInvoice = async () => {
+    const res = await API.post("/auto-invoice/toggle");
+    return res.data;
 };

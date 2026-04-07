@@ -23,7 +23,11 @@ const { decryptCredentials } = require("../utils/encryption");
 // İşlenen sipariş ID'lerini takip et (restart'a kadar — in-memory cache)
 // ⚠️ Her sipariş+ürün kombinasyonu ayrı key olarak tutulur
 // Böylece aynı siparişteki farklı ürünler de doğru işlenir
-const processedOrders = new Set();
+// ✅ FIX #7: Map kullanarak timestamp bazlı LRU temizleme
+const processedOrders = new Map(); // key → timestamp
+
+// ✅ FIX #2: Cron re-entrancy lock — aynı anda iki runStockSync çalışmasını engelle
+let _cronRunning = false;
 
 /**
  * DB-level tekrar işleme koruması — server restart sonrası bile çalışır
@@ -111,13 +115,13 @@ const checkTrendyolOrders = async (userId, credentials) => {
 
                 // Ne yeni sipariş ne iptal → stok değişikliği yok, atla
                 if (!isCancelled && !isNewOrder) {
-                    processedOrders.add(orderItemKey);
+                    processedOrders.set(orderItemKey, Date.now());
                     continue;
                 }
 
                 // ✅ DB-level tekrar işleme koruması (server restart sonrası bile çalışır)
                 if (await isOrderAlreadyProcessed(userId, order.orderNumber, barcode, "Trendyol")) {
-                    processedOrders.add(orderItemKey);
+                    processedOrders.set(orderItemKey, Date.now());
                     continue;
                 }
 
@@ -133,14 +137,14 @@ const checkTrendyolOrders = async (userId, credentials) => {
 
                 if (!stockResult.success) {
                     logger.warn(`[STOCK CRON] Trendyol stok ${isCancelled ? "serbest bırakma" : "rezerve"} başarısız: ${barcode} — ${stockResult.error}`);
-                    processedOrders.add(orderItemKey);
+                    processedOrders.set(orderItemKey, Date.now());
                     continue;
                 }
 
                 const { mapping, oldStock, newStock, marketplaceStock } = stockResult;
 
                 if (oldStock === newStock) {
-                    processedOrders.add(orderItemKey);
+                    processedOrders.set(orderItemKey, Date.now());
                     continue;
                 }
 
@@ -190,7 +194,7 @@ const checkTrendyolOrders = async (userId, credentials) => {
                 });
 
                 logger.info(`[STOCK CRON] Trendyol ${isCancelled ? "İPTAL +": "SİPARİŞ -"}${quantity} | ${mapping.masterProduct.name} | ${oldStock} → ${newStock}`);
-                processedOrders.add(orderItemKey);
+                processedOrders.set(orderItemKey, Date.now());
             }
         }
     } catch (error) {
@@ -213,10 +217,15 @@ const checkN11Orders = async (userId, credentials) => {
         const { apiKey, secretKey } = credentials;
         if (!apiKey || !secretKey) return results;
 
+        // ✅ FIX #6: N11 siparişlerinde zaman filtresi eklendi
+        // ESKİ: Tüm açık siparişler çekiliyordu → performans sorunu
+        // YENİ: Son 2 saatteki siparişler filtreleniyor
         const result = await n11Service.getOrders(credentials, {
             status: "New,Approved",
             page: 0,
-            size: 50
+            size: 50,
+            orderDateStart: moment().subtract(2, "hours").format("DD/MM/YYYY HH:mm"),
+            orderDateEnd: moment().format("DD/MM/YYYY HH:mm")
         });
 
         const orders = result.orders || [];
@@ -240,13 +249,13 @@ const checkN11Orders = async (userId, credentials) => {
 
                 // Ne yeni sipariş ne iptal → stok değişikliği yok, atla
                 if (!isCancelled && !isNewOrder) {
-                    processedOrders.add(orderItemKey);
+                    processedOrders.set(orderItemKey, Date.now());
                     continue;
                 }
 
                 // ✅ DB-level tekrar işleme koruması (server restart sonrası bile çalışır)
                 if (await isOrderAlreadyProcessed(userId, String(order.id || order.orderNumber), barcode, "N11")) {
-                    processedOrders.add(orderItemKey);
+                    processedOrders.set(orderItemKey, Date.now());
                     continue;
                 }
 
@@ -262,14 +271,14 @@ const checkN11Orders = async (userId, credentials) => {
 
                 if (!stockResult.success) {
                     logger.warn(`[STOCK CRON] N11 stok ${isCancelled ? "serbest bırakma" : "rezerve"} başarısız: ${barcode} — ${stockResult.error}`);
-                    processedOrders.add(orderItemKey);
+                    processedOrders.set(orderItemKey, Date.now());
                     continue;
                 }
 
                 const { mapping, oldStock, newStock, marketplaceStock } = stockResult;
 
                 if (oldStock === newStock) {
-                    processedOrders.add(orderItemKey);
+                    processedOrders.set(orderItemKey, Date.now());
                     continue;
                 }
 
@@ -317,7 +326,7 @@ const checkN11Orders = async (userId, credentials) => {
                 });
 
                 logger.info(`[STOCK CRON] N11 ${isCancelled ? "İPTAL +" : "SİPARİŞ -"}${quantity} | ${mapping.masterProduct.name} | ${oldStock} → ${newStock}`);
-                processedOrders.add(orderItemKey);
+                processedOrders.set(orderItemKey, Date.now());
             }
         }
     } catch (error) {
@@ -337,13 +346,24 @@ const checkHepsiburadaOrders = async (userId, credentials) => {
     const results = [];
 
     try {
-        const { merchantId, apiKey } = credentials;
-        if (!merchantId || !apiKey) return results;
+        const { merchantId, apiKey, username, password } = credentials;
+        if (!merchantId) return results;
 
-        const authHeader = `Basic ${Buffer.from(`${merchantId}:${apiKey}`).toString("base64")}`;
+        // ✅ FIX #4: Hepsiburada Auth tutarlılığı — stockSyncService ile aynı mantık
+        // ESKİ: Sadece merchantId:apiKey kullanılıyordu
+        // YENİ: username/password varsa onları, yoksa merchantId/apiKey kullan
+        const authUser = username || merchantId;
+        const authPass = password || apiKey;
+        if (!authUser || !authPass) return results;
+        const authHeader = `Basic ${Buffer.from(`${authUser}:${authPass}`).toString("base64")}`;
 
+        // ✅ FIX #6: Hepsiburada siparişlerinde zaman filtresi eklendi
+        // ESKİ: Tüm paketler çekiliyordu → performans sorunu
+        // YENİ: Son 2 saatteki paketler filtreleniyor
+        const hbStartDate = moment().subtract(2, "hours").toISOString();
+        const hbEndDate = moment().toISOString();
         const response = await axios.get(
-            `https://oms-external.hepsiburada.com/packages/merchantid/${merchantId}?limit=50&offset=0`,
+            `https://oms-external.hepsiburada.com/packages/merchantid/${merchantId}?limit=50&offset=0&startDate=${encodeURIComponent(hbStartDate)}&endDate=${encodeURIComponent(hbEndDate)}`,
             {
                 headers: {
                     Authorization: authHeader,
@@ -377,13 +397,13 @@ const checkHepsiburadaOrders = async (userId, credentials) => {
 
                 // Ne yeni sipariş ne iptal → stok değişikliği yok, atla
                 if (!isCancelled && !isNewOrder) {
-                    processedOrders.add(orderItemKey);
+                    processedOrders.set(orderItemKey, Date.now());
                     continue;
                 }
 
                 // ✅ DB-level tekrar işleme koruması (server restart sonrası bile çalışır)
                 if (await isOrderAlreadyProcessed(userId, String(pkg.packageNumber || pkg.id), barcode, "Hepsiburada")) {
-                    processedOrders.add(orderItemKey);
+                    processedOrders.set(orderItemKey, Date.now());
                     continue;
                 }
 
@@ -399,14 +419,14 @@ const checkHepsiburadaOrders = async (userId, credentials) => {
 
                 if (!stockResult.success) {
                     logger.warn(`[STOCK CRON] Hepsiburada stok ${isCancelled ? "serbest bırakma" : "rezerve"} başarısız: ${barcode} — ${stockResult.error}`);
-                    processedOrders.add(orderItemKey);
+                    processedOrders.set(orderItemKey, Date.now());
                     continue;
                 }
 
                 const { mapping, oldStock, newStock, marketplaceStock } = stockResult;
 
                 if (oldStock === newStock) {
-                    processedOrders.add(orderItemKey);
+                    processedOrders.set(orderItemKey, Date.now());
                     continue;
                 }
 
@@ -446,7 +466,7 @@ const checkHepsiburadaOrders = async (userId, credentials) => {
 
                 results.push({ barcode, marketplace: "Hepsiburada", action: isCancelled ? "cancel_restore" : "order_deduct", oldStock, newStock, quantity });
                 logger.info(`[STOCK CRON] Hepsiburada ${isCancelled ? "İPTAL +" : "SİPARİŞ -"}${quantity} | ${mapping.masterProduct.name} | ${oldStock} → ${newStock}`);
-                processedOrders.add(orderItemKey);
+                processedOrders.set(orderItemKey, Date.now());
             }
         }
     } catch (error) {
@@ -532,13 +552,13 @@ const checkCicekSepetiOrders = async (userId, credentials) => {
 
             // Ne yeni sipariş ne iptal → stok değişikliği yok, atla
             if (!isCancelled && !isNewOrder) {
-                processedOrders.add(orderItemKey);
+                processedOrders.set(orderItemKey, Date.now());
                 continue;
             }
 
             // ✅ DB-level tekrar işleme koruması (server restart sonrası bile çalışır)
             if (await isOrderAlreadyProcessed(userId, String(orderId), barcode, "ÇiçekSepeti")) {
-                processedOrders.add(orderItemKey);
+                processedOrders.set(orderItemKey, Date.now());
                 continue;
             }
 
@@ -554,14 +574,14 @@ const checkCicekSepetiOrders = async (userId, credentials) => {
 
             if (!stockResult.success) {
                 logger.warn(`[STOCK CRON] ÇiçekSepeti stok ${isCancelled ? "serbest bırakma" : "rezerve"} başarısız: ${barcode} — ${stockResult.error}`);
-                processedOrders.add(orderItemKey);
+                processedOrders.set(orderItemKey, Date.now());
                 continue;
             }
 
             const { mapping, oldStock, newStock, marketplaceStock } = stockResult;
 
             if (oldStock === newStock) {
-                processedOrders.add(orderItemKey);
+                processedOrders.set(orderItemKey, Date.now());
                 continue;
             }
 
@@ -611,7 +631,7 @@ const checkCicekSepetiOrders = async (userId, credentials) => {
             });
 
             logger.info(`[STOCK CRON] ÇiçekSepeti ${isCancelled ? "İPTAL +" : "SİPARİŞ -"}${quantity} | ${mapping.masterProduct.name} | ${oldStock} → ${newStock}`);
-            processedOrders.add(orderItemKey);
+            processedOrders.set(orderItemKey, Date.now());
         }
     } catch (error) {
         if (error.response?.status !== 401) {
@@ -693,7 +713,7 @@ const checkAmazonOrders = async (userId, credentials) => {
 
                 // ✅ DB-level tekrar işleme koruması (server restart sonrası bile çalışır)
                 if (await isOrderAlreadyProcessed(userId, orderId, barcode, "Amazon")) {
-                    processedOrders.add(orderItemKey);
+                    processedOrders.set(orderItemKey, Date.now());
                     continue;
                 }
 
@@ -709,14 +729,14 @@ const checkAmazonOrders = async (userId, credentials) => {
 
                 if (!stockResult.success) {
                     logger.warn(`[STOCK CRON] Amazon stok ${isCancelled ? "serbest bırakma" : "rezerve"} başarısız: ${barcode} — ${stockResult.error}`);
-                    processedOrders.add(orderItemKey);
+                    processedOrders.set(orderItemKey, Date.now());
                     continue;
                 }
 
                 const { mapping, oldStock, newStock, marketplaceStock } = stockResult;
 
                 if (oldStock === newStock) {
-                    processedOrders.add(orderItemKey);
+                    processedOrders.set(orderItemKey, Date.now());
                     continue;
                 }
 
@@ -765,7 +785,7 @@ const checkAmazonOrders = async (userId, credentials) => {
                 });
 
                 logger.info(`[STOCK CRON] Amazon ${isCancelled ? "İPTAL +" : "SİPARİŞ -"}${quantity} | ${mapping.masterProduct.name} | ${oldStock} → ${newStock}`);
-                processedOrders.add(orderItemKey);
+                processedOrders.set(orderItemKey, Date.now());
             }
         }
     } catch (error) {
@@ -903,6 +923,16 @@ const pushMasterStockToMarketplaces = async () => {
  * ADIM 2: Stok eşitleme — master stoku tüm pazaryerlerine push et
  */
 const runStockSync = async () => {
+    // ✅ FIX #2: Re-entrancy lock — önceki döngü bitmeden yeni döngü başlamaz
+    // SORUN: runStockSync 5 dakikadan uzun sürerse, setInterval yeni bir çağrı başlatır
+    //   → Aynı siparişler paralel işlenir → race condition riski
+    // ÇÖZÜM: _cronRunning flag'i ile sadece 1 instance çalışır
+    if (_cronRunning) {
+        logger.warn("[STOCK CRON] ⚠️ Önceki döngü hâlâ çalışıyor — bu döngü atlanıyor");
+        return;
+    }
+    _cronRunning = true;
+
     try {
         // ═══════════════════════════════════════════════════════
         // ADIM 1: SİPARİŞ KONTROLÜ (mevcut mantık)
@@ -976,15 +1006,36 @@ const runStockSync = async () => {
             logger.error(`[STOCK CRON] Trendyol bekleyen silme hatası: ${pdErr.message}`);
         }
 
-        // Bellek temizliği — 10000'den fazla işlenmiş sipariş varsa eski olanları sil
+        // ✅ FIX #7: Timestamp bazlı LRU bellek temizliği
+        // ESKİ: Set kullanılıyordu → hangi kayıtların eski olduğu bilinmiyordu
+        //   10K'da rastgele 5K siliniyordu → eski siparişler tekrar kontrol ediliyordu
+        // YENİ: Map(key→timestamp) ile 1 saatten eski kayıtlar temizlenir
         if (processedOrders.size > 10000) {
-            const arr = [...processedOrders];
-            processedOrders.clear();
-            arr.slice(-5000).forEach(id => processedOrders.add(id));
+            const oneHourAgo = Date.now() - (60 * 60 * 1000);
+            let cleaned = 0;
+            for (const [key, ts] of processedOrders) {
+                if (ts < oneHourAgo) {
+                    processedOrders.delete(key);
+                    cleaned++;
+                }
+            }
+            // Hâlâ çok fazlaysa en eski yarısını sil
+            if (processedOrders.size > 10000) {
+                const entries = [...processedOrders.entries()].sort((a, b) => a[1] - b[1]);
+                const toRemove = entries.slice(0, Math.floor(entries.length / 2));
+                toRemove.forEach(([key]) => processedOrders.delete(key));
+                cleaned += toRemove.length;
+            }
+            if (cleaned > 0) {
+                logger.info(`[STOCK CRON] 🧹 Bellek temizliği: ${cleaned} eski kayıt silindi, kalan: ${processedOrders.size}`);
+            }
         }
 
     } catch (error) {
         logger.error(`[STOCK CRON] Genel hata: ${error.message}`);
+    } finally {
+        // ✅ FIX #2: Lock'u her durumda serbest bırak (hata olsa bile)
+        _cronRunning = false;
     }
 };
 

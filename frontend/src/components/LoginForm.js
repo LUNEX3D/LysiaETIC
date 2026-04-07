@@ -13,6 +13,7 @@ import {
     FaKey
 } from "react-icons/fa";
 import "../styles/login.css";
+import { useApp } from "../context/AppContext";
 
 // ✅ FIX E6: Shared auth components
 import AuthNavbar from "./auth/AuthNavbar";
@@ -30,6 +31,7 @@ const GOOGLE_CLIENT_ID = process.env.REACT_APP_GOOGLE_CLIENT_ID || "";
    LOGIN FORM INNER
    ═══════════════════════════════════════════════════════════════════════════ */
 const LoginFormInner = () => {
+    const { t } = useApp();
     const [formData, setFormData] = useState({ email: "", password: "" });
     const [message, setMessage] = useState({ text: "", type: "" });
     const [isLoading, setIsLoading] = useState(false);
@@ -73,7 +75,7 @@ const LoginFormInner = () => {
             const userResponse = await axios.get("/auth/profile");
 
             if (!userResponse.data._id) {
-                setMessage({ text: "Kullanıcı bilgileri yüklenemedi.", type: "error" });
+                setMessage({ text: t("auth.userLoadFailed"), type: "error" });
                 return;
             }
 
@@ -97,7 +99,7 @@ const LoginFormInner = () => {
             localStorage.setItem("userName", userResponse.data.name || "Bilinmiyor");
             localStorage.setItem("userRole", userResponse.data.role || "user");
 
-            setMessage({ text: "Giriş başarılı! Yönlendiriliyorsunuz...", type: "success" });
+            setMessage({ text: t("auth.loginSuccess"), type: "success" });
 
             setTimeout(() => {
                 if (userResponse.data.role === "admin") {
@@ -139,7 +141,7 @@ const LoginFormInner = () => {
             localStorage.setItem("userName", user.name || "Bilinmiyor");
             localStorage.setItem("userRole", user.role || "user");
 
-            setMessage({ text: "Google ile giriş başarılı!", type: "success" });
+            setMessage({ text: t("auth.googleLoginSuccess"), type: "success" });
 
             setTimeout(() => {
                 if (user.role === "admin") {
@@ -172,7 +174,7 @@ const LoginFormInner = () => {
 
         try {
             await axios.post("/auth/forgot-password", { email: forgotEmail });
-            setMessage({ text: "Şifre sıfırlama kodu e-posta adresinize gönderildi.", type: "success" });
+            setMessage({ text: t("auth.resetCodeSent"), type: "success" });
             setForgotMode("code");
         } catch (error) {
             setMessage({
@@ -192,7 +194,7 @@ const LoginFormInner = () => {
 
         try {
             await axios.post("/auth/verify-reset-code", { email: forgotEmail, code: resetCode });
-            setMessage({ text: "Kod doğrulandı! Yeni şifrenizi belirleyin.", type: "success" });
+            setMessage({ text: t("auth.codeVerified"), type: "success" });
             setForgotMode("reset");
         } catch (error) {
             setMessage({
@@ -211,13 +213,13 @@ const LoginFormInner = () => {
         setMessage({ text: "", type: "" });
 
         if (newPassword !== newPasswordConfirm) {
-            setMessage({ text: "Şifreler eşleşmiyor!", type: "error" });
+            setMessage({ text: t("auth.passwordMismatch"), type: "error" });
             setIsLoading(false);
             return;
         }
 
         if (newPassword.length < 6) {
-            setMessage({ text: "Şifre en az 6 karakter olmalıdır!", type: "error" });
+            setMessage({ text: t("auth.passwordTooShort"), type: "error" });
             setIsLoading(false);
             return;
         }
@@ -228,7 +230,7 @@ const LoginFormInner = () => {
                 code: resetCode,
                 newPassword
             });
-            setMessage({ text: "Şifreniz başarıyla değiştirildi! Giriş yapabilirsiniz.", type: "success" });
+            setMessage({ text: t("auth.passwordChanged"), type: "success" });
             setTimeout(() => {
                 setForgotMode(false);
                 setForgotEmail("");
@@ -262,22 +264,22 @@ const LoginFormInner = () => {
             return (
                 <div className="auth-form-card auth-fade-in">
                     <div className="auth-form-header">
-                        <h2>Şifremi Unuttum</h2>
-                        <p>Kayıtlı e-posta adresinizi girin, size bir sıfırlama kodu göndereceğiz.</p>
+                        <h2>{t("auth.forgotTitle")}</h2>
+                        <p>{t("auth.forgotDesc")}</p>
                     </div>
                     <form onSubmit={handleForgotSubmit} className="auth-form">
                         <div className="auth-field">
                             <div className="auth-input-wrap">
                                 <FaEnvelope className="auth-input-icon" />
-                                <input className="auth-input" type="email" placeholder="E-posta adresiniz" value={forgotEmail} onChange={(e) => setForgotEmail(e.target.value)} required autoComplete="email" disabled={isLoading} />
+                                <input className="auth-input" type="email" placeholder={t("auth.emailPlaceholder")} value={forgotEmail} onChange={(e) => setForgotEmail(e.target.value)} required autoComplete="email" disabled={isLoading} />
                             </div>
                         </div>
                         {message.text && <div className={`auth-message auth-message--${message.type}`}>{message.text}</div>}
                         <button type="submit" className="auth-submit" disabled={isLoading}>
-                            {isLoading ? <div className="auth-spinner" /> : <>Kod Gönder <FaArrowRight className="auth-arrow" /></>}
+                            {isLoading ? <div className="auth-spinner" /> : <>{t("auth.sendCode")} <FaArrowRight className="auth-arrow" /></>}
                         </button>
                     </form>
-                    <button className="auth-back-btn" onClick={exitForgotMode} type="button"><FaArrowLeft /> Giriş ekranına dön</button>
+                    <button className="auth-back-btn" onClick={exitForgotMode} type="button"><FaArrowLeft /> {t("auth.backToLogin")}</button>
                 </div>
             );
         }
@@ -285,8 +287,8 @@ const LoginFormInner = () => {
             return (
                 <div className="auth-form-card auth-fade-in">
                     <div className="auth-form-header">
-                        <h2>Doğrulama Kodu</h2>
-                        <p>E-postanıza gönderilen 6 haneli kodu girin.</p>
+                        <h2>{t("auth.verifyTitle")}</h2>
+                        <p>{t("auth.verifyDesc")}</p>
                     </div>
                     <form onSubmit={handleCodeSubmit} className="auth-form">
                         <div className="auth-field">
@@ -297,10 +299,10 @@ const LoginFormInner = () => {
                         </div>
                         {message.text && <div className={`auth-message auth-message--${message.type}`}>{message.text}</div>}
                         <button type="submit" className="auth-submit" disabled={isLoading || resetCode.length !== 6}>
-                            {isLoading ? <div className="auth-spinner" /> : <>Kodu Doğrula <FaArrowRight className="auth-arrow" /></>}
+                            {isLoading ? <div className="auth-spinner" /> : <>{t("auth.verifyCode")} <FaArrowRight className="auth-arrow" /></>}
                         </button>
                     </form>
-                    <button className="auth-back-btn" onClick={() => { setForgotMode("email"); setMessage({ text: "", type: "" }); }} type="button"><FaArrowLeft /> Geri dön</button>
+                    <button className="auth-back-btn" onClick={() => { setForgotMode("email"); setMessage({ text: "", type: "" }); }} type="button"><FaArrowLeft /> {t("auth.goBack")}</button>
                 </div>
             );
         }
@@ -308,29 +310,29 @@ const LoginFormInner = () => {
             return (
                 <div className="auth-form-card auth-fade-in">
                     <div className="auth-form-header">
-                        <h2>Yeni Şifre</h2>
-                        <p>Yeni şifrenizi belirleyin.</p>
+                        <h2>{t("auth.newPasswordTitle")}</h2>
+                        <p>{t("auth.newPasswordDesc")}</p>
                     </div>
                     <form onSubmit={handleResetSubmit} className="auth-form">
                         <div className="auth-field">
                             <div className="auth-input-wrap">
                                 <FaLock className="auth-input-icon" />
-                                <input className="auth-input" type={showNewPassword ? "text" : "password"} placeholder="Yeni şifre (min. 6 karakter)" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required minLength={6} disabled={isLoading} />
+                                <input className="auth-input" type={showNewPassword ? "text" : "password"} placeholder={t("auth.newPasswordPlaceholder")} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} required minLength={6} disabled={isLoading} />
                                 <button type="button" className="auth-eye-btn" onClick={() => setShowNewPassword(!showNewPassword)} tabIndex={-1}>{showNewPassword ? <FaEyeSlash /> : <FaEye />}</button>
                             </div>
                         </div>
                         <div className="auth-field">
                             <div className="auth-input-wrap">
                                 <FaLock className="auth-input-icon" />
-                                <input className="auth-input" type={showNewPassword ? "text" : "password"} placeholder="Şifrenizi tekrar girin" value={newPasswordConfirm} onChange={(e) => setNewPasswordConfirm(e.target.value)} required minLength={6} disabled={isLoading} />
+                                <input className="auth-input" type={showNewPassword ? "text" : "password"} placeholder={t("auth.confirmNewPlaceholder")} value={newPasswordConfirm} onChange={(e) => setNewPasswordConfirm(e.target.value)} required minLength={6} disabled={isLoading} />
                             </div>
                         </div>
                         {message.text && <div className={`auth-message auth-message--${message.type}`}>{message.text}</div>}
                         <button type="submit" className="auth-submit" disabled={isLoading}>
-                            {isLoading ? <div className="auth-spinner" /> : <>Şifreyi Değiştir <FaArrowRight className="auth-arrow" /></>}
+                            {isLoading ? <div className="auth-spinner" /> : <>{t("auth.changePassword")} <FaArrowRight className="auth-arrow" /></>}
                         </button>
                     </form>
-                    <button className="auth-back-btn" onClick={exitForgotMode} type="button"><FaArrowLeft /> Giriş ekranına dön</button>
+                    <button className="auth-back-btn" onClick={exitForgotMode} type="button"><FaArrowLeft /> {t("auth.backToLogin")}</button>
                 </div>
             );
         }
@@ -341,8 +343,8 @@ const LoginFormInner = () => {
     const renderLoginForm = () => (
         <div className="auth-form-card auth-fade-in">
             <div className="auth-form-header">
-                <h2>Giriş Yap</h2>
-                <p>Lunexetic hesabınıza hoş geldiniz.</p>
+                <h2>{t("auth.loginTitle")}</h2>
+                <p>{t("auth.loginSubtitle")}</p>
             </div>
 
             <form onSubmit={handleSubmit} className="auth-form">
@@ -350,7 +352,7 @@ const LoginFormInner = () => {
                 <div className="auth-field">
                     <div className="auth-input-wrap">
                         <FaEnvelope className="auth-input-icon" />
-                        <input className="auth-input" type="email" name="email" placeholder="E-posta adresiniz" value={formData.email} onChange={handleChange} required autoComplete="email" disabled={isLoading} />
+                        <input className="auth-input" type="email" name="email" placeholder={t("auth.emailPlaceholder")} value={formData.email} onChange={handleChange} required autoComplete="email" disabled={isLoading} />
                     </div>
                 </div>
 
@@ -358,7 +360,7 @@ const LoginFormInner = () => {
                 <div className="auth-field">
                     <div className="auth-input-wrap">
                         <FaLock className="auth-input-icon" />
-                        <input className="auth-input" type={showPassword ? "text" : "password"} name="password" placeholder="Şifreniz" value={formData.password} onChange={handleChange} required autoComplete="current-password" disabled={isLoading} />
+                        <input className="auth-input" type={showPassword ? "text" : "password"} name="password" placeholder={t("auth.passwordPlaceholder")} value={formData.password} onChange={handleChange} required autoComplete="current-password" disabled={isLoading} />
                         <button type="button" className="auth-eye-btn" onClick={() => setShowPassword(!showPassword)} tabIndex={-1}>
                             {showPassword ? <FaEyeSlash /> : <FaEye />}
                         </button>
@@ -369,10 +371,10 @@ const LoginFormInner = () => {
                 <div className="auth-options-row">
                     <label className="auth-remember" onClick={() => setRememberMe(!rememberMe)}>
                         <div className={`auth-checkbox ${rememberMe ? "checked" : ""}`}><FaCheck /></div>
-                        <span className="auth-remember-text">Beni hatırla</span>
+                        <span className="auth-remember-text">{t("auth.rememberMe")}</span>
                     </label>
                     <button type="button" className="auth-forgot" onClick={() => { setForgotMode("email"); setMessage({ text: "", type: "" }); }}>
-                        Şifremi unuttum?
+                        {t("auth.forgotPassword")}
                     </button>
                 </div>
 
@@ -385,12 +387,12 @@ const LoginFormInner = () => {
                                 setResendLoading(true);
                                 try {
                                     await axios.post("/auth/resend-verification", { email: formData.email });
-                                    setMessage({ text: "Doğrulama e-postası yeniden gönderildi!", type: "success" });
+                                    setMessage({ text: t("auth.verificationResent"), type: "success" });
                                     setNeedsVerification(false);
-                                } catch { setMessage({ text: "E-posta gönderilemedi.", type: "error" }); }
+                                } catch { setMessage({ text: t("common.error"), type: "error" }); }
                                 finally { setResendLoading(false); }
                             }}>
-                                {resendLoading ? "Gönderiliyor..." : "Doğrulama e-postasını yeniden gönder"}
+                                {resendLoading ? t("auth.resending") : t("auth.resendVerification")}
                             </button>
                         )}
                     </div>
@@ -398,28 +400,28 @@ const LoginFormInner = () => {
 
                 {/* Submit */}
                 <button type="submit" className="auth-submit" disabled={isLoading}>
-                    {isLoading ? <div className="auth-spinner" /> : <>Giriş Yap <FaArrowRight className="auth-arrow" /></>}
+                    {isLoading ? <div className="auth-spinner" /> : <>{t("auth.loginBtn")} <FaArrowRight className="auth-arrow" /></>}
                 </button>
             </form>
 
             {/* Divider */}
             <div className="auth-divider">
                 <div className="auth-divider-line" />
-                <span className="auth-divider-text">veya</span>
+                <span className="auth-divider-text">{t("auth.orDivider")}</span>
                 <div className="auth-divider-line" />
             </div>
 
             {/* Google Button — full width (görseldeki gibi) */}
             <button className="auth-google-btn" type="button" onClick={() => googleLogin()} disabled={isLoading}>
                 <GoogleIcon />
-                Google ile devam et
+                {t("auth.googleContinue")}
             </button>
 
             {/* Switch */}
             <div className="auth-switch">
-                Hesabınız yok mu?
+                {t("auth.noAccount")}
                 <button type="button" className="auth-switch-link" onClick={() => navigate("/register")}>
-                    Kayıt olun <span className="auth-switch-arrow">→</span>
+                    {t("auth.registerLink")} <span className="auth-switch-arrow">→</span>
                 </button>
             </div>
         </div>
@@ -441,11 +443,11 @@ const LoginFormInner = () => {
                 {/* Sol — Hero + Mockup */}
                 <div className="auth-hero auth-fade-in">
                     <h1 className="auth-hero-title">
-                        İşinizi tek panelden<br />yönetin, <em>büyütün.</em>
+                        {t("auth.heroTitle1")}<br />{t("auth.heroTitle2")} <em>{t("auth.heroTitle3")}</em>
                     </h1>
                     <p className="auth-hero-desc">
-                        Pazaryeri entegrasyonu, stok, sipariş ve daha fazlası.<br />
-                        Lunexetic ile e-ticarette bir adım önde olun.
+                        {t("auth.heroDesc1")}<br />
+                        {t("auth.heroDesc2")}
                     </p>
                     <DashboardMockup />
 

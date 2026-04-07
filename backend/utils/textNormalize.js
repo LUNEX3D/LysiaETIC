@@ -2,7 +2,11 @@
  * TÜRKÇE METİN NORMALİZASYON YARDIMCILARI
  *
  * Tüm kategori eşleştirme servisleri bu modülü kullanır.
- * Tekrar eden normalize() fonksiyonları kaldırıldı — tek kaynak.
+ * Tekrar eden normalize() / normalizeKey() fonksiyonları kaldırıldı — tek kaynak.
+ *
+ * v2.1 Değişiklikler:
+ *   - normalizeKey() buraya taşındı (unifiedCategoryImportService'den)
+ *   - extractMeaningfulWords() çift filtreleme düzeltildi (>2 → >=2)
  */
 
 /**
@@ -23,6 +27,16 @@ const normalize = (text) => {
 };
 
 /**
+ * DB normalizedKey alanı için kullanılan normalize fonksiyonu.
+ * normalize() ile birebir aynı çıktıyı üretir — duplicate kod yerine alias.
+ * Tek kaynak: Hem import (DB yazma) hem resolve (DB okuma) bu fonksiyonu kullanır.
+ *
+ * @param {string} name
+ * @returns {string}
+ */
+const normalizeKey = normalize;
+
+/**
  * Metni kelimelere ayır (min 2 karakter)
  * @param {string} text
  * @returns {string[]}
@@ -40,11 +54,14 @@ const STOPWORDS_TR = new Set([
 ]);
 
 /**
- * Anlamlı kelimeleri çıkar (stopword + kısa kelime filtresi)
+ * Anlamlı kelimeleri çıkar (stopword filtresi)
+ * Not: extractWords zaten length > 1 filtresi uygular.
+ *      Burada ek olarak sadece stopword filtresi yapılır.
+ *      Eski hali w.length > 2 idi — 2 karakterlik anlamlı kelimeler ("uv", "tv") kaybediliyordu.
  * @param {string} text
  * @returns {string[]}
  */
 const extractMeaningfulWords = (text) =>
-    extractWords(text).filter(w => !STOPWORDS_TR.has(w) && w.length > 2);
+    extractWords(text).filter(w => !STOPWORDS_TR.has(w));
 
-module.exports = { normalize, extractWords, extractMeaningfulWords, STOPWORDS_TR };
+module.exports = { normalize, normalizeKey, extractWords, extractMeaningfulWords, STOPWORDS_TR };

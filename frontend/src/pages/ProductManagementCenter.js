@@ -14,7 +14,7 @@ import ReactDOM from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
     FaBox, FaSearch, FaPlus, FaEdit, FaTrash, FaSync, FaRocket,
-    FaEye, FaFileExcel, FaCheck, FaTimes, FaChevronLeft, FaChevronRight,
+    FaEye, FaFileExcel, FaCheck, FaTimes, FaChevronLeft, FaChevronRight, FaChevronDown,
     FaTag, FaBarcode, FaDollarSign, FaWarehouse, FaStore, FaGlobe,
     FaBolt, FaClipboardList, FaImage, FaFolderOpen, FaMagic,
     FaArrowRight, FaArrowLeft, FaSave, FaCloudUploadAlt, FaShieldAlt,
@@ -27,9 +27,10 @@ import {
     syncStock, syncPrice, triggerAutoSync, getSyncLogs,
     getProductManagementDashboard, syncAllMarketplaces,
     bulkDistributeSelected, exportProducts,
-    getCategoryMappings, createAndDistribute,
+    getCategoryMappings, upsertCategoryMapping, createAndDistribute,
     suggestCodes, generateDescription, getCategoryTree,
     bulkUpdatePrices, bulkUpdateStocks, bulkDeleteProducts, bulkUpdateFields,
+    distributeUndistributed,
 } from "../services/productManagementApi";
 import { getUserMarketplaces } from "../services/marketplaceApi";
 import "../styles/ProductManagementCenter.css";
@@ -49,7 +50,8 @@ const fmtDate = (d) => { if (!d) return "—"; const dt = new Date(d); return is
 const fmtAgo = (d) => { if (!d) return "—"; const m = Math.floor((Date.now() - new Date(d).getTime()) / 60000); if (m < 1) return "Az önce"; if (m < 60) return `${m}dk`; const h = Math.floor(m / 60); if (h < 24) return `${h}sa`; return `${Math.floor(h / 24)}g`; };
 
 const normMP = (n) => { if (!n) return ""; const l = n.trim().toLowerCase(); if (l === "trendyol") return "trendyol"; if (l === "hepsiburada") return "hepsiburada"; if (l === "n11") return "n11"; if (l === "amazon" || l === "amazon türkiye") return "amazon"; if (l === "çiçeksepeti" || l === "ciceksepeti") return "ciceksepeti"; return l; };
-const getPlMap = (p, name) => (p.marketplaceMappings || []).find(m => normMP(m.marketplaceName) === normMP(name));
+// ⚠️ FIX: syncStatus: "error" = platformda yok/kaldırılmış — bu mapping'ler gösterilmez
+const getPlMap = (p, name) => (p.marketplaceMappings || []).find(m => normMP(m.marketplaceName) === normMP(name) && m.syncStatus !== "error");
 const getPlStatus = (p, name) => { const m = getPlMap(p, name); if (!m) return { exists: false }; return { exists: true, status: m.syncStatus || (m.isActive !== false ? "active" : "inactive"), price: m.price, stock: m.stock, lastSync: m.lastSyncDate }; };
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -104,9 +106,28 @@ const ProductManagementCenter = ({ userId }) => {
 
     // ── Delete Confirm Modal State ──
     const [deleteConfirm, setDeleteConfirm] = useState(null);       // { id, name, platforms: [] }
-    const [deleteFromMP, setDeleteFromMP] = useState(true);
     const [deleteLoading, setDeleteLoading] = useState(false);
     const [deleteResult, setDeleteResult] = useState(null);         // { success, msg, mpResults: [] }
+
+    // ── Category Tab State ──
+    const [catTab, setCatTab] = useState("browse"); // "browse" | "mapping" | "products"
+    const [catPlatformSel, setCatPlatformSel] = useState("Trendyol");
+    const [catTreeData, setCatTreeData] = useState({}); // { [nodeId]: { children, loaded } }
+    const [catExpanded, setCatExpanded] = useState(new Set());
+    const [catTreeLoading, setCatTreeLoading] = useState("");
+    const [catSearchQ, setCatSearchQ] = useState("");
+    const [catSearchResults, setCatSearchResults] = useState([]);
+    const [catSearchLoading, setCatSearchLoading] = useState(false);
+    const [catSelectedNode, setCatSelectedNode] = useState(null); // { id, name, path, platform }
+    const [masterCategories, setMasterCategories] = useState([]); // CategoryMapping docs
+    const [masterCatLoading, setMasterCatLoading] = useState(false);
+    const [masterCatForm, setMasterCatForm] = useState({ name: "", parent: "" });
+    const [masterCatExpanded, setMasterCatExpanded] = useState(new Set());
+    const [mappingTarget, setMappingTarget] = useState(null); // master cat being mapped
+    const [catProducts, setCatProducts] = useState([]); // products grouped by category
+    const [catProdExpanded, setCatProdExpanded] = useState(new Set());
+    const [catProdLoading, setCatProdLoading] = useState(false);
+    const catSearchTimer = useRef(null);
 
     // ── Upload State ──
     const [uploadStep, setUploadStep] = useState(1);
@@ -186,9 +207,8 @@ const ProductManagementCenter = ({ userId }) => {
     const askDelete = (id) => {
         const p = products.find(x => x._id === id) || detail;
         const mp = p?.masterProduct || {};
-        const mappings = (p?.marketplaceMappings || []).map(m => m.marketplaceName);
+        const mappings = (p?.marketplaceMappings || []).filter(m => m.syncStatus !== "error").map(m => m.marketplaceName);
         setDeleteConfirm({ id, name: mp.name || mp.barcode || "Ürün", platforms: mappings });
-        setDeleteFromMP(true);
         setDeleteResult(null);
     };
 
@@ -198,7 +218,7 @@ const ProductManagementCenter = ({ userId }) => {
         const { id } = deleteConfirm;
         setDeleteLoading(true); setDeleteResult(null);
         try {
-            const res = await deleteProduct(id, { deleteFromMarketplaces: deleteFromMP });
+            const res = await deleteProduct(id, { deleteFromMarketplaces: true });
             const mpResults = res.marketplaceResults || [];
             const mpSuccess = mpResults.filter(r => r.status === "success").length;
             const mpError = mpResults.filter(r => r.status === "error").length;
@@ -223,6 +243,17 @@ const ProductManagementCenter = ({ userId }) => {
     const handleSyncAll = async () => {
         setActionLoading("sync-all");
         try { await syncAllMarketplaces(); showToast("Tüm platformlar senkronize edildi"); loadProducts(0); loadDashboard(); } catch { showToast("Toplu sync hatası", "error"); }
+        finally { setActionLoading(""); }
+    };
+
+    const handleDistributeUndistributed = async () => {
+        setActionLoading("dist-undist");
+        try {
+            const r = await distributeUndistributed({});
+            const s = r.stats || {};
+            showToast(`${s.distributed || 0} ürün dağıtıldı${s.error > 0 ? `, ${s.error} hata` : ""}`);
+            loadProducts(0); loadDashboard();
+        } catch (e) { showToast(e.response?.data?.error || "Dağıtım hatası", "error"); }
         finally { setActionLoading(""); }
     };
 
@@ -286,7 +317,17 @@ const ProductManagementCenter = ({ userId }) => {
             showToast(r.message || "Ürün oluşturuldu!");
             setUf({ name: "", barcode: "", sku: "", description: "", price: "", listPrice: "", stock: "0", category: "", brand: "", imageUrls: [], targetMarketplaces: [] });
             setImgFiles([]); setCodeSugg(null); setCatLevels([]); setUploadStep(1); loadProducts(0); loadDashboard();
-        } catch (e) { showToast("Hata: " + (e.response?.data?.error || e.message), "error"); }
+        } catch (e) {
+            const errData = e.response?.data;
+            if (e.response?.status === 409 && errData?.type) {
+                // 🛡️ Duplike ürün hatası — kullanıcıya detaylı bilgi göster
+                const conflict = errData.conflicts?.[errData.type];
+                const conflictInfo = conflict ? ` → Mevcut: "${conflict.name}" (Model: ${conflict.sku || "-"}, Stok Kodu: ${conflict.barcode || "-"})` : "";
+                showToast(`⚠️ ${errData.error}${conflictInfo}`, "error");
+            } else {
+                showToast("Hata: " + (errData?.error || e.message), "error");
+            }
+        }
         finally { setUploadLoading(false); }
     };
 
@@ -321,7 +362,7 @@ const ProductManagementCenter = ({ userId }) => {
                     );
                 })}
             </div>
-            <div className="ud-pm-platform-count">{(product.marketplaceMappings || []).filter(m => m.marketplaceName).length} platform</div>
+            <div className="ud-pm-platform-count">{(product.marketplaceMappings || []).filter(m => m.marketplaceName && m.syncStatus !== "error").length} platform</div>
         </div>
     );
 
@@ -405,6 +446,10 @@ const ProductManagementCenter = ({ userId }) => {
                 </button>
                 <button className="ud-pm-btn sm accent" onClick={handleSyncAll} disabled={actionLoading === "sync-all"}>
                     {actionLoading === "sync-all" ? <span className="spinner" /> : <FaSync />} Çek
+                </button>
+                <button className="ud-pm-btn sm purple outline" onClick={handleDistributeUndistributed} disabled={actionLoading === "dist-undist"}
+                    title="Platformlarda eksik olan ürünleri otomatik dağıt">
+                    {actionLoading === "dist-undist" ? <span className="spinner" /> : <FaRocket />} Eksikleri Dağıt
                 </button>
             </div>
 
@@ -893,6 +938,564 @@ const ProductManagementCenter = ({ userId }) => {
     );
 
     /* ═══════════════════════════════════════════════════════════════
+       TAB: KATEGORİLER
+       ═══════════════════════════════════════════════════════════════ */
+
+    // ── Kategori Ağacı Yükle (lazy — tıklanınca alt kategorileri çeker) ──
+    const loadCatTreeNode = async (platform, parentId = "0") => {
+        const key = `${platform}::${parentId}`;
+        if (catTreeData[key]?.loaded) return;
+        setCatTreeLoading(key);
+        try {
+            const r = await getCategoryTree(platform, parentId);
+            setCatTreeData(prev => ({
+                ...prev,
+                [key]: { children: r.categories || [], loaded: true }
+            }));
+        } catch { showToast("Kategori yüklenemedi", "error"); }
+        finally { setCatTreeLoading(""); }
+    };
+
+    const toggleCatNode = (platform, nodeId, hasChildren) => {
+        const key = `${platform}::${nodeId}`;
+        setCatExpanded(prev => {
+            const n = new Set(prev);
+            if (n.has(key)) { n.delete(key); } else { n.add(key); if (hasChildren) loadCatTreeNode(platform, String(nodeId)); }
+            return n;
+        });
+    };
+
+    // ── Kategori Arama ──
+    const handleCatSearchChange = (q) => {
+        setCatSearchQ(q);
+        if (catSearchTimer.current) clearTimeout(catSearchTimer.current);
+        if (!q.trim()) { setCatSearchResults([]); return; }
+        catSearchTimer.current = setTimeout(async () => {
+            setCatSearchLoading(true);
+            try {
+                const r = await getCategoryTree(catPlatformSel, "0", q.trim());
+                setCatSearchResults(r.categories || []);
+            } catch { setCatSearchResults([]); }
+            finally { setCatSearchLoading(false); }
+        }, 500);
+    };
+
+    // ── Master Kategori CRUD ──
+    const loadMasterCategories = async () => {
+        setMasterCatLoading(true);
+        try {
+            const r = await getCategoryMappings();
+            setMasterCategories(r.categories || []);
+        } catch {}
+        finally { setMasterCatLoading(false); }
+    };
+
+    const handleCreateMasterCat = async () => {
+        if (!masterCatForm.name.trim()) return showToast("Kategori adı girin", "error");
+        try {
+            const path = masterCatForm.parent
+                ? [...(masterCategories.find(c => c._id === masterCatForm.parent)?.masterCategory?.path || []), masterCatForm.name.trim()]
+                : [masterCatForm.name.trim()];
+            await upsertCategoryMapping({
+                masterCategory: {
+                    name: masterCatForm.name.trim(),
+                    parentCategory: masterCatForm.parent || null,
+                    level: masterCatForm.parent ? 1 : 0,
+                    path
+                }
+            });
+            showToast("Kategori oluşturuldu");
+            setMasterCatForm({ name: "", parent: "" });
+            loadMasterCategories();
+        } catch (e) { showToast(e.response?.data?.error || "Hata", "error"); }
+    };
+
+    // ── PY Kategorisini Master'a Eşleştir ──
+    const handleMapCategory = async (masterCatId, platformName, catId, catName, catPath) => {
+        try {
+            const masterCat = masterCategories.find(c => c._id === masterCatId);
+            if (!masterCat) return showToast("Master kategori bulunamadı", "error");
+            await upsertCategoryMapping({
+                masterCategory: masterCat.masterCategory,
+                marketplaceCategories: [{
+                    marketplaceName: platformName,
+                    categoryId: String(catId),
+                    categoryName: catName,
+                    categoryPath: catPath ? catPath.split(" > ") : [catName]
+                }]
+            });
+            showToast(`${catName} → ${masterCat.masterCategory.name} eşleştirildi`);
+            loadMasterCategories();
+            setMappingTarget(null);
+            setCatSelectedNode(null);
+        } catch (e) { showToast(e.response?.data?.error || "Eşleştirme hatası", "error"); }
+    };
+
+    // ── Ürünleri Kategoriye Göre Grupla ──
+    const loadCatProducts = async () => {
+        setCatProdLoading(true);
+        try {
+            const r = await getProducts({ page: 0, limit: 9999 });
+            setCatProducts(r.products || []);
+        } catch {}
+        finally { setCatProdLoading(false); }
+    };
+
+    // Kategori tab açıldığında yükle
+    useEffect(() => {
+        if (tab === "categories") {
+            loadCatTreeNode(catPlatformSel, "0");
+            loadMasterCategories();
+        }
+    }, [tab]); // eslint-disable-line
+
+    useEffect(() => {
+        if (tab === "categories") {
+            setCatTreeData({});
+            setCatExpanded(new Set());
+            setCatSearchQ("");
+            setCatSearchResults([]);
+            loadCatTreeNode(catPlatformSel, "0");
+        }
+    }, [catPlatformSel]); // eslint-disable-line
+
+    useEffect(() => {
+        if (tab === "categories" && catTab === "products") loadCatProducts();
+    }, [catTab]); // eslint-disable-line
+
+    // ── Recursive Tree Renderer ──
+    const CatTreeNode = ({ platform, node, depth = 0 }) => {
+        const key = `${platform}::${node.id}`;
+        const isExpanded = catExpanded.has(key);
+        const isLoading = catTreeLoading === key;
+        const children = catTreeData[key]?.children || [];
+        const isSelected = catSelectedNode?.id === node.id && catSelectedNode?.platform === platform;
+
+        return (
+            <div>
+                <div
+                    className={`ud-pm-cat-tree-node ${isSelected ? "selected" : ""} ${node.isLeaf ? "leaf" : ""}`}
+                    style={{ paddingLeft: 12 + depth * 18 }}
+                    onClick={() => {
+                        if (node.hasChildren) toggleCatNode(platform, node.id, true);
+                        setCatSelectedNode({ id: node.id, name: node.name, path: node.path || node.name, platform });
+                    }}
+                >
+                    <span className="ud-pm-cat-tree-toggle" style={{ width: 18, display: "inline-flex", justifyContent: "center" }}>
+                        {node.hasChildren ? (isLoading ? <FaSpinner className="ud-pm-spin" style={{ fontSize: 9 }} /> : isExpanded ? <FaChevronDown style={{ fontSize: 8 }} /> : <FaChevronRight style={{ fontSize: 8 }} />) : <span style={{ width: 8 }} />}
+                    </span>
+                    <span className="ud-pm-cat-tree-icon" style={{ color: node.isLeaf ? "var(--ud-pm-green)" : "var(--ud-pm-yellow)", fontSize: 10 }}>
+                        {node.isLeaf ? <FaTag /> : <FaFolderOpen />}
+                    </span>
+                    <span className="ud-pm-cat-tree-name">{node.name}</span>
+                    {isSelected && mappingTarget && (
+                        <button className="ud-pm-btn sm green" style={{ marginLeft: "auto", padding: "2px 8px", fontSize: 9 }}
+                            onClick={e => { e.stopPropagation(); handleMapCategory(mappingTarget._id, platform, node.id, node.name, node.path); }}>
+                            <FaCheck /> Eşleştir
+                        </button>
+                    )}
+                </div>
+                {isExpanded && children.length > 0 && (
+                    <div className="ud-pm-cat-tree-children">
+                        {children.map(child => <CatTreeNode key={child.id} platform={platform} node={child} depth={depth + 1} />)}
+                    </div>
+                )}
+            </div>
+        );
+    };
+
+    const renderCategories = () => {
+        const catSubTabs = [
+            { id: "browse", icon: <FaFolderOpen />, label: "PY Kategorileri" },
+            { id: "mapping", icon: <FaSitemap />, label: "Eşleştirme Merkezi" },
+            { id: "products", icon: <FaBox />, label: "Ürün Kategorileri" },
+        ];
+
+        // Ürünleri kategoriye göre grupla
+        const groupedProducts = {};
+        for (const p of catProducts) {
+            const cat = p.masterProduct?.category || "Kategorisiz";
+            if (!groupedProducts[cat]) groupedProducts[cat] = [];
+            groupedProducts[cat].push(p);
+        }
+        const sortedCatKeys = Object.keys(groupedProducts).sort((a, b) => a === "Kategorisiz" ? 1 : b === "Kategorisiz" ? -1 : a.localeCompare(b, "tr"));
+
+        // Master kategorileri ağaç yapısına dönüştür
+        const rootMasterCats = masterCategories.filter(c => !c.masterCategory?.parentCategory);
+        const childMasterCats = (parentId) => masterCategories.filter(c => c.masterCategory?.parentCategory === parentId);
+
+        return (
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                {/* Alt Tab Bar */}
+                <div className="ud-pm-tabs" style={{ marginBottom: 0 }}>
+                    {catSubTabs.map(t => (
+                        <button key={t.id} className={`ud-pm-tab ${catTab === t.id ? "active" : ""}`} onClick={() => setCatTab(t.id)}>
+                            <span className="ud-pm-tab-icon">{t.icon}</span>
+                            <span>{t.label}</span>
+                        </button>
+                    ))}
+                </div>
+
+                {/* ── ALT TAB 1: PY Kategorileri (Açılır-Kapanır Ağaç) ── */}
+                {catTab === "browse" && (
+                    <div style={{ display: "flex", gap: 14 }}>
+                        {/* Sol: Ağaç */}
+                        <div className="ud-pm-card" style={{ flex: 2, minHeight: 400 }}>
+                            <div className="ud-pm-card-header">
+                                <span className="icon"><FaFolderOpen /></span>
+                                <div style={{ flex: 1 }}>
+                                    <div className="title">Pazaryeri Kategori Ağacı</div>
+                                    <div className="subtitle">Kategorileri açılır-kapanır şekilde gezin</div>
+                                </div>
+                            </div>
+
+                            {/* Platform Seçici */}
+                            <div style={{ display: "flex", gap: 4, marginBottom: 10 }}>
+                                {PLATFORMS.filter(p => p === "Trendyol" || p === "N11" || p === "ÇiçekSepeti").map(p => (
+                                    <button key={p} className={`ud-pm-tone-btn ${catPlatformSel === p ? "active" : ""}`}
+                                        style={catPlatformSel === p ? { borderColor: PL_COLOR[p], color: PL_COLOR[p], background: PL_COLOR[p] + "15" } : {}}
+                                        onClick={() => setCatPlatformSel(p)}>
+                                        {PL_SHORT[p]} {p}
+                                    </button>
+                                ))}
+                            </div>
+
+                            {/* Arama */}
+                            <div className="ud-pm-search-wrap" style={{ maxWidth: "none", marginBottom: 10 }}>
+                                <span className="icon"><FaSearch /></span>
+                                <input className="ud-pm-search" value={catSearchQ} onChange={e => handleCatSearchChange(e.target.value)}
+                                    placeholder={`${catPlatformSel} kategorilerinde ara...`} />
+                                {catSearchLoading && <FaSpinner className="ud-pm-spin" style={{ position: "absolute", right: 10, top: 10, fontSize: 11, color: "var(--ud-pm-text-dim)" }} />}
+                            </div>
+
+                            {/* Arama Sonuçları */}
+                            {catSearchQ.trim() && catSearchResults.length > 0 ? (
+                                <div style={{ maxHeight: 400, overflowY: "auto" }}>
+                                    {catSearchResults.map((c, i) => (
+                                        <div key={c.id || i}
+                                            className={`ud-pm-cat-tree-node leaf ${catSelectedNode?.id === c.id ? "selected" : ""}`}
+                                            style={{ paddingLeft: 12 }}
+                                            onClick={() => setCatSelectedNode({ id: c.id, name: c.name, path: c.path || c.name, platform: catPlatformSel })}>
+                                            <span className="ud-pm-cat-tree-icon" style={{ color: "var(--ud-pm-green)", fontSize: 10 }}><FaTag /></span>
+                                            <div style={{ flex: 1, minWidth: 0 }}>
+                                                <div className="ud-pm-cat-tree-name">{c.name}</div>
+                                                {c.path && <div style={{ fontSize: 9, color: "var(--ud-pm-text-dim)", marginTop: 1 }}>{c.path}</div>}
+                                            </div>
+                                            {catSelectedNode?.id === c.id && mappingTarget && (
+                                                <button className="ud-pm-btn sm green" style={{ padding: "2px 8px", fontSize: 9 }}
+                                                    onClick={e => { e.stopPropagation(); handleMapCategory(mappingTarget._id, catPlatformSel, c.id, c.name, c.path); }}>
+                                                    <FaCheck /> Eşleştir
+                                                </button>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : catSearchQ.trim() && !catSearchLoading ? (
+                                <div style={{ color: "var(--ud-pm-text-dim)", fontSize: 12, textAlign: "center", padding: 20 }}>Sonuç bulunamadı</div>
+                            ) : (
+                                /* Ağaç Görünümü */
+                                <div style={{ maxHeight: 450, overflowY: "auto" }}>
+                                    {catTreeLoading === `${catPlatformSel}::0` ? (
+                                        <Loading />
+                                    ) : (catTreeData[`${catPlatformSel}::0`]?.children || []).length === 0 ? (
+                                        <Empty icon={FaFolderOpen} title="Kategori bulunamadı" desc="Platform bağlantısını kontrol edin" />
+                                    ) : (
+                                        (catTreeData[`${catPlatformSel}::0`]?.children || []).map(node => (
+                                            <CatTreeNode key={node.id} platform={catPlatformSel} node={node} depth={0} />
+                                        ))
+                                    )}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Sağ: Seçili Kategori Detay */}
+                        <div className="ud-pm-card" style={{ flex: 1, minWidth: 260 }}>
+                            <div className="ud-pm-card-header">
+                                <span className="icon"><FaInfoCircle /></span>
+                                <div><div className="title">Seçili Kategori</div></div>
+                            </div>
+                            {catSelectedNode ? (
+                                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                                    <div>
+                                        <div style={{ color: "var(--ud-pm-text-dim)", fontSize: 9, fontWeight: 700, textTransform: "uppercase", marginBottom: 4 }}>Kategori Adı</div>
+                                        <div style={{ color: "var(--ud-pm-text)", fontSize: 14, fontWeight: 700 }}>{catSelectedNode.name}</div>
+                                    </div>
+                                    <div>
+                                        <div style={{ color: "var(--ud-pm-text-dim)", fontSize: 9, fontWeight: 700, textTransform: "uppercase", marginBottom: 4 }}>Tam Yol</div>
+                                        <div style={{ color: "var(--ud-pm-text-sub)", fontSize: 11, lineHeight: 1.5 }}>{catSelectedNode.path}</div>
+                                    </div>
+                                    <div>
+                                        <div style={{ color: "var(--ud-pm-text-dim)", fontSize: 9, fontWeight: 700, textTransform: "uppercase", marginBottom: 4 }}>Platform</div>
+                                        <Pill color={PL_COLOR[catSelectedNode.platform] || "var(--ud-pm-accent)"}>{catSelectedNode.platform}</Pill>
+                                    </div>
+                                    <div>
+                                        <div style={{ color: "var(--ud-pm-text-dim)", fontSize: 9, fontWeight: 700, textTransform: "uppercase", marginBottom: 4 }}>ID</div>
+                                        <div style={{ color: "var(--ud-pm-accent)", fontSize: 12, fontFamily: "monospace" }}>{catSelectedNode.id}</div>
+                                    </div>
+                                    {mappingTarget && (
+                                        <button className="ud-pm-btn green" style={{ width: "100%", justifyContent: "center", marginTop: 6 }}
+                                            onClick={() => handleMapCategory(mappingTarget._id, catSelectedNode.platform, catSelectedNode.id, catSelectedNode.name, catSelectedNode.path)}>
+                                            <FaCheck /> "{mappingTarget.masterCategory?.name}" ile Eşleştir
+                                        </button>
+                                    )}
+                                </div>
+                            ) : (
+                                <div style={{ color: "var(--ud-pm-text-dim)", fontSize: 12, textAlign: "center", padding: "30px 10px" }}>
+                                    <FaFolderOpen style={{ fontSize: 28, marginBottom: 8, opacity: 0.3 }} /><br />
+                                    Soldan bir kategori seçin
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
+
+                {/* ── ALT TAB 2: Eşleştirme Merkezi ── */}
+                {catTab === "mapping" && (
+                    <div style={{ display: "flex", gap: 14 }}>
+                        {/* Sol: Master Kategoriler */}
+                        <div className="ud-pm-card" style={{ flex: 1, minHeight: 400 }}>
+                            <div className="ud-pm-card-header">
+                                <span className="icon"><FaSitemap /></span>
+                                <div style={{ flex: 1 }}>
+                                    <div className="title">Master Kategoriler</div>
+                                    <div className="subtitle">Kendi kategori ağacınızı oluşturun</div>
+                                </div>
+                                <button className="ud-pm-btn sm accent outline" onClick={loadMasterCategories} disabled={masterCatLoading}>
+                                    {masterCatLoading ? <span className="spinner" /> : <FaSync />}
+                                </button>
+                            </div>
+
+                            {/* Yeni Kategori Formu */}
+                            <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+                                <input className="ud-pm-search" style={{ paddingLeft: 12, flex: 1 }}
+                                    value={masterCatForm.name} onChange={e => setMasterCatForm(p => ({ ...p, name: e.target.value }))}
+                                    placeholder="Yeni kategori adı..." onKeyDown={e => e.key === "Enter" && handleCreateMasterCat()} />
+                                <select className="ud-pm-select" style={{ maxWidth: 140 }}
+                                    value={masterCatForm.parent} onChange={e => setMasterCatForm(p => ({ ...p, parent: e.target.value }))}>
+                                    <option value="">Ana Kategori</option>
+                                    {rootMasterCats.map(c => (
+                                        <option key={c._id} value={c._id}>{c.masterCategory?.name}</option>
+                                    ))}
+                                </select>
+                                <button className="ud-pm-btn sm green" onClick={handleCreateMasterCat}><FaPlus /></button>
+                            </div>
+
+                            {/* Master Kategori Ağacı */}
+                            <div style={{ maxHeight: 400, overflowY: "auto" }}>
+                                {masterCatLoading ? <Loading /> : rootMasterCats.length === 0 ? (
+                                    <Empty icon={FaSitemap} title="Henüz kategori yok" desc="Yukarıdan yeni kategori ekleyin" />
+                                ) : rootMasterCats.map(cat => {
+                                    const isExp = masterCatExpanded.has(cat._id);
+                                    const children = childMasterCats(cat._id);
+                                    const mpCats = cat.marketplaceCategories || [];
+                                    const isMapping = mappingTarget?._id === cat._id;
+
+                                    return (
+                                        <div key={cat._id}>
+                                            <div className={`ud-pm-cat-tree-node ${isMapping ? "selected" : ""}`}
+                                                style={{ paddingLeft: 12 }}
+                                                onClick={() => setMasterCatExpanded(prev => { const n = new Set(prev); n.has(cat._id) ? n.delete(cat._id) : n.add(cat._id); return n; })}>
+                                                <span className="ud-pm-cat-tree-toggle" style={{ width: 18, display: "inline-flex", justifyContent: "center" }}>
+                                                    {(children.length > 0 || mpCats.length > 0) ? (isExp ? <FaChevronDown style={{ fontSize: 8 }} /> : <FaChevronRight style={{ fontSize: 8 }} />) : <span style={{ width: 8 }} />}
+                                                </span>
+                                                <span className="ud-pm-cat-tree-icon" style={{ color: "var(--ud-pm-accent)", fontSize: 11 }}><FaFolderOpen /></span>
+                                                <span className="ud-pm-cat-tree-name" style={{ fontWeight: 700 }}>{cat.masterCategory?.name}</span>
+                                                <span style={{ marginLeft: "auto", display: "flex", gap: 4, alignItems: "center" }}>
+                                                    {mpCats.length > 0 && <Pill color="var(--ud-pm-purple)">{mpCats.length} PY</Pill>}
+                                                    <button className={`ud-pm-btn sm ${isMapping ? "green" : "accent outline"}`}
+                                                        style={{ padding: "2px 8px", fontSize: 9 }}
+                                                        onClick={e => { e.stopPropagation(); setMappingTarget(isMapping ? null : cat); setCatTab("browse"); }}>
+                                                        {isMapping ? <><FaTimes /> İptal</> : <><FaPlus /> Eşleştir</>}
+                                                    </button>
+                                                </span>
+                                            </div>
+
+                                            {isExp && (
+                                                <div>
+                                                    {/* Eşleştirilmiş PY Kategorileri */}
+                                                    {mpCats.map((mc, i) => (
+                                                        <div key={i} className="ud-pm-cat-tree-node leaf" style={{ paddingLeft: 42 }}>
+                                                            <Pill color={PL_COLOR[mc.marketplaceName] || "var(--ud-pm-accent)"}>{PL_SHORT[mc.marketplaceName] || mc.marketplaceName}</Pill>
+                                                            <span style={{ color: "var(--ud-pm-text-sub)", fontSize: 11, flex: 1 }}>{mc.categoryName}</span>
+                                                            <span style={{ color: "var(--ud-pm-text-dim)", fontSize: 9, fontFamily: "monospace" }}>ID: {mc.categoryId}</span>
+                                                        </div>
+                                                    ))}
+                                                    {/* Alt Kategoriler */}
+                                                    {children.map(child => {
+                                                        const childMpCats = child.marketplaceCategories || [];
+                                                        const childExp = masterCatExpanded.has(child._id);
+                                                        return (
+                                                            <div key={child._id}>
+                                                                <div className={`ud-pm-cat-tree-node ${mappingTarget?._id === child._id ? "selected" : ""}`}
+                                                                    style={{ paddingLeft: 30 }}
+                                                                    onClick={() => setMasterCatExpanded(prev => { const n = new Set(prev); n.has(child._id) ? n.delete(child._id) : n.add(child._id); return n; })}>
+                                                                    <span className="ud-pm-cat-tree-toggle" style={{ width: 18, display: "inline-flex", justifyContent: "center" }}>
+                                                                        {childMpCats.length > 0 ? (childExp ? <FaChevronDown style={{ fontSize: 8 }} /> : <FaChevronRight style={{ fontSize: 8 }} />) : <span style={{ width: 8 }} />}
+                                                                    </span>
+                                                                    <span className="ud-pm-cat-tree-icon" style={{ color: "var(--ud-pm-yellow)", fontSize: 10 }}><FaTag /></span>
+                                                                    <span className="ud-pm-cat-tree-name">{child.masterCategory?.name}</span>
+                                                                    <span style={{ marginLeft: "auto", display: "flex", gap: 4, alignItems: "center" }}>
+                                                                        {childMpCats.length > 0 && <Pill color="var(--ud-pm-purple)">{childMpCats.length} PY</Pill>}
+                                                                        <button className={`ud-pm-btn sm ${mappingTarget?._id === child._id ? "green" : "accent outline"}`}
+                                                                            style={{ padding: "2px 8px", fontSize: 9 }}
+                                                                            onClick={e => { e.stopPropagation(); setMappingTarget(mappingTarget?._id === child._id ? null : child); setCatTab("browse"); }}>
+                                                                            {mappingTarget?._id === child._id ? <><FaTimes /> İptal</> : <><FaPlus /> Eşleştir</>}
+                                                                        </button>
+                                                                    </span>
+                                                                </div>
+                                                                {childExp && childMpCats.map((mc, i) => (
+                                                                    <div key={i} className="ud-pm-cat-tree-node leaf" style={{ paddingLeft: 60 }}>
+                                                                        <Pill color={PL_COLOR[mc.marketplaceName] || "var(--ud-pm-accent)"}>{PL_SHORT[mc.marketplaceName] || mc.marketplaceName}</Pill>
+                                                                        <span style={{ color: "var(--ud-pm-text-sub)", fontSize: 11, flex: 1 }}>{mc.categoryName}</span>
+                                                                        <span style={{ color: "var(--ud-pm-text-dim)", fontSize: 9, fontFamily: "monospace" }}>ID: {mc.categoryId}</span>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        {/* Sağ: Eşleştirme Bilgi Paneli */}
+                        <div className="ud-pm-card" style={{ flex: 1, minWidth: 280 }}>
+                            <div className="ud-pm-card-header">
+                                <span className="icon"><FaInfoCircle /></span>
+                                <div><div className="title">Eşleştirme Rehberi</div></div>
+                            </div>
+                            {mappingTarget ? (
+                                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                                    <div style={{ background: "rgba(78,205,196,0.08)", border: "1px solid rgba(78,205,196,0.2)", borderRadius: 10, padding: "12px 14px" }}>
+                                        <div style={{ color: "var(--ud-pm-accent)", fontSize: 11, fontWeight: 700, marginBottom: 4 }}>
+                                            <FaSitemap style={{ fontSize: 10 }} /> Eşleştirme Modu Aktif
+                                        </div>
+                                        <div style={{ color: "var(--ud-pm-text)", fontSize: 13, fontWeight: 700 }}>{mappingTarget.masterCategory?.name}</div>
+                                        <div style={{ color: "var(--ud-pm-text-dim)", fontSize: 11, marginTop: 6, lineHeight: 1.6 }}>
+                                            "PY Kategorileri" sekmesine geçin, bir platform kategorisi seçin ve <strong>"Eşleştir"</strong> butonuna tıklayın.
+                                        </div>
+                                    </div>
+                                    <button className="ud-pm-btn accent" style={{ width: "100%", justifyContent: "center" }}
+                                        onClick={() => setCatTab("browse")}>
+                                        <FaFolderOpen /> PY Kategorilerine Git
+                                    </button>
+                                    <button className="ud-pm-btn muted" style={{ width: "100%", justifyContent: "center" }}
+                                        onClick={() => setMappingTarget(null)}>
+                                        <FaTimes /> Eşleştirmeyi İptal Et
+                                    </button>
+                                </div>
+                            ) : (
+                                <div style={{ color: "var(--ud-pm-text-dim)", fontSize: 12, lineHeight: 1.8 }}>
+                                    <div style={{ marginBottom: 12 }}>
+                                        <strong style={{ color: "var(--ud-pm-text)" }}>Nasıl Çalışır?</strong>
+                                    </div>
+                                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                                        <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+                                            <span style={{ background: "var(--ud-pm-accent)", color: "#fff", borderRadius: "50%", width: 20, height: 20, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, flexShrink: 0 }}>1</span>
+                                            <span>Soldan bir <strong>master kategori</strong> oluşturun (ör: "Takı & Mücevher")</span>
+                                        </div>
+                                        <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+                                            <span style={{ background: "var(--ud-pm-purple)", color: "#fff", borderRadius: "50%", width: 20, height: 20, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, flexShrink: 0 }}>2</span>
+                                            <span><strong>"Eşleştir"</strong> butonuna tıklayın</span>
+                                        </div>
+                                        <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+                                            <span style={{ background: "var(--ud-pm-green)", color: "#fff", borderRadius: "50%", width: 20, height: 20, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, flexShrink: 0 }}>3</span>
+                                            <span>"PY Kategorileri" sekmesinde ilgili platform kategorisini seçip <strong>"Eşleştir"</strong> deyin</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
+
+                {/* ── ALT TAB 3: Ürün Kategorileri (Açılır-Kapanır Ağaç) ── */}
+                {catTab === "products" && (
+                    <div className="ud-pm-card" style={{ minHeight: 400 }}>
+                        <div className="ud-pm-card-header">
+                            <span className="icon"><FaBox /></span>
+                            <div style={{ flex: 1 }}>
+                                <div className="title">Ürünler — Kategoriye Göre</div>
+                                <div className="subtitle">{catProducts.length} ürün, {sortedCatKeys.length} kategori</div>
+                            </div>
+                            <button className="ud-pm-btn sm accent outline" onClick={loadCatProducts} disabled={catProdLoading}>
+                                {catProdLoading ? <span className="spinner" /> : <FaSync />}
+                            </button>
+                        </div>
+
+                        {catProdLoading ? <Loading /> : sortedCatKeys.length === 0 ? (
+                            <Empty icon={FaBox} title="Ürün bulunamadı" desc="Önce pazaryerlerinden ürün çekin" />
+                        ) : (
+                            <div style={{ maxHeight: 500, overflowY: "auto" }}>
+                                {sortedCatKeys.map(catName => {
+                                    const prods = groupedProducts[catName];
+                                    const isExp = catProdExpanded.has(catName);
+                                    // Alt kategorileri ayır (path'e göre)
+                                    const subGroups = {};
+                                    for (const p of prods) {
+                                        const fullCat = p.masterProduct?.category || "Kategorisiz";
+                                        const parts = fullCat.split(" > ");
+                                        const subKey = parts.length > 1 ? parts.slice(1).join(" > ") : "_root";
+                                        if (!subGroups[subKey]) subGroups[subKey] = [];
+                                        subGroups[subKey].push(p);
+                                    }
+
+                                    return (
+                                        <div key={catName}>
+                                            <div className="ud-pm-cat-tree-node"
+                                                style={{ paddingLeft: 12, fontWeight: 700 }}
+                                                onClick={() => setCatProdExpanded(prev => { const n = new Set(prev); n.has(catName) ? n.delete(catName) : n.add(catName); return n; })}>
+                                                <span className="ud-pm-cat-tree-toggle" style={{ width: 18, display: "inline-flex", justifyContent: "center" }}>
+                                                    {isExp ? <FaChevronDown style={{ fontSize: 8 }} /> : <FaChevronRight style={{ fontSize: 8 }} />}
+                                                </span>
+                                                <span className="ud-pm-cat-tree-icon" style={{ color: "var(--ud-pm-yellow)", fontSize: 11 }}><FaFolderOpen /></span>
+                                                <span className="ud-pm-cat-tree-name">{catName}</span>
+                                                <Pill color="var(--ud-pm-accent)">{prods.length}</Pill>
+                                            </div>
+                                            {isExp && prods.map(p => {
+                                                const mp = p.masterProduct || {};
+                                                const st = p.stockTracking || {};
+                                                return (
+                                                    <div key={p._id} className="ud-pm-cat-tree-node leaf"
+                                                        style={{ paddingLeft: 42, cursor: "pointer" }}
+                                                        onClick={() => openDetail(p._id)}>
+                                                        {mp.images?.[0] ? <img src={mp.images[0]} alt="" style={{ width: 22, height: 22, borderRadius: 4, objectFit: "cover" }} />
+                                                            : <FaBox style={{ fontSize: 11, color: "var(--ud-pm-text-dim)" }} />}
+                                                        <span style={{ color: "var(--ud-pm-text)", fontSize: 11, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{mp.name || "İsimsiz"}</span>
+                                                        <span style={{ color: "var(--ud-pm-green)", fontSize: 10, fontWeight: 600, minWidth: 55, textAlign: "right" }}>{fmt(mp.price)}</span>
+                                                        <span className={st.isOutOfStock ? "stock-out" : st.isLowStock ? "stock-low" : "stock-ok"} style={{ fontSize: 10, minWidth: 30, textAlign: "right" }}>{st.totalStock ?? 0}</span>
+                                                        <div className="ud-pm-platforms" style={{ minWidth: 60 }}>
+                                                            {PLATFORMS.map(pl => { const ps = getPlStatus(p, pl); return ps.exists ? <span key={pl} style={{ fontSize: 7, color: PL_COLOR[pl], fontWeight: 700 }}>{PL_SHORT[pl]}</span> : null; })}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {/* Eşleştirme Modu Banner */}
+                {mappingTarget && catTab === "browse" && (
+                    <div style={{ background: "rgba(78,205,196,0.08)", border: "1px solid rgba(78,205,196,0.2)", borderRadius: 10, padding: "10px 16px", display: "flex", alignItems: "center", gap: 10 }}>
+                        <FaSitemap style={{ color: "var(--ud-pm-accent)", fontSize: 14 }} />
+                        <span style={{ color: "var(--ud-pm-text)", fontSize: 12, flex: 1 }}>
+                            <strong>Eşleştirme Modu:</strong> "{mappingTarget.masterCategory?.name}" için bir platform kategorisi seçin
+                        </span>
+                        <button className="ud-pm-btn sm muted" onClick={() => setMappingTarget(null)}><FaTimes /> İptal</button>
+                    </div>
+                )}
+            </div>
+        );
+    };
+
+    /* ═══════════════════════════════════════════════════════════════
        TAB 4: SENKRONİZASYON
        ═══════════════════════════════════════════════════════════════ */
     const renderSync = () => (
@@ -965,7 +1568,8 @@ const ProductManagementCenter = ({ userId }) => {
         const p = detail;
         const mp = p?.masterProduct || {};
         const st = p?.stockTracking || {};
-        const mappings = p?.marketplaceMappings || [];
+        // ⚠️ FIX: syncStatus: "error" olan mapping'ler platformda yok demek — filtrele
+        const mappings = (p?.marketplaceMappings || []).filter(m => m.syncStatus !== "error");
 
         return ReactDOM.createPortal(
             <AnimatePresence>
@@ -1104,23 +1708,20 @@ const ProductManagementCenter = ({ userId }) => {
 
                                 {hasPlatforms && (
                                     <div style={{ background: "var(--ud-pm-glass)", border: "1px solid var(--ud-pm-glass-border)", borderRadius: 10, padding: "12px 14px", marginBottom: 14 }}>
-                                        <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer" }}>
-                                            <input type="checkbox" className="ud-pm-checkbox" style={{ accentColor: "var(--ud-pm-red)", marginTop: 2 }}
-                                                checked={deleteFromMP} onChange={e => setDeleteFromMP(e.target.checked)} />
-                                            <div>
-                                                <div style={{ color: "var(--ud-pm-text)", fontSize: 13, fontWeight: 700 }}>Pazaryerlerinden de kaldır</div>
-                                                <div style={{ color: "var(--ud-pm-text-dim)", fontSize: 11, marginTop: 2, lineHeight: 1.5 }}>
-                                                    Ürün aşağıdaki platformlardan silinecek veya stok 0'a çekilecek:
-                                                </div>
-                                                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
-                                                    {platforms.map(pl => (
-                                                        <span key={pl} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 10px", borderRadius: 6, fontSize: 11, fontWeight: 600, background: `${PL_COLOR[pl] || "var(--ud-pm-accent)"}18`, color: PL_COLOR[pl] || "var(--ud-pm-accent)", border: `1px solid ${PL_COLOR[pl] || "var(--ud-pm-accent)"}30` }}>
-                                                            <FaStore style={{ fontSize: 9 }} /> {pl}
-                                                        </span>
-                                                    ))}
-                                                </div>
-                                            </div>
-                                        </label>
+                                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                                            <FaGlobe style={{ color: "var(--ud-pm-red)", fontSize: 14 }} />
+                                            <div style={{ color: "var(--ud-pm-text)", fontSize: 13, fontWeight: 700 }}>Tüm pazaryerlerinden kaldırılacak</div>
+                                        </div>
+                                        <div style={{ color: "var(--ud-pm-text-dim)", fontSize: 11, marginBottom: 8, lineHeight: 1.5 }}>
+                                            Ürün aşağıdaki platformlardan tamamen silinecek veya stok 0'a çekilecek:
+                                        </div>
+                                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                                            {platforms.map(pl => (
+                                                <span key={pl} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 10px", borderRadius: 6, fontSize: 11, fontWeight: 600, background: `${PL_COLOR[pl] || "var(--ud-pm-accent)"}18`, color: PL_COLOR[pl] || "var(--ud-pm-accent)", border: `1px solid ${PL_COLOR[pl] || "var(--ud-pm-accent)"}30` }}>
+                                                    <FaStore style={{ fontSize: 9 }} /> {pl}
+                                                </span>
+                                            ))}
+                                        </div>
                                     </div>
                                 )}
 
@@ -1146,7 +1747,7 @@ const ProductManagementCenter = ({ userId }) => {
                                     <button className="ud-pm-btn red" style={{ flex: 1, justifyContent: "center" }}
                                         onClick={executeDelete} disabled={deleteLoading}>
                                         {deleteLoading ? <span className="spinner" /> : <FaTrash />}
-                                        {deleteFromMP && hasPlatforms ? "Her Yerden Sil" : "Sil"}
+                                        {hasPlatforms ? "Her Yerden Sil" : "Sil"}
                                     </button>
                                 </div>
                             </>
@@ -1196,18 +1797,15 @@ const ProductManagementCenter = ({ userId }) => {
         finally { setBulkActionLoading(false); }
     };
 
-    const [bulkDeleteFromMP, setBulkDeleteFromMP] = useState(true);
     const handleBulkDelete = async () => {
         if (bulkSelected.size === 0) return showToast("Ürün seçin", "error");
-        const confirmMsg = bulkDeleteFromMP
-            ? `${bulkSelected.size} ürünü silmek ve pazaryerlerinden kaldırmak istediğinize emin misiniz?\nBu işlem geri alınamaz!`
-            : `${bulkSelected.size} ürünü silmek istediğinize emin misiniz?\nBu işlem geri alınamaz! (Sadece yerel kayıtlar silinir)`;
+        const confirmMsg = `${bulkSelected.size} ürünü silmek ve tüm pazaryerlerinden kaldırmak istediğinize emin misiniz?\nBu işlem geri alınamaz!`;
         if (!window.confirm(confirmMsg)) return;
         setBulkActionLoading(true); setBulkResult(null);
         try {
-            const r = await bulkDeleteProducts(Array.from(bulkSelected), { deleteFromMarketplaces: bulkDeleteFromMP });
+            const r = await bulkDeleteProducts(Array.from(bulkSelected), { deleteFromMarketplaces: true });
             const mpStats = r.marketplaceStats || {};
-            setBulkResult({ type: "delete", deletedCount: r.deletedCount, mpSuccess: mpStats.success || 0, mpError: mpStats.error || 0, fromMP: bulkDeleteFromMP });
+            setBulkResult({ type: "delete", deletedCount: r.deletedCount, mpSuccess: mpStats.success || 0, mpError: mpStats.error || 0, fromMP: true });
             showToast(r.message); setBulkSelected(new Set()); loadBulkProducts(0); loadDashboard();
         } catch (e) { showToast(e.response?.data?.error || "Hata", "error"); }
         finally { setBulkActionLoading(false); }
@@ -1468,12 +2066,12 @@ const ProductManagementCenter = ({ userId }) => {
                                     <div className="ud-pm-delete-warning">
                                         <strong style={{ color: "var(--ud-pm-red)" }}>{bulkSelected.size} ürün</strong> kalıcı olarak silinecek. Bu işlem geri alınamaz!
                                     </div>
-                                    <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, cursor: "pointer", fontSize: 11, color: "var(--ud-pm-text-sub)" }}>
-                                        <input type="checkbox" className="ud-pm-checkbox" style={{ accentColor: "var(--ud-pm-red)" }} checked={bulkDeleteFromMP} onChange={e => setBulkDeleteFromMP(e.target.checked)} />
-                                        Pazaryerlerinden de kaldır <span style={{ opacity: 0.6 }}>(stok 0'a çekilir)</span>
-                                    </label>
+                                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, fontSize: 11, color: "var(--ud-pm-text-sub)" }}>
+                                        <FaGlobe style={{ color: "var(--ud-pm-red)", fontSize: 13 }} />
+                                        Ürünler tüm pazaryerlerinden de kaldırılacak <span style={{ opacity: 0.6 }}>(stok 0'a çekilir / silinir)</span>
+                                    </div>
                                     <button className="ud-pm-btn red" style={{ width: "100%", justifyContent: "center" }} onClick={handleBulkDelete} disabled={bulkSelected.size === 0 || bulkActionLoading}>
-                                        {bulkActionLoading ? <span className="spinner" /> : <FaTrash />} {bulkSelected.size} Ürünü {bulkDeleteFromMP ? "Her Yerden" : "Kalıcı"} Sil
+                                        {bulkActionLoading ? <span className="spinner" /> : <FaTrash />} {bulkSelected.size} Ürünü Her Yerden Sil
                                     </button>
                                 </div>
                             </motion.div>
@@ -1533,6 +2131,7 @@ const ProductManagementCenter = ({ userId }) => {
         { id: "products", icon: <FaBox />, label: "Ürünler", count: total },
         { id: "upload", icon: <FaPlus />, label: "Yükle & Dağıt" },
         { id: "pricestock", icon: <FaDollarSign />, label: "Fiyat & Stok" },
+        { id: "categories", icon: <FaSitemap />, label: "Kategori Eşleştirme" },
         { id: "bulk", icon: <FaLayerGroup />, label: "Toplu İşlem", count: bulkSelected.size > 0 ? bulkSelected.size : undefined },
         { id: "sync", icon: <FaSync />, label: "Senkronizasyon" },
     ];
@@ -1565,6 +2164,7 @@ const ProductManagementCenter = ({ userId }) => {
                     {tab === "products" && renderProducts()}
                     {tab === "upload" && renderUpload()}
                     {tab === "pricestock" && renderPriceStock()}
+                    {tab === "categories" && renderCategories()}
                     {tab === "bulk" && renderBulk()}
                     {tab === "sync" && renderSync()}
                 </motion.div>

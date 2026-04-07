@@ -11,7 +11,8 @@
 
 const winston = require('winston');
 
-const LOG_LEVEL = process.env.LOG_LEVEL || (process.env.NODE_ENV === 'production' ? 'warn' : 'http');
+// ✅ FIX #14: Production'da 'info' seviyesi — stok sync ve önemli operasyon logları görünsün
+const LOG_LEVEL = process.env.LOG_LEVEL || (process.env.NODE_ENV === 'production' ? 'info' : 'http');
 
 // ─── Renk tanımları ───────────────────────────────────────────────────────────
 winston.addColors({

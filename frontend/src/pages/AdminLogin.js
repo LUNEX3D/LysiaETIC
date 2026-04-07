@@ -34,7 +34,7 @@ const AdminLogin = () => {
                 const controller = new AbortController();
                 const timeout = setTimeout(() => controller.abort(), 5000);
                 await fetch(
-                    (process.env.REACT_APP_API_URL || "http://13.51.158.124:5000") + "/api/status",
+                    (process.env.REACT_APP_API_URL || "http://localhost:5000") + "/api/status",
                     { signal: controller.signal }
                 );
                 clearTimeout(timeout);
@@ -59,14 +59,21 @@ const AdminLogin = () => {
         try {
             const response = await axios.post("/auth/login", formData);
             const token = response.data.token;
+            const refreshTokenValue = response.data.refreshToken;
 
             // ✅ FIX: Yeni token'ı ÖNCE kaydet — axios interceptor localStorage'dan okuyor
             localStorage.setItem("token", token);
+            if (refreshTokenValue) localStorage.setItem("refreshToken", refreshTokenValue);
 
             const profileRes = await axios.get("/auth/profile");
             const user = profileRes.data;
 
             if (user.role !== "admin" && user.role !== "dev") {
+                // ✅ SEC #3: Yetkisiz kullanıcının token'ını hemen temizle
+                localStorage.removeItem("token");
+                localStorage.removeItem("refreshToken");
+                sessionStorage.removeItem("token");
+                sessionStorage.removeItem("refreshToken");
                 setMessage({
                     text: "Bu hesap admin yetkisine sahip değil. Sadece admin ve dev rolleri erişebilir.",
                     type: "error"
@@ -76,6 +83,7 @@ const AdminLogin = () => {
             }
 
             localStorage.setItem("token", token);
+            if (refreshTokenValue) localStorage.setItem("refreshToken", refreshTokenValue);
             localStorage.setItem("userId", user._id);
             localStorage.setItem("userEmail", user.email);
             localStorage.setItem("userName", user.name || "Admin");

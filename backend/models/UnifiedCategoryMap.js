@@ -86,4 +86,9 @@ UnifiedCategoryMapSchema.index({ canonicalName: "text", canonicalPath: "text" })
 UnifiedCategoryMapSchema.index({ matchType: 1, platformCount: 1 });
 UnifiedCategoryMapSchema.index({ rootCategory: 1 });
 
+// Parent→Child Fallback sorguları için (Adım 1b)
+// "Küpe" → TY child'larını bul gibi sorgularda performans sağlar
+UnifiedCategoryMapSchema.index({ "trendyol.parentId": 1 }, { sparse: true });
+UnifiedCategoryMapSchema.index({ "ciceksepeti.parentId": 1 }, { sparse: true });
+
 module.exports = mongoose.model("UnifiedCategoryMap", UnifiedCategoryMapSchema);

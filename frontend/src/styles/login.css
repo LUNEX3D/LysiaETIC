@@ -26,6 +26,13 @@
     -moz-osx-font-smoothing: grayscale;
     overflow-y: auto;
     overflow-x: hidden;
+    /* ✅ WEB APP FIRST: Safe area for notched devices */
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+    /* ✅ Smooth scrolling on iOS */
+    -webkit-overflow-scrolling: touch;
 }
 
 /* ─── Aurora / Glow Background — görseldeki gibi belirgin mor ışık ─────── */
@@ -762,11 +769,15 @@
     border: 1.5px solid rgba(255, 255, 255, 0.08);
     border-radius: 14px;
     color: #fff;
-    font-size: 14px;
+    /* ✅ WEB APP FIRST: 16px prevents iOS Safari auto-zoom on focus */
+    font-size: 16px;
     font-family: inherit;
     font-weight: 400;
     outline: none;
     transition: all 0.25s ease;
+    /* ✅ Prevent iOS inner shadow */
+    -webkit-appearance: none;
+    appearance: none;
 }
 
 .auth-input::placeholder {

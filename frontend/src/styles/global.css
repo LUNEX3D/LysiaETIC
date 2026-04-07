@@ -61,9 +61,13 @@ select {
     margin-top: 8px;
     border: 1px solid var(--border-color);
     border-radius: 5px;
+    /* ✅ WEB APP FIRST: 16px prevents iOS Safari auto-zoom on focus */
     font-size: 16px;
     background: var(--input-bg);
     max-width: 100%;
+    /* ✅ Prevent iOS inner shadow on inputs */
+    -webkit-appearance: none;
+    appearance: none;
 }
 
 img,

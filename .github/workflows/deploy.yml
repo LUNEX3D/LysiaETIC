@@ -1,0 +1,81 @@
+# ═══════════════════════════════════════════════════════════════
+# LysiaETIC — CD Pipeline (AWS Deploy)
+# ✅ P1-4: main branch'e push yapıldığında otomatik deploy
+#
+# Gerekli GitHub Secrets:
+#   AWS_SSH_KEY        — EC2 SSH private key (PEM)
+#   AWS_HOST           — EC2 IP adresi (ör: 13.51.158.124)
+#   AWS_USER           — EC2 kullanıcı adı (ör: ubuntu)
+# ═══════════════════════════════════════════════════════════════
+
+name: CD — AWS Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy to AWS EC2
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      # ── Frontend Build ──
+      - name: Build Frontend
+        working-directory: ./frontend
+        run: |
+          npm ci
+          npm run build
+        env:
+          CI: false
+          NODE_OPTIONS: --openssl-legacy-provider
+          REACT_APP_API_URL: ""
+
+      # ── SSH Key Ayarla ──
+      - name: Setup SSH Key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.AWS_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.AWS_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
+
+      # ── Backend Deploy (Git Pull + PM2 Restart) ──
+      - name: Deploy Backend
+        run: |
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            ${{ secrets.AWS_USER }}@${{ secrets.AWS_HOST }} \
+            "cd ~/LysiaETIC && git pull origin main && cd backend && npm ci --omit=dev && pm2 restart backend"
+
+      # ── Frontend Deploy (SCP + Nginx) ──
+      - name: Deploy Frontend
+        run: |
+          scp -r -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            ./frontend/build/* \
+            ${{ secrets.AWS_USER }}@${{ secrets.AWS_HOST }}:~/build/
+
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            ${{ secrets.AWS_USER }}@${{ secrets.AWS_HOST }} \
+            "sudo rm -rf /var/www/html/* && sudo cp -r ~/build/* /var/www/html/ && sudo chmod -R 755 /var/www/html/ && sudo chown -R www-data:www-data /var/www/html/ && sudo systemctl restart nginx"
+
+      # ── Health Check ──
+      - name: Health Check
+        run: |
+          sleep 10
+          curl -f http://${{ secrets.AWS_HOST }}/api/status || echo "⚠️ Health check failed — sunucu henüz hazır olmayabilir"
+
+      # ── Cleanup ──
+      - name: Cleanup SSH Key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key

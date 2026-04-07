@@ -188,8 +188,7 @@ const toN11 = async (master, userId, credentials) => {
     const n11MappingService      = require("./n11MappingService");
     const categoryMappingService = require("./categoryMappingService");
 
-    // ── Kategori mapping + Attribute transform ────────────────────────────────
-    // mapCategoryWithFallback: mapping varsa döndür, yoksa öneri üret + UnmappedCategory'ye kaydet
+    // ── Kategori mapping — UnifiedCategoryMap + InternalCategoryMapping + CategoryMapping ──
     const catResult = await categoryMappingService.mapCategoryWithFallback(
         userId,
         master,
@@ -198,16 +197,9 @@ const toN11 = async (master, userId, credentials) => {
 
     // ❌ Kategori mapping yoksa ürünü GÖNDERME
     if (!catResult || !catResult.categoryId) {
-        // Öneri üret (throw mesajına ekle)
-        const { suggestions } = categoryMappingService.suggestN11Category(master);
-        const suggestionStr   = suggestions.length > 0
-            ? ` Öneriler: ${suggestions.map(s => `"${s.name}"`).join(", ")}`
-            : "";
-
         throw new Error(
-            `CATEGORY_MAPPING_MISSING: "${master.category || "?"}" kategorisi için N11 mapping bulunamadı.` +
-            `${suggestionStr} ` +
-            `Çözüm: /api/marketplace/n11/unmapped-categories listesinden mapping yapın.`
+            `CATEGORY_MAPPING_MISSING: "${master.category || "?"}" kategorisi için N11 mapping bulunamadı. ` +
+            `Çözüm: Kategori Eşleştirme Merkezi'nden bu kategoriyi eşleştirin.`
         );
     }
 

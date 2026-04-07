@@ -12,27 +12,7 @@ import {
     FaPercentage, FaCoins, FaChevronDown, FaChevronUp
 } from "react-icons/fa";
 
-/* ═══════════════════════════════════════════════════════════
-   RENK PALETİ (UserDashboard ile uyumlu)
-   ═══════════════════════════════════════════════════════════ */
-const C = {
-    bg: "#0f1419",
-    card: "rgba(26, 31, 53, 0.85)",
-    border: "rgba(78, 205, 196, 0.18)",
-    accent: "#4ecdc4",
-    green: "#22c55e",
-    red: "#ef4444",
-    yellow: "#f59e0b",
-    purple: "#8b5cf6",
-    blue: "#06b6d4",
-    pink: "#ec4899",
-    orange: "#f97316",
-    text: "#e2e8f0",
-    muted: "#94a3b8",
-    dim: "#64748b",
-    glass: "rgba(255,255,255,0.03)",
-    glassBr: "rgba(255,255,255,0.06)",
-};
+import { useApp } from "../context/AppContext";
 
 const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
 
@@ -77,19 +57,19 @@ const PROVIDERS = [
     },
     {
         id: "qnb-esolutions",
-        name: "QNB eFinans",
+        name: "QNB eSolutions",
         logo: "🏦",
         color: "#7c3aed",
-        description: "QNB eFinans (eSolutions) ile e-Fatura, e-Arşiv, e-İrsaliye ve e-Defter işlemlerinizi yönetin. Türkiye'nin en büyük e-belge pazarında lider.",
-        features: ["e-Fatura", "e-Arşiv", "e-İrsaliye", "e-Defter", "Mükellef Sorgulama"],
+        description: "QNB eSolutions ile e-Fatura, e-Arşiv, e-İrsaliye ve e-Defter işlemlerinizi yönetin. Türkiye'nin en büyük e-belge pazarında lider. SOAP API entegrasyonu.",
+        features: ["e-Fatura", "e-Arşiv", "e-İrsaliye", "Fatura Oluşturma", "Mükellef Sorgulama"],
         authType: "qnb",
         fields: [
-            { key: "username", label: "Kullanıcı Adı", type: "text", required: true, hint: "QNB eFinans kullanıcı adınız" },
-            { key: "password", label: "Şifre", type: "password", required: true, hint: "QNB eFinans şifreniz" },
+            { key: "username", label: "Kullanıcı Adı", type: "text", required: true, hint: "QNB eSolutions kullanıcı adınız (VKN veya VKN.portaltest)" },
+            { key: "password", label: "Şifre", type: "password", required: true, hint: "QNB eSolutions şifreniz" },
         ],
         environments: [
-            { id: "test", label: "Test Ortamı", url: "testapi.qnbefinans.com" },
-            { id: "production", label: "Canlı Ortam", url: "api.qnbefinans.com" },
+            { id: "test", label: "Test Ortamı", url: "connectortest.qnbesolutions.com.tr" },
+            { id: "production", label: "Canlı Ortam", url: "connector.qnbesolutions.com.tr" },
         ],
         searchEndpoint: "/api/e-invoice/qnb/documents/search",
     },
@@ -158,6 +138,20 @@ const PROVIDERS = [
         comingSoon: true
     }
 ];
+
+/* ═══════════════════════════════════════════════════════════
+   RENK SABİTLERİ
+   ═══════════════════════════════════════════════════════════ */
+const C = {
+    bg: "#050a12", card: "rgba(10, 18, 40, 0.85)",
+    border: "rgba(0, 240, 255, 0.12)",
+    accent: "#00f0ff",
+    green: "#00ff88", red: "#ff3366", yellow: "#ffcc00",
+    purple: "#a855f7", blue: "#3b82f6", pink: "#ff61d8",
+    orange: "#ff8c00",
+    text: "#e8edf5", muted: "#7a8ba8", dim: "#4a5568",
+    glass: "rgba(255,255,255,0.02)", glassBr: "rgba(255,255,255,0.05)",
+};
 
 /* ═══════════════════════════════════════════════════════════
    YARDIMCI BİLEŞENLER
@@ -959,10 +953,20 @@ const AdvancedAnalysis = React.memo(({ invoices, onInvoiceClick }) => {
    ANA BİLEŞEN
    ═══════════════════════════════════════════════════════════ */
 const BillingPage = () => {
+    const { theme: C, t } = useApp();
     // ── Sekmeler ──
     const [activeTab, setActiveTab] = useState("overview");
-    // ── Sağlayıcı bağlantı ──
-    const [connectedProviders, setConnectedProviders] = useState([]);
+    // ── Sağlayıcı bağlantı (localStorage ile kalıcı) ──
+    const [connectedProviders, setConnectedProviders] = useState(() => {
+        try {
+            const saved = localStorage.getItem("lysia_connected_providers");
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+            }
+        } catch (e) { /* ignore */ }
+        return [];
+    });
     const [showProviderModal, setShowProviderModal] = useState(false);
     const [selectedProvider, setSelectedProvider] = useState(null);
     const [providerForm, setProviderForm] = useState({});
@@ -981,6 +985,20 @@ const BillingPage = () => {
     // ── Fatura oluşturma ──
     const [showCreateModal, setShowCreateModal] = useState(false);
     const [createType, setCreateType] = useState("e-arsiv");
+    const [createStep, setCreateStep] = useState(1); // 1=tip, 2=form, 3=sonuç
+    const [createLoading, setCreateLoading] = useState(false);
+    const [createError, setCreateError] = useState("");
+    const [createResult, setCreateResult] = useState(null);
+    const [invoiceForm, setInvoiceForm] = useState({
+        // Alıcı
+        customerName: "", customerVkn: "", customerFirstName: "", customerLastName: "",
+        customerStreet: "", customerDistrict: "", customerCity: "Istanbul", customerTaxOffice: "",
+        customerEmail: "", customerPhone: "",
+        // Kalemler
+        lines: [{ name: "", quantity: 1, unit: "adet", unitPrice: 0, vatRate: 20, discountAmount: 0 }],
+        // Genel
+        note: "", currency: "TRY", sendingType: "ELEKTRONIK",
+    });
     // ── Belge detay modalı ──
     const [selectedInvoice, setSelectedInvoice] = useState(null);
     const [showDetailModal, setShowDetailModal] = useState(false);
@@ -988,6 +1006,19 @@ const BillingPage = () => {
     const [rawDataOpen, setRawDataOpen] = useState(false);
     // ── Fetch guard (sonsuz döngü önleme) ──
     const hasFetchedRef = useRef(false);
+    // ── Otomatik Fatura ──
+    const [autoInvoiceConfig, setAutoInvoiceConfig] = useState(null);
+    const [autoInvoiceStats, setAutoInvoiceStats] = useState(null);
+    const [autoInvoices, setAutoInvoices] = useState([]);
+    const [autoInvoiceLoading, setAutoInvoiceLoading] = useState(false);
+    const [autoInvoiceSaving, setAutoInvoiceSaving] = useState(false);
+    const [autoInvoiceError, setAutoInvoiceError] = useState("");
+    const [showAutoInvoiceConfig, setShowAutoInvoiceConfig] = useState(false);
+    const [autoConfigForm, setAutoConfigForm] = useState(null);
+    const [selectedAutoInvoice, setSelectedAutoInvoice] = useState(null);
+    const [processAllLoading, setProcessAllLoading] = useState(false);
+    const [processAllResult, setProcessAllResult] = useState(null);
+    const [pdfLoading, setPdfLoading] = useState(null);
 
     const isConnected = connectedProviders.length > 0;
 
@@ -998,6 +1029,7 @@ const BillingPage = () => {
         { id: "e-archive", label: "e-Arşiv", icon: <FaClipboardList /> },
         { id: "e-invoice", label: "e-Fatura", icon: <FaFileInvoiceDollar /> },
         { id: "e-despatch", label: "e-İrsaliye", icon: <FaTruck /> },
+        { id: "auto-invoice", label: "Otomatik Fatura", icon: <FaSyncAlt /> },
         { id: "providers", label: "Sağlayıcılar", icon: <FaLink /> },
     ];
 
@@ -1148,6 +1180,14 @@ const BillingPage = () => {
                     apiToken: loginData.data && (loginData.data.accessToken || loginData.data.sessionId),
                     sessionId: loginData.data && loginData.data.sessionId,
                 };
+                // QNB credential'ları localStorage'a kaydet (session expire olunca otomatik yeniden login için)
+                try {
+                    localStorage.setItem("lysia_qnb_form", JSON.stringify({
+                        username: providerForm.username,
+                        password: providerForm.password,
+                        env: selectedEnv
+                    }));
+                } catch (e) { /* ignore */ }
             }
 
             // ═══ SOVOS (Foriba) ═══
@@ -1256,7 +1296,12 @@ const BillingPage = () => {
                 return;
             }
 
-            setConnectedProviders(prev => [...prev, newProvider]);
+            const updatedProviders = [...connectedProviders, newProvider];
+            setConnectedProviders(updatedProviders);
+            // localStorage'a kaydet (sessionId dahil — sayfa yenilenince korunsun)
+            try {
+                localStorage.setItem("lysia_connected_providers", JSON.stringify(updatedProviders));
+            } catch (e) { /* ignore */ }
             setShowProviderModal(false);
             setProviderForm({});
             setSelectedProvider(null);
@@ -1271,10 +1316,25 @@ const BillingPage = () => {
 
     const handleDisconnect = (providerId) => {
         if (window.confirm("Bu sağlayıcı bağlantısını kaldırmak istediğinize emin misiniz?")) {
-            setConnectedProviders(prev => prev.filter(p => p.id !== providerId));
+            const disconnecting = connectedProviders.find(p => p.id === providerId);
+            const updated = connectedProviders.filter(p => p.id !== providerId);
+            setConnectedProviders(updated);
+            // localStorage'dan da kaldır
+            try {
+                if (updated.length > 0) {
+                    localStorage.setItem("lysia_connected_providers", JSON.stringify(updated));
+                } else {
+                    localStorage.removeItem("lysia_connected_providers");
+                }
+                // QNB ise credential'ları da temizle
+                if (disconnecting && disconnecting.authType === "qnb") {
+                    localStorage.removeItem("lysia_qnb_form");
+                }
+            } catch (e) { /* ignore */ }
             setInvoices([]);
             setLastFetchTime(null);
             setFetchError("");
+            hasReconnectedRef.current = false;
         }
     };
 
@@ -1318,12 +1378,26 @@ const BillingPage = () => {
 
         for (const dt of docTypes) {
             try {
+                // QNB giden belge sorgusu tarih aralığı zorunlu tutuyor — son 30 gün varsayılan
+                const defaultSearchParams = {};
+                if (provider.authType === "qnb") {
+                    const now = new Date();
+                    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+                    const fmt = (d) => d.toISOString().split("T")[0].replace(/-/g, "");
+                    defaultSearchParams.startDate = fmt(thirtyDaysAgo);
+                    defaultSearchParams.endDate = fmt(now);
+                }
                 const bodyData = {
                     token: apiToken,
                     documentType: dt.apiType,
-                    searchParams: {},
+                    searchParams: defaultSearchParams,
                     env: provider.env
                 };
+                // QNB backend "sessionId" bekliyor, genel endpoint "token" bekliyor
+                if (provider.authType === "qnb") {
+                    bodyData.sessionId = provider.sessionId || apiToken;
+                    bodyData.vkn = provider.vkn || "7610650466";
+                }
                 if (provider.authType === "parasut" && provider.companyId) {
                     bodyData.companyId = provider.companyId;
                 }
@@ -1368,6 +1442,44 @@ const BillingPage = () => {
         setInvoicesLoading(false);
         isFetchingRef.current = false;
     }, []); // BOŞ bağımlılık — ref üzerinden okur, asla yeniden oluşmaz
+
+    // ── Sayfa yüklendiğinde kaydedilmiş QNB session'ı yenile ──
+    // Sunucu restart veya session expire olmuş olabilir — her zaman yeniden login dene
+    const hasReconnectedRef = useRef(false);
+    useEffect(() => {
+        if (!isConnected || hasReconnectedRef.current) return;
+        hasReconnectedRef.current = true;
+
+        const provider = connectedProviders[0];
+        if (provider && provider.authType === "qnb") {
+            const token = localStorage.getItem("token") || sessionStorage.getItem("token");
+            const savedForm = localStorage.getItem("lysia_qnb_form");
+            if (savedForm && token) {
+                try {
+                    const creds = JSON.parse(savedForm);
+                    fetch(API_URL + "/api/e-invoice/qnb/login", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
+                        body: JSON.stringify(creds)
+                    }).then(r => r.json()).then(data => {
+                        if (data.success && data.data) {
+                            const refreshed = {
+                                ...provider,
+                                sessionId: data.data.sessionId,
+                                apiToken: data.data.sessionId,
+                                connectedAt: new Date().toISOString(),
+                            };
+                            const updated = [refreshed];
+                            setConnectedProviders(updated);
+                            try { localStorage.setItem("lysia_connected_providers", JSON.stringify(updated)); } catch (e) { /* */ }
+                        }
+                        // Başarısız olursa bağlantıyı silme — kullanıcı zaten bağlı görünsün
+                        // Sadece session geçersiz olur, belge çekme hata verir ama bağlantı korunur
+                    }).catch(() => {});
+                } catch (e) { /* ignore */ }
+            }
+        }
+    }, [isConnected, connectedProviders]);
 
     // ── Sağlayıcı bağlandığında otomatik belge çek (tek seferlik) ──
     useEffect(() => {
@@ -1747,6 +1859,835 @@ const BillingPage = () => {
     };
 
     /* ═══════════════════════════════════════════════════════
+       OTOMATİK FATURA — API ÇAĞRILARI
+       ═══════════════════════════════════════════════════════ */
+    const fetchAutoInvoiceData = useCallback(async () => {
+        setAutoInvoiceLoading(true);
+        setAutoInvoiceError("");
+        try {
+            const token = localStorage.getItem("token") || sessionStorage.getItem("token");
+            const headers = { Authorization: "Bearer " + token };
+            const [configRes, statsRes, invoicesRes] = await Promise.all([
+                fetch(API_URL + "/api/auto-invoice/config", { headers }).then(r => r.json()),
+                fetch(API_URL + "/api/auto-invoice/stats", { headers }).then(r => r.json()),
+                fetch(API_URL + "/api/auto-invoice/invoices?limit=50", { headers }).then(r => r.json()),
+            ]);
+            if (configRes.success) setAutoInvoiceConfig(configRes.data);
+            if (statsRes.success) setAutoInvoiceStats(statsRes.data);
+            if (invoicesRes.success) setAutoInvoices(invoicesRes.data || []);
+        } catch (err) {
+            setAutoInvoiceError("Veriler yüklenemedi: " + err.message);
+        } finally {
+            setAutoInvoiceLoading(false);
+        }
+    }, []);
+
+    const saveAutoInvoiceConfig = async (configData) => {
+        setAutoInvoiceSaving(true);
+        setAutoInvoiceError("");
+        try {
+            const token = localStorage.getItem("token") || sessionStorage.getItem("token");
+            const res = await fetch(API_URL + "/api/auto-invoice/config", {
+                method: "PUT",
+                headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
+                body: JSON.stringify(configData),
+            });
+            const data = await res.json();
+            if (data.success) {
+                setAutoInvoiceConfig(data.data);
+                setShowAutoInvoiceConfig(false);
+                await fetchAutoInvoiceData();
+            } else {
+                setAutoInvoiceError(data.message || "Kaydetme hatası");
+            }
+        } catch (err) {
+            setAutoInvoiceError("Kaydetme hatası: " + err.message);
+        } finally {
+            setAutoInvoiceSaving(false);
+        }
+    };
+
+    const toggleAutoInvoice = async () => {
+        setAutoInvoiceError("");
+        try {
+            const token = localStorage.getItem("token") || sessionStorage.getItem("token");
+            const res = await fetch(API_URL + "/api/auto-invoice/toggle", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
+            });
+            const data = await res.json();
+            if (data.success) {
+                setAutoInvoiceConfig(prev => prev ? { ...prev, enabled: data.enabled } : prev);
+                await fetchAutoInvoiceData();
+            } else {
+                setAutoInvoiceError(data.message || "Toggle hatası");
+            }
+        } catch (err) {
+            setAutoInvoiceError("Toggle hatası: " + err.message);
+        }
+    };
+
+    const processAllUninvoiced = async () => {
+        setProcessAllLoading(true);
+        setProcessAllResult(null);
+        setAutoInvoiceError("");
+        try {
+            const token = localStorage.getItem("token") || sessionStorage.getItem("token");
+            const res = await fetch(API_URL + "/api/auto-invoice/process-all", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
+                body: JSON.stringify({ limit: 50 })
+            });
+            const data = await res.json();
+            if (data.success) {
+                setProcessAllResult(data);
+                await fetchAutoInvoiceData();
+            } else {
+                setAutoInvoiceError(data.message || "Toplu faturalama hatası");
+            }
+        } catch (err) {
+            setAutoInvoiceError("Toplu faturalama hatası: " + err.message);
+        } finally {
+            setProcessAllLoading(false);
+        }
+    };
+
+    const downloadInvoicePdf = async (invoiceId, invoiceNumber) => {
+        setPdfLoading(invoiceId);
+        try {
+            const token = localStorage.getItem("token") || sessionStorage.getItem("token");
+            const res = await fetch(API_URL + "/api/auto-invoice/invoices/" + invoiceId + "/pdf", {
+                headers: { Authorization: "Bearer " + token }
+            });
+            if (res.ok) {
+                const contentType = res.headers.get("content-type") || "";
+                if (contentType.includes("zip") || contentType.includes("octet")) {
+                    const blob = await res.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = (invoiceNumber || "fatura") + ".zip";
+                    document.body.appendChild(a);
+                    a.click();
+                    a.remove();
+                    window.URL.revokeObjectURL(url);
+                } else {
+                    const data = await res.json();
+                    if (data.success && data.data) {
+                        alert("PDF verisi alındı (format: JSON). Konsolu kontrol edin.");
+                        console.log("[PDF Data]", data.data);
+                    } else {
+                        setAutoInvoiceError(data.message || "PDF indirilemedi");
+                    }
+                }
+            } else {
+                const data = await res.json().catch(() => ({}));
+                setAutoInvoiceError(data.message || "PDF indirme hatası (" + res.status + ")");
+            }
+        } catch (err) {
+            setAutoInvoiceError("PDF indirme hatası: " + err.message);
+        } finally {
+            setPdfLoading(null);
+        }
+    };
+
+    const resetAutoInvoiceErrors = async () => {
+        try {
+            const token = localStorage.getItem("token") || sessionStorage.getItem("token");
+            const res = await fetch(API_URL + "/api/auto-invoice/reset-errors", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
+            });
+            const data = await res.json();
+            if (data.success) await fetchAutoInvoiceData();
+        } catch (err) { /* ignore */ }
+    };
+
+    const initAutoConfigForm = () => {
+        const cfg = autoInvoiceConfig || {};
+        setAutoConfigForm({
+            enabled: cfg.enabled || false,
+            provider: cfg.provider || "qnb",
+            enabledMarketplaces: cfg.enabledMarketplaces || [],
+            triggerStatuses: cfg.triggerStatuses || ["Shipped", "Delivered"],
+            documentType: cfg.documentType || "EARSIVFATURA",
+            invoiceTypeCode: cfg.invoiceTypeCode || "SATIS",
+            invoiceSeriesCode: cfg.invoiceSeriesCode || "LYS",
+            currency: cfg.currency || "TRY",
+            sendingType: cfg.sendingType || "ELEKTRONIK",
+            defaultVatRate: cfg.defaultVatRate || 20,
+            defaultNote: cfg.defaultNote || "",
+            supplier: {
+                vkn: cfg.supplier?.vkn || "",
+                name: cfg.supplier?.name || "",
+                taxOffice: cfg.supplier?.taxOffice || "",
+                street: cfg.supplier?.street || "",
+                district: cfg.supplier?.district || "",
+                city: cfg.supplier?.city || "",
+                country: cfg.supplier?.country || "Turkiye",
+                phone: cfg.supplier?.phone || "",
+                email: cfg.supplier?.email || "",
+            },
+            defaultCustomer: {
+                vkn: cfg.defaultCustomer?.vkn || "22222222222",
+                name: cfg.defaultCustomer?.name || "",
+                firstName: cfg.defaultCustomer?.firstName || "",
+                lastName: cfg.defaultCustomer?.lastName || "",
+                city: cfg.defaultCustomer?.city || "Istanbul",
+                district: cfg.defaultCustomer?.district || "Merkez",
+                country: cfg.defaultCustomer?.country || "Turkiye",
+            },
+            qnbCredentials: {
+                username: cfg.qnbCredentials?.username || "",
+                password: cfg.qnbCredentials?.password || "",
+                env: cfg.qnbCredentials?.env || "test",
+            },
+        });
+    };
+
+    // Otomatik fatura tab'ına geçildiğinde verileri yükle
+    useEffect(() => {
+        if (activeTab === "auto-invoice" && !autoInvoiceConfig) {
+            fetchAutoInvoiceData();
+        }
+    }, [activeTab, autoInvoiceConfig, fetchAutoInvoiceData]);
+
+    /* ═══════════════════════════════════════════════════════
+       RENDER: OTOMATİK FATURA
+       ═══════════════════════════════════════════════════════ */
+    const renderAutoInvoice = () => {
+        if (autoInvoiceLoading && !autoInvoiceConfig) {
+            return (
+                <div style={{ textAlign: "center", padding: "3rem" }}>
+                    <FaSpinner style={{ animation: "spin 1s linear infinite", fontSize: "2rem", color: C.accent }} />
+                    <p style={{ color: C.muted, marginTop: "1rem" }}>Yükleniyor...</p>
+                </div>
+            );
+        }
+
+        const config = autoInvoiceConfig || {};
+        const st = autoInvoiceStats || {};
+        const isEnabled = config.enabled || false;
+        const hasConfig = config.supplier && config.supplier.vkn;
+        const consecutiveErrors = config.stats?.consecutiveErrors || 0;
+
+        // ── Ayar Formu (inline) ──
+        if (showAutoInvoiceConfig) {
+            return renderAutoInvoiceConfigForm();
+        }
+
+        return (
+            <div>
+                {/* Başlık + Toggle */}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem", flexWrap: "wrap", gap: "1rem" }}>
+                    <div>
+                        <h3 style={{ color: "#fff", fontSize: "1.1rem", fontWeight: 700, margin: 0, display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                            <FaSyncAlt style={{ color: C.accent }} /> Otomatik Fatura Kesme
+                        </h3>
+                        <p style={{ color: C.dim, fontSize: "0.8rem", margin: "0.25rem 0 0" }}>
+                            Pazaryerinden sipariş geldiğinde otomatik e-Arşiv fatura kesilir
+                        </p>
+                    </div>
+                    <div style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
+                        <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+                            onClick={() => { initAutoConfigForm(); setShowAutoInvoiceConfig(true); }}
+                            style={{
+                                background: C.glass, border: "1px solid " + C.glassBr, borderRadius: 10,
+                                padding: "0.6rem 1.1rem", cursor: "pointer", color: C.muted,
+                                fontSize: "0.82rem", fontWeight: 600, display: "flex", alignItems: "center", gap: "0.4rem",
+                            }}>
+                            <FaCog /> Ayarlar
+                        </motion.button>
+                        {hasConfig && (
+                            <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+                                onClick={toggleAutoInvoice}
+                                style={{
+                                    background: isEnabled ? C.green + "20" : C.red + "20",
+                                    border: "1px solid " + (isEnabled ? C.green + "50" : C.red + "50"),
+                                    borderRadius: 10, padding: "0.6rem 1.1rem", cursor: "pointer",
+                                    color: isEnabled ? C.green : C.red,
+                                    fontSize: "0.82rem", fontWeight: 700, display: "flex", alignItems: "center", gap: "0.4rem",
+                                }}>
+                                {isEnabled ? <><FaCheckCircle /> Aktif</> : <><FaTimesCircle /> Devre Dışı</>}
+                            </motion.button>
+                        )}
+                        <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+                            onClick={fetchAutoInvoiceData}
+                            style={{
+                                background: C.glass, border: "1px solid " + C.glassBr, borderRadius: 10,
+                                padding: "0.6rem", cursor: "pointer", color: C.muted, fontSize: "0.9rem",
+                            }}>
+                            <FaSyncAlt style={autoInvoiceLoading ? { animation: "spin 1s linear infinite" } : {}} />
+                        </motion.button>
+                    </div>
+                </div>
+
+                {autoInvoiceError && (
+                    <div style={{ background: C.red + "15", border: "1px solid " + C.red + "40", borderRadius: 12, padding: "0.85rem 1rem", marginBottom: "1.25rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                        <FaExclamationTriangle style={{ color: C.red, flexShrink: 0 }} />
+                        <span style={{ color: C.red, fontSize: "0.82rem" }}>{autoInvoiceError}</span>
+                    </div>
+                )}
+
+                {/* Ardışık hata uyarısı */}
+                {consecutiveErrors >= 3 && (
+                    <div style={{ background: C.yellow + "15", border: "1px solid " + C.yellow + "40", borderRadius: 12, padding: "0.85rem 1rem", marginBottom: "1.25rem", display: "flex", alignItems: "center", gap: "0.5rem", justifyContent: "space-between" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                            <FaExclamationTriangle style={{ color: C.yellow, flexShrink: 0 }} />
+                            <span style={{ color: C.yellow, fontSize: "0.82rem" }}>
+                                {consecutiveErrors} ardışık hata oluştu. {consecutiveErrors >= 5 ? "Otomatik fatura devre dışı bırakıldı." : "5 hatada otomatik devre dışı kalır."}
+                                {config.stats?.lastError && <><br /><span style={{ color: C.dim }}>Son hata: {config.stats.lastError}</span></>}
+                            </span>
+                        </div>
+                        <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+                            onClick={resetAutoInvoiceErrors}
+                            style={{ background: C.yellow + "25", border: "1px solid " + C.yellow + "50", borderRadius: 8, padding: "0.4rem 0.8rem", cursor: "pointer", color: C.yellow, fontSize: "0.75rem", fontWeight: 600, flexShrink: 0 }}>
+                            Sıfırla
+                        </motion.button>
+                    </div>
+                )}
+
+                {/* Ayar yapılmamış uyarısı */}
+                {!hasConfig && (
+                    <GlassCard style={{ textAlign: "center", padding: "2.5rem 1.5rem", marginBottom: "1.5rem" }}>
+                        <div style={{ fontSize: "3rem", marginBottom: "0.75rem" }}>⚙️</div>
+                        <p style={{ color: C.muted, fontSize: "1rem", fontWeight: 600, margin: "0 0 0.35rem" }}>Ayarlar Yapılmadı</p>
+                        <p style={{ color: C.dim, fontSize: "0.82rem", margin: "0 0 1.25rem", maxWidth: 400, marginLeft: "auto", marginRight: "auto", lineHeight: 1.5 }}>
+                            Otomatik fatura kesme için firma bilgilerinizi ve QNB bağlantı ayarlarınızı yapmanız gerekiyor.
+                        </p>
+                        <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+                            onClick={() => { initAutoConfigForm(); setShowAutoInvoiceConfig(true); }}
+                            style={{ background: "linear-gradient(135deg, " + C.accent + " 0%, #06b6d4 100%)", border: "none", borderRadius: 10, padding: "0.7rem 1.5rem", cursor: "pointer", color: "#fff", fontSize: "0.85rem", fontWeight: 700 }}>
+                            <FaCog style={{ marginRight: "0.4rem" }} /> Ayarları Yapılandır
+                        </motion.button>
+                    </GlassCard>
+                )}
+
+                {/* Toplu Faturalama Sonucu */}
+                {processAllResult && (
+                    <div style={{ background: C.green + "15", border: "1px solid " + C.green + "40", borderRadius: 12, padding: "0.85rem 1rem", marginBottom: "1.25rem", display: "flex", alignItems: "center", gap: "0.5rem", justifyContent: "space-between" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                            <FaCheckCircle style={{ color: C.green, flexShrink: 0 }} />
+                            <span style={{ color: C.green, fontSize: "0.82rem", fontWeight: 600 }}>{processAllResult.message}</span>
+                        </div>
+                        <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+                            onClick={() => setProcessAllResult(null)}
+                            style={{ background: "none", border: "none", color: C.dim, cursor: "pointer", fontSize: "0.85rem" }}>✕</motion.button>
+                    </div>
+                )}
+
+                {/* İstatistik Kartları */}
+                {hasConfig && (
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "1rem", marginBottom: "1.5rem" }}>
+                        {[
+                            { label: "Toplam Fatura", value: st.totalInvoices || 0, icon: <FaFileInvoice />, color: C.accent },
+                            { label: "Bugün Kesilen", value: st.todayInvoices || 0, icon: <FaCalendarAlt />, color: C.green },
+                            { label: "Toplam Tutar", value: fmtCurrency(st.totalAmount || 0), icon: <FaMoneyBillWave />, color: C.purple },
+                            { label: "Faturasız Sipariş", value: st.uninvoicedOrders || 0, icon: <FaExclamationTriangle />, color: st.uninvoicedOrders > 0 ? C.yellow : C.dim },
+                        ].map((card, i) => (
+                            <GlassCard key={i} style={{ padding: "1.15rem" }}>
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                                    <div>
+                                        <p style={{ color: C.dim, fontSize: "0.72rem", fontWeight: 600, margin: 0, textTransform: "uppercase", letterSpacing: "0.5px" }}>{card.label}</p>
+                                        <p style={{ color: "#fff", fontSize: "1.35rem", fontWeight: 800, margin: "0.35rem 0 0" }}>{card.value}</p>
+                                    </div>
+                                    <div style={{ color: card.color, fontSize: "1.3rem", opacity: 0.7 }}>{card.icon}</div>
+                                </div>
+                            </GlassCard>
+                        ))}
+                    </div>
+                )}
+
+                {/* Tümünü Faturala Butonu */}
+                {hasConfig && (st.uninvoicedOrders || 0) > 0 && (
+                    <div style={{ marginBottom: "1.5rem", display: "flex", gap: "0.75rem", alignItems: "center", flexWrap: "wrap" }}>
+                        <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+                            onClick={processAllUninvoiced}
+                            disabled={processAllLoading}
+                            style={{
+                                background: "linear-gradient(135deg, " + C.accent + " 0%, #06b6d4 100%)",
+                                border: "none", borderRadius: 10, padding: "0.7rem 1.5rem",
+                                cursor: processAllLoading ? "not-allowed" : "pointer",
+                                color: "#fff", fontSize: "0.85rem", fontWeight: 700,
+                                display: "flex", alignItems: "center", gap: "0.5rem",
+                                opacity: processAllLoading ? 0.7 : 1,
+                            }}>
+                            {processAllLoading
+                                ? <><FaSpinner style={{ animation: "spin 1s linear infinite" }} /> Faturalar Kesiliyor...</>
+                                : <><FaFileInvoice /> Faturasız Siparişleri Faturala ({Math.min(50, st.uninvoicedOrders)})</>}
+                        </motion.button>
+                        <span style={{ color: C.dim, fontSize: "0.75rem" }}>
+                            Tek seferde en fazla 50 sipariş faturalanır. {(st.uninvoicedOrders || 0) > 50 ? "Kalan siparişler için tekrar çalıştırın." : ""}
+                        </span>
+                    </div>
+                )}
+
+                {/* Durum Bilgisi */}
+                {hasConfig && (
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: "1rem", marginBottom: "1.5rem" }}>
+                        {/* Mevcut Ayarlar Özeti */}
+                        <GlassCard>
+                            <h4 style={{ color: "#fff", fontSize: "0.9rem", fontWeight: 700, margin: "0 0 1rem", display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                                <FaCog style={{ color: C.accent }} /> Mevcut Ayarlar
+                            </h4>
+                            <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+                                {[
+                                    { label: "Durum", value: isEnabled ? "Aktif" : "Devre Dışı", color: isEnabled ? C.green : C.red },
+                                    { label: "Sağlayıcı", value: (config.provider || "qnb").toUpperCase() },
+                                    { label: "Belge Tipi", value: config.documentType || "EARSIVFATURA" },
+                                    { label: "Fatura Serisi", value: config.invoiceSeriesCode || "LYS" },
+                                    { label: "KDV Oranı", value: "%" + (config.defaultVatRate || 20) },
+                                    { label: "Firma VKN", value: config.supplier?.vkn || "—" },
+                                    { label: "Firma Adı", value: config.supplier?.name || "—" },
+                                    { label: "Ortam", value: config.qnbCredentials?.env === "production" ? "Canlı" : "Test" },
+                                    { label: "Pazaryerleri", value: config.enabledMarketplaces?.length > 0 ? config.enabledMarketplaces.join(", ") : "Tümü" },
+                                    { label: "Tetikleme Durumları", value: config.triggerStatuses?.length > 0 ? config.triggerStatuses.join(", ") : "Tümü" },
+                                ].map((row, i) => (
+                                    <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.35rem 0", borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
+                                        <span style={{ color: C.dim, fontSize: "0.78rem" }}>{row.label}</span>
+                                        <span style={{ color: row.color || C.text, fontSize: "0.78rem", fontWeight: 600 }}>{row.value}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </GlassCard>
+
+                        {/* Pazaryeri Kırılımı + Son Hata */}
+                        <GlassCard>
+                            <h4 style={{ color: "#fff", fontSize: "0.9rem", fontWeight: 700, margin: "0 0 1rem", display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                                <FaChartPie style={{ color: C.purple }} /> Pazaryeri Kırılımı
+                            </h4>
+                            {(st.byMarketplace && st.byMarketplace.length > 0) ? (
+                                <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                                    {st.byMarketplace.map((mp, i) => {
+                                        const total = st.totalInvoices || 1;
+                                        const pct = ((mp.count / total) * 100).toFixed(0);
+                                        const colors = { Trendyol: "#f27a1a", Hepsiburada: "#ff6000", N11: "#7b2d8e", "ÇiçekSepeti": "#e91e63" };
+                                        const barColor = colors[mp.marketplace] || C.accent;
+                                        return (
+                                            <div key={i}>
+                                                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.2rem" }}>
+                                                    <span style={{ color: C.text, fontSize: "0.78rem", fontWeight: 600 }}>{mp.marketplace}</span>
+                                                    <span style={{ color: C.dim, fontSize: "0.75rem" }}>{mp.count} fatura ({pct}%)</span>
+                                                </div>
+                                                <div style={{ background: "rgba(255,255,255,0.05)", borderRadius: 4, height: 6, overflow: "hidden" }}>
+                                                    <div style={{ background: barColor, height: "100%", width: pct + "%", borderRadius: 4, transition: "width 0.5s" }} />
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            ) : (
+                                <p style={{ color: C.dim, fontSize: "0.8rem", textAlign: "center", padding: "1rem 0" }}>Henüz fatura kesilmedi</p>
+                            )}
+
+                            {/* Son fatura bilgisi */}
+                            {config.stats?.lastInvoiceDate && (
+                                <div style={{ marginTop: "1rem", padding: "0.65rem 0.85rem", background: C.green + "10", border: "1px solid " + C.green + "25", borderRadius: 8 }}>
+                                    <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", color: C.green, fontSize: "0.75rem", fontWeight: 600 }}>
+                                        <FaCheckCircle /> Son fatura: {fmtDate(config.stats.lastInvoiceDate)}
+                                    </div>
+                                    <p style={{ color: C.dim, fontSize: "0.72rem", margin: "0.2rem 0 0" }}>
+                                        Toplam {config.stats.totalInvoicesCreated || 0} fatura kesildi
+                                    </p>
+                                </div>
+                            )}
+
+                            {/* Son hata */}
+                            {config.stats?.lastError && (
+                                <div style={{ marginTop: "0.75rem", padding: "0.65rem 0.85rem", background: C.red + "10", border: "1px solid " + C.red + "25", borderRadius: 8 }}>
+                                    <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", color: C.red, fontSize: "0.75rem", fontWeight: 600 }}>
+                                        <FaTimesCircle /> Son hata
+                                    </div>
+                                    <p style={{ color: C.dim, fontSize: "0.72rem", margin: "0.2rem 0 0", wordBreak: "break-word" }}>
+                                        {config.stats.lastError}
+                                    </p>
+                                </div>
+                            )}
+                        </GlassCard>
+                    </div>
+                )}
+
+                {/* Fatura Listesi */}
+                {hasConfig && autoInvoices.length > 0 && (
+                    <GlassCard style={{ marginBottom: "1.5rem" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+                            <h4 style={{ color: "#fff", fontSize: "0.9rem", fontWeight: 700, margin: 0, display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                                <FaFileInvoice style={{ color: C.accent }} /> Kesilen Faturalar ({autoInvoices.length})
+                            </h4>
+                        </div>
+                        {/* Tablo Başlık */}
+                        <div style={{ display: "grid", gridTemplateColumns: "2fr 1.5fr 1.5fr 1fr 1fr 1fr", gap: "0.5rem", padding: "0.5rem 0.75rem", background: "rgba(255,255,255,0.03)", borderRadius: 8, marginBottom: "0.5rem" }}>
+                            {["Fatura No", "Müşteri", "Sipariş", "Tutar", "Durum", "Tarih"].map((h, i) => (
+                                <span key={i} style={{ color: C.dim, fontSize: "0.7rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.5px" }}>{h}</span>
+                            ))}
+                        </div>
+                        {/* Fatura Satırları */}
+                        <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem", maxHeight: 400, overflowY: "auto" }}>
+                            {autoInvoices.map((inv, idx) => {
+                                const statusConfig = {
+                                    created: { color: C.blue, label: "Oluşturuldu" },
+                                    sent: { color: C.accent, label: "Gönderildi" },
+                                    accepted: { color: C.green, label: "Onaylandı" },
+                                    rejected: { color: C.red, label: "Reddedildi" },
+                                    cancelled: { color: C.yellow, label: "İptal" },
+                                    error: { color: C.red, label: "Hata" },
+                                };
+                                const sc = statusConfig[inv.status] || { color: C.dim, label: inv.status || "—" };
+                                return (
+                                    <motion.div
+                                        key={inv._id || idx}
+                                        whileHover={{ backgroundColor: "rgba(255,255,255,0.04)" }}
+                                        onClick={() => setSelectedAutoInvoice(selectedAutoInvoice?._id === inv._id ? null : inv)}
+                                        style={{
+                                            display: "grid", gridTemplateColumns: "2fr 1.5fr 1.5fr 1fr 1fr 1fr", gap: "0.5rem",
+                                            padding: "0.65rem 0.75rem", borderRadius: 8, cursor: "pointer",
+                                            borderBottom: "1px solid rgba(255,255,255,0.04)",
+                                            background: selectedAutoInvoice?._id === inv._id ? "rgba(99,102,241,0.08)" : "transparent",
+                                        }}
+                                    >
+                                        <span style={{ color: C.accent, fontSize: "0.8rem", fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                            {inv.invoiceNumber || "—"}
+                                        </span>
+                                        <span style={{ color: C.text, fontSize: "0.78rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                            {inv.customer?.name || "—"}
+                                        </span>
+                                        <span style={{ color: C.muted, fontSize: "0.78rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                            {inv.marketplaceName ? (inv.marketplaceName + " #" + (inv.orderNumber || "")) : (inv.orderNumber || "—")}
+                                        </span>
+                                        <span style={{ color: C.green, fontSize: "0.8rem", fontWeight: 700 }}>
+                                            {fmtCurrency(inv.totals?.payableAmount || 0)}
+                                        </span>
+                                        <span style={{ color: sc.color, fontSize: "0.72rem", fontWeight: 600, background: sc.color + "15", padding: "0.15rem 0.5rem", borderRadius: 6, textAlign: "center", whiteSpace: "nowrap" }}>
+                                            {sc.label}
+                                        </span>
+                                        <span style={{ color: C.dim, fontSize: "0.75rem" }}>
+                                            {fmtDate(inv.issueDate || inv.createdAt)}
+                                        </span>
+                                    </motion.div>
+                                );
+                            })}
+                        </div>
+
+                        {/* Seçili Fatura Detayı */}
+                        {selectedAutoInvoice && (
+                            <motion.div
+                                initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
+                                style={{ marginTop: "1rem", padding: "1rem", background: "rgba(99,102,241,0.06)", border: "1px solid rgba(99,102,241,0.15)", borderRadius: 12 }}
+                            >
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
+                                    <h5 style={{ color: "#fff", fontSize: "0.85rem", fontWeight: 700, margin: 0 }}>
+                                        {selectedAutoInvoice.invoiceNumber} — Detay
+                                    </h5>
+                                    <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}
+                                        onClick={() => setSelectedAutoInvoice(null)}
+                                        style={{ background: "none", border: "none", color: C.dim, cursor: "pointer", fontSize: "1rem" }}>
+                                        ✕
+                                    </motion.button>
+                                </div>
+                                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "0.75rem", marginBottom: "0.75rem" }}>
+                                    {[
+                                        { label: "UUID (ETTN)", value: selectedAutoInvoice.uuid || "—" },
+                                        { label: "Profil", value: selectedAutoInvoice.profileId || "—" },
+                                        { label: "Fatura Tipi", value: selectedAutoInvoice.invoiceTypeCode || "—" },
+                                        { label: "Sağlayıcı", value: (selectedAutoInvoice.provider || "qnb").toUpperCase() },
+                                        { label: "Ortam", value: selectedAutoInvoice.env === "production" ? "Canlı" : "Test" },
+                                        { label: "Oluşturma", value: selectedAutoInvoice.createdBy === "auto" ? "Otomatik" : "Manuel" },
+                                        { label: "Müşteri VKN", value: selectedAutoInvoice.customer?.vkn || "—" },
+                                        { label: "Vergi Dairesi", value: selectedAutoInvoice.customer?.taxOffice || "—" },
+                                    ].map((item, i) => (
+                                        <div key={i} style={{ padding: "0.5rem 0", borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
+                                            <p style={{ color: C.dim, fontSize: "0.68rem", fontWeight: 600, margin: 0, textTransform: "uppercase" }}>{item.label}</p>
+                                            <p style={{ color: C.text, fontSize: "0.8rem", fontWeight: 600, margin: "0.15rem 0 0", wordBreak: "break-all" }}>{item.value}</p>
+                                        </div>
+                                    ))}
+                                </div>
+                                {/* Tutar Özeti */}
+                                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: "0.5rem", padding: "0.75rem", background: "rgba(255,255,255,0.03)", borderRadius: 8, marginBottom: "0.75rem" }}>
+                                    {[
+                                        { label: "KDV Hariç", value: fmtCurrency(selectedAutoInvoice.totals?.lineExtensionAmount || 0), color: C.text },
+                                        { label: "KDV", value: fmtCurrency(selectedAutoInvoice.totals?.totalTax || 0), color: C.purple },
+                                        { label: "KDV Dahil", value: fmtCurrency(selectedAutoInvoice.totals?.taxInclusiveAmount || 0), color: C.blue },
+                                        { label: "Ödenecek", value: fmtCurrency(selectedAutoInvoice.totals?.payableAmount || 0), color: C.green },
+                                    ].map((t, i) => (
+                                        <div key={i} style={{ textAlign: "center" }}>
+                                            <p style={{ color: C.dim, fontSize: "0.68rem", margin: 0 }}>{t.label}</p>
+                                            <p style={{ color: t.color, fontSize: "0.9rem", fontWeight: 700, margin: "0.15rem 0 0" }}>{t.value}</p>
+                                        </div>
+                                    ))}
+                                </div>
+                                {/* Kalemler */}
+                                {selectedAutoInvoice.lines && selectedAutoInvoice.lines.length > 0 && (
+                                    <div>
+                                        <p style={{ color: C.muted, fontSize: "0.75rem", fontWeight: 700, margin: "0 0 0.5rem" }}>Kalemler</p>
+                                        {selectedAutoInvoice.lines.map((line, li) => (
+                                            <div key={li} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.4rem 0", borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
+                                                <div>
+                                                    <span style={{ color: C.text, fontSize: "0.78rem", fontWeight: 600 }}>{line.name || "Ürün"}</span>
+                                                    <span style={{ color: C.dim, fontSize: "0.7rem", marginLeft: "0.5rem" }}>{line.quantity} {line.unit} × {fmtCurrency(line.unitPrice)}</span>
+                                                    <span style={{ color: C.purple, fontSize: "0.7rem", marginLeft: "0.5rem" }}>%{line.vatRate} KDV</span>
+                                                </div>
+                                                <span style={{ color: C.green, fontSize: "0.8rem", fontWeight: 700 }}>{fmtCurrency(line.lineTotal + (line.vatAmount || 0))}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                                {/* QNB Yanıt */}
+                                {selectedAutoInvoice.providerResponse?.resultCode && (
+                                    <div style={{ marginTop: "0.75rem", padding: "0.5rem 0.75rem", background: "rgba(255,255,255,0.03)", borderRadius: 8 }}>
+                                        <p style={{ color: C.dim, fontSize: "0.68rem", fontWeight: 600, margin: 0 }}>QNB YANIT</p>
+                                        <p style={{ color: C.text, fontSize: "0.78rem", margin: "0.15rem 0 0" }}>
+                                            Kod: {selectedAutoInvoice.providerResponse.resultCode} — {selectedAutoInvoice.providerResponse.resultText || ""}
+                                        </p>
+                                    </div>
+                                )}
+                                {/* PDF İndir Butonu */}
+                                <div style={{ marginTop: "1rem", display: "flex", gap: "0.75rem" }}>
+                                    <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+                                        onClick={(e) => { e.stopPropagation(); downloadInvoicePdf(selectedAutoInvoice._id, selectedAutoInvoice.invoiceNumber); }}
+                                        disabled={pdfLoading === selectedAutoInvoice._id}
+                                        style={{
+                                            background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
+                                            border: "none", borderRadius: 8, padding: "0.55rem 1.2rem",
+                                            cursor: pdfLoading === selectedAutoInvoice._id ? "not-allowed" : "pointer",
+                                            color: "#fff", fontSize: "0.8rem", fontWeight: 700,
+                                            display: "flex", alignItems: "center", gap: "0.4rem",
+                                            opacity: pdfLoading === selectedAutoInvoice._id ? 0.7 : 1,
+                                        }}>
+                                        {pdfLoading === selectedAutoInvoice._id
+                                            ? <><FaSpinner style={{ animation: "spin 1s linear infinite" }} /> İndiriliyor...</>
+                                            : <><FaDownload /> PDF / ZIP İndir</>}
+                                    </motion.button>
+                                </div>
+                            </motion.div>
+                        )}
+                    </GlassCard>
+                )}
+
+                {/* Fatura yoksa bilgi mesajı */}
+                {hasConfig && autoInvoices.length === 0 && (
+                    <GlassCard style={{ textAlign: "center", padding: "1.5rem", marginBottom: "1.5rem" }}>
+                        <FaFileInvoice style={{ fontSize: "2rem", color: C.dim, marginBottom: "0.5rem" }} />
+                        <p style={{ color: C.muted, fontSize: "0.85rem", fontWeight: 600, margin: "0 0 0.25rem" }}>Henüz Fatura Kesilmedi</p>
+                        <p style={{ color: C.dim, fontSize: "0.78rem", margin: 0 }}>
+                            Pazaryerinden yeni sipariş geldiğinde otomatik fatura kesilecektir.
+                        </p>
+                    </GlassCard>
+                )}
+
+                {/* Nasıl Çalışır */}
+                <GlassCard style={{ marginBottom: "1.5rem" }}>
+                    <h4 style={{ color: "#fff", fontSize: "0.9rem", fontWeight: 700, margin: "0 0 1rem", display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                        <FaInfoCircle style={{ color: C.blue }} /> Nasıl Çalışır?
+                    </h4>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "1rem" }}>
+                        {[
+                            { step: "1", title: "Sipariş Gelir", desc: "Trendyol, Hepsiburada, N11 veya ÇiçekSepeti'nden sipariş sync edilir", icon: "📦" },
+                            { step: "2", title: "Durum Kontrolü", desc: "Sipariş durumu ayarlardaki tetikleme durumlarına uyuyor mu kontrol edilir", icon: "🔍" },
+                            { step: "3", title: "Fatura Kesilir", desc: "QNB eSolutions üzerinden otomatik e-Arşiv fatura oluşturulur ve imzalanır", icon: "📄" },
+                            { step: "4", title: "Kayıt Yapılır", desc: "Fatura bilgileri DB'ye kaydedilir ve siparişe bağlanır", icon: "✅" },
+                        ].map((s, i) => (
+                            <div key={i} style={{ display: "flex", gap: "0.75rem", alignItems: "flex-start" }}>
+                                <div style={{ width: 40, height: 40, borderRadius: 10, background: C.accent + "15", border: "1px solid " + C.accent + "30", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.2rem", flexShrink: 0 }}>
+                                    {s.icon}
+                                </div>
+                                <div>
+                                    <p style={{ color: C.text, fontSize: "0.82rem", fontWeight: 700, margin: 0 }}>{s.title}</p>
+                                    <p style={{ color: C.dim, fontSize: "0.72rem", margin: "0.15rem 0 0", lineHeight: 1.4 }}>{s.desc}</p>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </GlassCard>
+            </div>
+        );
+    };
+
+    /* ═══════════════════════════════════════════════════════
+       RENDER: OTOMATİK FATURA AYAR FORMU
+       ═══════════════════════════════════════════════════════ */
+    const renderAutoInvoiceConfigForm = () => {
+        const formData = autoConfigForm || {};
+
+        const updateField = (path, value) => {
+            setAutoConfigForm(prev => {
+                const copy = JSON.parse(JSON.stringify(prev));
+                const keys = path.split(".");
+                let obj = copy;
+                for (let i = 0; i < keys.length - 1; i++) obj = obj[keys[i]];
+                obj[keys[keys.length - 1]] = value;
+                return copy;
+            });
+        };
+
+        const allMarketplaces = ["Trendyol", "Hepsiburada", "N11", "ÇiçekSepeti", "Amazon"];
+        const allStatuses = ["Created", "Shipped", "Delivered", "Picking", "Invoiced"];
+
+        const toggleArrayItem = (path, item) => {
+            setAutoConfigForm(prev => {
+                const copy = JSON.parse(JSON.stringify(prev));
+                const keys = path.split(".");
+                let obj = copy;
+                for (let i = 0; i < keys.length - 1; i++) obj = obj[keys[i]];
+                const arr = obj[keys[keys.length - 1]] || [];
+                const idx = arr.indexOf(item);
+                if (idx >= 0) arr.splice(idx, 1); else arr.push(item);
+                obj[keys[keys.length - 1]] = arr;
+                return copy;
+            });
+        };
+
+        const inputStyle = {
+            background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)",
+            borderRadius: 8, padding: "0.6rem 0.85rem", color: "#fff", fontSize: "0.82rem",
+            width: "100%", outline: "none", boxSizing: "border-box",
+        };
+        const labelStyle = { color: C.muted, fontSize: "0.75rem", fontWeight: 600, marginBottom: "0.3rem", display: "block" };
+        const sectionTitle = (icon, title) => (
+            <h4 style={{ color: "#fff", fontSize: "0.9rem", fontWeight: 700, margin: "1.5rem 0 0.75rem", display: "flex", alignItems: "center", gap: "0.4rem", paddingBottom: "0.5rem", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                {icon} {title}
+            </h4>
+        );
+
+        return (
+            <div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem" }}>
+                    <h3 style={{ color: "#fff", fontSize: "1.1rem", fontWeight: 700, margin: 0 }}>⚙️ Otomatik Fatura Ayarları</h3>
+                    <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+                        onClick={() => setShowAutoInvoiceConfig(false)}
+                        style={{ background: C.glass, border: "1px solid " + C.glassBr, borderRadius: 8, padding: "0.5rem 0.9rem", cursor: "pointer", color: C.dim, fontSize: "0.8rem" }}>
+                        <FaTimes /> Geri
+                    </motion.button>
+                </div>
+
+                <GlassCard>
+                    {/* ── Firma Bilgileri ── */}
+                    {sectionTitle(<FaBuilding style={{ color: C.accent }} />, "Firma Bilgileri (Satıcı)")}
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.75rem" }}>
+                        <div><label style={labelStyle}>VKN / TCKN *</label><input style={inputStyle} value={formData.supplier.vkn} onChange={e => updateField("supplier.vkn", e.target.value)} placeholder="10 veya 11 haneli" /></div>
+                        <div><label style={labelStyle}>Firma Adı *</label><input style={inputStyle} value={formData.supplier.name} onChange={e => updateField("supplier.name", e.target.value)} placeholder="Firma ünvanı" /></div>
+                        <div><label style={labelStyle}>Vergi Dairesi</label><input style={inputStyle} value={formData.supplier.taxOffice} onChange={e => updateField("supplier.taxOffice", e.target.value)} placeholder="Vergi dairesi adı" /></div>
+                        <div><label style={labelStyle}>Adres</label><input style={inputStyle} value={formData.supplier.street} onChange={e => updateField("supplier.street", e.target.value)} placeholder="Cadde/Sokak" /></div>
+                        <div><label style={labelStyle}>İlçe</label><input style={inputStyle} value={formData.supplier.district} onChange={e => updateField("supplier.district", e.target.value)} placeholder="İlçe" /></div>
+                        <div><label style={labelStyle}>İl</label><input style={inputStyle} value={formData.supplier.city} onChange={e => updateField("supplier.city", e.target.value)} placeholder="İl" /></div>
+                        <div><label style={labelStyle}>Telefon</label><input style={inputStyle} value={formData.supplier.phone} onChange={e => updateField("supplier.phone", e.target.value)} placeholder="05xx xxx xxxx" /></div>
+                        <div><label style={labelStyle}>E-posta</label><input style={inputStyle} value={formData.supplier.email} onChange={e => updateField("supplier.email", e.target.value)} placeholder="firma@ornek.com" /></div>
+                    </div>
+
+                    {/* ── QNB Bağlantı ── */}
+                    {sectionTitle(<FaLink style={{ color: C.purple }} />, "QNB eSolutions Bağlantısı")}
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.75rem" }}>
+                        <div><label style={labelStyle}>Kullanıcı Adı *</label><input style={inputStyle} value={formData.qnbCredentials.username} onChange={e => updateField("qnbCredentials.username", e.target.value)} placeholder="VKN.portaltest" /></div>
+                        <div><label style={labelStyle}>Şifre *</label><input style={inputStyle} type="password" value={formData.qnbCredentials.password} onChange={e => updateField("qnbCredentials.password", e.target.value)} placeholder="••••••" /></div>
+                        <div>
+                            <label style={labelStyle}>Ortam</label>
+                            <select style={{ ...inputStyle, cursor: "pointer" }} value={formData.qnbCredentials.env} onChange={e => updateField("qnbCredentials.env", e.target.value)}>
+                                <option value="test">Test Ortamı</option>
+                                <option value="production">Canlı Ortam</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    {/* ── Fatura Ayarları ── */}
+                    {sectionTitle(<FaFileInvoice style={{ color: C.green }} />, "Fatura Ayarları")}
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.75rem" }}>
+                        <div><label style={labelStyle}>Fatura Seri Kodu</label><input style={inputStyle} value={formData.invoiceSeriesCode} onChange={e => updateField("invoiceSeriesCode", e.target.value)} placeholder="LYS" maxLength={3} /></div>
+                        <div><label style={labelStyle}>Varsayılan KDV (%)</label><input style={inputStyle} type="number" value={formData.defaultVatRate} onChange={e => updateField("defaultVatRate", Number(e.target.value))} min={0} max={100} /></div>
+                        <div>
+                            <label style={labelStyle}>Belge Tipi</label>
+                            <select style={{ ...inputStyle, cursor: "pointer" }} value={formData.documentType} onChange={e => updateField("documentType", e.target.value)}>
+                                <option value="EARSIVFATURA">e-Arşiv Fatura</option>
+                                <option value="TICARIFATURA">Ticari Fatura</option>
+                                <option value="TEMELFATURA">Temel Fatura</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label style={labelStyle}>Gönderim Şekli</label>
+                            <select style={{ ...inputStyle, cursor: "pointer" }} value={formData.sendingType} onChange={e => updateField("sendingType", e.target.value)}>
+                                <option value="ELEKTRONIK">Elektronik</option>
+                                <option value="KAGIT">Kağıt</option>
+                            </select>
+                        </div>
+                        <div style={{ gridColumn: "1 / -1" }}><label style={labelStyle}>Fatura Notu</label><input style={inputStyle} value={formData.defaultNote} onChange={e => updateField("defaultNote", e.target.value)} placeholder="Faturaya eklenecek not (opsiyonel)" /></div>
+                    </div>
+
+                    {/* ── Varsayılan Alıcı ── */}
+                    {sectionTitle(<FaBuilding style={{ color: C.orange }} />, "Varsayılan Alıcı (Müşteri bilgisi gelmezse)")}
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.75rem" }}>
+                        <div><label style={labelStyle}>TCKN / VKN</label><input style={inputStyle} value={formData.defaultCustomer.vkn} onChange={e => updateField("defaultCustomer.vkn", e.target.value)} placeholder="11 haneli TCKN" /></div>
+                        <div><label style={labelStyle}>Ad</label><input style={inputStyle} value={formData.defaultCustomer.firstName} onChange={e => updateField("defaultCustomer.firstName", e.target.value)} placeholder="Ad" /></div>
+                        <div><label style={labelStyle}>Soyad</label><input style={inputStyle} value={formData.defaultCustomer.lastName} onChange={e => updateField("defaultCustomer.lastName", e.target.value)} placeholder="Soyad" /></div>
+                        <div><label style={labelStyle}>İl</label><input style={inputStyle} value={formData.defaultCustomer.city} onChange={e => updateField("defaultCustomer.city", e.target.value)} placeholder="İl" /></div>
+                    </div>
+
+                    {/* ── Pazaryeri & Durum Filtreleri ── */}
+                    {sectionTitle(<FaClipboardList style={{ color: C.blue }} />, "Tetikleme Ayarları")}
+                    <div style={{ marginBottom: "1rem" }}>
+                        <label style={labelStyle}>Aktif Pazaryerleri <span style={{ color: C.dim, fontWeight: 400 }}>(boş = tümü)</span></label>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", marginTop: "0.35rem" }}>
+                            {allMarketplaces.map(mp => {
+                                const active = formData.enabledMarketplaces.includes(mp);
+                                return (
+                                    <motion.button key={mp} whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+                                        onClick={() => toggleArrayItem("enabledMarketplaces", mp)}
+                                        style={{
+                                            background: active ? C.accent + "20" : C.glass,
+                                            border: "1px solid " + (active ? C.accent + "50" : C.glassBr),
+                                            borderRadius: 8, padding: "0.4rem 0.85rem", cursor: "pointer",
+                                            color: active ? C.accent : C.dim, fontSize: "0.78rem", fontWeight: 600,
+                                        }}>
+                                        {active ? "✓ " : ""}{mp}
+                                    </motion.button>
+                                );
+                            })}
+                        </div>
+                    </div>
+                    <div>
+                        <label style={labelStyle}>Tetikleme Durumları <span style={{ color: C.dim, fontWeight: 400 }}>(sipariş bu durumlardayken fatura kesilir)</span></label>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", marginTop: "0.35rem" }}>
+                            {allStatuses.map(st => {
+                                const active = formData.triggerStatuses.includes(st);
+                                return (
+                                    <motion.button key={st} whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+                                        onClick={() => toggleArrayItem("triggerStatuses", st)}
+                                        style={{
+                                            background: active ? C.green + "20" : C.glass,
+                                            border: "1px solid " + (active ? C.green + "50" : C.glassBr),
+                                            borderRadius: 8, padding: "0.4rem 0.85rem", cursor: "pointer",
+                                            color: active ? C.green : C.dim, fontSize: "0.78rem", fontWeight: 600,
+                                        }}>
+                                        {active ? "✓ " : ""}{st}
+                                    </motion.button>
+                                );
+                            })}
+                        </div>
+                    </div>
+
+                    {/* ── Kaydet ── */}
+                    <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.75rem", marginTop: "2rem", paddingTop: "1.25rem", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+                        <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+                            onClick={() => setShowAutoInvoiceConfig(false)}
+                            style={{ background: C.glass, border: "1px solid " + C.glassBr, borderRadius: 10, padding: "0.65rem 1.25rem", cursor: "pointer", color: C.dim, fontSize: "0.82rem", fontWeight: 600 }}>
+                            İptal
+                        </motion.button>
+                        <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+                            onClick={() => saveAutoInvoiceConfig(formData)}
+                            disabled={autoInvoiceSaving || !formData.supplier.vkn || !formData.supplier.name}
+                            style={{
+                                background: (!formData.supplier.vkn || !formData.supplier.name) ? C.dim + "30" : "linear-gradient(135deg, " + C.accent + " 0%, #06b6d4 100%)",
+                                border: "none", borderRadius: 10, padding: "0.65rem 1.5rem", cursor: (!formData.supplier.vkn || !formData.supplier.name) ? "not-allowed" : "pointer",
+                                color: "#fff", fontSize: "0.82rem", fontWeight: 700,
+                                display: "flex", alignItems: "center", gap: "0.4rem", opacity: autoInvoiceSaving ? 0.7 : 1,
+                            }}>
+                            {autoInvoiceSaving ? <FaSpinner style={{ animation: "spin 1s linear infinite" }} /> : <FaCheckCircle />}
+                            {autoInvoiceSaving ? "Kaydediliyor..." : "Kaydet"}
+                        </motion.button>
+                    </div>
+                </GlassCard>
+            </div>
+        );
+    };
+
+    /* ═══════════════════════════════════════════════════════
        RENDER: SAĞLAYICILAR
        ═══════════════════════════════════════════════════════ */
     const renderProviders = () => (
@@ -1929,6 +2870,7 @@ const BillingPage = () => {
                         {activeTab === "e-archive" && renderInvoiceList(tabInvoices, "e-Arşiv Belgeleri", false)}
                         {activeTab === "e-invoice" && renderInvoiceList(tabInvoices, "e-Fatura Belgeleri", false)}
                         {activeTab === "e-despatch" && renderInvoiceList(tabInvoices, "e-İrsaliye Belgeleri", false)}
+                        {activeTab === "auto-invoice" && renderAutoInvoice()}
                         {activeTab === "providers" && renderProviders()}
                     </motion.div>
                 </AnimatePresence>
@@ -2050,83 +2992,375 @@ const BillingPage = () => {
             <AnimatePresence>
                 {showCreateModal && (
                     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                        onClick={() => setShowCreateModal(false)}
-                        style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem", background: "rgba(0,0,0,0.8)", backdropFilter: "blur(8px)" }}>
+                        onClick={() => { if (!createLoading) { setShowCreateModal(false); setCreateStep(1); setCreateError(""); setCreateResult(null); } }}
+                        style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem", background: "rgba(0,0,0,0.8)", backdropFilter: "blur(8px)", overflowY: "auto" }}>
                         <motion.div initial={{ scale: 0.92, y: 40 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.92, y: 40 }}
                             onClick={e => e.stopPropagation()}
                             style={{
                                 background: "linear-gradient(135deg, " + C.card + " 0%, rgba(15,20,25,0.98) 100%)",
                                 border: "1px solid " + C.border, borderRadius: 20,
-                                padding: "2rem", maxWidth: 600, width: "100%",
+                                padding: "2rem", maxWidth: createStep === 2 ? 780 : 600, width: "100%", maxHeight: "92vh", overflowY: "auto",
                             }}>
+                            {/* Header */}
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem" }}>
-                                <h3 style={{
-                                    background: "linear-gradient(135deg, " + C.accent + ", " + C.purple + ")",
-                                    WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
-                                    fontSize: "1.2rem", fontWeight: 800, margin: 0,
-                                }}>
-                                    📄 Yeni Belge Oluştur
-                                </h3>
+                                <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                                    {createStep > 1 && createStep < 3 && (
+                                        <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}
+                                            onClick={() => { setCreateStep(createStep - 1); setCreateError(""); }}
+                                            style={{ background: C.glass, border: "1px solid " + C.glassBr, borderRadius: 8, padding: "0.35rem 0.6rem", cursor: "pointer", color: C.accent, fontSize: "0.75rem" }}>
+                                            ← Geri
+                                        </motion.button>
+                                    )}
+                                    <h3 style={{ background: "linear-gradient(135deg, " + C.accent + ", " + C.purple + ")", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", fontSize: "1.15rem", fontWeight: 800, margin: 0 }}>
+                                        {createStep === 1 ? "📄 Yeni Belge Oluştur" : createStep === 2 ? "📝 Fatura Bilgileri" : "✅ Fatura Oluşturuldu"}
+                                    </h3>
+                                </div>
                                 <motion.button whileHover={{ scale: 1.1, rotate: 90 }} whileTap={{ scale: 0.9 }}
-                                    onClick={() => setShowCreateModal(false)}
+                                    onClick={() => { if (!createLoading) { setShowCreateModal(false); setCreateStep(1); setCreateError(""); setCreateResult(null); } }}
                                     style={{ background: C.red + "15", border: "1px solid " + C.red + "30", borderRadius: "50%", width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: C.red, fontSize: "0.9rem" }}>
                                     <FaTimes />
                                 </motion.button>
                             </div>
 
-                            <label style={{ color: C.muted, fontSize: "0.78rem", fontWeight: 600, display: "block", marginBottom: "0.5rem" }}>Belge Tipi</label>
-                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", marginBottom: "1.5rem" }}>
-                                {[
-                                    { id: "e-arsiv", label: "e-Arşiv Fatura", icon: <FaFileInvoice />, desc: "Bireysel müşteriler için", color: C.accent },
-                                    { id: "e-fatura", label: "e-Fatura", icon: <FaFileInvoiceDollar />, desc: "Tüzel kişiler için", color: C.orange },
-                                    { id: "e-irsaliye", label: "e-İrsaliye", icon: <FaTruck />, desc: "Sevk irsaliyesi", color: C.pink },
-                                    { id: "e-fatura-gelen", label: "Gelen e-Fatura", icon: <FaDownload />, desc: "Gelen faturaları görüntüle", color: C.purple },
-                                ].map(t => (
-                                    <motion.button key={t.id} whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
-                                        onClick={() => setCreateType(t.id)}
-                                        style={{
-                                            background: createType === t.id ? t.color + "15" : C.glass,
-                                            border: createType === t.id ? "2px solid " + t.color : "1px solid " + C.glassBr,
-                                            borderRadius: 12, padding: "1rem", cursor: "pointer", textAlign: "left",
-                                        }}>
-                                        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.3rem" }}>
-                                            <span style={{ color: t.color, fontSize: "1rem" }}>{t.icon}</span>
-                                            <span style={{ color: createType === t.id ? t.color : "#fff", fontSize: "0.85rem", fontWeight: 600 }}>{t.label}</span>
-                                        </div>
-                                        <p style={{ color: C.dim, fontSize: "0.7rem", margin: 0 }}>{t.desc}</p>
-                                    </motion.button>
+                            {/* Adım göstergesi */}
+                            <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1.5rem" }}>
+                                {[1, 2, 3].map(s => (
+                                    <div key={s} style={{ flex: 1, height: 4, borderRadius: 2, background: s <= createStep ? C.accent : C.glass, transition: "background 0.3s" }} />
                                 ))}
                             </div>
 
-                            {!isConnected ? (
-                                <div style={{ background: C.yellow + "10", border: "1px solid " + C.yellow + "30", borderRadius: 12, padding: "1.25rem", textAlign: "center" }}>
-                                    <FaExclamationTriangle style={{ color: C.yellow, fontSize: "1.5rem", marginBottom: "0.5rem" }} />
-                                    <p style={{ color: C.yellow, fontSize: "0.88rem", fontWeight: 600, margin: "0 0 0.25rem" }}>Sağlayıcı Bağlantısı Gerekli</p>
-                                    <p style={{ color: C.muted, fontSize: "0.78rem", margin: "0 0 0.75rem" }}>Belge oluşturmak için önce bir e-Fatura sağlayıcısı bağlamanız gerekiyor.</p>
-                                    <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
-                                        onClick={() => { setShowCreateModal(false); setActiveTab("providers"); }}
-                                        style={{
-                                            background: "linear-gradient(135deg, " + C.accent + ", #44a08d)",
-                                            border: "none", borderRadius: 10, padding: "0.6rem 1.25rem",
-                                            color: "#fff", fontSize: "0.82rem", fontWeight: 700, cursor: "pointer",
-                                        }}>
-                                        <FaLink style={{ marginRight: "0.3rem" }} /> Sağlayıcı Bağla
-                                    </motion.button>
-                                </div>
-                            ) : (
-                                <div>
-                                    <p style={{ color: C.muted, fontSize: "0.8rem", marginBottom: "0.75rem" }}>
-                                        Bağlı sağlayıcı: <strong style={{ color: C.accent }}>{connectedProviders[0].name}</strong> ({connectedProviders[0].env === "production" ? "Canlı" : "Test"})
-                                    </p>
-                                    <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
-                                        style={{
-                                            width: "100%", background: "linear-gradient(135deg, " + C.accent + ", #44a08d)",
-                                            border: "none", borderRadius: 10, padding: "0.75rem",
-                                            color: "#fff", fontSize: "0.88rem", fontWeight: 700, cursor: "pointer",
-                                            display: "flex", alignItems: "center", justifyContent: "center", gap: "0.4rem",
-                                        }}>
-                                        <FaPlus /> {createType === "e-fatura-gelen" ? "Gelen Faturaları Sorgula" : "Belge Oluşturmaya Başla"}
-                                    </motion.button>
+                            {/* ═══ ADIM 1: TİP SEÇİMİ ═══ */}
+                            {createStep === 1 && (
+                                <>
+                                    <label style={{ color: C.muted, fontSize: "0.78rem", fontWeight: 600, display: "block", marginBottom: "0.5rem" }}>Belge Tipi</label>
+                                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", marginBottom: "1.5rem" }}>
+                                        {[
+                                            { id: "e-arsiv", label: "e-Arşiv Fatura", icon: <FaFileInvoice />, desc: "Bireysel müşteriler için", color: C.accent },
+                                            { id: "e-fatura", label: "e-Fatura", icon: <FaFileInvoiceDollar />, desc: "Tüzel kişiler için", color: C.orange },
+                                            { id: "e-irsaliye", label: "e-İrsaliye", icon: <FaTruck />, desc: "Sevk irsaliyesi", color: C.pink },
+                                            { id: "e-fatura-gelen", label: "Gelen e-Fatura", icon: <FaDownload />, desc: "Gelen faturaları görüntüle", color: C.purple },
+                                        ].map(t => (
+                                            <motion.button key={t.id} whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+                                                onClick={() => setCreateType(t.id)}
+                                                style={{ background: createType === t.id ? t.color + "15" : C.glass, border: createType === t.id ? "2px solid " + t.color : "1px solid " + C.glassBr, borderRadius: 12, padding: "1rem", cursor: "pointer", textAlign: "left" }}>
+                                                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.3rem" }}>
+                                                    <span style={{ color: t.color, fontSize: "1rem" }}>{t.icon}</span>
+                                                    <span style={{ color: createType === t.id ? t.color : "#fff", fontSize: "0.85rem", fontWeight: 600 }}>{t.label}</span>
+                                                </div>
+                                                <p style={{ color: C.dim, fontSize: "0.7rem", margin: 0 }}>{t.desc}</p>
+                                            </motion.button>
+                                        ))}
+                                    </div>
+                                    {!isConnected ? (
+                                        <div style={{ background: C.yellow + "10", border: "1px solid " + C.yellow + "30", borderRadius: 12, padding: "1.25rem", textAlign: "center" }}>
+                                            <FaExclamationTriangle style={{ color: C.yellow, fontSize: "1.5rem", marginBottom: "0.5rem" }} />
+                                            <p style={{ color: C.yellow, fontSize: "0.88rem", fontWeight: 600, margin: "0 0 0.25rem" }}>Sağlayıcı Bağlantısı Gerekli</p>
+                                            <p style={{ color: C.muted, fontSize: "0.78rem", margin: "0 0 0.75rem" }}>Belge oluşturmak için önce bir e-Fatura sağlayıcısı bağlamanız gerekiyor.</p>
+                                            <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+                                                onClick={() => { setShowCreateModal(false); setActiveTab("providers"); }}
+                                                style={{ background: "linear-gradient(135deg, " + C.accent + ", #44a08d)", border: "none", borderRadius: 10, padding: "0.6rem 1.25rem", color: "#fff", fontSize: "0.82rem", fontWeight: 700, cursor: "pointer" }}>
+                                                <FaLink style={{ marginRight: "0.3rem" }} /> Sağlayıcı Bağla
+                                            </motion.button>
+                                        </div>
+                                    ) : (
+                                        <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+                                            onClick={() => setCreateStep(2)}
+                                            style={{ width: "100%", background: "linear-gradient(135deg, " + C.accent + ", #44a08d)", border: "none", borderRadius: 10, padding: "0.75rem", color: "#fff", fontSize: "0.88rem", fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "0.4rem" }}>
+                                            <FaArrowRight /> Devam Et
+                                        </motion.button>
+                                    )}
+                                </>
+                            )}
+
+                            {/* ═══ ADIM 2: FATURA FORMU ═══ */}
+                            {createStep === 2 && (() => {
+                                const iF = invoiceForm;
+                                const setF = (key, val) => setInvoiceForm(prev => ({ ...prev, [key]: val }));
+                                const setLine = (idx, key, val) => {
+                                    const newLines = [...iF.lines];
+                                    newLines[idx] = { ...newLines[idx], [key]: val };
+                                    setF("lines", newLines);
+                                };
+                                const addLine = () => setF("lines", [...iF.lines, { name: "", quantity: 1, unit: "adet", unitPrice: 0, vatRate: 20, discountAmount: 0 }]);
+                                const removeLine = (idx) => { if (iF.lines.length > 1) setF("lines", iF.lines.filter((_, i) => i !== idx)); };
+
+                                // Hesaplamalar
+                                const calcLines = iF.lines.map(l => {
+                                    const qty = Number(l.quantity || 1);
+                                    const price = Number(l.unitPrice || 0);
+                                    const disc = Number(l.discountAmount || 0);
+                                    const lineTotal = (qty * price) - disc;
+                                    const vat = lineTotal * (Number(l.vatRate || 20) / 100);
+                                    return { lineTotal, vat, total: lineTotal + vat };
+                                });
+                                const subTotal = calcLines.reduce((s, l) => s + l.lineTotal, 0);
+                                const totalVat = calcLines.reduce((s, l) => s + l.vat, 0);
+                                const grandTotal = subTotal + totalVat;
+
+                                const inputStyle = { width: "100%", background: C.glass, border: "1px solid " + C.glassBr, borderRadius: 8, padding: "0.55rem 0.75rem", color: "#fff", fontSize: "0.82rem", outline: "none", boxSizing: "border-box" };
+                                const labelStyle = { color: C.muted, fontSize: "0.72rem", fontWeight: 600, display: "block", marginBottom: "0.25rem" };
+
+                                const handleSubmit = async () => {
+                                    setCreateError("");
+                                    // Validasyon
+                                    if (!iF.customerName && !iF.customerVkn) { setCreateError("Alıcı adı veya VKN/TCKN gerekli"); return; }
+                                    if (iF.lines.some(l => !l.name || !l.unitPrice)) { setCreateError("Tüm kalemlerde ürün adı ve birim fiyat gerekli"); return; }
+
+                                    const provider = connectedProviders[0];
+                                    const isQnb = provider.authType === "qnb";
+                                    if (!isQnb) { setCreateError("Şu an sadece QNB eSolutions ile fatura oluşturma desteklenmektedir."); return; }
+
+                                    setCreateLoading(true);
+                                    try {
+                                        const token = localStorage.getItem("token");
+                                        const customerIsIndividual = (iF.customerVkn || "").length === 11;
+                                        const res = await fetch(API_URL + "/api/e-invoice/qnb/earchive/create-from-form", {
+                                            method: "POST",
+                                            headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+                                            body: JSON.stringify({
+                                                sessionId: provider.sessionId,
+                                                vkn: provider.vkn || "7610650466",
+                                                env: provider.env || "test",
+                                                invoiceData: {
+                                                    invoiceTypeCode: "SATIS",
+                                                    currency: iF.currency || "TRY",
+                                                    note: iF.note || "",
+                                                    sendingType: iF.sendingType || "ELEKTRONIK",
+                                                    supplier: {
+                                                        vkn: provider.vkn || "7610650466",
+                                                        name: provider.supplierName || "TEST FIRMA LTD STI",
+                                                        taxOffice: provider.taxOffice || "Kadikoy VD",
+                                                        street: provider.street || "Test Caddesi No:1",
+                                                        district: provider.district || "Kadikoy",
+                                                        city: provider.city || "Istanbul",
+                                                        country: "Turkiye"
+                                                    },
+                                                    customer: {
+                                                        vkn: iF.customerVkn || "11111111111",
+                                                        name: iF.customerName || (iF.customerFirstName + " " + iF.customerLastName).trim(),
+                                                        firstName: customerIsIndividual ? (iF.customerFirstName || iF.customerName.split(" ")[0] || "") : "",
+                                                        lastName: customerIsIndividual ? (iF.customerLastName || iF.customerName.split(" ").slice(1).join(" ") || "") : "",
+                                                        taxOffice: iF.customerTaxOffice || "",
+                                                        street: iF.customerStreet || "",
+                                                        district: iF.customerDistrict || "Merkez",
+                                                        city: iF.customerCity || "Istanbul",
+                                                        country: "Turkiye",
+                                                        email: iF.customerEmail || "",
+                                                        phone: iF.customerPhone || "",
+                                                    },
+                                                    lines: iF.lines.map(l => ({
+                                                        name: l.name,
+                                                        quantity: Number(l.quantity || 1),
+                                                        unit: l.unit || "adet",
+                                                        unitPrice: Number(l.unitPrice || 0),
+                                                        vatRate: Number(l.vatRate != null ? l.vatRate : 20),
+                                                        discountAmount: Number(l.discountAmount || 0),
+                                                    }))
+                                                }
+                                            })
+                                        });
+                                        const data = await res.json();
+                                        if (data.success) {
+                                            setCreateResult(data.data);
+                                            setCreateStep(3);
+                                            // Belgeleri yenile
+                                            setTimeout(() => fetchAllDocuments(), 1500);
+                                        } else {
+                                            setCreateError(data.message || "Fatura oluşturulamadı");
+                                        }
+                                    } catch (err) {
+                                        setCreateError("Bağlantı hatası: " + (err.message || "Sunucuya erişilemiyor"));
+                                    } finally {
+                                        setCreateLoading(false);
+                                    }
+                                };
+
+                                return (
+                                    <>
+                                        {/* Alıcı Bilgileri */}
+                                        <div style={{ background: C.glass, border: "1px solid " + C.glassBr, borderRadius: 14, padding: "1.15rem", marginBottom: "1rem" }}>
+                                            <h4 style={{ color: C.accent, fontSize: "0.88rem", fontWeight: 700, margin: "0 0 0.85rem", display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                                                <FaBuilding /> Alıcı Bilgileri
+                                            </h4>
+                                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
+                                                <div>
+                                                    <label style={labelStyle}>VKN / TCKN *</label>
+                                                    <input value={iF.customerVkn} onChange={e => setF("customerVkn", e.target.value)} placeholder="10 veya 11 haneli" style={inputStyle} />
+                                                </div>
+                                                <div>
+                                                    <label style={labelStyle}>Firma / Kişi Adı *</label>
+                                                    <input value={iF.customerName} onChange={e => setF("customerName", e.target.value)} placeholder="Alıcı adı" style={inputStyle} />
+                                                </div>
+                                                {(iF.customerVkn || "").length === 11 && (
+                                                    <>
+                                                        <div>
+                                                            <label style={labelStyle}>Ad</label>
+                                                            <input value={iF.customerFirstName} onChange={e => setF("customerFirstName", e.target.value)} placeholder="Ad" style={inputStyle} />
+                                                        </div>
+                                                        <div>
+                                                            <label style={labelStyle}>Soyad</label>
+                                                            <input value={iF.customerLastName} onChange={e => setF("customerLastName", e.target.value)} placeholder="Soyad" style={inputStyle} />
+                                                        </div>
+                                                    </>
+                                                )}
+                                                <div>
+                                                    <label style={labelStyle}>Vergi Dairesi</label>
+                                                    <input value={iF.customerTaxOffice} onChange={e => setF("customerTaxOffice", e.target.value)} placeholder="Vergi dairesi" style={inputStyle} />
+                                                </div>
+                                                <div>
+                                                    <label style={labelStyle}>İl</label>
+                                                    <input value={iF.customerCity} onChange={e => setF("customerCity", e.target.value)} placeholder="İl" style={inputStyle} />
+                                                </div>
+                                                <div style={{ gridColumn: "1 / -1" }}>
+                                                    <label style={labelStyle}>Adres</label>
+                                                    <input value={iF.customerStreet} onChange={e => setF("customerStreet", e.target.value)} placeholder="Sokak / Cadde / No" style={inputStyle} />
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Fatura Kalemleri */}
+                                        <div style={{ background: C.glass, border: "1px solid " + C.glassBr, borderRadius: 14, padding: "1.15rem", marginBottom: "1rem" }}>
+                                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.85rem" }}>
+                                                <h4 style={{ color: C.accent, fontSize: "0.88rem", fontWeight: 700, margin: 0, display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                                                    <FaClipboardList /> Fatura Kalemleri
+                                                </h4>
+                                                <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={addLine}
+                                                    style={{ background: C.accent + "15", border: "1px solid " + C.accent + "30", borderRadius: 8, padding: "0.3rem 0.7rem", cursor: "pointer", color: C.accent, fontSize: "0.72rem", fontWeight: 600, display: "flex", alignItems: "center", gap: "0.3rem" }}>
+                                                    <FaPlus /> Kalem Ekle
+                                                </motion.button>
+                                            </div>
+
+                                            {iF.lines.map((line, idx) => (
+                                                <div key={idx} style={{ background: idx % 2 === 0 ? "rgba(255,255,255,0.02)" : "transparent", border: "1px solid " + C.glassBr, borderRadius: 10, padding: "0.75rem", marginBottom: "0.5rem" }}>
+                                                    <div style={{ display: "grid", gridTemplateColumns: "2.5fr 0.7fr 0.7fr 1fr 0.7fr 0.3fr", gap: "0.5rem", alignItems: "end" }}>
+                                                        <div>
+                                                            <label style={labelStyle}>Ürün/Hizmet *</label>
+                                                            <input value={line.name} onChange={e => setLine(idx, "name", e.target.value)} placeholder="Ürün adı" style={inputStyle} />
+                                                        </div>
+                                                        <div>
+                                                            <label style={labelStyle}>Miktar</label>
+                                                            <input type="number" min="0.01" step="0.01" value={line.quantity} onChange={e => setLine(idx, "quantity", e.target.value)} style={inputStyle} />
+                                                        </div>
+                                                        <div>
+                                                            <label style={labelStyle}>Birim</label>
+                                                            <select value={line.unit} onChange={e => setLine(idx, "unit", e.target.value)} style={{ ...inputStyle, cursor: "pointer" }}>
+                                                                {["adet", "kg", "lt", "m", "m2", "paket", "kutu", "saat", "gun", "ay"].map(u => (
+                                                                    <option key={u} value={u} style={{ background: "#1a1f35" }}>{u}</option>
+                                                                ))}
+                                                            </select>
+                                                        </div>
+                                                        <div>
+                                                            <label style={labelStyle}>Birim Fiyat (₺) *</label>
+                                                            <input type="number" min="0" step="0.01" value={line.unitPrice} onChange={e => setLine(idx, "unitPrice", e.target.value)} style={inputStyle} />
+                                                        </div>
+                                                        <div>
+                                                            <label style={labelStyle}>KDV %</label>
+                                                            <select value={line.vatRate} onChange={e => setLine(idx, "vatRate", e.target.value)} style={{ ...inputStyle, cursor: "pointer" }}>
+                                                                {[0, 1, 10, 20].map(r => (
+                                                                    <option key={r} value={r} style={{ background: "#1a1f35" }}>%{r}</option>
+                                                                ))}
+                                                            </select>
+                                                        </div>
+                                                        <div>
+                                                            {iF.lines.length > 1 && (
+                                                                <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={() => removeLine(idx)}
+                                                                    style={{ background: C.red + "15", border: "1px solid " + C.red + "30", borderRadius: 6, padding: "0.45rem", cursor: "pointer", color: C.red, fontSize: "0.75rem", display: "flex", width: "100%", justifyContent: "center" }}>
+                                                                    <FaTimes />
+                                                                </motion.button>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                    {/* Kalem toplamı */}
+                                                    <div style={{ display: "flex", justifyContent: "flex-end", gap: "1rem", marginTop: "0.4rem", paddingTop: "0.35rem", borderTop: "1px solid " + C.glassBr }}>
+                                                        <span style={{ color: C.dim, fontSize: "0.68rem" }}>Tutar: {fmtCurrency(calcLines[idx]?.lineTotal || 0)}</span>
+                                                        <span style={{ color: C.purple, fontSize: "0.68rem" }}>KDV: {fmtCurrency(calcLines[idx]?.vat || 0)}</span>
+                                                        <span style={{ color: C.green, fontSize: "0.68rem", fontWeight: 700 }}>Toplam: {fmtCurrency(calcLines[idx]?.total || 0)}</span>
+                                                    </div>
+                                                </div>
+                                            ))}
+
+                                            {/* Genel Toplam */}
+                                            <div style={{ background: C.green + "08", border: "1px solid " + C.green + "25", borderRadius: 10, padding: "0.85rem", marginTop: "0.75rem" }}>
+                                                <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: "0.5rem" }}>
+                                                    <div style={{ textAlign: "center", flex: 1 }}>
+                                                        <p style={{ color: C.dim, fontSize: "0.68rem", margin: 0 }}>Ara Toplam</p>
+                                                        <p style={{ color: "#fff", fontSize: "0.95rem", fontWeight: 700, margin: "0.15rem 0 0" }}>{fmtCurrency(subTotal)}</p>
+                                                    </div>
+                                                    <div style={{ textAlign: "center", flex: 1 }}>
+                                                        <p style={{ color: C.dim, fontSize: "0.68rem", margin: 0 }}>KDV Toplam</p>
+                                                        <p style={{ color: C.purple, fontSize: "0.95rem", fontWeight: 700, margin: "0.15rem 0 0" }}>{fmtCurrency(totalVat)}</p>
+                                                    </div>
+                                                    <div style={{ textAlign: "center", flex: 1 }}>
+                                                        <p style={{ color: C.dim, fontSize: "0.68rem", margin: 0 }}>Genel Toplam</p>
+                                                        <p style={{ color: C.green, fontSize: "1.15rem", fontWeight: 800, margin: "0.15rem 0 0" }}>{fmtCurrency(grandTotal)}</p>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Not */}
+                                        <div style={{ marginBottom: "1rem" }}>
+                                            <label style={labelStyle}>Fatura Notu (opsiyonel)</label>
+                                            <input value={iF.note} onChange={e => setF("note", e.target.value)} placeholder="Fatura ile ilgili not..." style={inputStyle} />
+                                        </div>
+
+                                        {/* Hata */}
+                                        {createError && (
+                                            <div style={{ background: C.red + "15", border: "1px solid " + C.red + "30", borderRadius: 10, padding: "0.6rem 0.85rem", marginBottom: "1rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                                                <FaExclamationTriangle style={{ color: C.red, flexShrink: 0 }} />
+                                                <span style={{ color: C.red, fontSize: "0.8rem" }}>{createError}</span>
+                                            </div>
+                                        )}
+
+                                        {/* Gönder */}
+                                        <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+                                            onClick={handleSubmit} disabled={createLoading}
+                                            style={{
+                                                width: "100%", background: createLoading ? C.accent + "50" : "linear-gradient(135deg, " + C.accent + ", #44a08d)",
+                                                border: "none", borderRadius: 10, padding: "0.85rem",
+                                                color: "#fff", fontSize: "0.92rem", fontWeight: 700,
+                                                cursor: createLoading ? "not-allowed" : "pointer",
+                                                display: "flex", alignItems: "center", justifyContent: "center", gap: "0.5rem",
+                                            }}>
+                                            {createLoading ? <><FaSpinner style={{ animation: "spin 1s linear infinite" }} /> Fatura Oluşturuluyor...</> : <><FaFileInvoice /> Fatura Oluştur ({fmtCurrency(grandTotal)})</>}
+                                        </motion.button>
+                                    </>
+                                );
+                            })()}
+
+                            {/* ═══ ADIM 3: SONUÇ ═══ */}
+                            {createStep === 3 && createResult && (
+                                <div style={{ textAlign: "center" }}>
+                                    <div style={{ fontSize: "3.5rem", marginBottom: "0.75rem" }}>🎉</div>
+                                    <h3 style={{ color: C.green, fontSize: "1.2rem", fontWeight: 800, margin: "0 0 0.5rem" }}>Fatura Başarıyla Oluşturuldu!</h3>
+                                    <p style={{ color: C.muted, fontSize: "0.85rem", margin: "0 0 1.5rem" }}>Faturanız QNB eSolutions üzerinden başarıyla oluşturuldu ve imzalandı.</p>
+
+                                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginBottom: "1.5rem", textAlign: "left" }}>
+                                        {[
+                                            { label: "Fatura No", value: createResult.invoiceNumber || "—", color: C.accent },
+                                            { label: "UUID", value: (createResult.uuid || "—").substring(0, 18) + "...", color: C.blue },
+                                            { label: "Toplam Tutar", value: createResult.totals ? fmtCurrency(createResult.totals.payableAmount) : "—", color: C.green },
+                                            { label: "KDV", value: createResult.totals ? fmtCurrency(createResult.totals.totalTax) : "—", color: C.purple },
+                                        ].map(f => (
+                                            <div key={f.label} style={{ background: C.glass, border: "1px solid " + C.glassBr, borderRadius: 10, padding: "0.85rem" }}>
+                                                <p style={{ color: C.dim, fontSize: "0.68rem", fontWeight: 600, margin: "0 0 0.2rem" }}>{f.label}</p>
+                                                <p style={{ color: f.color, fontSize: "0.92rem", fontWeight: 700, margin: 0, fontFamily: "monospace", wordBreak: "break-all" }}>{f.value}</p>
+                                            </div>
+                                        ))}
+                                    </div>
+
+                                    <div style={{ display: "flex", gap: "0.5rem" }}>
+                                        <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+                                            onClick={() => { setShowCreateModal(false); setCreateStep(1); setCreateResult(null); setCreateError(""); setInvoiceForm({ customerName: "", customerVkn: "", customerFirstName: "", customerLastName: "", customerStreet: "", customerDistrict: "", customerCity: "Istanbul", customerTaxOffice: "", customerEmail: "", customerPhone: "", lines: [{ name: "", quantity: 1, unit: "adet", unitPrice: 0, vatRate: 20, discountAmount: 0 }], note: "", currency: "TRY", sendingType: "ELEKTRONIK" }); }}
+                                            style={{ flex: 1, background: C.glass, border: "1px solid " + C.glassBr, borderRadius: 10, padding: "0.7rem", cursor: "pointer", color: C.muted, fontSize: "0.85rem", fontWeight: 600 }}>
+                                            Kapat
+                                        </motion.button>
+                                        <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+                                            onClick={() => { setCreateStep(1); setCreateResult(null); setCreateError(""); setInvoiceForm({ customerName: "", customerVkn: "", customerFirstName: "", customerLastName: "", customerStreet: "", customerDistrict: "", customerCity: "Istanbul", customerTaxOffice: "", customerEmail: "", customerPhone: "", lines: [{ name: "", quantity: 1, unit: "adet", unitPrice: 0, vatRate: 20, discountAmount: 0 }], note: "", currency: "TRY", sendingType: "ELEKTRONIK" }); }}
+                                            style={{ flex: 1, background: "linear-gradient(135deg, " + C.accent + ", #44a08d)", border: "none", borderRadius: 10, padding: "0.7rem", cursor: "pointer", color: "#fff", fontSize: "0.85rem", fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", gap: "0.4rem" }}>
+                                            <FaPlus /> Yeni Fatura Oluştur
+                                        </motion.button>
+                                    </div>
                                 </div>
                             )}
                         </motion.div>

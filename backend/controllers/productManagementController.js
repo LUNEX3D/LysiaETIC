@@ -5,7 +5,6 @@
  */
 
 const ProductMapping = require("../models/ProductMapping");
-const CategoryMapping = require("../models/CategoryMapping");
 const StockSyncLog = require("../models/StockSyncLog");
 const Marketplace = require("../models/Marketplace");
 const logger = require("../config/logger");
@@ -14,6 +13,7 @@ const { manualStockSync, autoStockSync, syncStockToAllMarketplaces } = require("
 const n11Service = require("../services/n11Service");
 const xlsx = require("xlsx");
 const multer = require("multer");
+const duplicateGuard = require("../utils/productDuplicateGuard");
 
 // Multer — memory storage (dosyayı diske yazmadan RAM'de tut)
 const upload = multer({
@@ -60,16 +60,13 @@ exports.createProduct = async (req, res) => {
             });
         }
 
-        // Barkod benzersizlik kontrolü
-        const existing = await ProductMapping.findOne({ userId, "masterProduct.barcode": barcode });
-        if (existing) {
+        // 🛡️ Duplike kontrolü (Barkod + SKU + İsim)
+        const duplicateCheck = await duplicateGuard.checkDuplicates(userId, { barcode, sku, name });
+        if (!duplicateCheck.isValid) {
             return res.status(409).json({
-                error: "Bu barkoda sahip bir ürün zaten mevcut",
-                existingProduct: {
-                    id: existing._id,
-                    name: existing.masterProduct.name,
-                    barcode: existing.masterProduct.barcode
-                }
+                error: duplicateCheck.message,
+                type: duplicateCheck.type,
+                conflicts: duplicateCheck.conflicts
             });
         }
 
@@ -196,144 +193,21 @@ exports.getProducts = async (req, res) => {
             .limit(Number(limit))
             .lean();
 
-        // ── PLATFORM ZENGİNLEŞTİRME ──
-        // Strateji: Kullanıcının TÜM ProductMapping kayıtlarını çek,
-        // ürün ismine göre grupla, aynı ürünün farklı platformlardaki kayıtlarını birleştir.
-        try {
-            // ═══ ADIM 0: TAM DİAGNOSTİK — DB'deki tüm kayıtları logla (ilk istek için) ═══
-            const allUserProducts = await ProductMapping.find({ userId })
-                .select("masterProduct.name masterProduct.barcode masterProduct.sku marketplaceMappings")
-                .lean();
-
-            // Platform dağılımını logla
-            const platformDist = {};
-            for (const ap of allUserProducts) {
-                for (const mm of (ap.marketplaceMappings || [])) {
-                    const pn = mm.marketplaceName || "UNKNOWN";
-                    platformDist[pn] = (platformDist[pn] || 0) + 1;
-                }
-            }
-            logger.info(`[PLATFORM-DIAG] Toplam ${allUserProducts.length} ProductMapping kaydı. Platform dağılımı: ${JSON.stringify(platformDist)}`);
-
-            // Tüm ürünleri listele (ilk 20)
-            for (const ap of allUserProducts.slice(0, 20)) {
-                const pls = (ap.marketplaceMappings || []).map(m => `${m.marketplaceName}(id:${m.marketplaceProductId || "-"},bc:${m.marketplaceBarcode || "-"},sku:${m.marketplaceSku || "-"})`);
-                logger.info(`[PLATFORM-DIAG] "${ap.masterProduct?.name}" | masterBarcode=${ap.masterProduct?.barcode} | masterSku=${ap.masterProduct?.sku} | mappings=[${pls.join(", ")}]`);
-            }
-
-            // ═══ ADIM 1: İsim bazlı gruplama ile cross-reference ═══
-            // Aynı ürün farklı platformlarda farklı barcode ile kayıtlı olabilir.
-            // Bu yüzden barcode/sku yerine İSİM benzerliği ile eşleştirme yapıyoruz.
-
-            // Tüm kullanıcı ürünlerinden isim → platform mapping haritası oluştur
-            const nameToMappings = new Map(); // normalizedName → [marketplaceMapping, ...]
-            for (const ap of allUserProducts) {
-                const rawName = ap.masterProduct?.name || "";
-                // İsmi normalize et: küçük harf, fazla boşlukları sil, özel karakterleri temizle
-                const normName = rawName.trim().toLowerCase()
-                    .replace(/\s+/g, " ")           // çoklu boşluk → tek boşluk
-                    .replace(/[–—-]+/g, "-")         // farklı tire türleri → tek tire
-                    .replace(/[""'']/g, "");          // tırnak işaretleri temizle
-
-                if (!normName) continue;
-
-                if (!nameToMappings.has(normName)) nameToMappings.set(normName, []);
-                for (const mm of (ap.marketplaceMappings || [])) {
-                    nameToMappings.get(normName).push(mm);
-                }
-
-                // Ayrıca barcode ve sku bazlı da ekle (eski mantık korunsun)
-                const bc = ap.masterProduct?.barcode;
-                const sk = ap.masterProduct?.sku;
-                if (bc) {
-                    const bcKey = `__bc__${bc}`;
-                    if (!nameToMappings.has(bcKey)) nameToMappings.set(bcKey, []);
-                    for (const mm of (ap.marketplaceMappings || [])) {
-                        nameToMappings.get(bcKey).push(mm);
-                    }
-                }
-                if (sk) {
-                    const skKey = `__sk__${sk}`;
-                    if (!nameToMappings.has(skKey)) nameToMappings.set(skKey, []);
-                    for (const mm of (ap.marketplaceMappings || [])) {
-                        nameToMappings.get(skKey).push(mm);
-                    }
-                }
-            }
-
-            // ═══ ADIM 2: Her sayfadaki ürün için eksik platformları ekle ═══
-            for (const p of products) {
-                const existingPlatforms = new Set(
-                    (p.marketplaceMappings || []).map(m => normalizeMarketplaceName(m.marketplaceName))
+        // ── PLATFORM DOĞRULAMA ──
+        // ⚠️ ESKİ (YANLIŞ): Cross-reference ile başka DB kayıtlarının platform mapping'leri
+        //   bu ürüne enjekte ediliyordu → 1 platformda olan ürün 2 platformda görünüyordu
+        //   Örn: Ürün A (Trendyol, barcode X) + Ürün B (N11, barcode X) → Ürün A'ya N11 badge ekleniyor
+        // ✅ YENİ (DOĞRU): Cross-reference KALDIRILDI. Her ürün SADECE kendi marketplaceMappings'ini gösterir.
+        //   Bir ürün bir platformda varsa, o platformun mapping'i doğrudan o ürünün kaydında olmalıdır.
+        //   syncStatus: "error" olan mapping'ler filtrelenir (platformdan kaldırılmış ürünler).
+        for (const p of products) {
+            if (p.marketplaceMappings && p.marketplaceMappings.length > 0) {
+                // syncStatus: "error" olan mapping'leri filtrele
+                // Bu ürünler platformdan kaldırılmış veya bulunamıyor
+                p.marketplaceMappings = p.marketplaceMappings.filter(
+                    m => m.syncStatus !== "error"
                 );
-
-                // Bu ürünle eşleşebilecek tüm mapping'leri topla
-                const candidateMappings = [];
-
-                // İsim bazlı eşleşme
-                const rawName = p.masterProduct?.name || "";
-                const normName = rawName.trim().toLowerCase()
-                    .replace(/\s+/g, " ")
-                    .replace(/[–—-]+/g, "-")
-                    .replace(/[""'']/g, "");
-                if (normName && nameToMappings.has(normName)) {
-                    candidateMappings.push(...nameToMappings.get(normName));
-                }
-
-                // Barcode bazlı eşleşme
-                const bc = p.masterProduct?.barcode;
-                if (bc && nameToMappings.has(`__bc__${bc}`)) {
-                    candidateMappings.push(...nameToMappings.get(`__bc__${bc}`));
-                }
-
-                // SKU bazlı eşleşme
-                const sk = p.masterProduct?.sku;
-                if (sk && nameToMappings.has(`__sk__${sk}`)) {
-                    candidateMappings.push(...nameToMappings.get(`__sk__${sk}`));
-                }
-
-                // Marketplace mapping'lerindeki barcode/sku ile de eşleştir
-                for (const mm of (p.marketplaceMappings || [])) {
-                    if (mm.marketplaceBarcode && nameToMappings.has(`__bc__${mm.marketplaceBarcode}`)) {
-                        candidateMappings.push(...nameToMappings.get(`__bc__${mm.marketplaceBarcode}`));
-                    }
-                    if (mm.marketplaceSku && nameToMappings.has(`__sk__${mm.marketplaceSku}`)) {
-                        candidateMappings.push(...nameToMappings.get(`__sk__${mm.marketplaceSku}`));
-                    }
-                }
-
-                // Eksik platformları ekle
-                for (const mm of candidateMappings) {
-                    const normalized = normalizeMarketplaceName(mm.marketplaceName);
-                    if (normalized && !existingPlatforms.has(normalized)) {
-                        existingPlatforms.add(normalized);
-                        if (!p.marketplaceMappings) p.marketplaceMappings = [];
-                        p.marketplaceMappings.push({
-                            marketplaceName: normalized,
-                            marketplaceProductId: mm.marketplaceProductId || "",
-                            marketplaceSku: mm.marketplaceSku || "",
-                            marketplaceBarcode: mm.marketplaceBarcode || "",
-                            price: mm.price || 0,
-                            listPrice: mm.listPrice || 0,
-                            stock: mm.stock != null ? mm.stock : 0,
-                            isActive: mm.isActive !== false,
-                            isSynced: mm.isSynced || false,
-                            syncStatus: mm.syncStatus || "synced",
-                            lastSyncDate: mm.lastSyncDate,
-                            pulledFromMarketplace: mm.pulledFromMarketplace || false,
-                            _crossReferenced: true
-                        });
-                    }
-                }
             }
-
-            // DEBUG LOG — ilk 3 ürünün platform durumunu logla
-            for (const p of products.slice(0, 3)) {
-                const platforms = (p.marketplaceMappings || []).map(m => `${m.marketplaceName}${m._crossReferenced ? "(CROSS)" : ""}`);
-                logger.info(`[PLATFORM-CHECK] "${p.masterProduct?.name}" barcode=${p.masterProduct?.barcode} sku=${p.masterProduct?.sku} → platforms: [${platforms.join(", ")}]`);
-            }
-        } catch (enrichErr) {
-            logger.warn("[PRODUCT LIST] Cross-reference zenginleştirme hatası:", enrichErr.message);
         }
 
         return res.status(200).json({
@@ -351,6 +225,8 @@ exports.getProducts = async (req, res) => {
     }
 };
 
+
+
 /**
  * Tek ürün detayı
  */
@@ -366,72 +242,20 @@ exports.getProductDetail = async (req, res) => {
             return res.status(404).json({ error: "Ürün bulunamadı" });
         }
 
-        // ── PLATFORM ZENGİNLEŞTİRME (barcode + sku + isim cross-reference) ──
-        try {
-            const lookupBarcodes = new Set();
-            const lookupSkus = new Set();
-            if (product.masterProduct?.barcode) lookupBarcodes.add(product.masterProduct.barcode);
-            if (product.masterProduct?.sku) lookupSkus.add(product.masterProduct.sku);
-            for (const mm of (product.marketplaceMappings || [])) {
-                if (mm.marketplaceBarcode) lookupBarcodes.add(mm.marketplaceBarcode);
-                if (mm.marketplaceSku) lookupSkus.add(mm.marketplaceSku);
-            }
-
-            const orConds = [];
-            if (lookupBarcodes.size > 0) {
-                orConds.push({ "masterProduct.barcode": { $in: [...lookupBarcodes] } });
-                orConds.push({ "marketplaceMappings.marketplaceBarcode": { $in: [...lookupBarcodes] } });
-            }
-            if (lookupSkus.size > 0) {
-                orConds.push({ "masterProduct.sku": { $in: [...lookupSkus] } });
-                orConds.push({ "marketplaceMappings.marketplaceSku": { $in: [...lookupSkus] } });
-            }
-            // İsim ile de ara
-            if (product.masterProduct?.name) {
-                const escaped = product.masterProduct.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-                orConds.push({ "masterProduct.name": { $regex: new RegExp("^" + escaped + "$", "i") } });
-            }
-
-            if (orConds.length > 0) {
-                const relatedProducts = await ProductMapping.find({
-                    userId,
-                    _id: { $ne: product._id },
-                    $or: orConds
-                }).select("marketplaceMappings").lean();
-
-                const existingPlatforms = new Set(
-                    (product.marketplaceMappings || []).map(m => normalizeMarketplaceName(m.marketplaceName))
-                );
-
-                for (const rp of relatedProducts) {
-                    for (const mm of (rp.marketplaceMappings || [])) {
-                        const normalized = normalizeMarketplaceName(mm.marketplaceName);
-                        if (normalized && !existingPlatforms.has(normalized)) {
-                            existingPlatforms.add(normalized);
-                            product.marketplaceMappings.push({
-                                marketplaceName: normalized,
-                                marketplaceProductId: mm.marketplaceProductId || "",
-                                marketplaceSku: mm.marketplaceSku || "",
-                                marketplaceBarcode: mm.marketplaceBarcode || "",
-                                price: mm.price || 0,
-                                listPrice: mm.listPrice || 0,
-                                stock: mm.stock != null ? mm.stock : 0,
-                                isActive: mm.isActive !== false,
-                                isSynced: mm.isSynced || false,
-                                syncStatus: mm.syncStatus || "synced",
-                                lastSyncDate: mm.lastSyncDate,
-                                pulledFromMarketplace: mm.pulledFromMarketplace || false,
-                                _crossReferenced: true
-                            });
-                        }
-                    }
-                }
-
-                logger.info(`[PRODUCT DETAIL] "${product.masterProduct?.name}" → platforms: [${[...existingPlatforms].join(", ")}]`);
-            }
-        } catch (enrichErr) {
-            logger.warn("[PRODUCT DETAIL] Cross-reference zenginleştirme hatası:", enrichErr.message);
+        // ── PLATFORM DOĞRULAMA ──
+        // ⚠️ ESKİ (YANLIŞ): Cross-reference ile başka DB kayıtlarının platform mapping'leri
+        //   bu ürüne enjekte ediliyordu → 1 platformda olan ürün 2 platformda görünüyordu
+        // ✅ YENİ (DOĞRU): Cross-reference KALDIRILDI. Her ürün SADECE kendi marketplaceMappings'ini gösterir.
+        //   syncStatus: "error" olan mapping'ler filtrelenir (platformdan kaldırılmış ürünler).
+        if (product.marketplaceMappings && product.marketplaceMappings.length > 0) {
+            // syncStatus: "error" olan mapping'leri filtrele
+            product.marketplaceMappings = product.marketplaceMappings.filter(
+                m => m.syncStatus !== "error"
+            );
         }
+
+        const activePlatforms = (product.marketplaceMappings || []).map(m => m.marketplaceName).filter(Boolean);
+        logger.info(`[PRODUCT DETAIL] "${product.masterProduct?.name}" → platforms: [${activePlatforms.join(", ")}]`);
 
         return res.status(200).json({ success: true, product });
 
@@ -555,11 +379,11 @@ exports.updateProduct = async (req, res) => {
 };
 
 /**
- * Ürün sil (opsiyonel: pazaryerlerinden de kaldır)
+ * Ürün sil (pazaryerlerinden de zorunlu kaldırır)
  *
  * DELETE /product-management/products/:productId
  * Query params:
- *   deleteFromMarketplaces=true  — pazaryerlerinden de kaldır
+ *   deleteFromMarketplaces=false — sadece yerel kaydı sil (default: true — her yerden siler)
  *   platforms=Trendyol,N11       — sadece belirli platformlardan kaldır (virgülle ayrılmış)
  */
 exports.deleteProduct = async (req, res) => {
@@ -568,7 +392,8 @@ exports.deleteProduct = async (req, res) => {
         if (!userId) return res.status(401).json({ error: "Yetkilendirme hatası" });
 
         const { productId } = req.params;
-        const deleteFromMarketplaces = req.query.deleteFromMarketplaces === "true";
+        // Default: true — ürün silinince pazaryerlerinden de kaldırılır
+        const deleteFromMarketplaces = req.query.deleteFromMarketplaces !== "false";
         const platforms = req.query.platforms ? req.query.platforms.split(",").map(p => p.trim()).filter(Boolean) : [];
 
         // Ürünü bul (silmeden önce marketplace bilgilerine ihtiyacımız var)
@@ -619,13 +444,15 @@ exports.deleteProduct = async (req, res) => {
             logger.warn(`[PRODUCT DELETE] Log kaydı oluşturulamadı: ${logErr.message}`);
         }
 
-        logger.info(`[PRODUCT DELETE] ✅ "${productName}" silindi${deleteFromMarketplaces ? " (pazaryerlerinden de kaldırıldı)" : ""}`);
+        const mpSuccessCount = marketplaceResults.filter(r => r.status === "success").length;
+        const mpErrorCount = marketplaceResults.filter(r => r.status === "error").length;
+        logger.info(`[PRODUCT DELETE] ✅ "${productName}" silindi${marketplaceResults.length > 0 ? ` | Pazaryeri: ${mpSuccessCount} başarılı, ${mpErrorCount} hata` : " (sadece yerel)"}`);
 
         return res.status(200).json({
             success: true,
-            message: deleteFromMarketplaces
-                ? `Ürün silindi ve pazaryerlerinden kaldırıldı`
-                : "Ürün silindi (sadece yerel kayıt)",
+            message: marketplaceResults.length > 0
+                ? `Ürün silindi ve ${mpSuccessCount} pazaryerinden kaldırıldı${mpErrorCount > 0 ? ` (${mpErrorCount} hata)` : ""}`
+                : "Ürün silindi",
             marketplaceResults
         });
 
@@ -2503,6 +2330,151 @@ exports.bulkDistributeSelected = async (req, res) => {
 };
 
 // ═══════════════════════════════════════════════════════════════
+// 🚀 DAĞITILMAMIŞ ÜRÜNLERİ DAĞIT
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Henüz hiçbir pazaryerine dağıtılmamış veya bazı platformlarda eksik olan ürünleri
+ * otomatik olarak tüm aktif pazaryerlerine dağıtır.
+ *
+ * POST /product-management/sync/distribute-undistributed
+ * Body (opsiyonel):
+ *   targetMarketplaces: [String] — boş = tüm aktif platformlar
+ *   onlyFullyUndistributed: Boolean — true = sadece hiçbir yere dağıtılmamışlar (default: false)
+ */
+exports.distributeUndistributed = async (req, res) => {
+    try {
+        const userId = toObjectId(req.user?._id || req.user?.id);
+        if (!userId) return res.status(401).json({ error: "Yetkilendirme hatası" });
+
+        const { targetMarketplaces = [], onlyFullyUndistributed = false } = req.body || {};
+
+        // 1) Kullanıcının aktif pazaryerlerini bul
+        const activeMarketplaces = await Marketplace.find({ userId }).lean();
+        if (activeMarketplaces.length === 0) {
+            return res.status(400).json({ error: "Aktif pazaryeri entegrasyonu bulunamadı" });
+        }
+
+        const activePlatformNames = activeMarketplaces.map(m => m.marketplaceName);
+        const targets = targetMarketplaces.length > 0
+            ? targetMarketplaces.filter(t => activePlatformNames.some(ap => ap.toLowerCase() === t.toLowerCase()))
+            : activePlatformNames;
+
+        if (targets.length === 0) {
+            return res.status(400).json({ error: "Hedef pazaryeri bulunamadı" });
+        }
+
+        logger.info(`[DIST UNDISTRIBUTED] Başlatılıyor — userId: ${userId}, hedefler: ${targets.join(", ")}, sadece dağıtılmamış: ${onlyFullyUndistributed}`);
+
+        // 2) Tüm ürünleri getir
+        const allProducts = await ProductMapping.find({ userId }).lean();
+
+        if (allProducts.length === 0) {
+            return res.status(200).json({
+                success: true,
+                message: "Dağıtılacak ürün bulunamadı",
+                stats: { total: 0, distributed: 0, skipped: 0, error: 0 }
+            });
+        }
+
+        // 3) Dağıtılmamış ürünleri filtrele
+        const undistributed = [];
+        for (const product of allProducts) {
+            const existingPlatforms = (product.marketplaceMappings || [])
+                .filter(m => m.syncStatus !== "error")
+                .map(m => m.marketplaceName?.toLowerCase());
+
+            const missingPlatforms = targets.filter(t => !existingPlatforms.includes(t.toLowerCase()));
+
+            if (onlyFullyUndistributed) {
+                // Sadece hiçbir yere dağıtılmamış ürünler
+                if (existingPlatforms.length === 0) {
+                    undistributed.push({ product, missingPlatforms: targets });
+                }
+            } else {
+                // Herhangi bir platformda eksik olan ürünler
+                if (missingPlatforms.length > 0) {
+                    undistributed.push({ product, missingPlatforms });
+                }
+            }
+        }
+
+        if (undistributed.length === 0) {
+            return res.status(200).json({
+                success: true,
+                message: "Tüm ürünler zaten tüm platformlara dağıtılmış",
+                stats: { total: allProducts.length, distributed: 0, skipped: allProducts.length, error: 0 }
+            });
+        }
+
+        logger.info(`[DIST UNDISTRIBUTED] ${undistributed.length}/${allProducts.length} ürün dağıtılacak`);
+
+        // 4) Sıralı dağıtım (rate limit koruması — 3'erli batch)
+        const stats = { total: undistributed.length, distributed: 0, skipped: 0, error: 0, details: [] };
+        const BATCH_SIZE = 3;
+
+        for (let i = 0; i < undistributed.length; i += BATCH_SIZE) {
+            const batch = undistributed.slice(i, i + BATCH_SIZE);
+
+            const batchResults = await Promise.all(
+                batch.map(async ({ product, missingPlatforms }) => {
+                    try {
+                        const distResults = await distributeProductToMarketplaces(userId, product._id, missingPlatforms);
+                        const ok = distResults.filter(r => r.status === "success").length;
+                        const err = distResults.filter(r => r.status === "error").length;
+
+                        return {
+                            productId: product._id,
+                            name: product.masterProduct?.name || "İsimsiz",
+                            platforms: missingPlatforms,
+                            ok,
+                            err,
+                            results: distResults
+                        };
+                    } catch (err) {
+                        return {
+                            productId: product._id,
+                            name: product.masterProduct?.name || "İsimsiz",
+                            platforms: missingPlatforms,
+                            ok: 0,
+                            err: 1,
+                            error: err.message
+                        };
+                    }
+                })
+            );
+
+            for (const br of batchResults) {
+                if (br.ok > 0) stats.distributed++;
+                else if (br.err > 0) stats.error++;
+                else stats.skipped++;
+                stats.details.push({
+                    productId: br.productId,
+                    name: br.name,
+                    platforms: br.platforms,
+                    success: br.ok,
+                    error: br.err,
+                    errorMessage: br.error || undefined
+                });
+            }
+        }
+
+        logger.info(`[DIST UNDISTRIBUTED] ✅ Tamamlandı — Dağıtılan: ${stats.distributed}, Hata: ${stats.error}, Atlanan: ${stats.skipped}`);
+
+        return res.status(200).json({
+            success: true,
+            message: `${stats.distributed} ürün dağıtıldı${stats.error > 0 ? `, ${stats.error} hata` : ""}`,
+            stats
+        });
+
+    } catch (error) {
+        logger.error("[DIST UNDISTRIBUTED] Hata:", error.message);
+        logger.error("[DIST UNDISTRIBUTED] Stack:", error.stack);
+        return res.status(500).json({ error: "Dağıtım başarısız", details: error.message });
+    }
+};
+
+// ═══════════════════════════════════════════════════════════════
 // ⏳ N11 PENDING TASK CHECKER
 // ═══════════════════════════════════════════════════════════════
 
@@ -2709,21 +2681,27 @@ exports.executeImport = async (req, res) => {
             }
 
             try {
-                // Mevcut ürün kontrolü
+                // 🛡️ Mevcut ürün kontrolü — Barkod VEYA SKU ile eşleştir
                 const existing = await ProductMapping.findOne({
                     userId,
-                    "masterProduct.barcode": row.barcode
+                    $or: [
+                        { "masterProduct.barcode": row.barcode },
+                        ...(row.sku ? [{ "masterProduct.sku": row.sku }] : [])
+                    ]
                 });
 
                 if (existing) {
                     if (!shouldUpdateExisting) {
+                        const matchField = existing.masterProduct.barcode === row.barcode ? "Stok kodu" : "Model kodu";
                         results.skipped++;
-                        results.details.push({ rowNumber: rowNum, status: "skipped", name: row.name, barcode: row.barcode, reason: "Barkod zaten mevcut, güncelleme devre dışı" });
+                        results.details.push({ rowNumber: rowNum, status: "skipped", name: row.name, barcode: row.barcode, reason: `${matchField} zaten mevcut (${existing.masterProduct.name}), güncelleme devre dışı` });
                         continue;
                     }
 
                     // Güncelle
                     existing.masterProduct.name        = row.name;
+                    existing.masterProduct.barcode     = row.barcode; // Barkod güncelle (SKU ile eşleştiyse eski barkod kalmasın)
+                    existing.masterProduct.sku         = row.sku || existing.masterProduct.sku;
                     existing.masterProduct.description = row.description || existing.masterProduct.description;
                     existing.masterProduct.price       = row.price;
                     existing.masterProduct.listPrice   = row.listPrice || row.price;
@@ -2749,6 +2727,19 @@ exports.executeImport = async (req, res) => {
                     results.details.push({ rowNumber: rowNum, status: "updated", name: row.name, barcode: row.barcode, id: existing._id });
 
                 } else {
+                    // 🛡️ Yeni ürün oluşturmadan önce son duplike kontrolü
+                    const dupCheck = await duplicateGuard.checkDuplicates(userId, {
+                        barcode: row.barcode,
+                        sku: row.sku,
+                        name: row.name
+                    });
+
+                    if (!dupCheck.isValid) {
+                        results.skipped++;
+                        results.details.push({ rowNumber: rowNum, status: "skipped", name: row.name, barcode: row.barcode, reason: dupCheck.message });
+                        continue;
+                    }
+
                     // Yeni ürün oluştur
                     const stockVal = row.stock || 0;
                     const newProduct = new ProductMapping({
@@ -3278,12 +3269,12 @@ exports.bulkUpdateStocks = async (req, res) => {
 };
 
 /**
- * Toplu ürün silme (opsiyonel: pazaryerlerinden de kaldır)
+ * Toplu ürün silme (pazaryerlerinden de zorunlu kaldırır)
  * POST /product-management/bulk/delete
  *
  * Body:
  *   productIds: [String]
- *   deleteFromMarketplaces: Boolean (opsiyonel, default: false)
+ *   deleteFromMarketplaces: Boolean (opsiyonel, default: true — her yerden siler)
  *   platforms: [String] (opsiyonel — boş = tümü)
  */
 exports.bulkDeleteProducts = async (req, res) => {
@@ -3291,7 +3282,7 @@ exports.bulkDeleteProducts = async (req, res) => {
         const userId = toObjectId(req.user?._id || req.user?.id);
         if (!userId) return res.status(401).json({ error: "Yetkilendirme hatası" });
 
-        const { productIds, deleteFromMarketplaces = false, platforms = [] } = req.body;
+        const { productIds, deleteFromMarketplaces = true, platforms = [] } = req.body;
 
         if (!productIds || !Array.isArray(productIds) || productIds.length === 0) {
             return res.status(400).json({ error: "Ürün listesi boş olamaz" });
@@ -3364,17 +3355,17 @@ exports.bulkDeleteProducts = async (req, res) => {
         const mpErrorCount = allMarketplaceResults.reduce((sum, r) =>
             sum + (r.results || []).filter(x => x.status === "error").length, 0);
 
-        logger.info(`[BULK DELETE] ✅ ${result.deletedCount} ürün silindi${deleteFromMarketplaces ? ` | Pazaryeri: ${mpSuccessCount} başarılı, ${mpErrorCount} hata` : ""}`);
+        logger.info(`[BULK DELETE] ✅ ${result.deletedCount} ürün silindi | Pazaryeri: ${mpSuccessCount} başarılı, ${mpErrorCount} hata`);
 
         return res.status(200).json({
             success: true,
-            message: deleteFromMarketplaces
-                ? `${result.deletedCount} ürün silindi ve pazaryerlerinden kaldırıldı`
-                : `${result.deletedCount} ürün başarıyla silindi`,
+            message: allMarketplaceResults.length > 0
+                ? `${result.deletedCount} ürün silindi ve pazaryerlerinden kaldırıldı${mpErrorCount > 0 ? ` (${mpErrorCount} hata)` : ""}`
+                : `${result.deletedCount} ürün silindi`,
             deletedCount: result.deletedCount,
             deletedProducts: toDelete.map(p => ({ name: p.masterProduct?.name, barcode: p.masterProduct?.barcode })),
-            marketplaceResults: deleteFromMarketplaces ? allMarketplaceResults : undefined,
-            marketplaceStats: deleteFromMarketplaces ? { success: mpSuccessCount, error: mpErrorCount } : undefined
+            marketplaceResults: allMarketplaceResults.length > 0 ? allMarketplaceResults : undefined,
+            marketplaceStats: { success: mpSuccessCount, error: mpErrorCount }
         });
 
     } catch (error) {
@@ -3977,12 +3968,13 @@ exports.createAndDistribute = async (req, res) => {
             });
         }
 
-        // Barkod benzersizlik kontrolü
-        const existing = await ProductMapping.findOne({ userId, "masterProduct.barcode": barcode });
-        if (existing) {
+        // 🛡️ Duplike kontrolü (Barkod + SKU + İsim)
+        const duplicateCheck = await duplicateGuard.checkDuplicates(userId, { barcode, sku, name });
+        if (!duplicateCheck.isValid) {
             return res.status(409).json({
-                error: "Bu barkoda sahip bir ürün zaten mevcut",
-                existingProduct: { id: existing._id, name: existing.masterProduct.name }
+                error: duplicateCheck.message,
+                type: duplicateCheck.type,
+                conflicts: duplicateCheck.conflicts
             });
         }
 
@@ -4454,6 +4446,63 @@ exports.getCategoryTree = async (req, res) => {
                         return null;
                     };
                     categories = findChildren(n11Result.categories) || [];
+                }
+            }
+        } else if (mpName === "ÇiçekSepeti") {
+            const ciceksepetiService = require("../services/ciceksepeti/ciceksepetiService");
+            const csResult = await ciceksepetiService.getCategories(marketplace.credentials);
+            if (csResult.success) {
+                const csCats = csResult.categories || [];
+
+                if (search) {
+                    const q = search.toLowerCase();
+                    const flattenCS = (cats, parentPath = []) => {
+                        let res = [];
+                        for (const c of (cats || [])) {
+                            const name = c.name || c.categoryName || "";
+                            const path = [...parentPath, name];
+                            const isLeaf = !c.subCategories || c.subCategories.length === 0;
+                            if (name.toLowerCase().includes(q) || path.join(" > ").toLowerCase().includes(q)) {
+                                res.push({
+                                    id: c.id || c.categoryId,
+                                    name,
+                                    path: path.join(" > "),
+                                    hasChildren: !isLeaf,
+                                    isLeaf
+                                });
+                            }
+                            if (!isLeaf) res = res.concat(flattenCS(c.subCategories, path));
+                        }
+                        return res;
+                    };
+                    categories = flattenCS(csCats).slice(0, 100);
+                } else if (!parentId || parentId === "0") {
+                    categories = csCats.map(c => ({
+                        id: c.id || c.categoryId,
+                        name: c.name || c.categoryName || "",
+                        hasChildren: !!(c.subCategories?.length),
+                        isLeaf: !c.subCategories || c.subCategories.length === 0
+                    }));
+                } else {
+                    const findChildren = (cats) => {
+                        for (const c of (cats || [])) {
+                            const cId = c.id || c.categoryId;
+                            if (String(cId) === String(parentId)) {
+                                return (c.subCategories || []).map(sc => ({
+                                    id: sc.id || sc.categoryId,
+                                    name: sc.name || sc.categoryName || "",
+                                    hasChildren: !!(sc.subCategories?.length),
+                                    isLeaf: !sc.subCategories || sc.subCategories.length === 0
+                                }));
+                            }
+                            if (c.subCategories?.length) {
+                                const found = findChildren(c.subCategories);
+                                if (found) return found;
+                            }
+                        }
+                        return null;
+                    };
+                    categories = findChildren(csCats) || [];
                 }
             }
         }

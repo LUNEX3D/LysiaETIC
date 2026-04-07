@@ -16,6 +16,7 @@ import dayjs from "dayjs";
 import "dayjs/locale/tr";
 import { fetchFinanceSummary } from "../services/financeApi";
 import { getUserMarketplaces } from "../services/marketplaceApi";
+import { useApp } from "../context/AppContext";
 
 dayjs.locale("tr");
 
@@ -28,6 +29,7 @@ const getLogo = (n) => MP_LOGO[n] || "\u{1F3EC}";
 const ttip = { background: "rgba(10,14,26,0.95)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "8px", color: "#fff" };
 
 const FinancePage = ({ userId, marketplaceId, marketplace, marketplaces: propMarketplaces }) => {
+    const { theme: C, t } = useApp();
     const isSingleMode = !!marketplaceId;
     const [marketplaces, setMarketplaces] = useState(propMarketplaces || []);
     const [selectedMp, setSelectedMp] = useState(marketplace || null);
@@ -177,16 +179,16 @@ const FinancePage = ({ userId, marketplaceId, marketplace, marketplaces: propMar
     );
 
     return (
-        <div style={{ width: "100%", minHeight: "100vh", background: "#0f1419", color: "#fff" }}>
+        <div style={{ width: "100%", minHeight: "100vh", background: C.bg, color: C.text }}>
             {/* Header */}
-            <div style={{ background: headerBg, borderBottom: "1px solid rgba(78,205,196,0.2)", padding: "1.5rem 2rem", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "1rem" }}>
+            <div style={{ background: `linear-gradient(135deg, ${C.card} 0%, ${C.bg} 100%)`, borderBottom: `1px solid ${C.border}`, padding: "1.5rem 2rem", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "1rem" }}>
                 <div>
-                    <h1 style={{ fontSize: "1.75rem", fontWeight: 700, background: "linear-gradient(135deg,#4ecdc4,#44a08d)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", marginBottom: "0.25rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                        <FaMoneyBillWave /> {isSingleMode && selectedMp ? `${selectedMp.name || selectedMp.marketplaceName} Finans Yonetimi` : "Finans Yonetimi"}
+                    <h1 style={{ fontSize: "1.75rem", fontWeight: 700, background: `linear-gradient(135deg,${C.accent},${C.green})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", marginBottom: "0.25rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                        <FaMoneyBillWave /> {isSingleMode && selectedMp ? `${selectedMp.name || selectedMp.marketplaceName} ${t("finance.pageTitle")}` : t("finance.pageTitle")}
                     </h1>
                     <div style={{ display: "flex", alignItems: "center", gap: "1rem", flexWrap: "wrap" }}>
-                        <p style={{ color: "#94a3b8", fontSize: "0.875rem", margin: 0 }}>
-                            {selectedMp ? `${getLogo(selectedMp.marketplaceName)} ${selectedMp.marketplaceName} - Detayli finansal analiz` : "Pazaryeri secin"}
+                        <p style={{ color: C.muted, fontSize: "0.875rem", margin: 0 }}>
+                            {selectedMp ? `${getLogo(selectedMp.marketplaceName)} ${selectedMp.marketplaceName} - ${t("finance.detailedAnalysis")}` : t("finance.selectMarketplace")}
                         </p>
                         {lastUpdate && <span style={{ color: "#64748b", fontSize: "0.75rem", display: "flex", alignItems: "center", gap: "0.25rem" }}><FaClock /> Son: {dayjs(lastUpdate).format("HH:mm:ss")}</span>}
                     </div>
@@ -255,7 +257,7 @@ const FinancePage = ({ userId, marketplaceId, marketplace, marketplaces: propMar
 
             {/* View Tabs */}
             {selectedMp && (
-                <div style={{ background: "#0f1419", padding: "1rem 2rem 0 2rem" }}>
+                <div style={{ background: C.bg, padding: "1rem 2rem 0 2rem" }}>
                     <div style={{ display: "flex", gap: "0.25rem", borderBottom: "2px solid rgba(255,255,255,0.05)" }}>
                         {[{ id: "overview", label: "Genel Bakis", icon: FaChartLine }, { id: "charts", label: "Grafikler", icon: FaChartBar }, { id: "transactions", label: "Islemler", icon: FaTable }].map(v => (
                             <motion.button key={v.id} whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => setActiveView(v.id)}
@@ -268,7 +270,7 @@ const FinancePage = ({ userId, marketplaceId, marketplace, marketplaces: propMar
             )}
 
             {/* Main Content */}
-            <div style={{ padding: "2rem", background: "#0f1419" }}>
+            <div style={{ padding: "2rem", background: C.bg }}>
                 <AnimatePresence mode="wait">
                     {/* Error */}
                     {error && (

@@ -84,8 +84,12 @@ const subscriptionMiddleware = async (req, res, next) => {
         });
     } catch (error) {
         logger.error(`Subscription middleware hatası: ${error.message}`);
-        // Hata durumunda geçişe izin ver (kullanıcıyı engellemek yerine)
-        next();
+        // ✅ SEC #4: Hata durumunda erişimi ENGELLE — bypass kapatıldı
+        // Eski davranış: next() ile geçişe izin veriliyordu → abonelik kontrolü atlanabiliyordu
+        return res.status(500).json({
+            success: false,
+            message: "Abonelik kontrolü sırasında bir hata oluştu. Lütfen tekrar deneyin."
+        });
     }
 };
 

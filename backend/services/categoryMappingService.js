@@ -17,6 +17,12 @@
  *   - InternalCategory in-memory cache (5dk TTL) → her sorgu DB'ye gitmez
  *   - resolveForMarketplace() → tüm platformlar için ortak fallback
  *   - normalize() → shared utils/textNormalize.js'den
+ *
+ * v2.1 Değişiklikler:
+ *   - normalizeKey + extractMeaningfulWords modül seviyesinde import (lazy require kaldırıldı)
+ *   - resolveFromUnifiedMap Adım 4: gereksiz > replace kaldırıldı (normalize zaten yapar)
+ *   - resolveFromUnifiedMap Adım 5: $in + regex → $or + $regex (doğru OR semantiği + index)
+ *   - resolveFromUnifiedMap Adım 5: aday çekme sınırı eklendi (max 50, performans)
  */
 
 const UnmappedCategory   = require("../models/UnmappedCategory");
@@ -24,7 +30,7 @@ const CategoryMapping    = require("../models/CategoryMapping");
 const InternalCategory   = require("../models/InternalCategory");
 const UnifiedCategoryMap = require("../models/UnifiedCategoryMap");
 const logger             = require("../config/logger");
-const { normalize }      = require("../utils/textNormalize");
+const { normalize, normalizeKey, extractMeaningfulWords } = require("../utils/textNormalize");
 
 // ─────────────────────────────────────────────────────────────────────────────
 // IN-MEMORY CACHE — InternalCategory (5 dakika TTL)
@@ -321,7 +327,7 @@ const skipProduct = async (product, reason, userId = null, suggestions = []) => 
 const mapCategoryWithFallback = async (userId, product, mapFn, marketplace = "N11") => {
     const categoryName = (product.category || product.categoryName || "").trim();
 
-    // ── 0. UnifiedCategoryMap'ten çözümle (Ortak Kategori Merkezi) ──
+    // ── 1. UnifiedCategoryMap'ten çözümle (Ortak Kategori Merkezi) ──
     try {
         const unifiedResult = await resolveFromUnifiedMap(categoryName, marketplace);
         if (unifiedResult && unifiedResult.categoryId) {
@@ -331,44 +337,32 @@ const mapCategoryWithFallback = async (userId, product, mapFn, marketplace = "N1
         logger.debug(`[CATEGORY MAPPING] UnifiedCategoryMap hatası (fallback devam): ${err.message}`);
     }
 
-    // ── 1. Platform-spesifik mapping sistemi ile dene ──
+    // ── 2. Platform-spesifik mapping sistemi ile dene (CategoryMapping + MarketplaceCategory + InternalCategoryMapping) ──
     const result = await mapFn(userId, categoryName);
 
     if (result && result.categoryId) {
         return result;
     }
 
-    // ── 2. Smart Resolver Pipeline ile dene (Exact → Learned → Hybrid AI → Fallback) ──
+    // ── 3. InternalCategoryMapping ile dene ──
     try {
-        const { resolveCategory } = require("./categoryResolverService");
-        const resolved = await resolveCategory(userId, product, marketplace, {
-            autoApply: true,
-            saveLearning: true
-        });
-
-        if (resolved && resolved.resolved && resolved.marketplaceCategory) {
+        const resolved = await resolveForMarketplace(categoryName, marketplace);
+        if (resolved && resolved.categoryId) {
             logger.info(
-                `[CATEGORY MAPPING] ✅ Smart Resolver çözdü: "${categoryName}" → ` +
-                `${resolved.marketplaceCategory.name} (source: ${resolved.source}, güven: ${(resolved.confidence * 100).toFixed(0)}%)`
+                `[CATEGORY MAPPING] ✅ InternalCategoryMapping çözdü: "${categoryName}" → ` +
+                `${resolved.categoryName} (ID: ${resolved.categoryId})`
             );
-            return {
-                categoryId:   resolved.marketplaceCategory.id,
-                categoryName: resolved.marketplaceCategory.name,
-                source:       `resolver_${resolved.source}`
-            };
+            return resolved;
         }
     } catch (err) {
-        logger.debug(`[CATEGORY MAPPING] Smart Resolver hatası (fallback devam): ${err.message}`);
+        logger.debug(`[CATEGORY MAPPING] InternalCategoryMapping hatası: ${err.message}`);
     }
 
-    // ── 3. Bulunamadı — dinamik öneri üret + kaydet ──
-    const { suggestions } = await suggestCategory(product);
-
+    // ── 4. Bulunamadı — kaydet ve null döndür ──
     await saveUnmappedCategory(userId, categoryName, product, marketplace);
 
     logger.warn(
-        `[CATEGORY MAPPING] ❌ Bulunamadı: "${categoryName}" | ` +
-        `Öneriler: ${suggestions.map(s => `${s.name}(${s.score})`).join(", ") || "yok"} | ` +
+        `[CATEGORY MAPPING] ❌ Bulunamadı: "${categoryName}" → ${marketplace} | ` +
         `Çözüm: Kategori Eşleştirme Merkezi'nden bu kategoriyi eşleştirin.`
     );
 
@@ -395,7 +389,7 @@ const resolveForMarketplace = async (categoryName, marketplace) => {
     try {
         const InternalCategoryMapping = require("../models/InternalCategoryMapping");
 
-        const normalizedLower = normalize(categoryName).replace(/[>]/g, " ").replace(/\s+/g, " ").trim();
+        const normalizedLower = normalizeKey(categoryName);
         const inputWords = normalizedLower.split(/\s+/).filter(w => w.length > 1);
 
         const internalCats = await getInternalCategoriesCached();
@@ -455,72 +449,466 @@ const resolveForMarketplace = async (categoryName, marketplace) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 8. UNIFIED CATEGORY MAP ÇÖZÜMLEME
+// 8. UNIFIED CATEGORY MAP ÇÖZÜMLEME — v2 (Akıllı Eşleştirme)
 //    Ortak Kategori Merkezi'nden (3 platform birleşik harita) platform kategorisini çözümle.
 //    Ürün yükleme/dağıtımda ilk adım olarak kullanılır.
+//
+//    Pipeline (6 adım — ilk bulunan döner):
+//      1.  Exact normalizedKey eşleşmesi
+//      1b. Trendyol Referans Parent→Child Fallback
+//          Exact key bulundu ama hedef platformda yok + parent kategori
+//          → Trendyol child'larından hedef platformda karşılığı olan en uygununu seç
+//          Seçim: platformCount DESC → isLeaf DESC → name length ASC
+//      2.  Kaynak platform adıyla ters arama (trendyol.categoryName → n11.categoryId)
+//      3.  Yaprak kategori çıkarma ("Ev > Dekor > Biblo" → "Biblo" ile ara)
+//      4.  Regex kısmi eşleşme (canonicalName / normalizedKey) — kısa girişlerde atlanır
+//      5.  Kelime bazlı skorlama (anlamlı kelimeler ile en iyi eşleşme)
 // ─────────────────────────────────────────────────────────────────────────────
+
+/** Platform adından DB field adına çevir */
+const _platformField = (marketplace) =>
+    marketplace === "Trendyol" ? "trendyol"
+    : marketplace === "N11" ? "n11"
+    : (marketplace === "ÇiçekSepeti" || marketplace === "Ciceksepeti") ? "ciceksepeti"
+    : marketplace === "Hepsiburada" ? "hepsiburada"
+    : marketplace === "Amazon" ? "amazon"
+    : null;
+
+/** Tüm platform field adları (ters arama için) */
+const ALL_PLATFORM_FIELDS = ["trendyol", "n11", "ciceksepeti", "hepsiburada", "amazon"];
 
 /**
  * Kategori adını UnifiedCategoryMap'te arayıp hedef platformun categoryId'sini döndürür.
  *
- * @param {string} categoryName — Ürün kategori adı (örn: "Altın Bileklik")
+ * @param {string} categoryName — Ürün kategori adı (örn: "Dekoratif Obje ve Biblo", "Biblo")
  * @param {string} marketplace  — Hedef platform ("Trendyol" | "N11" | "ÇiçekSepeti")
- * @returns {Promise<{ categoryId, categoryName, source } | null>}
+ * @returns {Promise<{ categoryId, categoryName, categoryPath, source } | null>}
  */
 const resolveFromUnifiedMap = async (categoryName, marketplace) => {
     if (!categoryName || !marketplace) return null;
 
-    // Platform field adını belirle
-    const platformField = marketplace === "Trendyol" ? "trendyol"
-        : marketplace === "N11" ? "n11"
-        : (marketplace === "ÇiçekSepeti" || marketplace === "Ciceksepeti") ? "ciceksepeti"
-        : null;
+    const targetField = _platformField(marketplace);
+    if (!targetField) return null;
 
-    if (!platformField) return null;
+    // Hedef platformda categoryId olmalı
+    const targetFilter = { [`${targetField}.categoryId`]: { $ne: null } };
 
     try {
-        // Normalize et (Türkçe karakter + lowercase)
-        const normalizedInput = normalize(categoryName)
-            .replace(/[>]/g, " ").replace(/\s+/g, " ").trim();
-
-        if (!normalizedInput) return null;
-
-        // 1. Exact normalizedKey eşleşmesi
-        const { normalizeKey } = require("./unifiedCategoryImportService");
         const key = normalizeKey(categoryName);
 
+        if (!key) return null;
+
         let unified = null;
-        if (key) {
-            unified = await UnifiedCategoryMap.findOne({
-                normalizedKey: key,
-                [`${platformField}.categoryId`]: { $ne: null }
-            }).lean();
-        }
+        let matchStep = "";
 
-        // 2. Regex arama (kısmi eşleşme)
+        // ── Adım 1: Exact normalizedKey eşleşmesi ───────────────────────────
+        unified = await UnifiedCategoryMap.findOne({
+            normalizedKey: key,
+            ...targetFilter
+        }).lean();
+        if (unified) matchStep = "exact_key";
+
+        // ── Adım 1b: Trendyol Referans — Parent→Child Fallback ───────────
+        // Exact key bulundu ama hedef platformda karşılığı yok?
+        // Trendyol referans platform olduğu için: parent kategorinin
+        // Trendyol'daki child'larına bak → hedef platformda karşılığı olan
+        // en uygun child'ı seç.
+        //
+        // Örnek: "Küpe" (TY:400) → N11'de yok → TY child'ları arasından
+        //   Altın Küpe (3 platform), Çelik Küpe (3 platform), vs. → birini seç
+        //
+        // Seçim kriterleri (öncelik sırasıyla):
+        //   1. platformCount (çok platformda olan daha güvenilir)
+        //   2. isLeaf (yaprak kategori tercih edilir)
+        //   3. canonicalName uzunluğu (kısa = daha genel = daha iyi fallback)
         if (!unified) {
-            const searchRegex = new RegExp(normalizedInput.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
-            unified = await UnifiedCategoryMap.findOne({
-                [`${platformField}.categoryId`]: { $ne: null },
-                $or: [
-                    { canonicalName: searchRegex },
-                    { normalizedKey: searchRegex }
-                ]
+            // targetFilter olmadan exact key ara — kayıt var mı ama hedef platformda mı yok?
+            const exactNoFilter = await UnifiedCategoryMap.findOne({
+                normalizedKey: key
             }).lean();
+
+            if (exactNoFilter && !exactNoFilter[targetField]?.categoryId) {
+                // Input kelimelerini hazırla — child seçiminde kullanılacak
+                const inputWordsForChild = extractMeaningfulWords(categoryName);
+
+                // Child'lar arasından en uygununu seçen yardımcı fonksiyon
+                // Sıralama: inputWordMatch DESC → platformCount DESC → isLeaf DESC → name length ASC → alfabetik
+                const pickBestChild = (children) => {
+                    children.sort((a, b) => {
+                        // 0. Input kelime eşleşmesi — input'taki kelimeleri içeren child öncelikli
+                        //    "Biblo, Figür, Objeler" → child "Biblo" (1 eşleşme) vs "Figür" (1 eşleşme)
+                        //    Bu sayede tamamen alakasız child'lar sona düşer
+                        if (inputWordsForChild.length > 0) {
+                            const aWords = extractMeaningfulWords(a.canonicalName);
+                            const bWords = extractMeaningfulWords(b.canonicalName);
+                            const aMatch = inputWordsForChild.filter(iw => aWords.some(aw => aw === iw || aw.includes(iw) || iw.includes(aw))).length;
+                            const bMatch = inputWordsForChild.filter(iw => bWords.some(bw => bw === iw || bw.includes(iw) || iw.includes(bw))).length;
+                            if (bMatch !== aMatch) return bMatch - aMatch;
+                        }
+                        // 1. platformCount — çok platformda olan daha güvenilir
+                        if (b.platformCount !== a.platformCount) return b.platformCount - a.platformCount;
+                        // 2. isLeaf — yaprak tercih
+                        if (b.isLeaf !== a.isLeaf) return b.isLeaf ? 1 : -1;
+                        // 3. Kısa isim — daha genel kategori
+                        const lenDiff = (a.canonicalName?.length || 0) - (b.canonicalName?.length || 0);
+                        if (lenDiff !== 0) return lenDiff;
+                        // 4. Alfabetik — deterministik sıralama (aynı uzunlukta isimler için)
+                        return (a.canonicalName || "").localeCompare(b.canonicalName || "", "tr");
+                    });
+                    return children[0];
+                };
+
+                // Trendyol referans: child'ları Trendyol parentId üzerinden bul
+                const tyData = exactNoFilter.trendyol;
+                if (tyData?.categoryId && !tyData.isLeaf) {
+                    const children = await UnifiedCategoryMap.find({
+                        "trendyol.parentId": tyData.categoryId,
+                        ...targetFilter
+                    }).lean();
+
+                    if (children.length > 0) {
+                        unified = pickBestChild(children);
+                        matchStep = `parent_child_fallback(${children.length} children)`;
+
+                        logger.info(
+                            `[UNIFIED MAP] 🔀 Parent→Child: "${categoryName}" (TY:${tyData.categoryId}) ` +
+                            `→ "${unified.canonicalName}" (${children.length} child arasından seçildi)`
+                        );
+                    }
+                }
+
+                // ÇiçekSepeti referans fallback (Trendyol yoksa)
+                if (!unified) {
+                    const csData = exactNoFilter.ciceksepeti;
+                    if (csData?.categoryId && !csData.isLeaf) {
+                        const children = await UnifiedCategoryMap.find({
+                            "ciceksepeti.parentId": csData.categoryId,
+                            ...targetFilter
+                        }).lean();
+
+                        if (children.length > 0) {
+                            unified = pickBestChild(children);
+                            matchStep = `parent_child_fallback_cs(${children.length} children)`;
+                        }
+                    }
+                }
+            }
         }
 
-        if (unified && unified[platformField]?.categoryId) {
+        // ── Adım 2: Kaynak platform adıyla ters arama ───────────────────────
+        // Ürün Trendyol'dan geldi, kategori adı "Dekoratif Obje ve Biblo"
+        // → trendyol.categoryName'de ara → N11 karşılığını bul
+        if (!unified) {
+            const escapedName = categoryName.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            const exactNameRegex = new RegExp(`^${escapedName}$`, "i");
+
+            for (const srcField of ALL_PLATFORM_FIELDS) {
+                if (srcField === targetField) continue; // Hedef platformda aramaya gerek yok
+                unified = await UnifiedCategoryMap.findOne({
+                    [`${srcField}.categoryName`]: exactNameRegex,
+                    ...targetFilter
+                }).lean();
+                if (unified) { matchStep = `reverse_${srcField}`; break; }
+            }
+        }
+
+        // ── Adım 3: Yaprak kategori çıkarma ─────────────────────────────────
+        // "Ev Dekorasyon > Dekoratif Obje ve Biblo" → "Dekoratif Obje ve Biblo"
+        // "Aksesuar > Takı > Bileklik" → "Bileklik"
+        if (!unified && categoryName.includes(">")) {
+            const leafName = categoryName.split(">").pop().trim();
+            if (leafName && leafName !== categoryName.trim()) {
+                const leafKey = normalizeKey(leafName);
+
+                // 3a. Yaprak adıyla exact key
+                if (leafKey) {
+                    unified = await UnifiedCategoryMap.findOne({
+                        normalizedKey: leafKey,
+                        ...targetFilter
+                    }).lean();
+                    if (unified) matchStep = "leaf_exact_key";
+                }
+
+                // 3b. Yaprak adıyla kaynak platform ters arama
+                if (!unified) {
+                    const leafRegex = new RegExp(`^${leafName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i");
+                    for (const srcField of ALL_PLATFORM_FIELDS) {
+                        unified = await UnifiedCategoryMap.findOne({
+                            [`${srcField}.categoryName`]: leafRegex,
+                            ...targetFilter
+                        }).lean();
+                        if (unified) { matchStep = `leaf_reverse_${srcField}`; break; }
+                    }
+                }
+            }
+        }
+
+        // ── Adım 4: Regex kısmi eşleşme ─────────────────────────────────────
+        // Güvenlik: Kısa girişlerde (tek kelime) kısmi eşleşme çok agresif
+        // sonuç verir ("kupe" → "pirlanta kupe" gibi yanlış eşleşme).
+        // Kısa girişlerde bu adım atlanır — Adım 5 (kelime skorlama) daha güvenli.
+        if (!unified) {
+            const keyWords = key.split(/\s+/).filter(w => w.length > 1);
+            const isShortInput = keyWords.length <= 1;
+
+            if (!isShortInput) {
+                const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+                const searchRegex = new RegExp(escaped, "i");
+
+                unified = await UnifiedCategoryMap.findOne({
+                    ...targetFilter,
+                    $or: [
+                        { canonicalName: searchRegex },
+                        { normalizedKey: searchRegex }
+                    ]
+                }).lean();
+                if (unified) matchStep = "regex_partial";
+            }
+        }
+
+        // ── Adım 5: Kelime bazlı skorlama ───────────────────────────────────
+        // "Biblo" kelimesini içeren tüm UnifiedCategoryMap kayıtlarını bul,
+        // en çok kelime eşleşen ve en yüksek platformCount'lu olanı seç
+        if (!unified) {
+            const inputWords = extractMeaningfulWords(categoryName);
+            if (inputWords.length > 0) {
+                // Her anlamlı kelime için $or koşulu oluştur
+                // Not: Eski $in + regex dizisi OR gibi çalışıyordu ama
+                // MongoDB $or + $regex daha açık, index-dostu ve kontrollü.
+                const orConditions = inputWords.map(w => ({
+                    normalizedKey: {
+                        $regex: w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+                        $options: "i"
+                    }
+                }));
+
+                // En az 1 kelime eşleşen kayıtları bul (max 50 aday — performans)
+                const candidates = await UnifiedCategoryMap.find({
+                    ...targetFilter,
+                    $or: orConditions
+                }).limit(50).lean();
+
+                if (candidates.length > 0) {
+                    // Her aday için skor hesapla
+                    let bestCandidate = null;
+                    let bestScore = 0;
+
+                    for (const cand of candidates) {
+                        const candWords = extractMeaningfulWords(cand.canonicalName);
+                        if (candWords.length === 0) continue;
+
+                        // Eşleşen kelime sayısı (input → aday yönü)
+                        // Güvenlik: Kısa kelimeler (≤2 karakter) substring eşleşmesi yapamaz
+                        // ("el" ↔ "objeler" gibi yanlış eşleşmeleri engeller)
+                        let inputMatchCount = 0;
+                        for (const iw of inputWords) {
+                            if (candWords.some(cw => {
+                                if (cw === iw) return true;
+                                if (cw.length <= 2 || iw.length <= 2) return false;
+                                return cw.includes(iw) || iw.includes(cw);
+                            })) {
+                                inputMatchCount++;
+                            }
+                        }
+
+                        if (inputMatchCount === 0) continue;
+
+                        // Eşleşen kelime sayısı (aday → input yönü)
+                        let candMatchCount = 0;
+                        for (const cw of candWords) {
+                            if (inputWords.some(iw => {
+                                if (iw === cw) return true;
+                                if (iw.length <= 2 || cw.length <= 2) return false;
+                                return iw.includes(cw) || cw.includes(iw);
+                            })) {
+                                candMatchCount++;
+                            }
+                        }
+
+                        // Çift yönlü skor: hem input'un ne kadarı eşleşti, hem adayın
+                        // Bu sayede "2.El Figür & Biblo" gibi ekstra kelimeli adaylar
+                        // cezalandırılır (candCoverage düşük olur)
+                        const inputCoverage = inputMatchCount / inputWords.length;
+                        const candCoverage  = candMatchCount / candWords.length;
+                        const wordScore = (inputCoverage + candCoverage) / 2;
+
+                        // Orijinal kelime sayısı (stopword/kısa kelime filtrelenmeden önce)
+                        // "2.El Figür & Biblo" → normalize → "2 el figur biblo" → 4 kelime
+                        // Ama candWords sadece 2 ("figur","biblo") — filtrelenen kelimeler
+                        // adayın gerçek karmaşıklığını gizliyor. Ham kelime sayısı ile cezala.
+                        const candRawWords = normalizeKey(cand.canonicalName).split(/\s+/).filter(w => w.length > 1);
+                        const rawCoverage = candRawWords.length > 0
+                            ? candMatchCount / candRawWords.length
+                            : candCoverage;
+                        const adjustedWordScore = (inputCoverage + rawCoverage) / 2;
+
+                        // platformCount bonusu: Çok platformda olan kategori daha güvenilir
+                        // 3 platform = 0.15, 1 platform = 0.05
+                        const platformBonus = (cand.platformCount || 1) * 0.05;
+                        const leafBonus = cand.isLeaf ? 0.1 : 0;
+                        const score = adjustedWordScore + platformBonus + leafBonus;
+
+                        if (score > bestScore) {
+                            bestScore = score;
+                            bestCandidate = cand;
+                        }
+                    }
+
+                    // Minimum skor eşiği: 0.3
+                    if (bestCandidate && bestScore >= 0.3) {
+                        unified = bestCandidate;
+                        matchStep = `word_score(${bestScore.toFixed(2)})`;
+                    }
+                }
+            }
+        }
+
+        // ── Sonuç ────────────────────────────────────────────────────────────
+        if (unified && unified[targetField]?.categoryId) {
+
+            // ── isLeaf Kontrolü ───────────────────────────────────────────
+            // N11 (ve diğer platformlar) sadece LEAF (yaprak) kategorileri kabul eder.
+            // UnifiedCategoryMap'te bulunan kategori parent ise → o kategorinin
+            // leaf child'ını otomatik bul. Böylece kullanıcının eşleştirmesi
+            // baz alınır ama platformun kabul edeceği yaprak kategoriye inilir.
+            //
+            // Örnek: "Dekoratif Obje" (parent, isLeaf:false) → N11 reddeder
+            //        → child'lardan "Biblo" (leaf, isLeaf:true) otomatik seçilir
+            const targetCat = unified[targetField];
+            if (targetCat.isLeaf === false) {
+                logger.info(
+                    `[UNIFIED MAP] ⚠️ "${categoryName}" → ${marketplace}: ` +
+                    `"${targetCat.categoryName}" (ID: ${targetCat.categoryId}) parent kategori (isLeaf:false). ` +
+                    `Leaf child aranıyor...`
+                );
+
+                try {
+                    // Bu parent'ın altındaki leaf child'ları bul
+                    const leafChildren = await UnifiedCategoryMap.find({
+                        [`${targetField}.parentId`]: targetCat.categoryId,
+                        [`${targetField}.categoryId`]: { $ne: null },
+                        [`${targetField}.isLeaf`]: true
+                    }).lean();
+
+                    if (leafChildren.length > 0) {
+                        // En uygun leaf child'ı seç:
+                        // 1. Input kelime eşleşmesi (kategori adındaki kelimeler)
+                        // 2. platformCount (çok platformda olan daha güvenilir)
+                        // 3. canonicalName uzunluğu (kısa = daha genel)
+                        const inputWordsForLeaf = extractMeaningfulWords(categoryName);
+
+                        leafChildren.sort((a, b) => {
+                            // Input kelime eşleşmesi
+                            if (inputWordsForLeaf.length > 0) {
+                                const aWords = extractMeaningfulWords(a.canonicalName);
+                                const bWords = extractMeaningfulWords(b.canonicalName);
+                                const aMatch = inputWordsForLeaf.filter(iw => aWords.some(aw => aw === iw || aw.includes(iw) || iw.includes(aw))).length;
+                                const bMatch = inputWordsForLeaf.filter(iw => bWords.some(bw => bw === iw || bw.includes(iw) || iw.includes(bw))).length;
+                                if (bMatch !== aMatch) return bMatch - aMatch;
+                            }
+                            // platformCount
+                            if ((b.platformCount || 0) !== (a.platformCount || 0)) return (b.platformCount || 0) - (a.platformCount || 0);
+                            // Kısa isim tercih
+                            return (a.canonicalName?.length || 0) - (b.canonicalName?.length || 0);
+                        });
+
+                        const bestLeaf = leafChildren[0];
+                        const leafCat = bestLeaf[targetField];
+
+                        logger.info(
+                            `[UNIFIED MAP] ✅ Leaf child bulundu: "${categoryName}" → ` +
+                            `"${leafCat.categoryName}" (ID: ${leafCat.categoryId}) ` +
+                            `[${leafChildren.length} child arasından seçildi, adım: ${matchStep}→leaf_auto]`
+                        );
+
+                        return {
+                            categoryId:   leafCat.categoryId,
+                            categoryName: leafCat.categoryName,
+                            categoryPath: leafCat.categoryPath || "",
+                            source:       `UnifiedCategoryMap_${matchStep}→leaf_auto`
+                        };
+                    }
+
+                    // Leaf child bulunamadı — 2. seviye: child'ların child'larını dene (grandchildren)
+                    // Parent → Child (parent) → Grandchild (leaf) yapısı
+                    const nonLeafChildren = await UnifiedCategoryMap.find({
+                        [`${targetField}.parentId`]: targetCat.categoryId,
+                        [`${targetField}.categoryId`]: { $ne: null },
+                        [`${targetField}.isLeaf`]: { $ne: true }
+                    }).lean();
+
+                    if (nonLeafChildren.length > 0) {
+                        const childIds = nonLeafChildren.map(c => c[targetField].categoryId).filter(Boolean);
+                        const grandchildren = await UnifiedCategoryMap.find({
+                            [`${targetField}.parentId`]: { $in: childIds },
+                            [`${targetField}.categoryId`]: { $ne: null },
+                            [`${targetField}.isLeaf`]: true
+                        }).lean();
+
+                        if (grandchildren.length > 0) {
+                            grandchildren.sort((a, b) => {
+                                if (inputWordsForLeaf.length > 0) {
+                                    const aWords = extractMeaningfulWords(a.canonicalName);
+                                    const bWords = extractMeaningfulWords(b.canonicalName);
+                                    const aMatch = inputWordsForLeaf.filter(iw => aWords.some(aw => aw === iw || aw.includes(iw) || iw.includes(aw))).length;
+                                    const bMatch = inputWordsForLeaf.filter(iw => bWords.some(bw => bw === iw || bw.includes(iw) || iw.includes(bw))).length;
+                                    if (bMatch !== aMatch) return bMatch - aMatch;
+                                }
+                                if ((b.platformCount || 0) !== (a.platformCount || 0)) return (b.platformCount || 0) - (a.platformCount || 0);
+                                return (a.canonicalName?.length || 0) - (b.canonicalName?.length || 0);
+                            });
+
+                            const bestGrandchild = grandchildren[0];
+                            const gcCat = bestGrandchild[targetField];
+
+                            logger.info(
+                                `[UNIFIED MAP] ✅ Grandchild leaf bulundu: "${categoryName}" → ` +
+                                `"${gcCat.categoryName}" (ID: ${gcCat.categoryId}) ` +
+                                `[${grandchildren.length} grandchild arasından, adım: ${matchStep}→grandchild_leaf_auto]`
+                            );
+
+                            return {
+                                categoryId:   gcCat.categoryId,
+                                categoryName: gcCat.categoryName,
+                                categoryPath: gcCat.categoryPath || "",
+                                source:       `UnifiedCategoryMap_${matchStep}→grandchild_leaf_auto`
+                            };
+                        }
+                    }
+
+                    // Hiç leaf bulunamadı — parent kategoriyi yine de döndür (eski davranış)
+                    // Platform reddederse log'da görünür, kullanıcı manuel düzeltir
+                    logger.warn(
+                        `[UNIFIED MAP] ⚠️ "${categoryName}" → ${marketplace}: ` +
+                        `"${targetCat.categoryName}" (ID: ${targetCat.categoryId}) parent kategori ama ` +
+                        `leaf child bulunamadı. Parent ID gönderiliyor — platform reddedebilir.`
+                    );
+                } catch (leafErr) {
+                    logger.warn(
+                        `[UNIFIED MAP] Leaf child arama hatası: ${leafErr.message} — ` +
+                        `parent kategori ID gönderiliyor`
+                    );
+                }
+            }
+
             logger.info(
                 `[UNIFIED MAP] ✅ "${categoryName}" → ${marketplace}: ` +
-                `${unified[platformField].categoryName} (ID: ${unified[platformField].categoryId})`
+                `${unified[targetField].categoryName} (ID: ${unified[targetField].categoryId}) ` +
+                `[adım: ${matchStep}]`
             );
             return {
-                categoryId:   unified[platformField].categoryId,
-                categoryName: unified[platformField].categoryName,
-                categoryPath: unified[platformField].categoryPath || "",
-                source:       "UnifiedCategoryMap"
+                categoryId:   unified[targetField].categoryId,
+                categoryName: unified[targetField].categoryName,
+                categoryPath: unified[targetField].categoryPath || "",
+                source:       `UnifiedCategoryMap_${matchStep}`
             };
         }
+
+        // Bulunamadı — debug log
+        logger.debug(
+            `[UNIFIED MAP] ❌ "${categoryName}" → ${marketplace}: eşleşme bulunamadı ` +
+            `(normalizedKey: "${key}", inputWords: [${extractMeaningfulWords(categoryName).join(", ")}])`
+        );
     } catch (err) {
         logger.warn(`[UNIFIED MAP] ${marketplace} çözümleme hatası: ${err.message}`);
     }

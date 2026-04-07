@@ -139,6 +139,7 @@ ProductMappingSchema.index({ userId: 1, "masterProduct.barcode": 1 }, { unique: 
 ProductMappingSchema.index({ userId: 1, "masterProduct.sku": 1 });
 ProductMappingSchema.index({ "marketplaceMappings.marketplaceName": 1, "marketplaceMappings.marketplaceProductId": 1 });
 
+
 // Stok durumunu güncelle
 ProductMappingSchema.methods.updateStockStatus = function() {
     const totalStock    = this.stockTracking.totalStock || 0;

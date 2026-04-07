@@ -53,12 +53,65 @@
     }
   ],
   "start_url": "/",
+  "id": "/",
   "display": "standalone",
+  "display_override": ["standalone", "minimal-ui", "window-controls-overlay"],
   "theme_color": "#0f766e",
   "background_color": "#0a0e1a",
   "orientation": "any",
   "scope": "/",
   "lang": "tr",
+  "dir": "ltr",
   "categories": ["business", "productivity", "shopping"],
-  "prefer_related_applications": false
+  "prefer_related_applications": false,
+  "shortcuts": [
+    {
+      "name": "Dashboard",
+      "short_name": "Dashboard",
+      "description": "Ana kontrol paneline git",
+      "url": "/dashboard",
+      "icons": [{ "src": "icons/icon-96x96.png", "sizes": "96x96" }]
+    },
+    {
+      "name": "Ürün Yönetimi",
+      "short_name": "Ürünler",
+      "description": "Ürünlerini yönet",
+      "url": "/product-management",
+      "icons": [{ "src": "icons/icon-96x96.png", "sizes": "96x96" }]
+    },
+    {
+      "name": "Finans",
+      "short_name": "Finans",
+      "description": "Finansal verileri görüntüle",
+      "url": "/finance",
+      "icons": [{ "src": "icons/icon-96x96.png", "sizes": "96x96" }]
+    },
+    {
+      "name": "Pazaryeri Entegrasyonu",
+      "short_name": "Pazaryeri",
+      "description": "Pazaryeri bağlantılarını yönet",
+      "url": "/marketplace-integration",
+      "icons": [{ "src": "icons/icon-96x96.png", "sizes": "96x96" }]
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "icons/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "LysiaETIC Dashboard"
+    },
+    {
+      "src": "icons/icon-384x384.png",
+      "sizes": "384x384",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "LysiaETIC Mobil"
+    }
+  ],
+  "handle_links": "preferred",
+  "launch_handler": {
+    "client_mode": "navigate-existing"
+  }
 }

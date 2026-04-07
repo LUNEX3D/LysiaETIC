@@ -4,6 +4,51 @@ const crypto = require("crypto");
 const User   = require("../models/User");
 const logger = require("../config/logger");
 const { sendVerificationEmail, sendPasswordResetEmail } = require("../services/emailService");
+const { ok, created, badRequest, unauthorized, forbidden, notFound, conflict, serverError } = require("../utils/apiResponse");
+const { send2FACode } = require("./twoFactorController");
+
+// ✅ SEC #2: Refresh token ayrı secret kullanır — yoksa JWT_SECRET'tan türetilir
+const getRefreshSecret = () => {
+    if (process.env.JWT_REFRESH_SECRET) return process.env.JWT_REFRESH_SECRET;
+    // Fallback: JWT_SECRET + sabit suffix (production'da ayrı key tanımlanmalı)
+    logger.warn("JWT_REFRESH_SECRET tanımlı değil! JWT_SECRET'tan türetiliyor. Production'da ayrı key kullanın.");
+    return process.env.JWT_SECRET + "_refresh_fallback";
+};
+
+// ✅ SEC #2: Access + Refresh token çifti oluştur ve refresh token'ı DB'ye kaydet
+const generateTokenPair = async (user, device = "unknown") => {
+    const accessToken = jwt.sign(
+        { id: user._id, role: user.role },
+        process.env.JWT_SECRET,
+        { expiresIn: "1d" }
+    );
+
+    const refreshToken = jwt.sign(
+        { id: user._id, type: "refresh" },
+        getRefreshSecret(),
+        { expiresIn: "7d" }
+    );
+
+    // Süresi dolmuş token'ları temizle
+    user.cleanExpiredTokens();
+
+    // Maksimum 5 aktif oturum — en eski oturumu sil
+    if ((user.refreshTokens || []).length >= 5) {
+        user.refreshTokens.shift();
+    }
+
+    // Yeni refresh token'ı DB'ye kaydet
+    user.refreshTokens.push({
+        token: refreshToken,
+        device,
+        createdAt: new Date(),
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 gün
+    });
+
+    await user.save();
+
+    return { accessToken, refreshToken };
+};
 
 // ─── REGISTER ──────────────────────────────────────────────────────────────────
 exports.register = async (req, res) => {
@@ -11,24 +56,24 @@ exports.register = async (req, res) => {
         const { name, email, password } = req.body;
 
         if (!name || !email || !password) {
-            return res.status(400).json({ message: "❌ Tüm alanlar zorunludur!" });
+            return badRequest(res, "Tüm alanlar zorunludur.");
         }
 
         // E-posta format kontrolü
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         if (!emailRegex.test(email)) {
-            return res.status(400).json({ message: "❌ Geçerli bir e-posta adresi girin!" });
+            return badRequest(res, "Geçerli bir e-posta adresi girin.");
         }
 
         // Şifre uzunluk kontrolü
         if (password.length < 6) {
-            return res.status(400).json({ message: "❌ Şifre en az 6 karakter olmalıdır!" });
+            return badRequest(res, "Şifre en az 6 karakter olmalıdır.");
         }
 
         // Aynı e-posta ile kayıt var mı?
         const existing = await User.findOne({ email: email.toLowerCase().trim() });
         if (existing) {
-            return res.status(409).json({ message: "❌ Bu e-posta adresi zaten kayıtlı!" });
+            return conflict(res, "Bu e-posta adresi zaten kayıtlı.");
         }
 
         // Doğrulama token'ı oluştur
@@ -70,13 +115,10 @@ exports.register = async (req, res) => {
         }
 
         logger.info(`Yeni kullanıcı kaydedildi: ${newUser.email} (doğrulama bekliyor)`);
-        res.status(201).json({
-            message: "✅ Kayıt başarılı! E-posta adresinize bir doğrulama bağlantısı gönderdik. Lütfen gelen kutunuzu kontrol edin.",
-            emailSent: emailResult.success
-        });
+        return created(res, "Kayıt başarılı! E-posta adresinize bir doğrulama bağlantısı gönderdik.", { emailSent: emailResult.success });
     } catch (error) {
         logger.error(`Kayıt hatası: ${error.message}`);
-        res.status(500).json({ message: "❌ Sunucu hatası!" });
+        return serverError(res, error);
     }
 };
 
@@ -86,7 +128,7 @@ exports.verifyEmail = async (req, res) => {
         const { token } = req.query;
 
         if (!token) {
-            return res.status(400).json({ message: "❌ Doğrulama token'ı gerekli!" });
+            return badRequest(res, "Doğrulama token'ı gerekli.");
         }
 
         const user = await User.findOne({
@@ -95,14 +137,12 @@ exports.verifyEmail = async (req, res) => {
         });
 
         if (!user) {
-            return res.status(400).json({
-                message: "❌ Geçersiz veya süresi dolmuş doğrulama bağlantısı. Lütfen yeniden kayıt olun veya yeni bir doğrulama e-postası isteyin."
-            });
+            return badRequest(res, "Geçersiz veya süresi dolmuş doğrulama bağlantısı.");
         }
 
         // Zaten doğrulanmış mı?
         if (user.emailVerified) {
-            return res.status(200).json({ message: "✅ E-posta adresiniz zaten doğrulanmış!" });
+            return ok(res, "E-posta adresiniz zaten doğrulanmış.");
         }
 
         // E-postayı doğrula
@@ -112,10 +152,10 @@ exports.verifyEmail = async (req, res) => {
         await user.save();
 
         logger.info(`E-posta doğrulandı: ${user.email}`);
-        res.status(200).json({ message: "✅ E-posta adresiniz başarıyla doğrulandı! Artık giriş yapabilirsiniz." });
+        return ok(res, "E-posta adresiniz başarıyla doğrulandı! Artık giriş yapabilirsiniz.");
     } catch (error) {
         logger.error(`E-posta doğrulama hatası: ${error.message}`);
-        res.status(500).json({ message: "❌ Sunucu hatası!" });
+        return serverError(res, error);
     }
 };
 
@@ -125,18 +165,18 @@ exports.resendVerification = async (req, res) => {
         const { email } = req.body;
 
         if (!email) {
-            return res.status(400).json({ message: "❌ E-posta adresi gerekli!" });
+            return badRequest(res, "E-posta adresi gerekli.");
         }
 
         const user = await User.findOne({ email: email.toLowerCase().trim() });
 
         if (!user) {
             // Güvenlik: Kullanıcı var mı yok mu belli etme
-            return res.status(200).json({ message: "✅ Eğer bu e-posta kayıtlıysa, doğrulama bağlantısı gönderildi." });
+            return ok(res, "Eğer bu e-posta kayıtlıysa, doğrulama bağlantısı gönderildi.");
         }
 
         if (user.emailVerified) {
-            return res.status(400).json({ message: "✅ E-posta adresiniz zaten doğrulanmış. Giriş yapabilirsiniz." });
+            return badRequest(res, "E-posta adresiniz zaten doğrulanmış. Giriş yapabilirsiniz.");
         }
 
         // Yeni token oluştur
@@ -148,13 +188,10 @@ exports.resendVerification = async (req, res) => {
         const emailResult = await sendVerificationEmail(user, verificationToken);
 
         logger.info(`Doğrulama e-postası yeniden gönderildi: ${user.email}`);
-        res.status(200).json({
-            message: "✅ Eğer bu e-posta kayıtlıysa, doğrulama bağlantısı gönderildi.",
-            emailSent: emailResult.success
-        });
+        return ok(res, "Eğer bu e-posta kayıtlıysa, doğrulama bağlantısı gönderildi.", { emailSent: emailResult.success });
     } catch (error) {
         logger.error(`Yeniden doğrulama hatası: ${error.message}`);
-        res.status(500).json({ message: "❌ Sunucu hatası!" });
+        return serverError(res, error);
     }
 };
 
@@ -164,35 +201,29 @@ exports.login = async (req, res) => {
         const { email, password } = req.body;
 
         if (!email || !password) {
-            return res.status(400).json({ message: "❌ E-posta ve şifre zorunludur!" });
+            return badRequest(res, "E-posta ve şifre zorunludur.");
         }
 
         const user = await User.findOne({ email: email.toLowerCase().trim() });
 
         if (!user) {
-            return res.status(401).json({ message: "❌ Geçersiz kimlik bilgileri!" });
+            return unauthorized(res, "Geçersiz kimlik bilgileri.");
         }
 
         // Google ile kayıt olmuş kullanıcı şifre ile giriş yapamaz
         if (user.authProvider === "google" && !user.password) {
-            return res.status(400).json({
-                message: "❌ Bu hesap Google ile oluşturulmuş. Lütfen Google ile giriş yapın."
-            });
+            return badRequest(res, "Bu hesap Google ile oluşturulmuş. Lütfen Google ile giriş yapın.");
         }
 
         const isMatch = await bcrypt.compare(password, user.password);
         if (!isMatch) {
             logger.warn(`Başarısız giriş denemesi: ${email}`);
-            return res.status(401).json({ message: "❌ Geçersiz kimlik bilgileri!" });
+            return unauthorized(res, "Geçersiz kimlik bilgileri.");
         }
 
         // E-posta doğrulama kontrolü (admin ve dev kullanıcılar muaf)
         if (!user.emailVerified && !["admin", "dev"].includes(user.role)) {
-            return res.status(403).json({
-                message: "❌ E-posta adresiniz henüz doğrulanmamış. Lütfen gelen kutunuzu kontrol edin.",
-                needsVerification: true,
-                email: user.email
-            });
+            return forbidden(res, "E-posta adresiniz henüz doğrulanmamış. Lütfen gelen kutunuzu kontrol edin.");
         }
 
         // Abonelik durumu kontrolü — süresi dolmuşsa güncelle
@@ -208,18 +239,31 @@ exports.login = async (req, res) => {
             }
         }
 
-        // 🛡️ FIX #12: JWT süresini 1 güne düşür + refresh token ekle
-        const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: "1d" });
-        const refreshToken = jwt.sign({ id: user._id, type: "refresh" }, process.env.JWT_SECRET, { expiresIn: "7d" });
+        // ✅ P2-3: 2FA aktifse — token döndürme, kod gönder
+        if (user.security?.twoFactorEnabled) {
+            const result = await send2FACode(user);
+            logger.info(`2FA kodu gönderildi (login): ${user.email}`);
+            return res.status(200).json({
+                success: true,
+                requires2FA: true,
+                message: result.message || "Doğrulama kodu e-posta adresinize gönderildi.",
+                email: user.email
+            });
+        }
 
-        // Şifre hash'i response'dan çıkarıldı
-        const { password: _pw, ...safeUser } = user.toObject();
+        // 🛡️ SEC #2: Access + Refresh token çifti oluştur (ayrı secret, DB'de saklanır)
+        const device = req.headers["user-agent"] || "unknown";
+        const { accessToken, refreshToken } = await generateTokenPair(user, device);
+
+        // Şifre hash'i ve refreshTokens response'dan çıkarıldı
+        const { password: _pw, refreshTokens: _rt, ...safeUser } = user.toObject();
 
         logger.info(`Kullanıcı giriş yaptı: ${user.email} (${user.role})`);
-        res.status(200).json({ message: "✅ Giriş başarılı!", token, refreshToken, user: safeUser });
+        // Not: token/refreshToken/user üst seviyede — frontend uyumluluğu için
+        return res.status(200).json({ success: true, message: "Giriş başarılı!", token: accessToken, refreshToken, user: safeUser });
     } catch (error) {
         logger.error(`Giriş hatası: ${error.message}`);
-        res.status(500).json({ message: "❌ Sunucu hatası!" });
+        return serverError(res, error);
     }
 };
 
@@ -238,7 +282,7 @@ exports.googleAuth = async (req, res) => {
             });
 
             if (!userInfoRes.ok) {
-                return res.status(401).json({ message: "❌ Google token geçersiz!" });
+                return unauthorized(res, "Google token geçersiz.");
             }
 
             const payload = await userInfoRes.json();
@@ -264,14 +308,14 @@ exports.googleAuth = async (req, res) => {
                 picture  = payload.picture;
             } catch (verifyError) {
                 logger.error(`Google JWT doğrulama hatası: ${verifyError.message}`);
-                return res.status(401).json({ message: "❌ Google token doğrulanamadı!" });
+                return unauthorized(res, "Google token doğrulanamadı.");
             }
         } else {
-            return res.status(400).json({ message: "❌ Google credential veya access_token gerekli!" });
+            return badRequest(res, "Google credential veya access_token gerekli.");
         }
 
         if (!email) {
-            return res.status(400).json({ message: "❌ Google hesabından e-posta alınamadı!" });
+            return badRequest(res, "Google hesabından e-posta alınamadı.");
         }
 
         // Kullanıcı zaten var mı?
@@ -316,16 +360,16 @@ exports.googleAuth = async (req, res) => {
             logger.info(`Yeni Google kullanıcısı kaydedildi: ${user.email} (14 gün demo)`);
         }
 
-        // 🛡️ FIX #12: JWT süresini 1 güne düşür + refresh token ekle
-        const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: "1d" });
-        const refreshToken = jwt.sign({ id: user._id, type: "refresh" }, process.env.JWT_SECRET, { expiresIn: "7d" });
-        const { password: _pw, ...safeUser } = user.toObject();
+        // 🛡️ SEC #2: Access + Refresh token çifti oluştur (ayrı secret, DB'de saklanır)
+        const device = req.headers["user-agent"] || "google-oauth";
+        const { accessToken, refreshToken } = await generateTokenPair(user, device);
+        const { password: _pw, refreshTokens: _rt, ...safeUser } = user.toObject();
 
         logger.info(`Google ile giriş yapıldı: ${user.email} (${user.role})`);
-        res.status(200).json({ message: "✅ Google ile giriş başarılı!", token, refreshToken, user: safeUser });
+        return res.status(200).json({ success: true, message: "Google ile giriş başarılı!", token: accessToken, refreshToken, user: safeUser });
     } catch (error) {
         logger.error(`Google auth hatası: ${error.message}`);
-        res.status(500).json({ message: "❌ Google ile giriş yapılamadı!" });
+        return serverError(res, error, "Google ile giriş yapılamadı.");
     }
 };
 
@@ -335,23 +379,19 @@ exports.forgotPassword = async (req, res) => {
         const { email } = req.body;
 
         if (!email) {
-            return res.status(400).json({ message: "❌ E-posta adresi gerekli!" });
+            return badRequest(res, "E-posta adresi gerekli.");
         }
 
         const user = await User.findOne({ email: email.toLowerCase().trim() });
 
         // Güvenlik: Kullanıcı var mı yok mu belli etme
         if (!user) {
-            return res.status(200).json({
-                message: "✅ Eğer bu e-posta kayıtlıysa, şifre sıfırlama kodu gönderildi."
-            });
+            return ok(res, "Eğer bu e-posta kayıtlıysa, şifre sıfırlama kodu gönderildi.");
         }
 
         // Google hesabı kontrolü
         if (user.authProvider === "google" && !user.password) {
-            return res.status(400).json({
-                message: "❌ Bu hesap Google ile oluşturulmuş. Şifre sıfırlama yapılamaz. Lütfen Google ile giriş yapın."
-            });
+            return badRequest(res, "Bu hesap Google ile oluşturulmuş. Şifre sıfırlama yapılamaz.");
         }
 
         // 6 haneli kod oluştur
@@ -367,13 +407,10 @@ exports.forgotPassword = async (req, res) => {
         }
 
         logger.info(`Şifre sıfırlama kodu gönderildi: ${user.email}`);
-        res.status(200).json({
-            message: "✅ Eğer bu e-posta kayıtlıysa, şifre sıfırlama kodu gönderildi.",
-            emailSent: emailResult.success
-        });
+        return ok(res, "Eğer bu e-posta kayıtlıysa, şifre sıfırlama kodu gönderildi.", { emailSent: emailResult.success });
     } catch (error) {
         logger.error(`Şifre sıfırlama hatası: ${error.message}`);
-        res.status(500).json({ message: "❌ Sunucu hatası!" });
+        return serverError(res, error);
     }
 };
 
@@ -383,7 +420,7 @@ exports.verifyResetCode = async (req, res) => {
         const { email, code } = req.body;
 
         if (!email || !code) {
-            return res.status(400).json({ message: "❌ E-posta ve kod gerekli!" });
+            return badRequest(res, "E-posta ve kod gerekli.");
         }
 
         const user = await User.findOne({
@@ -393,14 +430,14 @@ exports.verifyResetCode = async (req, res) => {
         });
 
         if (!user) {
-            return res.status(400).json({ message: "❌ Geçersiz veya süresi dolmuş kod!" });
+            return badRequest(res, "Geçersiz veya süresi dolmuş kod.");
         }
 
         logger.info(`Şifre sıfırlama kodu doğrulandı: ${user.email}`);
-        res.status(200).json({ message: "✅ Kod doğrulandı! Yeni şifrenizi belirleyin." });
+        return ok(res, "Kod doğrulandı! Yeni şifrenizi belirleyin.");
     } catch (error) {
         logger.error(`Kod doğrulama hatası: ${error.message}`);
-        res.status(500).json({ message: "❌ Sunucu hatası!" });
+        return serverError(res, error);
     }
 };
 
@@ -410,11 +447,11 @@ exports.resetPassword = async (req, res) => {
         const { email, code, newPassword } = req.body;
 
         if (!email || !code || !newPassword) {
-            return res.status(400).json({ message: "❌ Tüm alanlar zorunludur!" });
+            return badRequest(res, "Tüm alanlar zorunludur.");
         }
 
         if (newPassword.length < 6) {
-            return res.status(400).json({ message: "❌ Şifre en az 6 karakter olmalıdır!" });
+            return badRequest(res, "Şifre en az 6 karakter olmalıdır.");
         }
 
         const user = await User.findOne({
@@ -424,7 +461,7 @@ exports.resetPassword = async (req, res) => {
         });
 
         if (!user) {
-            return res.status(400).json({ message: "❌ Geçersiz veya süresi dolmuş kod!" });
+            return badRequest(res, "Geçersiz veya süresi dolmuş kod.");
         }
 
         // Yeni şifreyi hashle ve kaydet
@@ -434,49 +471,109 @@ exports.resetPassword = async (req, res) => {
         await user.save();
 
         logger.info(`Şifre başarıyla sıfırlandı: ${user.email}`);
-        res.status(200).json({ message: "✅ Şifreniz başarıyla değiştirildi! Artık yeni şifrenizle giriş yapabilirsiniz." });
+        return ok(res, "Şifreniz başarıyla değiştirildi! Artık yeni şifrenizle giriş yapabilirsiniz.");
     } catch (error) {
         logger.error(`Şifre sıfırlama hatası: ${error.message}`);
-        res.status(500).json({ message: "❌ Sunucu hatası!" });
+        return serverError(res, error);
     }
 };
 
 // ─── REFRESH TOKEN ──────────────────────────────────────────────────────────────
+// ✅ SEC #2: Ayrı secret ile doğrulama + DB'de varlık kontrolü + token rotation
 exports.refreshToken = async (req, res) => {
     try {
         const { refreshToken } = req.body;
 
         if (!refreshToken) {
-            return res.status(400).json({ message: "❌ Refresh token gerekli!" });
+            return badRequest(res, "Refresh token gerekli.");
         }
 
-        // Refresh token'ı doğrula
+        // 1. Refresh token'ı AYRI SECRET ile doğrula
         let decoded;
         try {
-            decoded = jwt.verify(refreshToken, process.env.JWT_SECRET);
+            decoded = jwt.verify(refreshToken, getRefreshSecret());
         } catch (err) {
-            return res.status(401).json({ message: "❌ Geçersiz veya süresi dolmuş refresh token!" });
+            return unauthorized(res, "Geçersiz veya süresi dolmuş refresh token.");
         }
 
-        // Refresh token tipini kontrol et
+        // 2. Token tipini kontrol et
         if (decoded.type !== "refresh") {
-            return res.status(401).json({ message: "❌ Geçersiz token tipi!" });
+            return unauthorized(res, "Geçersiz token tipi.");
         }
 
-        // Kullanıcıyı bul
-        const user = await User.findById(decoded.id).select("-password");
+        // 3. Kullanıcıyı bul
+        const user = await User.findById(decoded.id);
         if (!user) {
-            return res.status(404).json({ message: "❌ Kullanıcı bulunamadı!" });
+            return notFound(res, "Kullanıcı bulunamadı.");
         }
 
-        // Yeni access token oluştur
-        const newToken = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: "1d" });
+        // 4. Refresh token DB'de var mı kontrol et (revoke edilmiş olabilir)
+        const tokenExists = (user.refreshTokens || []).some(rt => rt.token === refreshToken);
+        if (!tokenExists) {
+            // Token DB'de yok — muhtemelen çalınmış ve revoke edilmiş
+            // Güvenlik: Tüm oturumları kapat
+            logger.warn(`Revoke edilmiş refresh token kullanım girişimi: ${user.email}`);
+            user.revokeAllRefreshTokens();
+            await user.save();
+            return unauthorized(res, "Geçersiz refresh token! Tüm oturumlar kapatıldı.");
+        }
 
-        logger.info(`Token yenilendi: ${user.email}`);
-        res.status(200).json({ token: newToken });
+        // 5. Eski refresh token'ı sil (token rotation)
+        user.revokeRefreshToken(refreshToken);
+
+        // 6. Yeni access + refresh token çifti oluştur
+        const device = req.headers["user-agent"] || "unknown";
+        const newAccessToken = jwt.sign(
+            { id: user._id, role: user.role },
+            process.env.JWT_SECRET,
+            { expiresIn: "1d" }
+        );
+        const newRefreshToken = jwt.sign(
+            { id: user._id, type: "refresh" },
+            getRefreshSecret(),
+            { expiresIn: "7d" }
+        );
+
+        // Süresi dolmuş token'ları temizle
+        user.cleanExpiredTokens();
+
+        // Yeni refresh token'ı DB'ye kaydet
+        user.refreshTokens.push({
+            token: newRefreshToken,
+            device,
+            createdAt: new Date(),
+            expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+        });
+        await user.save();
+
+        logger.info(`Token yenilendi (rotation): ${user.email}`);
+        return res.status(200).json({ success: true, message: "Token yenilendi.", token: newAccessToken, refreshToken: newRefreshToken });
     } catch (error) {
         logger.error(`Token yenileme hatası: ${error.message}`);
-        res.status(500).json({ message: "❌ Sunucu hatası!" });
+        return serverError(res, error);
+    }
+};
+
+// ─── LOGOUT — Refresh token'ı revoke et ─────────────────────────────────────────
+// ✅ SEC #2: Çıkış yapıldığında refresh token DB'den silinir
+exports.logout = async (req, res) => {
+    try {
+        const { refreshToken } = req.body;
+        const user = req.user;
+
+        if (user && refreshToken) {
+            const userDoc = await User.findById(user._id);
+            if (userDoc) {
+                userDoc.revokeRefreshToken(refreshToken);
+                await userDoc.save();
+            }
+        }
+
+        logger.info(`Kullanıcı çıkış yaptı: ${user?.email || "unknown"}`);
+        res.status(200).json({ success: true, message: "✅ Çıkış başarılı!" });
+    } catch (error) {
+        logger.error(`Logout hatası: ${error.message}`);
+        res.status(200).json({ success: true, message: "✅ Çıkış yapıldı." });
     }
 };
 
@@ -487,12 +584,13 @@ exports.getProfile = async (req, res) => {
         const user = await User.findById(req.user._id).select("-password");
 
         if (!user) {
-            return res.status(404).json({ message: "❌ Kullanıcı bulunamadı!" });
+            return notFound(res, "Kullanıcı bulunamadı.");
         }
 
-        res.status(200).json(user);
+        // Not: Profil verisi doğrudan döndürülür — frontend uyumluluğu için
+        return res.status(200).json(user);
     } catch (error) {
         logger.error(`Profil alma hatası: ${error.message}`);
-        res.status(500).json({ message: "❌ Sunucu hatası!" });
+        return serverError(res, error);
     }
 };

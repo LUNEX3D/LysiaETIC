@@ -14,6 +14,17 @@ const OrderSchema = new mongoose.Schema({
     status: { type: String, required: true, default: "Created" },
     trackingNumber: { type: String, default: "" },
 
+    // ── Müşteri bilgileri (fatura için) ─────────────────────────────────────
+    customerName: { type: String, default: "" },
+    customerAddress: {
+        city: { type: String, default: "" },
+        district: { type: String, default: "" },
+        street: { type: String, default: "" },
+        country: { type: String, default: "Turkiye" },
+        phone: { type: String, default: "" },
+        email: { type: String, default: "" },
+    },
+
     items: [
         {
             productName: { type: String, required: true },
@@ -42,6 +53,11 @@ const OrderSchema = new mongoose.Schema({
         netProfit:       { type: Number, default: 0 },   // Net kâr (brüt - komisyon - kargo - diğer)
         profitMargin:    { type: Number, default: 0 },   // Kâr marjı (%)
     },
+
+    // ── Fatura bilgisi ───────────────────────────────────────────────────────
+    invoiceId:     { type: mongoose.Schema.Types.ObjectId, ref: "Invoice" },
+    invoiceNumber: { type: String, default: "" },
+    invoiceStatus: { type: String, enum: ["", "pending", "created", "error"], default: "" },
 
     // ── İade/İptal bilgisi ──────────────────────────────────────────────────
     isReturned:    { type: Boolean, default: false },

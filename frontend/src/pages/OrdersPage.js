@@ -1,27 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import axios from "../services/api";
 import { motion, AnimatePresence } from "framer-motion";
-
-/* ═══════════════════════════════════════════════════════════
-   RENK PALETİ
-   ═══════════════════════════════════════════════════════════ */
-const C = {
-    bg: "#0f1419",
-    card: "rgba(26, 31, 53, 0.85)",
-    border: "rgba(78, 205, 196, 0.18)",
-    accent: "#4ecdc4",
-    green: "#22c55e",
-    red: "#ef4444",
-    yellow: "#f59e0b",
-    purple: "#8b5cf6",
-    blue: "#06b6d4",
-    pink: "#ec4899",
-    text: "#e2e8f0",
-    muted: "#94a3b8",
-    dim: "#64748b",
-    glass: "rgba(255,255,255,0.03)",
-    glassBr: "rgba(255,255,255,0.06)",
-};
+import { useApp } from "../context/AppContext";
 
 const fmtCurrency = (v) => {
     try {
@@ -43,30 +23,6 @@ const classifyStatus = (s) => {
     return "processing";
 };
 
-const statusMeta = {
-    new: { label: "Yeni", color: C.accent, icon: "🆕" },
-    processing: { label: "İşlemde", color: C.yellow, icon: "⚙️" },
-    shipping: { label: "Kargoda", color: C.purple, icon: "🚚" },
-    delivered: { label: "Teslim Edildi", color: C.green, icon: "✅" },
-    cancelled: { label: "İptal", color: C.red, icon: "❌" },
-    returned: { label: "İade", color: C.pink, icon: "↩️" },
-};
-
-const getStatusBadge = (status) => {
-    const cls = classifyStatus(status);
-    const meta = statusMeta[cls] || statusMeta.processing;
-    return (
-        <span style={{
-            display: "inline-flex", alignItems: "center", gap: "0.3rem",
-            background: `${meta.color}15`, border: `1px solid ${meta.color}40`,
-            color: meta.color, padding: "0.25rem 0.65rem", borderRadius: 8,
-            fontSize: "0.72rem", fontWeight: 700, whiteSpace: "nowrap",
-        }}>
-            {meta.icon} {meta.label}
-        </span>
-    );
-};
-
 /* ═══════════════════════════════════════════════════════════
    MARKETPLACE LOGO
    ═══════════════════════════════════════════════════════════ */
@@ -79,29 +35,11 @@ const mpColors = {
     amazon: "#ff9900",
 };
 
-const getMpColor = (name) => {
-    const l = String(name || "").toLowerCase();
-    return Object.entries(mpColors).find(([k]) => l.includes(k))?.[1] || C.accent;
-};
-
-const getMpBadge = (name) => {
-    const color = getMpColor(name);
-    return (
-        <span style={{
-            display: "inline-flex", alignItems: "center", gap: "0.3rem",
-            background: `${color}18`, border: `1px solid ${color}35`,
-            color, padding: "0.22rem 0.6rem", borderRadius: 8,
-            fontSize: "0.72rem", fontWeight: 700, whiteSpace: "nowrap",
-        }}>
-            {name || "Bilinmiyor"}
-        </span>
-    );
-};
-
 /* ═══════════════════════════════════════════════════════════
    ANA COMPONENT
    ═══════════════════════════════════════════════════════════ */
 const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
+    const { theme: C, t } = useApp();
     const userId = propUserId || localStorage.getItem("userId");
     const token = localStorage.getItem("token");
 
@@ -126,6 +64,50 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
     // Modal
     const [selectedOrder, setSelectedOrder] = useState(null);
 
+    /* ── Status helpers (C bağımlı) ── */
+    const statusMeta = useMemo(() => ({
+        new: { label: t("orders.statusNew"), color: C.accent, icon: "🆕" },
+        processing: { label: t("orders.statusProcessing"), color: C.yellow, icon: "⚙️" },
+        shipping: { label: t("orders.statusShipping"), color: C.purple, icon: "🚚" },
+        delivered: { label: t("orders.statusDelivered"), color: C.green, icon: "✅" },
+        cancelled: { label: t("orders.statusCancelled"), color: C.red, icon: "❌" },
+        returned: { label: t("orders.statusReturned"), color: C.pink, icon: "↩️" },
+    }), [C, t]);
+
+    const getStatusBadge = useCallback((status) => {
+        const cls = classifyStatus(status);
+        const meta = statusMeta[cls] || statusMeta.processing;
+        return (
+            <span style={{
+                display: "inline-flex", alignItems: "center", gap: "0.3rem",
+                background: `${meta.color}15`, border: `1px solid ${meta.color}40`,
+                color: meta.color, padding: "0.25rem 0.65rem", borderRadius: 8,
+                fontSize: "0.72rem", fontWeight: 700, whiteSpace: "nowrap",
+            }}>
+                {meta.icon} {meta.label}
+            </span>
+        );
+    }, [statusMeta]);
+
+    const getMpColor = useCallback((name) => {
+        const l = String(name || "").toLowerCase();
+        return Object.entries(mpColors).find(([k]) => l.includes(k))?.[1] || C.accent;
+    }, [C.accent]);
+
+    const getMpBadge = useCallback((name) => {
+        const color = getMpColor(name);
+        return (
+            <span style={{
+                display: "inline-flex", alignItems: "center", gap: "0.3rem",
+                background: `${color}18`, border: `1px solid ${color}35`,
+                color, padding: "0.22rem 0.6rem", borderRadius: 8,
+                fontSize: "0.72rem", fontWeight: 700, whiteSpace: "nowrap",
+            }}>
+                {name || t("orders.unknown")}
+            </span>
+        );
+    }, [getMpColor, t]);
+
     /* ── TÜM PAZARYERLERINDEN SİPARİŞ ÇEK ── */
     const fetchAllOrders = useCallback(async () => {
         if (!marketplaces.length) return;
@@ -148,16 +130,15 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
 
                 const orders = (response.data?.orders || []).map(o => ({
                     ...o,
-                    marketplace: response.data?.marketplace || mp.marketplaceName || mp.name || "Bilinmiyor",
+                    marketplace: response.data?.marketplace || mp.marketplaceName || mp.name || t("orders.unknown"),
                     marketplaceId: mp._id,
                 }));
                 collected.push(...orders);
             } catch (err) {
-                console.error(`❌ ${mp.marketplaceName || mp.name} sipariş hatası:`, err.message);
+                // silently skip failed marketplace
             }
         }
 
-        // Tarihe göre sırala (en yeni önce)
         collected.sort((a, b) => {
             const da = a.orderDate ? new Date(a.orderDate) : new Date(0);
             const db = b.orderDate ? new Date(b.orderDate) : new Date(0);
@@ -168,7 +149,7 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
         setCurrentPage(1);
         setLoading(false);
         setLoadingMp("");
-    }, [marketplaces, userId, token, startDate, endDate]);
+    }, [marketplaces, userId, token, startDate, endDate, t]);
 
     useEffect(() => {
         fetchAllOrders();
@@ -178,17 +159,14 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
     const filteredOrders = useMemo(() => {
         let result = [...allOrders];
 
-        // Durum filtresi
         if (statusFilter !== "all") {
             result = result.filter(o => classifyStatus(o.status) === statusFilter);
         }
 
-        // Pazaryeri filtresi
         if (mpFilter !== "all") {
             result = result.filter(o => o.marketplace === mpFilter);
         }
 
-        // Arama
         if (searchQuery.trim()) {
             const q = searchQuery.toLowerCase().trim();
             result = result.filter(o =>
@@ -199,7 +177,6 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
             );
         }
 
-        // Sıralama
         result.sort((a, b) => {
             let va, vb;
             if (sortField === "orderDate") {
@@ -226,11 +203,9 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
         return result;
     }, [allOrders, statusFilter, mpFilter, searchQuery, sortField, sortDir]);
 
-    // Pagination
     const totalPages = Math.ceil(filteredOrders.length / perPage);
     const paginatedOrders = filteredOrders.slice((currentPage - 1) * perPage, currentPage * perPage);
 
-    // Durum sayıları
     const statusCounts = useMemo(() => {
         const sc = { all: allOrders.length, new: 0, processing: 0, shipping: 0, delivered: 0, cancelled: 0, returned: 0 };
         allOrders.forEach(o => {
@@ -240,17 +215,14 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
         return sc;
     }, [allOrders]);
 
-    // Benzersiz pazaryerleri
     const uniqueMarketplaces = useMemo(() => {
         return [...new Set(allOrders.map(o => o.marketplace).filter(Boolean))];
     }, [allOrders]);
 
-    // Toplam ciro
     const totalRevenue = useMemo(() => {
         return filteredOrders.reduce((sum, o) => sum + (parseFloat(o.totalPrice) || 0), 0);
     }, [filteredOrders]);
 
-    /* ── SORT TOGGLE ── */
     const handleSort = (field) => {
         if (sortField === field) {
             setSortDir(d => d === "asc" ? "desc" : "asc");
@@ -279,20 +251,19 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
                         background: `linear-gradient(135deg, ${C.accent}, ${C.purple})`,
                         WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
                     }}>
-                        📦 Sipariş Yönetimi
+                        📦 {t("orders.pageTitle")}
                     </h1>
                     <p style={{ color: C.muted, fontSize: "0.82rem", margin: "0.3rem 0 0 0" }}>
-                        Tüm pazaryerlerinden gelen siparişlerinizi tek ekrandan yönetin
+                        {t("orders.pageSubtitle")}
                     </p>
                 </div>
 
-                {/* Özet Kartlar */}
                 <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
                     {[
-                        { label: "Toplam", value: allOrders.length, color: C.accent },
-                        { label: "Ciro", value: fmtCurrency(totalRevenue), color: C.green },
-                        { label: "Yeni", value: statusCounts.new, color: C.blue },
-                        { label: "Kargoda", value: statusCounts.shipping, color: C.purple },
+                        { label: t("orders.totalLabel"), value: allOrders.length, color: C.accent },
+                        { label: t("orders.revenue"), value: fmtCurrency(totalRevenue), color: C.green },
+                        { label: t("orders.newLabel"), value: statusCounts.new, color: C.blue },
+                        { label: t("orders.shippingLabel"), value: statusCounts.shipping, color: C.purple },
                     ].map((s, i) => (
                         <div key={i} style={{
                             background: `${s.color}10`, border: `1px solid ${s.color}30`,
@@ -311,13 +282,13 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
                 borderBottom: `1px solid ${C.glassBr}`, paddingBottom: "0.75rem",
             }}>
                 {[
-                    { id: "all", label: "Tümü", count: statusCounts.all, color: C.accent },
-                    { id: "new", label: "Yeni", count: statusCounts.new, color: C.blue },
-                    { id: "processing", label: "İşlemde", count: statusCounts.processing, color: C.yellow },
-                    { id: "shipping", label: "Kargoda", count: statusCounts.shipping, color: C.purple },
-                    { id: "delivered", label: "Teslim", count: statusCounts.delivered, color: C.green },
-                    { id: "cancelled", label: "İptal", count: statusCounts.cancelled, color: C.red },
-                    { id: "returned", label: "İade", count: statusCounts.returned, color: C.pink },
+                    { id: "all", label: t("orders.all"), count: statusCounts.all, color: C.accent },
+                    { id: "new", label: t("orders.new"), count: statusCounts.new, color: C.blue },
+                    { id: "processing", label: t("orders.processing"), count: statusCounts.processing, color: C.yellow },
+                    { id: "shipping", label: t("orders.shipping"), count: statusCounts.shipping, color: C.purple },
+                    { id: "delivered", label: t("orders.deliver"), count: statusCounts.delivered, color: C.green },
+                    { id: "cancelled", label: t("orders.cancel"), count: statusCounts.cancelled, color: C.red },
+                    { id: "returned", label: t("orders.return"), count: statusCounts.returned, color: C.pink },
                 ].map(tab => (
                     <motion.button key={tab.id} whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.96 }}
                         onClick={() => { setStatusFilter(tab.id); setCurrentPage(1); }}
@@ -342,12 +313,11 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
                 display: "flex", gap: "0.6rem", marginBottom: "1rem", flexWrap: "wrap", alignItems: "center",
                 background: C.glass, border: `1px solid ${C.glassBr}`, borderRadius: 14, padding: "0.75rem 1rem",
             }}>
-                {/* Arama */}
                 <div style={{ position: "relative", flex: "1 1 250px", minWidth: 200 }}>
                     <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", fontSize: "0.85rem", color: C.dim }}>🔍</span>
                     <input
                         type="text"
-                        placeholder="Sipariş no, müşteri adı, takip no veya ürün ara..."
+                        placeholder={t("orders.searchPlaceholder")}
                         value={searchQuery}
                         onChange={e => { setSearchQuery(e.target.value); setCurrentPage(1); }}
                         style={{
@@ -361,7 +331,6 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
                     />
                 </div>
 
-                {/* Pazaryeri Filtresi */}
                 <select
                     value={mpFilter}
                     onChange={e => { setMpFilter(e.target.value); setCurrentPage(1); }}
@@ -371,13 +340,12 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
                         fontSize: "0.82rem", outline: "none", cursor: "pointer", minWidth: 140,
                     }}
                 >
-                    <option value="all" style={{ background: "#1a1f2e" }}>Tüm Pazaryerleri</option>
+                    <option value="all" style={{ background: C.card }}>{t("orders.allMarketplaces")}</option>
                     {uniqueMarketplaces.map(mp => (
-                        <option key={mp} value={mp} style={{ background: "#1a1f2e" }}>{mp}</option>
+                        <option key={mp} value={mp} style={{ background: C.card }}>{mp}</option>
                     ))}
                 </select>
 
-                {/* Tarih Filtreleri */}
                 <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)}
                     style={{
                         padding: "0.6rem 0.75rem", background: "rgba(255,255,255,0.05)",
@@ -393,7 +361,6 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
                     }}
                 />
 
-                {/* Filtrele Butonu */}
                 <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
                     onClick={fetchAllOrders}
                     disabled={loading}
@@ -404,10 +371,9 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
                         display: "flex", alignItems: "center", gap: "0.4rem", whiteSpace: "nowrap",
                     }}
                 >
-                    {loading ? "⏳ Yükleniyor..." : "🔄 Yenile"}
+                    {loading ? `⏳ ${t("orders.loading")}` : `🔄 ${t("orders.refresh")}`}
                 </motion.button>
 
-                {/* Temizle */}
                 {(searchQuery || mpFilter !== "all" || statusFilter !== "all" || startDate || endDate) && (
                     <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
                         onClick={() => { setSearchQuery(""); setMpFilter("all"); setStatusFilter("all"); setStartDate(""); setEndDate(""); setCurrentPage(1); }}
@@ -417,7 +383,7 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
                             cursor: "pointer", whiteSpace: "nowrap",
                         }}
                     >
-                        ✕ Temizle
+                        ✕ {t("orders.clear")}
                     </motion.button>
                 )}
             </div>
@@ -437,8 +403,8 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
                             marginBottom: "1rem",
                         }}
                     />
-                    <p style={{ fontSize: "0.95rem", fontWeight: 600, margin: 0 }}>Siparişler yükleniyor...</p>
-                    {loadingMp && <p style={{ fontSize: "0.78rem", color: C.dim, margin: "0.3rem 0 0 0" }}>{loadingMp} siparişleri çekiliyor...</p>}
+                    <p style={{ fontSize: "0.95rem", fontWeight: 600, margin: 0 }}>{t("orders.loadingOrders")}</p>
+                    {loadingMp && <p style={{ fontSize: "0.78rem", color: C.dim, margin: "0.3rem 0 0 0" }}>{loadingMp} {t("orders.fetchingOrders")}</p>}
                 </div>
             )}
 
@@ -458,34 +424,32 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
                     background: C.card, border: `1px solid ${C.border}`, borderRadius: 16,
                     overflow: "hidden", backdropFilter: "blur(20px)",
                 }}>
-                    {/* Tablo Bilgi Satırı */}
                     <div style={{
                         display: "flex", justifyContent: "space-between", alignItems: "center",
                         padding: "0.75rem 1.25rem", borderBottom: `1px solid ${C.glassBr}`,
                         background: "rgba(255,255,255,0.02)",
                     }}>
                         <span style={{ color: C.muted, fontSize: "0.78rem" }}>
-                            {filteredOrders.length} sipariş gösteriliyor
-                            {filteredOrders.length !== allOrders.length && ` (toplam ${allOrders.length})`}
+                            {filteredOrders.length} {t("orders.showingOrders")}
+                            {filteredOrders.length !== allOrders.length && ` (${t("orders.totalLabel").toLowerCase()} ${allOrders.length})`}
                         </span>
                         <span style={{ color: C.dim, fontSize: "0.72rem" }}>
-                            Sayfa {currentPage} / {totalPages || 1}
+                            {t("orders.page")} {currentPage} / {totalPages || 1}
                         </span>
                     </div>
 
-                    {/* Tablo */}
                     <div style={{ overflowX: "auto" }}>
                         <table style={{ width: "100%", minWidth: 900, borderCollapse: "collapse" }}>
                             <thead>
                                 <tr style={{ borderBottom: `1px solid ${C.glassBr}` }}>
                                     {[
-                                        { field: "orderNumber", label: "Sipariş No", width: "15%" },
-                                        { field: "marketplace", label: "Pazaryeri", width: "11%" },
-                                        { field: "customerName", label: "Müşteri", width: "17%" },
-                                        { field: "products", label: "Ürünler", width: "20%", noSort: true },
-                                        { field: "totalPrice", label: "Tutar", width: "10%" },
-                                        { field: "orderDate", label: "Tarih", width: "12%" },
-                                        { field: "status", label: "Durum", width: "10%", noSort: true },
+                                        { field: "orderNumber", label: t("orders.orderNo"), width: "15%" },
+                                        { field: "marketplace", label: t("orders.marketplace"), width: "11%" },
+                                        { field: "customerName", label: t("orders.customer"), width: "17%" },
+                                        { field: "products", label: t("orders.products"), width: "20%", noSort: true },
+                                        { field: "totalPrice", label: t("orders.amount"), width: "10%" },
+                                        { field: "orderDate", label: t("orders.date"), width: "12%" },
+                                        { field: "status", label: t("orders.status"), width: "10%", noSort: true },
                                         { field: "actions", label: "", width: "5%", noSort: true },
                                     ].map(col => (
                                         <th key={col.field}
@@ -522,7 +486,6 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
                                         onMouseEnter={e => e.currentTarget.style.background = "rgba(78,205,196,0.04)"}
                                         onMouseLeave={e => e.currentTarget.style.background = "transparent"}
                                     >
-                                        {/* Sipariş No */}
                                         <td style={{ padding: "0.75rem 1rem" }}>
                                             <span style={{
                                                 color: C.accent, fontSize: "0.82rem", fontWeight: 700,
@@ -531,29 +494,23 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
                                                 {order.orderNumber || "N/A"}
                                             </span>
                                         </td>
-
-                                        {/* Pazaryeri */}
                                         <td style={{ padding: "0.75rem 0.5rem" }}>
                                             {getMpBadge(order.marketplace)}
                                         </td>
-
-                                        {/* Müşteri */}
                                         <td style={{ padding: "0.75rem 1rem" }}>
                                             <span style={{ color: C.text, fontSize: "0.82rem", fontWeight: 600 }}>
-                                                {order.customerName || "Bilinmiyor"}
+                                                {order.customerName || t("orders.unknown")}
                                             </span>
                                         </td>
-
-                                        {/* Ürünler */}
                                         <td style={{ padding: "0.75rem 1rem" }}>
                                             {(order.products || []).length > 0 ? (
                                                 <div style={{ display: "flex", flexDirection: "column", gap: "0.15rem" }}>
                                                     <span style={{ color: C.text, fontSize: "0.78rem", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 220, display: "block" }}>
-                                                        {order.products[0].productName || "Ürün"}
+                                                        {order.products[0].productName || t("orders.product")}
                                                     </span>
                                                     {order.products.length > 1 && (
                                                         <span style={{ color: C.dim, fontSize: "0.68rem" }}>
-                                                            +{order.products.length - 1} ürün daha
+                                                            +{order.products.length - 1} {t("orders.moreProducts")}
                                                         </span>
                                                     )}
                                                 </div>
@@ -561,27 +518,19 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
                                                 <span style={{ color: C.dim, fontSize: "0.75rem" }}>—</span>
                                             )}
                                         </td>
-
-                                        {/* Tutar */}
                                         <td style={{ padding: "0.75rem 1rem" }}>
                                             <span style={{ color: C.green, fontSize: "0.85rem", fontWeight: 800 }}>
                                                 {fmtCurrency(order.totalPrice)}
                                             </span>
                                         </td>
-
-                                        {/* Tarih */}
                                         <td style={{ padding: "0.75rem 1rem" }}>
                                             <span style={{ color: C.muted, fontSize: "0.78rem", fontWeight: 600 }}>
                                                 {order.orderDate || "N/A"}
                                             </span>
                                         </td>
-
-                                        {/* Durum */}
                                         <td style={{ padding: "0.75rem 0.5rem" }}>
                                             {getStatusBadge(order.status)}
                                         </td>
-
-                                        {/* Detay */}
                                         <td style={{ padding: "0.75rem 0.5rem", textAlign: "center" }}>
                                             <motion.button whileHover={{ scale: 1.15 }} whileTap={{ scale: 0.9 }}
                                                 onClick={e => { e.stopPropagation(); setSelectedOrder(order); }}
@@ -601,11 +550,11 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
                                         <td colSpan={8} style={{ padding: "4rem 2rem", textAlign: "center" }}>
                                             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", color: C.dim }}>
                                                 <span style={{ fontSize: "3rem", marginBottom: "0.75rem" }}>📭</span>
-                                                <p style={{ fontSize: "1rem", fontWeight: 700, margin: 0, color: C.muted }}>Sipariş bulunamadı</p>
+                                                <p style={{ fontSize: "1rem", fontWeight: 700, margin: 0, color: C.muted }}>{t("orders.notFound")}</p>
                                                 <p style={{ fontSize: "0.8rem", margin: "0.3rem 0 0 0" }}>
                                                     {allOrders.length === 0
-                                                        ? "Henüz hiç sipariş yok veya pazaryeri entegrasyonlarınızı kontrol edin"
-                                                        : "Filtre kriterlerinize uygun sipariş bulunamadı"
+                                                        ? t("orders.noOrdersYet")
+                                                        : t("orders.noFilterMatch")
                                                     }
                                                 </p>
                                             </div>
@@ -690,7 +639,6 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
                                 maxHeight: "90vh", overflow: "auto",
                             }}
                         >
-                            {/* Modal Header */}
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "1.5rem" }}>
                                 <div>
                                     <h2 style={{
@@ -698,7 +646,7 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
                                         WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
                                         fontSize: "1.3rem", fontWeight: 800, margin: 0,
                                     }}>
-                                        Sipariş Detayı
+                                        {t("orders.orderDetail")}
                                     </h2>
                                     <p style={{ color: C.muted, fontSize: "0.78rem", margin: "0.25rem 0 0 0", fontFamily: "monospace" }}>
                                         #{selectedOrder.orderNumber}
@@ -716,19 +664,18 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
                                 </motion.button>
                             </div>
 
-                            {/* Sipariş Bilgileri Grid */}
                             <div style={{
                                 display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
                                 gap: "1rem", marginBottom: "1.5rem",
                             }}>
                                 {[
-                                    { label: "Pazaryeri", value: selectedOrder.marketplace, icon: "🏪" },
-                                    { label: "Müşteri", value: selectedOrder.customerName || "Bilinmiyor", icon: "👤" },
-                                    { label: "Tutar", value: fmtCurrency(selectedOrder.totalPrice), icon: "💰", color: C.green },
-                                    { label: "Tarih", value: selectedOrder.orderDate || "N/A", icon: "📅" },
-                                    { label: "Durum", value: selectedOrder.status || "Bilinmiyor", icon: "📦" },
-                                    { label: "Takip No", value: selectedOrder.trackingNumber || "Yok", icon: "🚚" },
-                                    { label: "Kargo Firması", value: selectedOrder.cargoCompany || "Bilinmiyor", icon: "📮" },
+                                    { label: t("orders.marketplace"), value: selectedOrder.marketplace, icon: "🏪" },
+                                    { label: t("orders.customer"), value: selectedOrder.customerName || t("orders.unknown"), icon: "👤" },
+                                    { label: t("orders.amount"), value: fmtCurrency(selectedOrder.totalPrice), icon: "💰", color: C.green },
+                                    { label: t("orders.date"), value: selectedOrder.orderDate || "N/A", icon: "📅" },
+                                    { label: t("orders.status"), value: selectedOrder.status || t("orders.unknown"), icon: "📦" },
+                                    { label: t("orders.trackingNo"), value: selectedOrder.trackingNumber || t("orders.none"), icon: "🚚" },
+                                    { label: t("orders.cargoCompany"), value: selectedOrder.cargoCompany || t("orders.unknown"), icon: "📮" },
                                 ].map((item, i) => (
                                     <div key={i} style={{
                                         background: C.glass, border: `1px solid ${C.glassBr}`,
@@ -744,10 +691,9 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
                                 ))}
                             </div>
 
-                            {/* Ürünler */}
                             <div style={{ marginBottom: "0.5rem" }}>
                                 <h3 style={{ color: C.text, fontSize: "0.95rem", fontWeight: 700, margin: "0 0 0.75rem 0" }}>
-                                    🛍️ Ürünler ({(selectedOrder.products || []).length})
+                                    🛍️ {t("orders.products")} ({(selectedOrder.products || []).length})
                                 </h3>
                                 <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
                                     {(selectedOrder.products || []).map((product, idx) => (
@@ -768,17 +714,17 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
                                             )}
                                             <div style={{ flex: 1, minWidth: 0 }}>
                                                 <p style={{ color: C.text, fontSize: "0.85rem", fontWeight: 700, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                                    {product.productName || "Ürün"}
+                                                    {product.productName || t("orders.product")}
                                                 </p>
                                                 <div style={{ display: "flex", gap: "1rem", marginTop: "0.25rem" }}>
-                                                    <span style={{ color: C.muted, fontSize: "0.75rem" }}>Adet: <strong style={{ color: C.text }}>{product.quantity || 1}</strong></span>
-                                                    {product.price && <span style={{ color: C.muted, fontSize: "0.75rem" }}>Fiyat: <strong style={{ color: C.green }}>{fmtCurrency(product.price)}</strong></span>}
+                                                    <span style={{ color: C.muted, fontSize: "0.75rem" }}>{t("orders.quantity")}: <strong style={{ color: C.text }}>{product.quantity || 1}</strong></span>
+                                                    {product.price && <span style={{ color: C.muted, fontSize: "0.75rem" }}>{t("orders.price")}: <strong style={{ color: C.green }}>{fmtCurrency(product.price)}</strong></span>}
                                                 </div>
                                             </div>
                                         </div>
                                     ))}
                                     {(!selectedOrder.products || selectedOrder.products.length === 0) && (
-                                        <p style={{ color: C.dim, fontSize: "0.82rem", textAlign: "center", padding: "1rem" }}>Ürün bilgisi bulunamadı</p>
+                                        <p style={{ color: C.dim, fontSize: "0.82rem", textAlign: "center", padding: "1rem" }}>{t("orders.noProductInfo")}</p>
                                     )}
                                 </div>
                             </div>

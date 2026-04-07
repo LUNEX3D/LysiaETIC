@@ -8,6 +8,7 @@ const axios = require("axios");
 const Marketplace = require("../models/Marketplace");
 const logger = require("../config/logger");
 const { decryptCredentials } = require("../utils/encryption");
+const { ok, notFound, serverError } = require("../utils/apiResponse");
 
 /**
  * Normalize product data — ensures every marketplace returns the same shape
@@ -43,7 +44,7 @@ exports.getAllProducts = async (req, res) => {
 
         const integration = await Marketplace.findOne({ _id: marketplaceId, userId });
         if (!integration) {
-            return res.status(404).json({ error: "❌ Mağaza entegrasyonu bulunamadı!" });
+            return notFound(res, "Mağaza entegrasyonu bulunamadı.");
         }
 
         const marketplaceName = integration.marketplaceName;
@@ -67,13 +68,7 @@ exports.getAllProducts = async (req, res) => {
 
                 const apiData = response?.data?.data || [];
                 if (!apiData.length) {
-                    return res.status(200).json({
-                        success: true,
-                        marketplace: marketplaceName,
-                        total: 0,
-                        products: [],
-                        message: "Hepsiburada'da ürün bulunamadı"
-                    });
+                    return ok(res, "Hepsiburada'da ürün bulunamadı.", { marketplace: marketplaceName, total: 0, products: [] });
                 }
 
                 products = apiData.map(product => normalizeProduct({
@@ -97,7 +92,7 @@ exports.getAllProducts = async (req, res) => {
                 }, marketplaceName));
             } catch (err) {
                 logger.error(`Hepsiburada API hatası: ${err.message}`);
-                return res.status(500).json({ error: "❌ Hepsiburada ürünleri alınamadı!" });
+                return serverError(res, err, "Hepsiburada ürünleri alınamadı.");
             }
         }
 
@@ -141,7 +136,7 @@ exports.getAllProducts = async (req, res) => {
                     page++;
                 } catch (err) {
                     logger.error(`Trendyol API hatası: ${err.message}`);
-                    return res.status(500).json({ error: "❌ Trendyol ürünleri alınamadı!" });
+                    return serverError(res, err, "Trendyol ürünleri alınamadı.");
                 }
             }
         }
@@ -190,7 +185,7 @@ exports.getAllProducts = async (req, res) => {
                     page++;
                 } catch (err) {
                     logger.error(`N11 API hatası: ${err.message}`);
-                    return res.status(500).json({ error: "❌ N11 ürünleri alınamadı!" });
+                    return serverError(res, err, "N11 ürünleri alınamadı.");
                 }
             }
         }
@@ -257,25 +252,20 @@ exports.getAllProducts = async (req, res) => {
                 }
             } catch (err) {
                 logger.error(`ÇiçekSepeti API hatası: ${err.message}`);
-                return res.status(500).json({ error: "❌ ÇiçekSepeti ürünleri alınamadı!" });
+                return serverError(res, err, "ÇiçekSepeti ürünleri alınamadı.");
             }
         }
 
         logger.info(`${marketplaceName} — ${products.length} ürün başarıyla çekildi (user: ${userId})`);
 
-        return res.status(200).json({
-            success: true,
+        return ok(res, `${marketplaceName} ürünleri başarıyla çekildi.`, {
             marketplace: marketplaceName,
             total: products.length,
-            products: products
+            products
         });
 
     } catch (error) {
         logger.error(`Ürünleri alırken hata: ${error.message}`);
-        return res.status(500).json({
-            success: false,
-            error: "Ürünler alınamadı!",
-            details: process.env.NODE_ENV === "development" ? error.message : undefined
-        });
+        return serverError(res, error, "Ürünler alınamadı.");
     }
 };

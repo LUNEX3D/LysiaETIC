@@ -66,9 +66,9 @@ module.exports = {
         },
       },
       fontFamily: {
-        sans: ["Inter", "Space Grotesk", "system-ui", "sans-serif"],
+        sans: ["Inter", "Space Grotesk", "system-ui", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "sans-serif"],
         display: ["Space Grotesk", "Inter", "sans-serif"],
-        mono: ["JetBrains Mono", "Fira Code", "monospace"],
+        mono: ["JetBrains Mono", "Fira Code", "Consolas", "monospace"],
       },
       borderRadius: {
         "xl": "12px",
@@ -77,6 +77,27 @@ module.exports = {
       },
       backdropBlur: {
         xs: "2px",
+      },
+      // ✅ WEB APP FIRST: Spacing scale for touch-friendly layouts
+      spacing: {
+        "safe-top": "env(safe-area-inset-top)",
+        "safe-bottom": "env(safe-area-inset-bottom)",
+        "safe-left": "env(safe-area-inset-left)",
+        "safe-right": "env(safe-area-inset-right)",
+        "touch": "44px",  // Minimum touch target
+        "touch-sm": "36px",
+      },
+      // ✅ WEB APP FIRST: Min-height with dynamic viewport
+      minHeight: {
+        "screen-dvh": "100dvh",
+        "screen-svh": "100svh",
+        "screen-lvh": "100lvh",
+      },
+      // ✅ WEB APP FIRST: Height with dynamic viewport
+      height: {
+        "screen-dvh": "100dvh",
+        "screen-svh": "100svh",
+        "screen-lvh": "100lvh",
       },
       animation: {
         "pulse-slow": "pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite",
@@ -117,4 +138,3 @@ module.exports = {
   },
   plugins: [],
 }
-

@@ -8,34 +8,8 @@ import {
     FaTag, FaPalette, FaRuler, FaTruck, FaPercent, FaInfoCircle,
     FaBoxes, FaFilter, FaSyncAlt
 } from "react-icons/fa";
+import { useApp } from "../context/AppContext";
 import "../styles/StockManagement.css";
-
-/* ── Color Palette (matches dashboard) ── */
-const C = {
-    bg:      "#0f1419",
-    card:    "rgba(26, 31, 53, 0.85)",
-    border:  "rgba(78, 205, 196, 0.18)",
-    accent:  "#4ecdc4",
-    green:   "#22c55e",
-    red:     "#ef4444",
-    yellow:  "#f59e0b",
-    purple:  "#8b5cf6",
-    blue:    "#06b6d4",
-    text:    "#e2e8f0",
-    muted:   "#94a3b8",
-    dim:     "#64748b",
-    glass:   "rgba(255,255,255,0.03)",
-    glassBr: "rgba(255,255,255,0.06)",
-};
-
-/* ── Stock Status Helper ── */
-const getStockStatus = (stock) => {
-    const qty = Number(stock) || 0;
-    if (qty === 0) return { label: "Tükendi", color: C.red, bg: "rgba(239,68,68,0.12)", icon: <FaTimesCircle /> };
-    if (qty <= 5)  return { label: "Kritik", color: "#f97316", bg: "rgba(249,115,22,0.12)", icon: <FaExclamationTriangle /> };
-    if (qty <= 20) return { label: "Düşük", color: C.yellow, bg: "rgba(245,158,11,0.12)", icon: <FaExclamationTriangle /> };
-    return { label: "Yeterli", color: C.green, bg: "rgba(34,197,94,0.10)", icon: <FaCheckCircle /> };
-};
 
 /* ── Format Price ── */
 const formatPrice = (price) => {
@@ -45,6 +19,16 @@ const formatPrice = (price) => {
 };
 
 const StockManagement = ({ userId, marketplaceId, marketplace }) => {
+    const { theme: C, t } = useApp();
+
+    /* ── Stock Status Helper (C ve t bağımlı — component içinde olmalı) ── */
+    const getStockStatus = useCallback((stock) => {
+        const qty = Number(stock) || 0;
+        if (qty === 0) return { label: t("stock.statusOut"), color: C.red, bg: "rgba(239,68,68,0.12)", icon: <FaTimesCircle /> };
+        if (qty <= 5)  return { label: t("stock.statusCritical"), color: "#f97316", bg: "rgba(249,115,22,0.12)", icon: <FaExclamationTriangle /> };
+        if (qty <= 20) return { label: t("stock.statusLow"), color: C.yellow, bg: "rgba(245,158,11,0.12)", icon: <FaExclamationTriangle /> };
+        return { label: t("stock.statusSufficient"), color: C.green, bg: "rgba(34,197,94,0.10)", icon: <FaCheckCircle /> };
+    }, [C, t]);
     const [products, setProducts] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -62,16 +46,19 @@ const StockManagement = ({ userId, marketplaceId, marketplace }) => {
         setError(null);
         try {
             const response = await axios.get(`/products/all?marketplaceId=${marketplaceId}`);
-            const data = response.data?.products || response.data || [];
-            setProducts(Array.isArray(data) ? data : []);
+            // ✅ FIX: Backend ok() helper → { success, message, data: { products: [...] } }
+            // response.data = axios body, response.data.data = ok() helper'ın data parametresi
+            const body = response.data;
+            const products = body?.data?.products || body?.products || body?.data || [];
+            setProducts(Array.isArray(products) ? products : []);
         } catch (err) {
             console.error("Stok verileri alınamadı:", err);
-            setError("Ürünler yüklenirken bir hata oluştu. Lütfen tekrar deneyin.");
+            setError(t("stock.loadError") || "Ürünler yüklenirken bir hata oluştu. Lütfen tekrar deneyin.");
             setProducts([]);
         } finally {
             setIsLoading(false);
         }
-    }, [userId, marketplaceId]);
+    }, [userId, marketplaceId, t]);
 
     useEffect(() => {
         if (marketplaceId) {
@@ -184,24 +171,24 @@ const StockManagement = ({ userId, marketplaceId, marketplace }) => {
                 <div className="sm-header-left">
                     <FaBoxOpen className="sm-header-icon" />
                     <div>
-                        <h1 className="sm-title">Stok Yönetimi</h1>
-                        <p className="sm-subtitle">{marketplace?.name || "Pazaryeri"} • {stats.total} ürün</p>
+                        <h1 className="sm-title">{t("stock.pageTitle")}</h1>
+                        <p className="sm-subtitle">{marketplace?.name || ""} • {stats.total} {t("stock.products")}</p>
                     </div>
                 </div>
                 <button className="sm-refresh-btn" onClick={fetchProducts} disabled={isLoading}>
                     <FaSyncAlt className={isLoading ? "sm-spin" : ""} />
-                    <span>Yenile</span>
+                    <span>{t("stock.refresh")}</span>
                 </button>
             </div>
 
             {/* ── Summary Cards ── */}
             <div className="sm-stats-row">
                 {[
-                    { label: "Toplam Ürün", value: stats.total, icon: <FaBoxes />, color: C.accent },
-                    { label: "Yeterli Stok", value: stats.inStock, icon: <FaCheckCircle />, color: C.green },
-                    { label: "Düşük Stok", value: stats.lowStock, icon: <FaExclamationTriangle />, color: C.yellow },
-                    { label: "Kritik Stok", value: stats.critical, icon: <FaExclamationTriangle />, color: "#f97316" },
-                    { label: "Tükendi", value: stats.outOfStock, icon: <FaTimesCircle />, color: C.red },
+                    { label: t("stock.totalProducts"), value: stats.total, icon: <FaBoxes />, color: C.accent },
+                    { label: t("stock.sufficient"), value: stats.inStock, icon: <FaCheckCircle />, color: C.green },
+                    { label: t("stock.low"), value: stats.lowStock, icon: <FaExclamationTriangle />, color: C.yellow },
+                    { label: t("stock.critical"), value: stats.critical, icon: <FaExclamationTriangle />, color: "#f97316" },
+                    { label: t("stock.outOfStock"), value: stats.outOfStock, icon: <FaTimesCircle />, color: C.red },
                 ].map((s, i) => (
                     <motion.div key={i} className="sm-stat-card" whileHover={{ y: -2 }}
                         style={{ borderColor: `${s.color}22` }}
@@ -225,7 +212,7 @@ const StockManagement = ({ userId, marketplaceId, marketplace }) => {
                     <FaSearch className="sm-search-icon" />
                     <input
                         type="text"
-                        placeholder="Ürün adı, barkod, kategori ara..."
+                        placeholder={t("stock.searchPlaceholder")}
                         value={searchTerm}
                         onChange={e => setSearchTerm(e.target.value)}
                         className="sm-search-input"
@@ -237,14 +224,14 @@ const StockManagement = ({ userId, marketplaceId, marketplace }) => {
                 <div className="sm-filter-group">
                     <FaFilter className="sm-filter-icon" />
                     <select value={stockFilter} onChange={e => setStockFilter(e.target.value)} className="sm-select">
-                        <option value="all">Tüm Stok</option>
-                        <option value="inStock">Yeterli (20+)</option>
-                        <option value="low">Düşük (6-20)</option>
-                        <option value="critical">Kritik (1-5)</option>
-                        <option value="outOfStock">Tükendi (0)</option>
+                        <option value="all">{t("stock.allStock")}</option>
+                        <option value="inStock">{t("stock.sufficientFilter")}</option>
+                        <option value="low">{t("stock.lowFilter")}</option>
+                        <option value="critical">{t("stock.criticalFilter")}</option>
+                        <option value="outOfStock">{t("stock.outFilter")}</option>
                     </select>
                 </div>
-                <span className="sm-result-count">{filteredProducts.length} sonuç</span>
+                <span className="sm-result-count">{filteredProducts.length} {t("stock.results")}</span>
             </div>
 
             {/* ── Error State ── */}
@@ -252,7 +239,7 @@ const StockManagement = ({ userId, marketplaceId, marketplace }) => {
                 <div className="sm-error">
                     <FaExclamationTriangle />
                     <span>{error}</span>
-                    <button onClick={fetchProducts}>Tekrar Dene</button>
+                    <button onClick={fetchProducts}>{t("stock.retryBtn")}</button>
                 </div>
             )}
 
@@ -260,13 +247,13 @@ const StockManagement = ({ userId, marketplaceId, marketplace }) => {
             {isLoading ? (
                 <div className="sm-loading">
                     <div className="sm-loading-spinner" />
-                    <p>Ürünler yükleniyor...</p>
+                    <p>{t("stock.loadingProducts")}</p>
                 </div>
             ) : filteredProducts.length === 0 ? (
                 <div className="sm-empty">
                     <FaBoxOpen className="sm-empty-icon" />
-                    <h3>{products.length === 0 ? "Henüz ürün bulunamadı" : "Filtreye uygun ürün yok"}</h3>
-                    <p>{products.length === 0 ? "Bu pazaryerinde kayıtlı ürün bulunmuyor." : "Arama veya filtre kriterlerinizi değiştirin."}</p>
+                    <h3>{products.length === 0 ? t("stock.noProducts") : t("stock.noFilterMatch")}</h3>
+                    <p>{products.length === 0 ? t("stock.noProductsDesc") : t("stock.noFilterMatchDesc")}</p>
                 </div>
             ) : (
                 <>
@@ -275,20 +262,20 @@ const StockManagement = ({ userId, marketplaceId, marketplace }) => {
                         <table className="sm-table">
                             <thead>
                                 <tr>
-                                    <th className="sm-th-img">Görsel</th>
+                                    <th className="sm-th-img">{t("stock.image")}</th>
                                     <th className="sm-th-name sm-sortable" onClick={() => handleSort("productName")}>
-                                        Ürün Adı <SortIcon field="productName" />
+                                        {t("stock.productName")} <SortIcon field="productName" />
                                     </th>
-                                    <th className="sm-th-barcode">Barkod</th>
-                                    <th className="sm-th-category">Kategori</th>
-                                    <th className="sm-th-variant">Renk / Beden</th>
+                                    <th className="sm-th-barcode">{t("stock.barcode")}</th>
+                                    <th className="sm-th-category">{t("stock.category")}</th>
+                                    <th className="sm-th-variant">{t("stock.colorSize")}</th>
                                     <th className="sm-th-price sm-sortable" onClick={() => handleSort("price")}>
-                                        Fiyat <SortIcon field="price" />
+                                        {t("stock.price")} <SortIcon field="price" />
                                     </th>
                                     <th className="sm-th-stock sm-sortable" onClick={() => handleSort("stock")}>
-                                        Stok <SortIcon field="stock" />
+                                        {t("stock.stockCol")} <SortIcon field="stock" />
                                     </th>
-                                    <th className="sm-th-status">Durum</th>
+                                    <th className="sm-th-status">{t("stock.statusCol")}</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -418,7 +405,7 @@ const StockManagement = ({ userId, marketplaceId, marketplace }) => {
                         >
                             {/* Modal Header */}
                             <div className="sm-modal-header">
-                                <h2>Ürün Detayı</h2>
+                                <h2>{t("stock.productDetail")}</h2>
                                 <button className="sm-modal-close" onClick={() => setSelectedProduct(null)}>
                                     <FaTimes />
                                 </button>
@@ -432,7 +419,7 @@ const StockManagement = ({ userId, marketplaceId, marketplace }) => {
                                         {selectedProduct.productImage && selectedProduct.productImage !== "https://via.placeholder.com/300" ? (
                                             <img src={selectedProduct.productImage} alt={selectedProduct.productName} />
                                         ) : (
-                                            <div className="sm-modal-no-img"><FaBoxOpen /><span>Görsel Yok</span></div>
+                                            <div className="sm-modal-no-img"><FaBoxOpen /><span>{t("stock.noImage")}</span></div>
                                         )}
                                     </div>
                                     <div className="sm-modal-key-info">
@@ -446,7 +433,7 @@ const StockManagement = ({ userId, marketplaceId, marketplace }) => {
                                                 <div className="sm-modal-stock-badge" style={{ color: ss.color, background: ss.bg, borderColor: `${ss.color}33` }}>
                                                     {ss.icon}
                                                     <span className="sm-modal-stock-qty">{Number(selectedProduct.stock) || 0}</span>
-                                                    <span className="sm-modal-stock-label">adet — {ss.label}</span>
+                                                    <span className="sm-modal-stock-label">{t("stock.pieces")} — {ss.label}</span>
                                                 </div>
                                             );
                                         })()}
@@ -465,15 +452,15 @@ const StockManagement = ({ userId, marketplaceId, marketplace }) => {
                                 {/* Detail Grid */}
                                 <div className="sm-modal-details">
                                     {[
-                                        { icon: <FaBarcode />, label: "Barkod", value: selectedProduct.barcode },
-                                        { icon: <FaTag />, label: "Ürün ID", value: selectedProduct.productId },
-                                        { icon: <FaTag />, label: "Stok Kodu", value: selectedProduct.stockCode },
-                                        { icon: <FaBoxes />, label: "Kategori", value: selectedProduct.categoryName },
-                                        { icon: <FaPalette />, label: "Renk", value: selectedProduct.color },
-                                        { icon: <FaRuler />, label: "Beden", value: selectedProduct.size },
-                                        { icon: <FaTruck />, label: "Termin Süresi", value: selectedProduct.deliveryTime },
-                                        { icon: <FaInfoCircle />, label: "Durum", value: selectedProduct.status },
-                                        { icon: <FaTag />, label: "Marka", value: selectedProduct.brand },
+                                        { icon: <FaBarcode />, label: t("stock.barcode"), value: selectedProduct.barcode },
+                                        { icon: <FaTag />, label: t("stock.productId"), value: selectedProduct.productId },
+                                        { icon: <FaTag />, label: t("stock.stockCode"), value: selectedProduct.stockCode },
+                                        { icon: <FaBoxes />, label: t("stock.category"), value: selectedProduct.categoryName },
+                                        { icon: <FaPalette />, label: t("stock.color"), value: selectedProduct.color },
+                                        { icon: <FaRuler />, label: t("stock.size"), value: selectedProduct.size },
+                                        { icon: <FaTruck />, label: t("stock.deliveryTime"), value: selectedProduct.deliveryTime },
+                                        { icon: <FaInfoCircle />, label: t("stock.statusCol"), value: selectedProduct.status },
+                                        { icon: <FaTag />, label: t("stock.brand"), value: selectedProduct.brand },
                                     ]
                                         .filter(d => d.value && d.value !== "Bilinmiyor" && d.value !== "UNKNOWN" && d.value !== "Yok")
                                         .map((d, i) => (
@@ -489,7 +476,7 @@ const StockManagement = ({ userId, marketplaceId, marketplace }) => {
                                 {/* Description */}
                                 {selectedProduct.description && (
                                     <div className="sm-modal-desc">
-                                        <h4>Açıklama</h4>
+                                        <h4>{t("stock.description")}</h4>
                                         <p>{selectedProduct.description}</p>
                                     </div>
                                 )}
@@ -497,7 +484,7 @@ const StockManagement = ({ userId, marketplaceId, marketplace }) => {
                                 {/* Attributes */}
                                 {selectedProduct.attributes && selectedProduct.attributes.length > 0 && (
                                     <div className="sm-modal-attrs">
-                                        <h4>Özellikler</h4>
+                                        <h4>{t("stock.attributes")}</h4>
                                         <div className="sm-attrs-grid">
                                             {selectedProduct.attributes.map((attr, i) => (
                                                 <div key={i} className="sm-attr-chip">
@@ -512,7 +499,7 @@ const StockManagement = ({ userId, marketplaceId, marketplace }) => {
                                 {/* Product Link */}
                                 {selectedProduct.productUrl && selectedProduct.productUrl !== "#" && (
                                     <a href={selectedProduct.productUrl} target="_blank" rel="noopener noreferrer" className="sm-modal-link">
-                                        <FaExternalLinkAlt /> Pazaryerinde Görüntüle
+                                        <FaExternalLinkAlt /> {t("stock.viewOnMarketplace")}
                                     </a>
                                 )}
                             </div>
