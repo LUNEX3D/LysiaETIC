@@ -98,83 +98,101 @@ const playNotificationSound = () => {
 /* ═══════════════════════════════════════════════════════════
    KÜÇÜK BİLEŞENLER
    ═══════════════════════════════════════════════════════════ */
-const GlassCard = ({ children, style, C, ...rest }) => (
-    <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4 }}
-        style={{
-            background: `linear-gradient(135deg, ${C.card} 0%, ${C.bg}dd 100%)`,
-            border: `1px solid ${C.border}`,
-            borderRadius: 16,
-            padding: "1.5rem",
-            ...style,
-        }}
-        {...rest}
-    >
-        {children}
-    </motion.div>
-);
+const GlassCard = ({ children, style, C, ...rest }) => {
+    const mobile = typeof window !== "undefined" && window.innerWidth < 768;
+    return (
+        <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4 }}
+            style={{
+                background: `linear-gradient(135deg, ${C.card} 0%, ${C.bg}dd 100%)`,
+                border: `1px solid ${C.border}`,
+                borderRadius: mobile ? 12 : 16,
+                padding: mobile ? "1rem" : "1.5rem",
+                minWidth: 0,
+                overflow: "hidden",
+                ...style,
+            }}
+            {...rest}
+        >
+            {children}
+        </motion.div>
+    );
+};
 
-const KpiCard = ({ icon, label, value, sub, color, delay = 0, onClick, C }) => (
-    <motion.div
-        initial={{ opacity: 0, y: 24 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay, duration: 0.35 }}
-        whileHover={{ y: -4, boxShadow: `0 12px 32px ${color}30` }}
-        onClick={onClick}
-        style={{
-            background: `linear-gradient(135deg, ${C.card} 0%, ${C.bg}ee 100%)`,
-            border: `1px solid ${color}30`,
-            borderRadius: 14,
-            padding: "1.25rem 1.5rem",
-            cursor: onClick ? "pointer" : "default",
-            position: "relative",
-            overflow: "hidden",
-        }}
-    >
-        <div style={{ position: "absolute", top: 0, right: 0, width: 120, height: 120, background: `radial-gradient(circle, ${color}15 0%, transparent 70%)`, pointerEvents: "none" }} />
-        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "0.75rem", position: "relative", zIndex: 1 }}>
-            <div style={{ background: `linear-gradient(135deg, ${color} 0%, ${color}cc 100%)`, padding: "0.6rem", borderRadius: 10, fontSize: "1.3rem", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: `0 4px 12px ${color}40` }}>
-                {icon}
+const KpiCard = ({ icon, label, value, sub, color, delay = 0, onClick, C }) => {
+    const mobile = typeof window !== "undefined" && window.innerWidth < 768;
+    return (
+        <motion.div
+            initial={{ opacity: 0, y: 24 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay, duration: 0.35 }}
+            whileHover={mobile ? {} : { y: -4, boxShadow: `0 12px 32px ${color}30` }}
+            onClick={onClick}
+            style={{
+                background: `linear-gradient(135deg, ${C.card} 0%, ${C.bg}ee 100%)`,
+                border: `1px solid ${color}30`,
+                borderRadius: mobile ? 12 : 14,
+                padding: mobile ? "0.75rem 0.85rem" : "1.25rem 1.5rem",
+                cursor: onClick ? "pointer" : "default",
+                position: "relative",
+                overflow: "hidden",
+                minWidth: 0,
+            }}
+        >
+            <div style={{ position: "absolute", top: 0, right: 0, width: mobile ? 80 : 120, height: mobile ? 80 : 120, background: `radial-gradient(circle, ${color}15 0%, transparent 70%)`, pointerEvents: "none" }} />
+            <div style={{ display: "flex", alignItems: "center", gap: mobile ? "0.5rem" : "0.75rem", marginBottom: mobile ? "0.4rem" : "0.75rem", position: "relative", zIndex: 1 }}>
+                <div style={{ background: `linear-gradient(135deg, ${color} 0%, ${color}cc 100%)`, padding: mobile ? "0.4rem" : "0.6rem", borderRadius: mobile ? 8 : 10, fontSize: mobile ? "1rem" : "1.3rem", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: `0 4px 12px ${color}40`, flexShrink: 0 }}>
+                    {icon}
+                </div>
+                <span style={{ color: C.muted, fontSize: mobile ? "0.65rem" : "0.8rem", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
             </div>
-            <span style={{ color: C.muted, fontSize: "0.8rem", fontWeight: 600 }}>{label}</span>
-        </div>
-        <div style={{ position: "relative", zIndex: 1 }}>
-            <h3 style={{ fontSize: "1.75rem", fontWeight: 800, color: C.text, margin: 0, lineHeight: 1.1 }}>{value}</h3>
-            {sub && <p style={{ color: C.dim, fontSize: "0.75rem", margin: "0.35rem 0 0", fontWeight: 500 }}>{sub}</p>}
-        </div>
-    </motion.div>
-);
+            <div style={{ position: "relative", zIndex: 1, minWidth: 0 }}>
+                <h3 style={{ fontSize: mobile ? "1.15rem" : "1.75rem", fontWeight: 800, color: C.text, margin: 0, lineHeight: 1.1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{value}</h3>
+                {sub && <p style={{ color: C.dim, fontSize: mobile ? "0.6rem" : "0.75rem", margin: "0.25rem 0 0", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sub}</p>}
+            </div>
+        </motion.div>
+    );
+};
 
-const Pill = ({ color, children }) => (
-    <span style={{
-        background: `${color}15`,
-        border: `1px solid ${color}35`,
-        padding: "0.3rem 0.7rem",
-        borderRadius: 10,
-        color,
-        fontSize: "0.75rem",
-        fontWeight: 700,
-        display: "inline-flex",
-        alignItems: "center",
-        gap: "0.3rem",
-    }}>
-        {children}
-    </span>
-);
+const Pill = ({ color, children }) => {
+    const mobile = typeof window !== "undefined" && window.innerWidth < 768;
+    return (
+        <span style={{
+            background: `${color}15`,
+            border: `1px solid ${color}35`,
+            padding: mobile ? "0.2rem 0.45rem" : "0.3rem 0.7rem",
+            borderRadius: mobile ? 8 : 10,
+            color,
+            fontSize: mobile ? "0.65rem" : "0.75rem",
+            fontWeight: 700,
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "0.25rem",
+            whiteSpace: "nowrap",
+            flexShrink: 0,
+        }}>
+            {children}
+        </span>
+    );
+};
 
-const SectionTitle = ({ icon, title, badge, action, C }) => (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem" }}>
-        <h2 style={{ fontSize: "1.1rem", fontWeight: 700, color: C.text, margin: 0, display: "flex", alignItems: "center", gap: "0.6rem" }}>
-            <span style={{ fontSize: "1.3rem" }}>{icon}</span> {title}
-        </h2>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-            {badge && <Pill color={C.accent}>{badge}</Pill>}
-            {action}
+const SectionTitle = ({ icon, title, badge, action, C }) => {
+    const mobile = typeof window !== "undefined" && window.innerWidth < 768;
+    return (
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: mobile ? "0.75rem" : "1.25rem", gap: "0.5rem", flexWrap: "wrap" }}>
+            <h2 style={{ fontSize: mobile ? "0.9rem" : "1.1rem", fontWeight: 700, color: C.text, margin: 0, display: "flex", alignItems: "center", gap: "0.5rem", minWidth: 0 }}>
+                <span style={{ fontSize: mobile ? "1rem" : "1.3rem", flexShrink: 0 }}>{icon}</span>
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</span>
+            </h2>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flexShrink: 0 }}>
+                {badge && !mobile && <Pill color={C.accent}>{badge}</Pill>}
+                {action}
+            </div>
         </div>
-    </div>
-);
+    );
+};
 
 /* ═══════════════════════════════════════════════════════════
    ANA BİLEŞEN
@@ -465,16 +483,16 @@ const UserDashboard = () => {
                     borderBottom: `1px solid ${C.border}`,
                     position: "sticky", top: 0, zIndex: 100,
                     backdropFilter: "blur(12px)",
-                    padding: isMobile ? "0.75rem 1rem" : "1.25rem clamp(1rem, 4vw, 3rem)",
+                    padding: isMobile ? "0.75rem 0.75rem" : "1.25rem clamp(1rem, 4vw, 3rem)",
                 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "1rem" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: isMobile ? "0.5rem" : "1rem" }}>
                         {/* Sol: Karşılama */}
-                        <div style={{ minWidth: 0 }}>
+                        <div style={{ minWidth: 0, flex: 1 }}>
                             <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "0.25rem" }}>
                                 <h1 style={{
                                     background: `linear-gradient(135deg, ${C.accent} 0%, ${C.purple} 100%)`,
                                     WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
-                                    fontSize: "clamp(1.2rem, 2.5vw, 1.6rem)", fontWeight: 800, margin: 0,
+                                    fontSize: isMobile ? "1.1rem" : "clamp(1.2rem, 2.5vw, 1.6rem)", fontWeight: 800, margin: 0,
                                 }}>
                                     {t(getGreetingKey())} 👋
                                 </h1>
@@ -482,11 +500,11 @@ const UserDashboard = () => {
                                     <div style={{ width: 16, height: 16, border: `2px solid ${C.accent}30`, borderTop: `2px solid ${C.accent}`, borderRadius: "50%", animation: "spin 1s linear infinite" }} />
                                 )}
                             </div>
-                            <p style={{ color: C.dim, fontSize: "0.78rem", margin: 0, display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
-                                <span>{dateStr}</span>
+                            <p style={{ color: C.dim, fontSize: isMobile ? "0.7rem" : "0.78rem", margin: 0, display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+                                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: isMobile ? "nowrap" : "normal" }}>{dateStr}</span>
                                 <span style={{ color: C.accent, fontWeight: 700, fontFamily: "monospace" }}>{timeStr}</span>
-                                <span style={{ width: 4, height: 4, borderRadius: "50%", background: C.dim, display: "inline-block" }} />
-                                <span>{summary.activeMarketplaces || 0} {t("dashboard.activeChannels").toLowerCase()}</span>
+                                {!isMobile && <span style={{ width: 4, height: 4, borderRadius: "50%", background: C.dim, display: "inline-block" }} />}
+                                {!isMobile && <span>{summary.activeMarketplaces || 0} {t("dashboard.activeChannels").toLowerCase()}</span>}
                             </p>
                         </div>
 
@@ -533,13 +551,18 @@ const UserDashboard = () => {
                                         exit={{ opacity: 0, y: -8, scale: 0.95 }}
                                         transition={{ duration: 0.2 }}
                                         style={{
-                                            position: "absolute", top: "calc(100% + 8px)", right: isMobile ? -60 : 0,
-                                            width: isMobile ? "calc(100vw - 24px)" : 400, maxWidth: 400, maxHeight: 520,
+                                            position: isMobile ? "fixed" : "absolute",
+                                            top: isMobile ? "60px" : "calc(100% + 8px)",
+                                            right: isMobile ? "12px" : 0,
+                                            left: isMobile ? "12px" : "auto",
+                                            width: isMobile ? "auto" : 400,
+                                            maxWidth: isMobile ? "100%" : 400,
+                                            maxHeight: isMobile ? "calc(100dvh - 80px)" : 520,
                                             background: isDark ? "linear-gradient(135deg, #1a1f35 0%, #0f1419 100%)" : "linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)",
                                             border: `1px solid ${C.border}`,
                                             borderRadius: 16, overflow: "hidden",
                                             boxShadow: "0 20px 60px rgba(0,0,0,0.6)",
-                                            zIndex: 200,
+                                            zIndex: 9999,
                                         }}
                                     >
                                         {/* Panel Header */}
@@ -668,15 +691,16 @@ const UserDashboard = () => {
                 )}
 
                 {/* ── İÇERİK ── */}
-                <div style={{ padding: "clamp(1rem, 3vw, 1.75rem) clamp(1rem, 4vw, 3rem)" }}>
+                <div style={{ padding: isMobile ? "0.75rem" : "clamp(1rem, 3vw, 1.75rem) clamp(1rem, 4vw, 3rem)", overflowX: "hidden" }}>
 
                     {/* ── DURUM ÇUBUĞU (Compact) ── */}
                     <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}
                         style={{
-                            display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "1.25rem",
-                            padding: "0.75rem 1rem", borderRadius: 12,
+                            display: "flex", gap: isMobile ? "0.35rem" : "0.5rem", flexWrap: "wrap", marginBottom: "1.25rem",
+                            padding: isMobile ? "0.5rem 0.6rem" : "0.75rem 1rem", borderRadius: 12,
                             background: `linear-gradient(135deg, ${C.accent}08, ${C.purple}08)`,
                             border: `1px solid ${C.accent}15`,
+                            overflowX: "auto", WebkitOverflowScrolling: "touch",
                         }}>
                         {[
                             { label: t("dashboard.activeChannels"), value: summary.activeMarketplaces || 0, color: C.green, icon: "🟢" },
@@ -685,16 +709,16 @@ const UserDashboard = () => {
                             { label: t("dashboard.stockMismatch"), value: summary.stockMismatchCount || 0, color: (summary.stockMismatchCount || 0) > 0 ? C.yellow : C.green, icon: "📦" },
                             { label: t("dashboard.lastUpdate"), value: summary.lastIntegrationUpdate ? new Date(summary.lastIntegrationUpdate).toLocaleTimeString(language === "en" ? "en-US" : "tr-TR", { hour: "2-digit", minute: "2-digit" }) : "—", color: C.accent, icon: "🕐" },
                         ].map((s, i) => (
-                            <div key={s.label} style={{ display: "flex", alignItems: "center", gap: "0.35rem", padding: "0.2rem 0.6rem", borderRadius: 8, background: `${s.color}08` }}>
-                                <span style={{ fontSize: "0.7rem" }}>{s.icon}</span>
-                                <span style={{ color: C.muted, fontSize: "0.7rem", fontWeight: 600 }}>{s.label}:</span>
-                                <span style={{ color: s.color, fontSize: "0.75rem", fontWeight: 800 }}>{s.value}</span>
+                            <div key={s.label} style={{ display: "flex", alignItems: "center", gap: "0.35rem", padding: isMobile ? "0.15rem 0.4rem" : "0.2rem 0.6rem", borderRadius: 8, background: `${s.color}08`, flexShrink: 0, whiteSpace: "nowrap" }}>
+                                <span style={{ fontSize: isMobile ? "0.6rem" : "0.7rem" }}>{s.icon}</span>
+                                <span style={{ color: C.muted, fontSize: isMobile ? "0.6rem" : "0.7rem", fontWeight: 600 }}>{s.label}:</span>
+                                <span style={{ color: s.color, fontSize: isMobile ? "0.65rem" : "0.75rem", fontWeight: 800 }}>{s.value}</span>
                             </div>
                         ))}
                     </motion.div>
 
                     {/* ── KPI KARTLARI ── */}
-                    <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(auto-fill, minmax(210px, 1fr))", gap: isMobile ? "0.6rem" : "1rem", marginBottom: "1.5rem" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(auto-fill, minmax(210px, 1fr))", gap: isMobile ? "0.5rem" : "1rem", marginBottom: "1.5rem" }}>
                         <KpiCard C={C} icon="📦" label={t("dashboard.totalOrders")} value={fmtNum(allOrders.total, language)}
                             sub={`🆕 ${allOrders.statusCounts.new} ${t("dashboard.new")} · ⚙️ ${allOrders.statusCounts.processing} ${t("dashboard.processing")} · 🚚 ${allOrders.statusCounts.shipping} ${t("dashboard.shipping")}`}
                             color={C.accent} delay={0.05} onClick={() => setShowOrderDetailsModal(true)} />
@@ -716,21 +740,21 @@ const UserDashboard = () => {
                     </div>
 
                     {/* ── PAZARYERI TABLOSU + CANLI SİPARİŞ AKIŞI ── */}
-                    <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "2fr 1fr", gap: isMobile ? "1rem" : "1.5rem", marginBottom: "1.5rem" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "2fr 1fr", gap: isMobile ? "0.75rem" : "1.5rem", marginBottom: "1.5rem" }}>
 
                         {/* Pazaryeri Durumu */}
                         {marketplaceEntries.length > 0 && (
-                            <GlassCard C={C}>
+                            <GlassCard C={C} style={isMobile ? { padding: "1rem" } : {}}>
                                 <SectionTitle C={C} icon="🏪" title={t("dashboard.marketplaceStatus")} badge={`${marketplaceEntries.length} ${t("dashboard.channel")}`} />
-                                <div style={{ overflowX: "auto" }}>
-                                    <table style={{ width: "100%", minWidth: isMobile ? "auto" : 500, borderCollapse: "separate", borderSpacing: "0 0.35rem" }}>
+                                <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch", margin: isMobile ? "0 -0.5rem" : 0, padding: isMobile ? "0 0.5rem" : 0 }}>
+                                    <table style={{ width: "100%", minWidth: isMobile ? 480 : 500, borderCollapse: "separate", borderSpacing: "0 0.35rem" }}>
                                         <thead>
-                                            <tr style={{ color: C.muted, fontSize: "0.68rem", fontWeight: 600, textTransform: "uppercase" }}>
-                                                <th style={{ textAlign: "left", padding: "0.4rem 0.8rem" }}>{t("dashboard.channel")}</th>
-                                                <th style={{ textAlign: "center", padding: "0.4rem" }}>{t("dashboard.status")}</th>
-                                                <th style={{ textAlign: "center", padding: "0.4rem" }}>{t("dashboard.orders")}</th>
-                                                <th style={{ textAlign: "center", padding: "0.4rem" }}>{t("dashboard.revenue")}</th>
-                                                <th style={{ textAlign: "center", padding: "0.4rem" }}>{t("dashboard.errors")}</th>
+                                            <tr style={{ color: C.muted, fontSize: isMobile ? "0.6rem" : "0.68rem", fontWeight: 600, textTransform: "uppercase" }}>
+                                                <th style={{ textAlign: "left", padding: isMobile ? "0.3rem 0.5rem" : "0.4rem 0.8rem" }}>{t("dashboard.channel")}</th>
+                                                <th style={{ textAlign: "center", padding: isMobile ? "0.3rem" : "0.4rem" }}>{t("dashboard.status")}</th>
+                                                <th style={{ textAlign: "center", padding: isMobile ? "0.3rem" : "0.4rem" }}>{t("dashboard.orders")}</th>
+                                                <th style={{ textAlign: "center", padding: isMobile ? "0.3rem" : "0.4rem" }}>{t("dashboard.revenue")}</th>
+                                                <th style={{ textAlign: "center", padding: isMobile ? "0.3rem" : "0.4rem" }}>{t("dashboard.errors")}</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -809,7 +833,7 @@ const UserDashboard = () => {
                     </div>
 
                     {/* ── TREND + ÜRÜN SAĞLIĞI ── */}
-                    <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: isMobile ? "1rem" : "1.5rem", marginBottom: "1.5rem" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: isMobile ? "0.75rem" : "1.5rem", marginBottom: "1.5rem" }}>
                         {/* 7 Günlük Trend */}
                         <GlassCard C={C}>
                             <SectionTitle C={C} icon="📈" title={t("dashboard.weeklyTrend")} badge={`${fmtNum(trendOrderTotal, language)} ${t("dashboard.orders").toLowerCase()} · ${fmtCurrency(trendRevenueTotal, language)}`} />
@@ -825,13 +849,13 @@ const UserDashboard = () => {
                                             <span style={{ color: C.muted, fontSize: "0.68rem" }}>{t("dashboard.revenue")}</span>
                                         </div>
                                     </div>
-                                    <div style={{ display: "flex", gap: "0.35rem", height: 180, alignItems: "flex-end" }}>
+                                    <div style={{ display: "flex", gap: isMobile ? "0.2rem" : "0.35rem", height: isMobile ? 130 : 180, alignItems: "flex-end" }}>
                                         {trends.labels.map((label, i) => {
                                             const oH = Math.max((trends.orderCounts[i] || 0) / orderTrendMax * 100, 4);
                                             const rH = Math.max((trends.revenueTotals[i] || 0) / revenueTrendMax * 100, 4);
                                             return (
-                                                <div key={`${label}-${i}`} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: "0.35rem" }}>
-                                                    <div style={{ width: "100%", display: "flex", gap: 2, alignItems: "flex-end", height: 150 }}>
+                                                <div key={`${label}-${i}`} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: "0.2rem", minWidth: 0 }}>
+                                                    <div style={{ width: "100%", display: "flex", gap: isMobile ? 1 : 2, alignItems: "flex-end", height: isMobile ? 100 : 150 }}>
                                                         <motion.div initial={{ height: 0 }} animate={{ height: `${rH}%` }} transition={{ delay: 0.3 + i * 0.04, duration: 0.4 }}
                                                             style={{ flex: 1, background: `linear-gradient(180deg, ${C.green}, #059669)`, borderRadius: "3px 3px 0 0", cursor: "pointer" }}
                                                             title={`${t("dashboard.revenue")}: ${fmtCurrency(trends.revenueTotals[i] || 0, language)}`} />
@@ -839,7 +863,7 @@ const UserDashboard = () => {
                                                             style={{ flex: 1, background: `linear-gradient(180deg, ${C.accent}, #44a08d)`, borderRadius: "3px 3px 0 0", cursor: "pointer" }}
                                                             title={`${t("dashboard.orders")}: ${trends.orderCounts[i] || 0}`} />
                                                     </div>
-                                                    <span style={{ color: C.dim, fontSize: "0.6rem", fontWeight: 600 }}>{label}</span>
+                                                    <span style={{ color: C.dim, fontSize: isMobile ? "0.5rem" : "0.6rem", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%" }}>{label}</span>
                                                 </div>
                                             );
                                         })}
@@ -866,12 +890,12 @@ const UserDashboard = () => {
                                     { label: t("dashboard.categoryMapping"), value: fmtNum(pmDashboard?.totalCategories || 0, language), color: C.purple, icon: "🗂️" },
                                 ].map((s, i) => (
                                     <motion.div key={s.label} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.2 + i * 0.03 }}
-                                        style={{ background: C.glass, border: `1px solid ${C.glassBr}`, borderRadius: 8, padding: "0.55rem 0.75rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                                            <span style={{ fontSize: "1rem" }}>{s.icon}</span>
-                                            <span style={{ color: C.muted, fontSize: "0.78rem", fontWeight: 600 }}>{s.label}</span>
+                                        style={{ background: C.glass, border: `1px solid ${C.glassBr}`, borderRadius: 8, padding: isMobile ? "0.45rem 0.6rem" : "0.55rem 0.75rem", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem" }}>
+                                        <div style={{ display: "flex", alignItems: "center", gap: isMobile ? "0.35rem" : "0.5rem", minWidth: 0, flex: 1 }}>
+                                            <span style={{ fontSize: isMobile ? "0.85rem" : "1rem", flexShrink: 0 }}>{s.icon}</span>
+                                            <span style={{ color: C.muted, fontSize: isMobile ? "0.7rem" : "0.78rem", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.label}</span>
                                         </div>
-                                        <span style={{ color: s.color, fontSize: "1rem", fontWeight: 800 }}>{s.value}</span>
+                                        <span style={{ color: s.color, fontSize: isMobile ? "0.85rem" : "1rem", fontWeight: 800, flexShrink: 0 }}>{s.value}</span>
                                     </motion.div>
                                 ))}
                             </div>
@@ -879,9 +903,9 @@ const UserDashboard = () => {
                                 <div style={{ marginTop: "0.75rem", paddingTop: "0.75rem", borderTop: `1px solid ${C.glassBr}` }}>
                                     <p style={{ color: C.muted, fontSize: "0.7rem", fontWeight: 600, marginBottom: "0.4rem" }}>{t("dashboard.marketplaceDistribution")}</p>
                                     {pmMarketplaces.map(pm => (
-                                        <div key={pm.name} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.25rem 0" }}>
-                                            <span style={{ color: C.text, fontSize: "0.75rem" }}>{pm.name}</span>
-                                            <div style={{ display: "flex", gap: "0.4rem" }}>
+                                        <div key={pm.name} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.25rem 0", gap: "0.5rem", flexWrap: isMobile ? "wrap" : "nowrap" }}>
+                                            <span style={{ color: C.text, fontSize: isMobile ? "0.7rem" : "0.75rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pm.name}</span>
+                                            <div style={{ display: "flex", gap: "0.3rem", flexShrink: 0 }}>
                                                 <Pill color={C.green}>{pm.syncedProducts || 0} {t("dashboard.synced")}</Pill>
                                                 {(pm.errorProducts || 0) > 0 && <Pill color={C.red}>{pm.errorProducts} {t("dashboard.errorProducts")}</Pill>}
                                             </div>
@@ -893,7 +917,7 @@ const UserDashboard = () => {
                     </div>
 
                     {/* ── UYARILAR + CİRO DAĞILIMI + HIZLI AKSİYONLAR ── */}
-                    <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: isMobile ? "1rem" : "1.5rem", marginBottom: "1.5rem" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: isMobile ? "0.75rem" : "1.5rem", marginBottom: "1.5rem" }}>
 
                         {/* Uyarılar */}
                         <GlassCard C={C}>
@@ -983,7 +1007,7 @@ const UserDashboard = () => {
                                 </motion.button>
                             }
                         />
-                        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill, minmax(300px, 1fr))", gap: "0.4rem" }}>
+                        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill, minmax(300px, 1fr))", gap: isMobile ? "0.35rem" : "0.4rem" }}>
                             {logs.length > 0 ? logs.slice(0, 8).map((log, i) => (
                                 <motion.div key={log.id || i} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 + i * 0.02 }}
                                     style={{ background: C.glass, border: `1px solid ${C.glassBr}`, borderRadius: 8, padding: "0.55rem 0.75rem", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.4rem" }}>
@@ -1011,14 +1035,14 @@ const UserDashboard = () => {
                     {showOrderDetailsModal && (
                         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                             onClick={() => setShowOrderDetailsModal(false)}
-                            style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem", background: "rgba(0,0,0,0.8)", backdropFilter: "blur(8px)" }}>
-                            <motion.div initial={{ scale: 0.92, y: 40 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.92, y: 40 }}
+                            style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: isMobile ? "flex-end" : "center", justifyContent: "center", padding: isMobile ? 0 : "1rem", background: "rgba(0,0,0,0.8)", backdropFilter: "blur(8px)" }}>
+                            <motion.div initial={{ scale: isMobile ? 1 : 0.92, y: 40 }} animate={{ scale: 1, y: 0 }} exit={{ scale: isMobile ? 1 : 0.92, y: 40 }}
                                 onClick={e => e.stopPropagation()}
-                                style={{ background: `linear-gradient(135deg, ${C.card} 0%, ${C.bg}f2 100%)`, border: `1px solid ${C.border}`, borderRadius: 20, padding: "clamp(1rem, 3vw, 2rem)", maxWidth: 900, width: "100%", maxHeight: "90vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+                                style={{ background: `linear-gradient(135deg, ${C.card} 0%, ${C.bg}f2 100%)`, border: `1px solid ${C.border}`, borderRadius: isMobile ? "20px 20px 0 0" : 20, padding: isMobile ? "1rem" : "clamp(1rem, 3vw, 2rem)", maxWidth: isMobile ? "100%" : 900, width: "100%", maxHeight: isMobile ? "85dvh" : "90vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
 
                                 {/* Modal Header */}
-                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", flexShrink: 0 }}>
-                                    <h2 style={{ background: `linear-gradient(135deg, ${C.accent}, ${C.purple})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", fontSize: "1.3rem", fontWeight: 800, margin: 0 }}>
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem", flexShrink: 0 }}>
+                                    <h2 style={{ background: `linear-gradient(135deg, ${C.accent}, ${C.purple})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", fontSize: isMobile ? "1rem" : "1.3rem", fontWeight: 800, margin: 0 }}>
                                         📦 {t("dashboard.totalOrders")} ({allOrders.total})
                                     </h2>
                                     <motion.button whileHover={{ scale: 1.1, rotate: 90 }} whileTap={{ scale: 0.9 }}
@@ -1029,7 +1053,7 @@ const UserDashboard = () => {
                                 </div>
 
                                 {/* Status Tabs */}
-                                <div style={{ display: "flex", gap: "0.35rem", marginBottom: "1rem", flexWrap: "nowrap", borderBottom: `1px solid ${C.glassBr}`, paddingBottom: "0.75rem", overflowX: "auto", flexShrink: 0 }}>
+                                <div style={{ display: "flex", gap: "0.3rem", marginBottom: "0.75rem", flexWrap: "nowrap", borderBottom: `1px solid ${C.glassBr}`, paddingBottom: "0.6rem", overflowX: "auto", WebkitOverflowScrolling: "touch", flexShrink: 0 }}>
                                     {[
                                         { id: "all", label: t("dashboard.all"), count: allOrders.total, color: C.accent },
                                         { id: "new", label: t("dashboard.newOrders"), count: allOrders.statusCounts.new, color: C.accent },
@@ -1053,6 +1077,7 @@ const UserDashboard = () => {
                                 </div>
 
                                 {/* Table Header */}
+                                {!isMobile && (
                                 <div style={{ display: "grid", gridTemplateColumns: "2fr 1.2fr 1fr 1.2fr 1fr", gap: "0.75rem", padding: "0.5rem 1rem", borderBottom: `2px solid ${C.accent}20`, marginBottom: "0.5rem", flexShrink: 0 }}>
                                     <span style={{ color: C.muted, fontSize: "0.68rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>{t("dashboard.orderNumber")}</span>
                                     <span style={{ color: C.muted, fontSize: "0.68rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>{t("dashboard.marketplace")}</span>
@@ -1060,32 +1085,59 @@ const UserDashboard = () => {
                                     <span style={{ color: C.muted, fontSize: "0.68rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", textAlign: "center" }}>{t("dashboard.date")}</span>
                                     <span style={{ color: C.muted, fontSize: "0.68rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", textAlign: "center" }}>{t("dashboard.orderStatus")}</span>
                                 </div>
+                                )}
 
                                 {/* Order Rows */}
                                 <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
                                     {(allOrders.byStatus[selectedOrderTab] || []).length > 0 ? (
                                         <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
                                             {allOrders.byStatus[selectedOrderTab].map((order, idx) => (
-                                                <motion.div key={`${order.orderNumber}-${idx}`}
-                                                    initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: Math.min(idx * 0.01, 0.3) }}
-                                                    style={{ display: "grid", gridTemplateColumns: "2fr 1.2fr 1fr 1.2fr 1fr", gap: "0.75rem", alignItems: "center", padding: "0.6rem 1rem", borderRadius: 8, background: idx % 2 === 0 ? C.glass : "transparent", border: `1px solid transparent`, transition: "background 0.15s ease, border-color 0.15s ease", cursor: "default" }}
-                                                    whileHover={{ backgroundColor: `rgba(78,205,196,0.06)`, borderColor: `rgba(78,205,196,0.12)` }}>
-                                                    <span style={{ color: C.text, fontSize: "0.8rem", fontWeight: 600, fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{order.orderNumber || "N/A"}</span>
-                                                    <span style={{ color: C.accent, fontSize: "0.8rem", fontWeight: 600 }}>{order.marketplace || "N/A"}</span>
-                                                    <span style={{ color: C.green, fontSize: "0.82rem", fontWeight: 700, textAlign: "right" }}>{fmtCurrency(order.totalPrice || 0, language)}</span>
-                                                    <span style={{ color: C.muted, fontSize: "0.75rem", fontWeight: 500, textAlign: "center" }}>
-                                                        {order.orderDate ? new Date(order.orderDate).toLocaleString(language === "en" ? "en-US" : "tr-TR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "N/A"}
-                                                    </span>
-                                                    <div style={{ textAlign: "center" }}>
-                                                        <Pill color={
-                                                            String(order.status || "").toLowerCase().includes("deliver") || String(order.status || "").toLowerCase().includes("teslim") ? C.green :
-                                                            String(order.status || "").toLowerCase().includes("ship") || String(order.status || "").toLowerCase().includes("kargo") ? C.purple :
-                                                            String(order.status || "").toLowerCase().includes("cancel") || String(order.status || "").toLowerCase().includes("iptal") ? C.red : C.yellow
-                                                        }>
-                                                            {order.status || t("dashboard.unknown")}
-                                                        </Pill>
-                                                    </div>
-                                                </motion.div>
+                                                isMobile ? (
+                                                    /* ── Mobile: Card layout ── */
+                                                    <motion.div key={`${order.orderNumber}-${idx}`}
+                                                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: Math.min(idx * 0.01, 0.3) }}
+                                                        style={{ background: idx % 2 === 0 ? C.glass : "transparent", border: `1px solid ${C.glassBr}`, borderRadius: 10, padding: "0.65rem 0.75rem", cursor: "default" }}>
+                                                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.3rem" }}>
+                                                            <span style={{ color: C.accent, fontSize: "0.75rem", fontWeight: 700 }}>{order.marketplace || "N/A"}</span>
+                                                            <Pill color={
+                                                                String(order.status || "").toLowerCase().includes("deliver") || String(order.status || "").toLowerCase().includes("teslim") ? C.green :
+                                                                String(order.status || "").toLowerCase().includes("ship") || String(order.status || "").toLowerCase().includes("kargo") ? C.purple :
+                                                                String(order.status || "").toLowerCase().includes("cancel") || String(order.status || "").toLowerCase().includes("iptal") ? C.red : C.yellow
+                                                            }>
+                                                                {order.status || t("dashboard.unknown")}
+                                                            </Pill>
+                                                        </div>
+                                                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                                            <span style={{ color: C.dim, fontSize: "0.68rem", fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "55%" }}>#{order.orderNumber || "N/A"}</span>
+                                                            <span style={{ color: C.green, fontSize: "0.82rem", fontWeight: 800 }}>{fmtCurrency(order.totalPrice || 0, language)}</span>
+                                                        </div>
+                                                        <div style={{ color: C.dim, fontSize: "0.62rem", marginTop: "0.2rem" }}>
+                                                            {order.orderDate ? new Date(order.orderDate).toLocaleString(language === "en" ? "en-US" : "tr-TR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "N/A"}
+                                                        </div>
+                                                    </motion.div>
+                                                ) : (
+                                                    /* ── Desktop: Grid row layout ── */
+                                                    <motion.div key={`${order.orderNumber}-${idx}`}
+                                                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: Math.min(idx * 0.01, 0.3) }}
+                                                        style={{ display: "grid", gridTemplateColumns: "2fr 1.2fr 1fr 1.2fr 1fr", gap: "0.75rem", alignItems: "center", padding: "0.6rem 1rem", borderRadius: 8, background: idx % 2 === 0 ? C.glass : "transparent", border: `1px solid transparent`, transition: "background 0.15s ease, border-color 0.15s ease", cursor: "default" }}
+                                                        whileHover={{ backgroundColor: `rgba(78,205,196,0.06)`, borderColor: `rgba(78,205,196,0.12)` }}>
+                                                        <span style={{ color: C.text, fontSize: "0.8rem", fontWeight: 600, fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{order.orderNumber || "N/A"}</span>
+                                                        <span style={{ color: C.accent, fontSize: "0.8rem", fontWeight: 600 }}>{order.marketplace || "N/A"}</span>
+                                                        <span style={{ color: C.green, fontSize: "0.82rem", fontWeight: 700, textAlign: "right" }}>{fmtCurrency(order.totalPrice || 0, language)}</span>
+                                                        <span style={{ color: C.muted, fontSize: "0.75rem", fontWeight: 500, textAlign: "center" }}>
+                                                            {order.orderDate ? new Date(order.orderDate).toLocaleString(language === "en" ? "en-US" : "tr-TR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "N/A"}
+                                                        </span>
+                                                        <div style={{ textAlign: "center" }}>
+                                                            <Pill color={
+                                                                String(order.status || "").toLowerCase().includes("deliver") || String(order.status || "").toLowerCase().includes("teslim") ? C.green :
+                                                                String(order.status || "").toLowerCase().includes("ship") || String(order.status || "").toLowerCase().includes("kargo") ? C.purple :
+                                                                String(order.status || "").toLowerCase().includes("cancel") || String(order.status || "").toLowerCase().includes("iptal") ? C.red : C.yellow
+                                                            }>
+                                                                {order.status || t("dashboard.unknown")}
+                                                            </Pill>
+                                                        </div>
+                                                    </motion.div>
+                                                )
                                             ))}
                                         </div>
                                     ) : (
@@ -1113,9 +1165,9 @@ const UserDashboard = () => {
                 </AnimatePresence>
 
                 {/* ── TOAST BİLDİRİMLER (Sağ alt köşe) ── */}
-                <div style={{ position: "fixed", bottom: 20, right: 20, zIndex: 9998, display: "flex", flexDirection: "column", gap: "0.5rem", pointerEvents: "none" }}>
+                <div style={{ position: "fixed", bottom: isMobile ? 12 : 20, right: isMobile ? 12 : 20, left: isMobile ? 12 : "auto", zIndex: 9998, display: "flex", flexDirection: "column", gap: "0.5rem", pointerEvents: "none" }}>
                     <AnimatePresence>
-                        {notifications.filter(n => !n.isRead).slice(0, 3).map((n, i) => {
+                        {notifications.filter(n => !n.isRead).slice(0, isMobile ? 2 : 3).map((n, i) => {
                             const toastColor = n.type === "order" ? C.green : n.type === "admin" ? C.purple : n.type === "ai" ? C.blue : C.accent;
                             const toastIcon = n.icon || (n.type === "order" ? "🛒" : n.type === "admin" ? "📢" : n.type === "ai" ? "🧠" : "🔔");
                             return (
@@ -1127,8 +1179,8 @@ const UserDashboard = () => {
                                     style={{
                                         background: isDark ? "linear-gradient(135deg, #1a2332 0%, #0f1419 100%)" : "linear-gradient(135deg, #ffffff 0%, #f0f2f5 100%)",
                                         border: `1px solid ${toastColor}40`,
-                                        borderRadius: 14, padding: "0.85rem 1.1rem",
-                                        minWidth: 300, maxWidth: 380,
+                                        borderRadius: 14, padding: isMobile ? "0.65rem 0.85rem" : "0.85rem 1.1rem",
+                                        minWidth: isMobile ? "auto" : 300, maxWidth: isMobile ? "100%" : 380,
                                         boxShadow: `0 8px 32px rgba(0,0,0,0.5), 0 0 20px ${toastColor}15`,
                                         pointerEvents: "auto",
                                         display: "flex", alignItems: "center", gap: "0.7rem",

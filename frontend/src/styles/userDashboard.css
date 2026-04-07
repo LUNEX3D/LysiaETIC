@@ -1669,6 +1669,9 @@
         padding: 0.75rem;
         /* ✅ Space for hamburger button */
         padding-top: calc(60px + env(safe-area-inset-top));
+        /* ✅ Prevent horizontal scroll */
+        overflow-x: hidden;
+        max-width: 100vw;
     }
 
     .sidebar.closed + .content-area,
@@ -1762,6 +1765,24 @@
         padding: 0.5rem 0.6rem;
         font-size: 0.8rem;
     }
+
+    /* ✅ Prevent all content from overflowing */
+    * {
+        max-width: 100%;
+    }
+
+    /* ✅ Make sure images and media are responsive */
+    img, video, iframe {
+        max-width: 100%;
+        height: auto;
+    }
+
+    /* ✅ Ensure tables scroll horizontally if needed */
+    table {
+        display: block;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -1769,7 +1790,7 @@
    ═══════════════════════════════════════════════════════════ */
 @media (max-width: 480px) {
     .content-area {
-        padding: 0.5rem;
+        padding: 0.4rem;
         padding-top: calc(56px + env(safe-area-inset-top));
     }
 
@@ -1856,5 +1877,57 @@
 
     .sidebar {
         width: 260px !important;
+    }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   GLOBAL RESPONSIVE SAFETY — Prevent horizontal overflow
+   ═══════════════════════════════════════════════════════════ */
+.dashboard-container {
+    overflow-x: hidden;
+    max-width: 100vw;
+}
+
+.content-area {
+    box-sizing: border-box;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   LANDSCAPE MOBILE (short height)
+   ═══════════════════════════════════════════════════════════ */
+@media (max-height: 500px) and (max-width: 900px) {
+    .sidebar {
+        overflow-y: auto;
+    }
+
+    .sidebar-menu {
+        height: calc(100dvh - 64px);
+    }
+
+    .content-area {
+        padding-top: calc(48px + env(safe-area-inset-top));
+    }
+
+    .mobile-hamburger {
+        width: 36px;
+        height: 36px;
+        font-size: 0.9rem;
+    }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   TABLET PORTRAIT (768px - 1024px) — Sidebar + content tweaks
+   ═══════════════════════════════════════════════════════════ */
+@media (min-width: 769px) and (max-width: 1024px) {
+    .content-area {
+        padding: 1rem;
+    }
+
+    .overview-hero {
+        grid-template-columns: 1fr;
+    }
+
+    .layout-grid.two-thirds {
+        grid-template-columns: 1fr;
     }
 }
