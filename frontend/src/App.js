@@ -60,8 +60,6 @@ const MarketplaceIntegration = lazy(() => import("./pages/MarketplaceIntegration
 const ProductManagementPage  = lazy(() => import("./pages/ProductManagementPageV3"));
 const ProductUploadPage      = lazy(() => import("./pages/ProductUploadPage"));
 const PriceSyncPage          = lazy(() => import("./pages/PriceSyncPage"));
-const CategoryErrorCenter    = lazy(() => import("./pages/CategoryErrorCenter"));
-
 // Finans & Ödeme
 const FinancePage            = lazy(() => import("./pages/FinancePage"));
 const BillingPage            = lazy(() => import("./pages/BillingPage"));
@@ -273,7 +271,6 @@ const AppContent = () => {
             <Route path="/product-management" element={<ProtectedRoute><ProductManagementPage /></ProtectedRoute>} />
             <Route path="/product-upload" element={<ProtectedRoute><ProductUploadPage /></ProtectedRoute>} />
             <Route path="/price-sync" element={<ProtectedRoute><PriceSyncPage /></ProtectedRoute>} />
-            <Route path="/category-errors" element={<ProtectedRoute><CategoryErrorCenter /></ProtectedRoute>} />
 
             {/* Roketfy — Marketplace Intelligence */}
             <Route path="/roketfy" element={<ProtectedRoute><RoketfyPanel /></ProtectedRoute>} />

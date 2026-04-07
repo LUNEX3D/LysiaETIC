@@ -53,11 +53,11 @@ const eInvoiceRoutes          = require("./routes/eInvoiceRoutes");
 const paytrRoutes             = require("./routes/paytrRoutes");
 const aiEngineRoutes          = require("./routes/aiEngineRoutes");
 const aiChatRoutes            = require("./routes/aiChatRoutes");
-const categorySmartRoutes     = require("./routes/categorySmartRoutes");
-const categoryErrorRoutes     = require("./routes/categoryErrorRoutes");
+
 const roketfyRoutes           = require("./routes/roketfyRoutes");
 const notificationRoutes      = require("./routes/notificationRoutes");
 const autoInvoiceRoutes       = require("./routes/autoInvoiceRoutes");
+const categoryCenterRoutes    = require("./routes/categoryCenterRoutes");
 // ✅ FIX #3: Webhook route'ları — pazaryeri anlık bildirim endpoint'leri
 const webhookRoutes           = require("./routes/webhookRoutes");
 
@@ -236,11 +236,10 @@ app.use("/api/e-invoice",        eInvoiceRoutes);
 app.use("/api/paytr",            paytrRoutes);
 app.use("/api/ai-engine",       aiEngineRoutes);
 app.use("/api/ai-chat",        aiChatRoutes);
-app.use("/api/category-smart", categorySmartRoutes);
-app.use("/api/category-errors", categoryErrorRoutes);
 app.use("/api/roketfy",        roketfyRoutes);
 app.use("/api/notifications",  notificationRoutes);
 app.use("/api/auto-invoice",   autoInvoiceRoutes);
+app.use("/api/category-center", categoryCenterRoutes);
 // ✅ FIX #3: Webhook endpoint'leri — auth gerektirmez, pazaryerlerinden gelir
 app.use("/api/webhooks",       webhookRoutes);
 

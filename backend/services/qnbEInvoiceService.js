@@ -76,10 +76,13 @@ const WSDL = {
 const ERP_CODE = process.env.QNB_ERP_CODE || "ESC31309";
 
 // Test VKN'leri (QNB tarafından sağlanan)
+// ⚠️ e-Fatura ve e-Arşiv FARKLI ortamlar — farklı credentials!
+// e-Fatura: erpefaturatest1 → VKN / ***REDACTED***@
+// e-Arşiv:  connectortest   → VKN.portaltest / ***REDACTED***
 const TEST_ACCOUNTS = {
-    test1: { vkn: "7610650466", userCode: "7610650466" },
-    test2: { vkn: "7610650467", userCode: "7610650467" },
-    earsiv: { vkn: "7610650466", userCode: "7610650466", password: "***REDACTED***@" }
+    test1: { vkn: "7610650466", userCode: "7610650466", password: process.env.QNB_EFATURA_PASSWORD || "***REDACTED***@" },
+    test2: { vkn: "7610650467", userCode: "7610650467", password: process.env.QNB_EFATURA2_PASSWORD || "***REDACTED***@" },
+    earsiv: { vkn: "7610650466", userCode: "7610650466.portaltest", password: process.env.QNB_EARSIV_PASSWORD || "***REDACTED***" }
 };
 
 // ─── Session Yönetimi ───────────────────────────────────────────────────────
@@ -892,11 +895,10 @@ const createEArchiveInvoice = async ({ sessionId, vkn, invoiceXml, sube, kasa, f
             islemId: islemId
         };
 
-        // ERP kodu yalnızca production ortamında eklenir
-        // Test ortamında ERP kodu kayıtlı değildir (QNB test/prod ayrı ortamlar)
-        if (env === "production") {
-            inputData.erpKodu = ERP_CODE;
-        }
+        // ERP kodu her zaman gönderilir (test + production)
+        // QNB test ortamında da ERP kodu kayıtlı olmalı — yoksa [AE00147] kontör hatası alınır
+        // ERP kodu kayıtlı değilse [AE00001] hatası alınır → QNB'ye tanımlatılmalı
+        inputData.erpKodu = ERP_CODE;
 
         logger.info("[QNB] faturaOlusturExt input: " + JSON.stringify(inputData));
         const [result] = await client.faturaOlusturExtAsync({
@@ -987,7 +989,32 @@ const createEArchiveFromForm = async ({ sessionId, vkn, invoiceData, env = "test
         });
 
         if (result.success) {
-            return { ...result, uuid, invoiceNumber, totals };
+            // ✅ FIX: QNB'nin döndürdüğü gerçek fatura numarasını ve URL'yi çıkar
+            // QNB numaraVerilsinMi=1 olduğunda kendi numarasını atar (EAA... formatı)
+            // resultExtra.entry[] içinde faturaNo, uuid, faturaURL döner
+            let qnbFaturaNo = invoiceNumber;
+            let qnbUuid = uuid;
+            let faturaURL = "";
+
+            const entries = result.data?.resultExtra?.entry;
+            if (Array.isArray(entries)) {
+                entries.forEach(entry => {
+                    const key = entry.key?.$value || entry.key || "";
+                    const val = entry.value?.$value || entry.value || "";
+                    if (key === "faturaNo" && val) qnbFaturaNo = val;
+                    if (key === "uuid" && val) qnbUuid = val;
+                    if (key === "faturaURL" && val) faturaURL = val;
+                });
+            }
+
+            if (qnbFaturaNo !== invoiceNumber) {
+                logger.info("[QNB] QNB fatura numarası atadı: " + qnbFaturaNo + " (gönderilen: " + invoiceNumber + ")");
+            }
+            if (faturaURL) {
+                logger.info("[QNB] Fatura URL: " + faturaURL);
+            }
+
+            return { ...result, uuid: qnbUuid, invoiceNumber: qnbFaturaNo, totals, faturaURL };
         }
         return result;
     } catch (error) {
@@ -1105,8 +1132,12 @@ const previewEArchiveInvoice = async ({ sessionId, vkn, invoiceXml, uuid, fatura
         const client = await getAuthenticatedClient(sessionId, env, "earsiv");
         const resolvedVkn = vkn || TEST_ACCOUNTS.earsiv.vkn;
 
+        // ✅ FIX: sube ve kasa alanları zorunlu — eksik olunca QNB hata veriyor
+        // Hata: "Eksik alanlar: sube, kasa, bu alan(lar)ın boş olmadığından emin olunuz!"
         const inputData = {
             vkn: resolvedVkn,
+            sube: "DFLT",
+            kasa: "DFLT",
             islemId: crypto.randomUUID()
         };
         if (uuid) inputData.faturaUuid = uuid;
@@ -1163,10 +1194,14 @@ const downloadEArchiveZip = async ({ sessionId, uuid, env = "test" }) => {
             return { success: false, error: "UUID gerekli — faturaZipiAl için fatura UUID'si belirtilmeli." };
         }
 
+        // ✅ FIX: QNB FaturaZipiAlInputData alanları:
+        //   uuidList: ArrayList<String> → JSON array olmalı
+        //   tasinanFaturalar: Integer → 0 veya 1
+        //   donenBelgeFormati: Integer → 0=ZIP, 1=PDF (String "ZIP" değil!)
         const inputData = {
-            uuidList: uuid,
+            uuidList: [uuid],
             tasinanFaturalar: 0,
-            donenBelgeFormati: "ZIP"
+            donenBelgeFormati: 0
         };
 
         logger.info("[QNB] faturaZipiAl input: " + JSON.stringify(inputData));

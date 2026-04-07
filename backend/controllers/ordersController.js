@@ -162,8 +162,14 @@ async function syncOrdersBackground(userId, marketplaceName, rawOrders) {
             }
 
             // ── Müşteri bilgilerini çıkar (fatura için) ──────────────────
+            // Öncelik: invoiceAddress > shipmentAddress > shippingAddress > address
             const rawCustomerName = order.customerName || order.buyerName || order.recipientName || "";
-            const rawAddress = order.shippingAddress || order.shipmentAddress || order.address || {};
+            const rawShipAddr = order.shipmentAddress || order.shippingAddress || order.address || {};
+            const rawInvAddr = order.invoiceAddress || {};
+
+            // Fatura adresi varsa onu tercih et (VKN/vergi dairesi bilgisi içerir)
+            // Yoksa kargo adresini kullan
+            const addrSource = (rawInvAddr.city || rawInvAddr.fullAddress) ? rawInvAddr : rawShipAddr;
 
             const newOrder = new Order({
                 user: userId,
@@ -175,12 +181,12 @@ async function syncOrdersBackground(userId, marketplaceName, rawOrders) {
                 trackingNumber: String(orderNumber),
                 customerName: rawCustomerName,
                 customerAddress: {
-                    city: rawAddress.city || rawAddress.province || "",
-                    district: rawAddress.district || rawAddress.county || rawAddress.town || "",
-                    street: rawAddress.fullAddress || rawAddress.address || rawAddress.addressLine1 || rawAddress.street || "",
-                    country: rawAddress.country || rawAddress.countryCode || "Turkiye",
-                    phone: rawAddress.phone || rawAddress.phoneNumber || order.customerPhone || "",
-                    email: rawAddress.email || order.customerEmail || "",
+                    city: addrSource.city || rawShipAddr.city || addrSource.province || "",
+                    district: addrSource.district || rawShipAddr.district || addrSource.county || addrSource.town || "",
+                    street: addrSource.fullAddress || rawShipAddr.fullAddress || addrSource.address || addrSource.addressLine1 || addrSource.street || "",
+                    country: addrSource.country || rawShipAddr.country || addrSource.countryCode || "Turkiye",
+                    phone: rawShipAddr.phone || addrSource.phone || rawShipAddr.phoneNumber || order.customerPhone || "",
+                    email: rawShipAddr.email || order.customerEmail || "",
                 },
                 items: items,
                 costSummary: {
@@ -322,10 +328,20 @@ exports.getAllOrders = async (req, res) => {
                     orderNumber: order.AmazonOrderId,
                     orderDate: new Date(order.PurchaseDate).toLocaleString("tr-TR"),
                     customerName: order.BuyerInfo?.BuyerName || "Amazon Müşteri",
+                    customerEmail: order.BuyerInfo?.BuyerEmail || "",
                     totalPrice: order.OrderTotal?.Amount || "0.00",
                     status: order.OrderStatus,
                     trackingNumber: order.FulfillmentInstruction?.FulfillmentSupplySourceId || "Yok",
                     cargoCompany: order.ShipServiceLevel || "Amazon",
+                    // ── Müşteri adres bilgileri (fatura için) ──
+                    shippingAddress: order.ShippingAddress ? {
+                        fullName: order.ShippingAddress.Name || order.BuyerInfo?.BuyerName || "",
+                        city: order.ShippingAddress.City || order.ShippingAddress.StateOrRegion || "",
+                        district: order.ShippingAddress.District || order.ShippingAddress.County || "",
+                        fullAddress: [order.ShippingAddress.AddressLine1, order.ShippingAddress.AddressLine2, order.ShippingAddress.AddressLine3].filter(Boolean).join(" "),
+                        phone: order.ShippingAddress.Phone || "",
+                        country: order.ShippingAddress.CountryCode || "Turkiye",
+                    } : {},
                     products: []
                 }));
                 break;

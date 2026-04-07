@@ -63,7 +63,7 @@ exports.saveConfig = async (req, res) => {
             enabled, provider, enabledMarketplaces, triggerStatuses,
             documentType, invoiceTypeCode, invoiceSeriesCode, currency, sendingType,
             supplier, defaultCustomer, qnbCredentials,
-            defaultVatRate, defaultNote
+            defaultVatRate, pricesIncludeVat, defaultNote
         } = req.body;
 
         // Validasyon
@@ -94,6 +94,7 @@ exports.saveConfig = async (req, res) => {
         if (defaultCustomer) config.defaultCustomer = { ...config.defaultCustomer.toObject?.() || config.defaultCustomer, ...defaultCustomer };
         if (qnbCredentials) config.qnbCredentials = { ...config.qnbCredentials.toObject?.() || config.qnbCredentials, ...qnbCredentials };
         if (defaultVatRate !== undefined) config.defaultVatRate = defaultVatRate;
+        if (pricesIncludeVat !== undefined) config.pricesIncludeVat = pricesIncludeVat;
         if (defaultNote !== undefined) config.defaultNote = defaultNote;
 
         // Aktif edilirken ardışık hata sayacını sıfırla
@@ -527,14 +528,18 @@ exports.getInvoicePdf = async (req, res) => {
         }
 
         // ── Credential'ları belirle ─────────────────────────────────────
+        // ⚠️ e-Arşiv ve e-Fatura FARKLI ortamlar — FARKLI credentials!
+        // ⚠️ ÖNEMLİ: Eski configCreds.username alanı e-Fatura credential'ıdır!
+        //   Bu alan e-Arşiv için KULLANILMAMALI — ayrı ortam, ayrı şifre.
         const env = invoice.env || "test";
 
         // Önce kullanıcının kendi config'inden al
         const config = await AutoInvoiceConfig.findOne({ userId }).lean();
         const configCreds = config?.qnbCredentials || {};
 
-        const earsivUsername = configCreds.username || process.env.QNB_EARSIV_USERNAME || "";
-        const earsivPassword = configCreds.password || process.env.QNB_EARSIV_PASSWORD || "";
+        // e-Arşiv credentials — SADECE earsiv-specific alanlardan al, eski username'i KULLANMA!
+        const earsivUsername = configCreds.earsivUsername || process.env.QNB_EARSIV_USERNAME || "";
+        const earsivPassword = configCreds.earsivPassword || process.env.QNB_EARSIV_PASSWORD || "";
 
         if (!earsivUsername || !earsivPassword) {
             return res.status(400).json({
@@ -559,7 +564,32 @@ exports.getInvoicePdf = async (req, res) => {
         const vkn = invoice.supplier?.vkn || config?.supplier?.vkn || earsivUsername.split(".")[0] || "";
 
         try {
-            // ── Strateji 1: faturaZipiAl ile ZIP indir ──────────────────
+            // ── Strateji 1: faturaURL ile doğrudan HTML çek (en güvenilir) ──
+            // QNB fatura oluşturduğunda faturaURL döndürür — doğrudan erişilebilir HTML
+            const faturaURL = invoice.faturaURL || "";
+            if (faturaURL) {
+                try {
+                    logger.info("[AutoInvoice] faturaURL ile HTML çekiliyor — " + faturaURL);
+                    const axios = require("axios");
+                    const htmlResp = await axios.get(faturaURL, { timeout: 15000, maxRedirects: 5 });
+
+                    if (htmlResp.status === 200 && typeof htmlResp.data === "string" &&
+                        (htmlResp.data.includes("<html") || htmlResp.data.includes("<HTML") || htmlResp.data.includes("<!DOCTYPE"))) {
+
+                        // Logout
+                        try { await qnbService.logout({ sessionId, env, service: "earsiv" }); } catch (e) { /* ignore */ }
+
+                        res.setHeader("Content-Type", "text/html; charset=utf-8");
+                        res.setHeader("Content-Disposition", "inline; filename=\"" + (invoice.invoiceNumber || "fatura") + ".html\"");
+                        return res.send(htmlResp.data);
+                    }
+                } catch (urlErr) {
+                    logger.warn("[AutoInvoice] faturaURL erişim hatası: " + (urlErr.response?.status || urlErr.message));
+                }
+            }
+
+            // ── Strateji 2: faturaZipiAl ile ZIP indir ──────────────────
+            logger.info("[AutoInvoice] faturaZipiAl deneniyor — uuid=" + invoice.uuid);
             const result = await qnbService.downloadEArchiveZip({
                 sessionId,
                 uuid: invoice.uuid,
@@ -595,49 +625,40 @@ exports.getInvoicePdf = async (req, res) => {
                 }
             }
 
-            // ── Strateji 2: faturaOnizleme ile HTML önizleme ────────────
-            logger.warn("[AutoInvoice] ZIP indirilemedi, önizleme deneniyor — invoiceId=" + invoiceId);
+            // ── Strateji 3: faturaURL'yi UUID'den oluştur (fallback) ────
+            if (!faturaURL && invoice.uuid && vkn) {
+                const envPrefix = env === "production" ? "earsiv" : "earsivtest";
+                const generatedURL = "https://" + envPrefix + ".qnbesolutions.com.tr/earsiv/goruntule.jsp?vkn=" + vkn + "&uuid=" + invoice.uuid;
+                try {
+                    logger.info("[AutoInvoice] Oluşturulan faturaURL deneniyor — " + generatedURL);
+                    const axios = require("axios");
+                    const htmlResp = await axios.get(generatedURL, { timeout: 15000, maxRedirects: 5 });
 
-            const previewResult = await qnbService.previewEArchiveInvoice({
-                sessionId,
-                vkn,
-                uuid: invoice.uuid,
-                faturaNo: invoice.invoiceNumber,
-                env
-            });
+                    if (htmlResp.status === 200 && typeof htmlResp.data === "string" &&
+                        (htmlResp.data.includes("<html") || htmlResp.data.includes("<HTML") || htmlResp.data.includes("<!DOCTYPE"))) {
+
+                        // Logout
+                        try { await qnbService.logout({ sessionId, env, service: "earsiv" }); } catch (e) { /* ignore */ }
+
+                        // faturaURL'yi kaydet (gelecek sefere hızlı erişim)
+                        await Invoice.updateOne({ _id: invoiceId }, { faturaURL: generatedURL }).catch(() => {});
+
+                        res.setHeader("Content-Type", "text/html; charset=utf-8");
+                        res.setHeader("Content-Disposition", "inline; filename=\"" + (invoice.invoiceNumber || "fatura") + ".html\"");
+                        return res.send(htmlResp.data);
+                    }
+                } catch (urlErr) {
+                    logger.warn("[AutoInvoice] Oluşturulan faturaURL erişim hatası: " + (urlErr.response?.status || urlErr.message));
+                }
+            }
 
             // Logout
             try { await qnbService.logout({ sessionId, env, service: "earsiv" }); } catch (e) { /* ignore */ }
 
-            if (previewResult.success && previewResult.data) {
-                const htmlData = previewResult.data;
-
-                // HTML string ise doğrudan döndür
-                if (typeof htmlData === "string") {
-                    // Base64 encoded HTML olabilir
-                    try {
-                        const decoded = Buffer.from(htmlData, "base64").toString("utf-8");
-                        if (decoded.includes("<html") || decoded.includes("<HTML") || decoded.includes("<!DOCTYPE")) {
-                            res.setHeader("Content-Type", "text/html; charset=utf-8");
-                            res.setHeader("Content-Disposition", "inline; filename=\"" + (invoice.invoiceNumber || "fatura") + ".html\"");
-                            return res.send(decoded);
-                        }
-                    } catch (e) { /* not base64 */ }
-
-                    // Düz HTML
-                    if (htmlData.includes("<html") || htmlData.includes("<HTML") || htmlData.includes("<!DOCTYPE")) {
-                        res.setHeader("Content-Type", "text/html; charset=utf-8");
-                        res.setHeader("Content-Disposition", "inline; filename=\"" + (invoice.invoiceNumber || "fatura") + ".html\"");
-                        return res.send(htmlData);
-                    }
-                }
-            }
-
-            // Her iki strateji de başarısız
+            // Tüm stratejiler başarısız
             return res.status(404).json({
                 success: false,
-                message: "PDF/ZIP alınamadı. Fatura QNB portalında mevcut olmayabilir. " +
-                    (result.error || "Lütfen QNB test portalını kontrol edin.")
+                message: "Fatura görüntülenemedi. " + (result.error || "Lütfen QNB portalını kontrol edin.")
             });
 
         } catch (downloadErr) {

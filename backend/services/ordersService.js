@@ -44,11 +44,32 @@ const fetchTrendyolOrders = async (sellerId, apiKey, apiSecret, startDate, endDa
 
                     return {
                         orderNumber: pkg.orderNumber,
-                        customerName: pkg.shipmentAddress?.fullName || "Unknown",
+                        customerName: pkg.shipmentAddress?.fullName || pkg.customerFirstName && pkg.customerLastName ? (pkg.customerFirstName + " " + pkg.customerLastName).trim() : "Unknown",
+                        customerFirstName: pkg.customerFirstName || "",
+                        customerLastName: pkg.customerLastName || "",
+                        customerEmail: pkg.customerEmail || "",
                         totalPrice: finalTotal > 0 ? finalTotal.toFixed(2) : "0.00",
                         status: pkg.status,
                         orderDate: new Date(pkg.orderDate).toLocaleString("tr-TR", { timeZone: "Europe/Istanbul" }),
                         orderDateRaw: pkg.orderDate, // epoch ms — sync için
+                        // ── Müşteri adres bilgileri (fatura için) ──
+                        shipmentAddress: pkg.shipmentAddress ? {
+                            fullName: pkg.shipmentAddress.fullName || "",
+                            city: pkg.shipmentAddress.city || "",
+                            district: pkg.shipmentAddress.district || "",
+                            fullAddress: pkg.shipmentAddress.fullAddress || pkg.shipmentAddress.address1 || "",
+                            phone: pkg.shipmentAddress.phone || "",
+                            country: pkg.shipmentAddress.countryCode || "Turkiye",
+                        } : {},
+                        invoiceAddress: pkg.invoiceAddress ? {
+                            fullName: pkg.invoiceAddress.fullName || "",
+                            city: pkg.invoiceAddress.city || "",
+                            district: pkg.invoiceAddress.district || "",
+                            fullAddress: pkg.invoiceAddress.fullAddress || pkg.invoiceAddress.address1 || "",
+                            taxNumber: pkg.invoiceAddress.taxNumber || "",
+                            taxOffice: pkg.invoiceAddress.taxOffice || "",
+                            company: pkg.invoiceAddress.company || "",
+                        } : {},
                         products: pkg.lines.map(line => ({
                             productName: line.productName,
                             quantity: line.quantity,
@@ -162,11 +183,31 @@ const fetchHepsiburadaOrders = async (merchantId, serviceKey, startDate, endDate
                         orderDate: order.orderDate || order.createdDate || order.orderCreatedDate
                             ? new Date(order.orderDate || order.createdDate || order.orderCreatedDate).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' })
                             : 'Bilinmiyor',
-                        customerName: order.customerName || order.customerId || order.buyerName || 'Hepsiburada Müşteri',
+                        customerName: order.customerName || order.buyerName || order.shippingAddress?.fullName || 'Hepsiburada Müşteri',
+                        customerEmail: order.customerEmail || order.buyerEmail || '',
+                        customerPhone: order.customerPhone || order.shippingAddress?.phone || '',
                         totalPrice: finalTotal > 0 ? finalTotal.toFixed(2) : '0.00',
                         status: order.status || 'UNKNOWN',
                         trackingNumber: order.trackingNumber || order.cargoTrackingNumber || 'Yok',
                         cargoCompany: order.cargoCompany || order.cargoProviderName || 'Bilinmiyor',
+                        // ── Müşteri adres bilgileri (fatura için) ──
+                        shippingAddress: order.shippingAddress ? {
+                            fullName: order.shippingAddress.fullName || order.customerName || '',
+                            city: order.shippingAddress.city || order.shippingAddress.province || '',
+                            district: order.shippingAddress.district || order.shippingAddress.county || '',
+                            fullAddress: order.shippingAddress.fullAddress || order.shippingAddress.address || order.shippingAddress.addressLine1 || '',
+                            phone: order.shippingAddress.phone || order.shippingAddress.phoneNumber || '',
+                            country: order.shippingAddress.country || 'Turkiye',
+                        } : {},
+                        invoiceAddress: order.invoiceAddress ? {
+                            fullName: order.invoiceAddress.fullName || '',
+                            city: order.invoiceAddress.city || '',
+                            district: order.invoiceAddress.district || '',
+                            fullAddress: order.invoiceAddress.fullAddress || order.invoiceAddress.address || '',
+                            taxNumber: order.invoiceAddress.taxNumber || order.invoiceAddress.vkn || '',
+                            taxOffice: order.invoiceAddress.taxOffice || '',
+                            company: order.invoiceAddress.company || order.invoiceAddress.companyName || '',
+                        } : {},
                         products: Array.isArray(order.items) && order.items.length > 0
                             ? order.items.map(item => ({
                                 productId: item.sku || item.merchantSku || item.barcode || item.id,
@@ -284,11 +325,30 @@ const fetchN11Orders = async (apiKey, secretKey, startDate, endDate) => {
                         ? moment(pkg.packageHistories[0].createdDate).format("DD-MM-YYYY HH:mm")
                         : "Bilinmiyor",
                     orderDateRaw: pkg.packageHistories?.[0]?.createdDate || null,
-                    customerName: pkg.customerfullName,
+                    customerName: pkg.customerfullName || "",
+                    customerEmail: pkg.customerEmail || "",
                     totalPrice: totalAmount.toFixed(2),
                     status: pkg.shipmentPackageStatus,
                     trackingNumber: pkg.cargoTrackingNumber || "Yok",
                     cargoCompany: pkg.cargoProviderName || "Bilinmiyor",
+                    // ── Müşteri adres bilgileri (fatura için) ──
+                    shippingAddress: pkg.shippingAddress ? {
+                        fullName: pkg.shippingAddress.fullName || pkg.customerfullName || "",
+                        city: pkg.shippingAddress.city || "",
+                        district: pkg.shippingAddress.district || "",
+                        fullAddress: pkg.shippingAddress.address || pkg.shippingAddress.fullAddress || "",
+                        phone: pkg.shippingAddress.phone || "",
+                        country: pkg.shippingAddress.country || "Turkiye",
+                    } : {},
+                    invoiceAddress: pkg.invoiceAddress ? {
+                        fullName: pkg.invoiceAddress.fullName || "",
+                        city: pkg.invoiceAddress.city || "",
+                        district: pkg.invoiceAddress.district || "",
+                        fullAddress: pkg.invoiceAddress.address || pkg.invoiceAddress.fullAddress || "",
+                        taxNumber: pkg.invoiceAddress.taxNumber || pkg.invoiceAddress.vkn || "",
+                        taxOffice: pkg.invoiceAddress.taxOffice || "",
+                        company: pkg.invoiceAddress.company || "",
+                    } : {},
                     products: pkg.lines.map(line => ({
                         productName: line.productName,
                         quantity: line.quantity,
@@ -381,10 +441,29 @@ const fetchCicekSepetiOrders = async (apiKey, sellerId, integratorName) => {
                         ? moment(`${order.orderCreateDate} ${order.orderCreateTime}`, "DD/MM/YYYY HH:mm").format("DD-MM-YYYY HH:mm")
                         : order.orderCreateDate,
                     customerName: order.receiverName || order.senderName || "Bilinmiyor",
+                    customerPhone: order.receiverPhone || "",
                     totalPrice: (order.totalPrice || 0).toFixed(2),
                     status: order.orderProductStatus || "Bilinmiyor",
                     trackingNumber: order.cargoNumber || "",
                     cargoCompany: order.cargoCompany || "",
+                    // ── Müşteri adres bilgileri (fatura için) ──
+                    shippingAddress: {
+                        fullName: order.receiverName || "",
+                        city: order.receiverCity || order.accountCityName || "",
+                        district: order.receiverDistrict || order.accountDistrictName || "",
+                        fullAddress: order.receiverAddress || "",
+                        phone: order.receiverPhone || "",
+                        country: "Turkiye",
+                    },
+                    invoiceAddress: {
+                        fullName: order.accountCode || order.receiverName || "",
+                        city: order.accountCityName || order.receiverCity || "",
+                        district: order.accountDistrictName || order.receiverDistrict || "",
+                        fullAddress: order.receiverAddress || "",
+                        taxNumber: "",
+                        taxOffice: "",
+                        company: "",
+                    },
                     products: [{
                         productName: order.name || "Ürün",
                         quantity: order.quantity || 1,

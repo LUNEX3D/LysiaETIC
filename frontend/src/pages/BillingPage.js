@@ -2016,6 +2016,7 @@ const BillingPage = () => {
             currency: cfg.currency || "TRY",
             sendingType: cfg.sendingType || "ELEKTRONIK",
             defaultVatRate: cfg.defaultVatRate || 20,
+            pricesIncludeVat: cfg.pricesIncludeVat !== false, // varsayılan: true (KDV dahil)
             defaultNote: cfg.defaultNote || "",
             supplier: {
                 vkn: cfg.supplier?.vkn || "",
@@ -2592,6 +2593,26 @@ const BillingPage = () => {
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.75rem" }}>
                         <div><label style={labelStyle}>Fatura Seri Kodu</label><input style={inputStyle} value={formData.invoiceSeriesCode} onChange={e => updateField("invoiceSeriesCode", e.target.value)} placeholder="LYS" maxLength={3} /></div>
                         <div><label style={labelStyle}>Varsayılan KDV (%)</label><input style={inputStyle} type="number" value={formData.defaultVatRate} onChange={e => updateField("defaultVatRate", Number(e.target.value))} min={0} max={100} /></div>
+                        <div style={{ display: "flex", flexDirection: "column", justifyContent: "center" }}>
+                            <label style={labelStyle}>Platformda Fiyatlar KDV Dahil mi?</label>
+                            <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+                                onClick={() => updateField("pricesIncludeVat", !formData.pricesIncludeVat)}
+                                style={{
+                                    background: formData.pricesIncludeVat ? C.green + "20" : C.red + "20",
+                                    border: "1px solid " + (formData.pricesIncludeVat ? C.green + "50" : C.red + "50"),
+                                    borderRadius: 8, padding: "0.55rem 0.85rem", cursor: "pointer",
+                                    color: formData.pricesIncludeVat ? C.green : C.red,
+                                    fontSize: "0.78rem", fontWeight: 600, textAlign: "left",
+                                }}>
+                                {formData.pricesIncludeVat ? "✓ Evet — KDV Dahil (Fiyattan KDV ayrıştırılır)" : "✗ Hayır — KDV Hariç (Fiyata KDV eklenir)"}
+                            </motion.button>
+                            <span style={{ color: C.dim, fontSize: "0.68rem", marginTop: "0.3rem" }}>
+                                {formData.pricesIncludeVat
+                                    ? `Örn: 229,99 TL → KDV hariç: ${(229.99 / (1 + (formData.defaultVatRate || 20) / 100)).toFixed(2)} + KDV: ${(229.99 - 229.99 / (1 + (formData.defaultVatRate || 20) / 100)).toFixed(2)} = 229,99 TL`
+                                    : `Örn: 229,99 TL → KDV hariç: 229,99 + KDV: ${(229.99 * (formData.defaultVatRate || 20) / 100).toFixed(2)} = ${(229.99 * (1 + (formData.defaultVatRate || 20) / 100)).toFixed(2)} TL`
+                                }
+                            </span>
+                        </div>
                         <div>
                             <label style={labelStyle}>Belge Tipi</label>
                             <select style={{ ...inputStyle, cursor: "pointer" }} value={formData.documentType} onChange={e => updateField("documentType", e.target.value)}>

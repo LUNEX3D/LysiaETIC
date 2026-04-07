@@ -27,8 +27,8 @@ import {
     syncStock, syncPrice, triggerAutoSync, getSyncLogs,
     getProductManagementDashboard, syncAllMarketplaces,
     bulkDistributeSelected, exportProducts,
-    getCategoryMappings, upsertCategoryMapping, createAndDistribute,
-    suggestCodes, generateDescription, getCategoryTree,
+    createAndDistribute,
+    suggestCodes, generateDescription,
     bulkUpdatePrices, bulkUpdateStocks, bulkDeleteProducts, bulkUpdateFields,
     distributeUndistributed,
 } from "../services/productManagementApi";
@@ -119,11 +119,11 @@ const ProductManagementCenter = ({ userId }) => {
     const [catSearchResults, setCatSearchResults] = useState([]);
     const [catSearchLoading, setCatSearchLoading] = useState(false);
     const [catSelectedNode, setCatSelectedNode] = useState(null); // { id, name, path, platform }
-    const [masterCategories, setMasterCategories] = useState([]); // CategoryMapping docs
+    const [masterCategories, setMasterCategories] = useState([]);
     const [masterCatLoading, setMasterCatLoading] = useState(false);
     const [masterCatForm, setMasterCatForm] = useState({ name: "", parent: "" });
     const [masterCatExpanded, setMasterCatExpanded] = useState(new Set());
-    const [mappingTarget, setMappingTarget] = useState(null); // master cat being mapped
+    const [mappingTarget, setMappingTarget] = useState(null);
     const [catProducts, setCatProducts] = useState([]); // products grouped by category
     const [catProdExpanded, setCatProdExpanded] = useState(new Set());
     const [catProdLoading, setCatProdLoading] = useState(false);
@@ -291,7 +291,7 @@ const ProductManagementCenter = ({ userId }) => {
 
     const loadCatLevel = async (parentId = "0", li = 0) => {
         setCatLoading(true);
-        try { const r = await getCategoryTree(catPlatform, parentId); setCatLevels(p => { const n = p.slice(0, li); n.push({ parentId, categories: r.categories || [], selected: null }); return n; }); } catch { showToast("Kategori yüklenemedi", "error"); }
+        try { setCatLevels([]); } catch { showToast("Kategori yüklenemedi", "error"); }
         finally { setCatLoading(false); }
     };
 
@@ -305,7 +305,7 @@ const ProductManagementCenter = ({ userId }) => {
     const handleCatSearch = (q) => {
         setCatSearch(q); if (catSearchRef.current) clearTimeout(catSearchRef.current);
         if (!q.trim()) { setCatResults([]); return; }
-        catSearchRef.current = setTimeout(async () => { try { const r = await getCategoryTree(catPlatform, "0", q.trim()); setCatResults(r.categories || []); } catch {} }, 500);
+        catSearchRef.current = setTimeout(async () => { try { setCatResults([]); } catch {} }, 500);
     };
 
     const handleCreate = async () => {
@@ -947,7 +947,7 @@ const ProductManagementCenter = ({ userId }) => {
         if (catTreeData[key]?.loaded) return;
         setCatTreeLoading(key);
         try {
-            const r = await getCategoryTree(platform, parentId);
+            const r = { categories: [] };
             setCatTreeData(prev => ({
                 ...prev,
                 [key]: { children: r.categories || [], loaded: true }
@@ -973,59 +973,27 @@ const ProductManagementCenter = ({ userId }) => {
         catSearchTimer.current = setTimeout(async () => {
             setCatSearchLoading(true);
             try {
-                const r = await getCategoryTree(catPlatformSel, "0", q.trim());
+                const r = { categories: [] };
                 setCatSearchResults(r.categories || []);
             } catch { setCatSearchResults([]); }
             finally { setCatSearchLoading(false); }
         }, 500);
     };
 
-    // ── Master Kategori CRUD ──
+    // ── Master Kategori (kaldırıldı — stub) ──
     const loadMasterCategories = async () => {
         setMasterCatLoading(true);
-        try {
-            const r = await getCategoryMappings();
-            setMasterCategories(r.categories || []);
-        } catch {}
-        finally { setMasterCatLoading(false); }
+        setMasterCategories([]);
+        setMasterCatLoading(false);
     };
 
     const handleCreateMasterCat = async () => {
-        if (!masterCatForm.name.trim()) return showToast("Kategori adı girin", "error");
-        try {
-            const path = masterCatForm.parent
-                ? [...(masterCategories.find(c => c._id === masterCatForm.parent)?.masterCategory?.path || []), masterCatForm.name.trim()]
-                : [masterCatForm.name.trim()];
-            await upsertCategoryMapping({
-                masterCategory: {
-                    name: masterCatForm.name.trim(),
-                    parentCategory: masterCatForm.parent || null,
-                    level: masterCatForm.parent ? 1 : 0,
-                    path
-                }
-            });
-            showToast("Kategori oluşturuldu");
-            setMasterCatForm({ name: "", parent: "" });
-            loadMasterCategories();
-        } catch (e) { showToast(e.response?.data?.error || "Hata", "error"); }
+        showToast("Kategori eşleştirme özelliği kaldırıldı", "info");
     };
 
-    // ── PY Kategorisini Master'a Eşleştir ──
     const handleMapCategory = async (masterCatId, platformName, catId, catName, catPath) => {
         try {
-            const masterCat = masterCategories.find(c => c._id === masterCatId);
-            if (!masterCat) return showToast("Master kategori bulunamadı", "error");
-            await upsertCategoryMapping({
-                masterCategory: masterCat.masterCategory,
-                marketplaceCategories: [{
-                    marketplaceName: platformName,
-                    categoryId: String(catId),
-                    categoryName: catName,
-                    categoryPath: catPath ? catPath.split(" > ") : [catName]
-                }]
-            });
-            showToast(`${catName} → ${masterCat.masterCategory.name} eşleştirildi`);
-            loadMasterCategories();
+            showToast("Kategori eşleştirme özelliği kaldırıldı", "info");
             setMappingTarget(null);
             setCatSelectedNode(null);
         } catch (e) { showToast(e.response?.data?.error || "Eşleştirme hatası", "error"); }

@@ -14,8 +14,8 @@ import AICommandCenter from "../pages/AICommandCenter";
 import AIOperatorPanel from "../pages/AIOperatorPanel";
 import AIChatWidget from "../components/AIChatWidget";
 import ProductManagementCenter from "../pages/ProductManagementCenter";
-import CategoryMappingPage from "../pages/CategoryMappingPage";
-import CategoryErrorCenter from "../pages/CategoryErrorCenter";
+import CategoryCenterPage from "../pages/CategoryCenterPage";
+
 import SettingsPage from "../pages/SettingsPage";
 import AdminPanelPage from "../pages/AdminPanelPage";
 import BillingPage from "../pages/BillingPage";
@@ -887,7 +887,7 @@ const UserDashboard = () => {
                                     { label: t("dashboard.outOfStock"), value: fmtNum(pmProducts.outOfStock || summary.passiveProducts || 0, language), color: C.red, icon: "🚫" },
                                     { label: t("dashboard.lowStock"), value: fmtNum(pmProducts.lowStock || 0, language), color: C.yellow, icon: "⚠️" },
                                     { label: t("dashboard.stockMismatchCount"), value: fmtNum(summary.stockMismatchCount || 0, language), color: (summary.stockMismatchCount || 0) > 0 ? C.red : C.green, icon: "📉" },
-                                    { label: t("dashboard.categoryMapping"), value: fmtNum(pmDashboard?.totalCategories || 0, language), color: C.purple, icon: "🗂️" },
+
                                 ].map((s, i) => (
                                     <motion.div key={s.label} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.2 + i * 0.03 }}
                                         style={{ background: C.glass, border: `1px solid ${C.glassBr}`, borderRadius: 8, padding: isMobile ? "0.45rem 0.6rem" : "0.55rem 0.75rem", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem" }}>
@@ -1232,8 +1232,8 @@ const UserDashboard = () => {
         { id: "finance", icon: <FaMoneyBillWave />, text: t("sidebar.finance"), hasSubmenu: true },
         { type: "divider", label: t("sidebar.productMgmt") },
         { id: "pm-center", icon: <FaCubes />, text: t("sidebar.productCenter") },
-        { id: "pm-categories", icon: <FaSitemap />, text: t("sidebar.categoryMapping") },
-        { id: "pm-category-errors", icon: <FaExclamationTriangle />, text: language === "en" ? "Category Errors" : "Kategori Hataları" },
+        { id: "category-center", icon: <FaSitemap />, text: t("sidebar.categoryCenter") },
+
         { type: "divider", label: t("sidebar.analytics") },
         { id: "advanced-analytics", icon: <FaChartBar />, text: t("sidebar.advancedAnalytics") },
         { id: "ai-operator", icon: <FaBrain />, text: language === "en" ? "AI Operator" : "AI Operatör" },
@@ -1312,8 +1312,8 @@ const UserDashboard = () => {
             case "ai-operator": return <AIOperatorPanel userId={userId} />;
             case "advanced-ai": return <AICommandCenter userId={userId} />;
             case "pm-center": return <ProductManagementCenter userId={userId} />;
-            case "pm-categories": return <CategoryMappingPage userId={userId} />;
-            case "pm-category-errors": return <CategoryErrorCenter />;
+            case "category-center": return <CategoryCenterPage userId={userId} />;
+
             case "settings": return <SettingsPage userId={userId} />;
             case "billing": return <BillingPage userId={userId} />;
             case "subscription": return <SubscriptionPage />;

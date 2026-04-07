@@ -173,7 +173,7 @@ const autoFix = (master) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // KATMAN 3 — toN11()
 // Master Product'u → N11 API payload'ına çevirir
-// n11MappingService ile kategori + attribute mapping yapar
+// Ürünün marketplaceMappings'inden categoryId alır
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -181,42 +181,26 @@ const autoFix = (master) => {
  * @param {string} userId
  * @param {Object} credentials  - { apiKey, secretKey, shipmentTemplate? }
  * @returns {Promise<Object>}   - N11 sku payload objesi
- * @throws {Error}              - Kategori mapping yoksa hata fırlatır (ürün gönderilmez)
+ * @throws {Error}              - categoryId yoksa hata fırlatır (ürün gönderilmez)
  */
 const toN11 = async (master, userId, credentials) => {
-    // Lazy-require — circular dependency önlemi
-    const n11MappingService      = require("./n11MappingService");
-    const categoryMappingService = require("./categoryMappingService");
+    // ── Kategori ID — ürünün marketplaceMappings'inden al ──
+    let categoryId = null;
+    if (master.marketplaceMappings && Array.isArray(master.marketplaceMappings)) {
+        const n11Map = master.marketplaceMappings.find(
+            m => (m.marketplaceName || "").toLowerCase() === "n11"
+        );
+        if (n11Map) categoryId = n11Map.categoryId;
+    }
+    // Fallback: master.categoryId doğrudan varsa
+    if (!categoryId && master.categoryId) categoryId = master.categoryId;
 
-    // ── Kategori mapping — UnifiedCategoryMap + InternalCategoryMapping + CategoryMapping ──
-    const catResult = await categoryMappingService.mapCategoryWithFallback(
-        userId,
-        master,
-        n11MappingService.mapCategoryToN11
-    );
-
-    // ❌ Kategori mapping yoksa ürünü GÖNDERME
-    if (!catResult || !catResult.categoryId) {
+    if (!categoryId) {
         throw new Error(
-            `CATEGORY_MAPPING_MISSING: "${master.category || "?"}" kategorisi için N11 mapping bulunamadı. ` +
-            `Çözüm: Kategori Eşleştirme Merkezi'nden bu kategoriyi eşleştirin.`
+            `N11 categoryId bulunamadı: "${master.category || "?"}" — ` +
+            `Ürünün N11 marketplace mapping'inde categoryId tanımlı olmalıdır.`
         );
     }
-
-    // ── Attribute transform ───────────────────────────────────────────────────
-    // catResult.categoryId'yi doğrudan transformProductForN11'e geçir
-    // Böylece mapCategoryToN11 tekrar çağrılmaz, UnifiedMap/Resolver sonucu korunur
-    const mapping = await n11MappingService.transformProductForN11(
-        userId,
-        credentials,
-        master,
-        {
-            resolvedCategoryId:   catResult.categoryId,
-            resolvedCategoryName: catResult.categoryName
-        }
-    );
-
-    const resolvedCategoryId = catResult.categoryId || mapping.categoryId;
 
     const shipmentTemplate = (
         credentials.shipmentTemplate ||
@@ -226,30 +210,30 @@ const toN11 = async (master, userId, credentials) => {
 
     const stockCode     = (master.sku || master.barcode || "").toString().trim();
     const productMainId = stockCode;
+    const brand         = master.brand || "Diğer";
 
     logger.info(
         `[ADAPTER] toN11 tamamlandı — "${master.title}" | ` +
-        `kategori: ${resolvedCategoryId} (${catResult.source}) | ` +
-        `attribute: ${mapping.attributes.length} | marka: "${mapping.brand}"`
+        `kategori: ${categoryId} | marka: "${brand}"`
     );
 
     return {
         // Zorunlu alanlar
         title:            master.title,
         description:      master.description || master.title,
-        categoryId:       resolvedCategoryId,
+        categoryId,
         currencyType:     "TL",
         productMainId,
         stockCode,
         shipmentTemplate,
         preparingDay:     parseInt(master.preparingDay) || 3,
         quantity:         parseInt(master.stock) || 0,
-        salePrice:        master.price,      // autoFix zaten min 500 garantiledi
+        salePrice:        master.price,
         listPrice:        master.listPrice,
         vatRate:          parseInt(master.vatRate) || 10,
         images:           master.images.map((url, i) => ({ url, order: i })),
-        brand:            mapping.brand,
-        attributes:       mapping.attributes, // [{ id, valueId, customValue }]
+        brand,
+        attributes:       [], // Attribute mapping kaldırıldı
 
         // Opsiyonel
         ...(master.barcode ? { barcode: master.barcode.toString().trim() } : {})

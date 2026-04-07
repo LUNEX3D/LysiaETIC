@@ -216,7 +216,6 @@ const options = {
             { name: "Analytics", description: "Satış analizi, trendler, performans" },
             { name: "Cargo", description: "Kargo takip" },
             { name: "Categories", description: "Kategori listeleme" },
-            { name: "Category Smart", description: "Akıllı kategori eşleştirme ve mapping" },
             { name: "AI", description: "AI önerileri, karar motoru, chat" },
             { name: "AI Engine", description: "AI Decision Engine — öneriler, simülasyon, brain" },
             { name: "AI Chat", description: "AI Operatör — chat, otonom döngü" },

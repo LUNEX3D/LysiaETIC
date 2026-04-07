@@ -261,7 +261,13 @@ const buildInvoiceXml = (data) => {
         parts.push('<cbc:TaxableAmount currencyID="' + currency + '">' + fmt(g.taxable) + '</cbc:TaxableAmount>');
         parts.push('<cbc:TaxAmount currencyID="' + currency + '">' + fmt(g.tax) + '</cbc:TaxAmount>');
         parts.push('<cbc:Percent>' + g.rate + '</cbc:Percent>');
-        parts.push('<cac:TaxCategory><cac:TaxScheme>');
+        parts.push('<cac:TaxCategory>');
+        // ✅ FIX: KDV oranı 0 ise TaxExemptionReason zorunlu (QNB validasyonu)
+        if (g.rate === 0) {
+            parts.push('<cbc:TaxExemptionReasonCode>350</cbc:TaxExemptionReasonCode>');
+            parts.push('<cbc:TaxExemptionReason>Diğerlerinde yazılı işlemler (KDVK 17/4)</cbc:TaxExemptionReason>');
+        }
+        parts.push('<cac:TaxScheme>');
         parts.push('<cbc:TaxTypeCode>0015</cbc:TaxTypeCode>');
         parts.push('<cbc:Name>KDV</cbc:Name>');
         parts.push('</cac:TaxScheme></cac:TaxCategory>');
@@ -303,7 +309,13 @@ const buildInvoiceXml = (data) => {
         parts.push('<cbc:TaxableAmount currencyID="' + currency + '">' + fmt(line.lineTotal) + '</cbc:TaxableAmount>');
         parts.push('<cbc:TaxAmount currencyID="' + currency + '">' + fmt(line.vatAmount) + '</cbc:TaxAmount>');
         parts.push('<cbc:Percent>' + line.vatRate + '</cbc:Percent>');
-        parts.push('<cac:TaxCategory><cac:TaxScheme>');
+        parts.push('<cac:TaxCategory>');
+        // ✅ FIX: Kalem KDV oranı 0 ise TaxExemptionReason zorunlu
+        if (line.vatRate === 0) {
+            parts.push('<cbc:TaxExemptionReasonCode>350</cbc:TaxExemptionReasonCode>');
+            parts.push('<cbc:TaxExemptionReason>Diğerlerinde yazılı işlemler (KDVK 17/4)</cbc:TaxExemptionReason>');
+        }
+        parts.push('<cac:TaxScheme>');
         parts.push('<cbc:TaxTypeCode>0015</cbc:TaxTypeCode>');
         parts.push('<cbc:Name>KDV</cbc:Name>');
         parts.push('</cac:TaxScheme></cac:TaxCategory>');

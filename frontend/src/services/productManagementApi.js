@@ -117,25 +117,6 @@ export const checkPendingTasks = async () => {
 };
 
 // ═══════════════════════════════════════════════════════════════
-// 📋 KATEGORİ YÖNETİMİ
-// ═══════════════════════════════════════════════════════════════
-
-export const getCategoryMappings = async () => {
-    const res = await API.get(`${BASE}/categories`);
-    return res.data;
-};
-
-export const upsertCategoryMapping = async (data) => {
-    const res = await API.post(`${BASE}/categories`, data);
-    return res.data;
-};
-
-export const updateProductCategoryMapping = async (productId, data) => {
-    const res = await API.put(`${BASE}/products/${productId}/category`, data);
-    return res.data;
-};
-
-// ═══════════════════════════════════════════════════════════════
 // 📢 BİLDİRİM & LOG
 // ═══════════════════════════════════════════════════════════════
 
@@ -326,45 +307,6 @@ export const n11DebugRawProducts = async () => {
 };
 
 // ═══════════════════════════════════════════════════════════════
-// 🗂️ OTOMATİK KATEGORİ EŞLEŞTİRME MERKEZİ
-// ═══════════════════════════════════════════════════════════════
-
-/**
- * Tüm platformlardan kategori ağaçlarını çek
- * @param {Object} params - { search }
- */
-export const getAllPlatformCategories = async (params = {}) => {
-    const res = await API.get(`${BASE}/categories/all-platforms`, { params });
-    return res.data;
-};
-
-/**
- * Otomatik kategori eşleştirme — kaynak kategori adına göre tüm platformlarda eşleşme bul
- * @param {string} sourceCategoryName - Kaynak kategori adı
- * @param {string} sourcePlatform - Kaynak platform (opsiyonel, atlanacak)
- */
-export const autoCategoryMatch = async (sourceCategoryName, sourcePlatform = null) => {
-    const res = await API.post(`${BASE}/categories/auto-match`, { sourceCategoryName, sourcePlatform });
-    return res.data;
-};
-
-/**
- * Toplu otomatik kategori eşleştirme — tüm eşleştirilmemiş kategorileri otomatik eşleştir
- */
-export const autoCategoryMatchAll = async () => {
-    const res = await API.post(`${BASE}/categories/auto-match-all`);
-    return res.data;
-};
-
-/**
- * Kategori eşleştirmesini manuel kaydet
- */
-export const saveCategoryMappingManual = async (data) => {
-    const res = await API.post(`${BASE}/categories/save-mapping`, data);
-    return res.data;
-};
-
-// ═══════════════════════════════════════════════════════════════
 // 🚀 ÜRÜN YÜKLE & DAĞIT
 // ═══════════════════════════════════════════════════════════════
 
@@ -393,19 +335,6 @@ export const suggestCodes = async (productName, brand = "", category = "") => {
  */
 export const generateDescription = async (data) => {
     const res = await API.post(`${BASE}/products/generate-description`, data);
-    return res.data;
-};
-
-/**
- * Hiyerarşik kategori ağacı getir
- * @param {string} platform - Platform adı (Trendyol, N11)
- * @param {string} parentId - Üst kategori ID (0 = kök)
- * @param {string} search - Arama (opsiyonel)
- */
-export const getCategoryTree = async (platform, parentId = "0", search = "") => {
-    const params = { platform, parentId };
-    if (search) params.search = search;
-    const res = await API.get(`${BASE}/categories/tree`, { params });
     return res.data;
 };
 

@@ -4,10 +4,8 @@ const StockSyncLog           = require("../models/StockSyncLog");
 const Marketplace            = require("../models/Marketplace");
 const PendingDeletion        = require("../models/PendingDeletion");
 const User                   = require("../models/User");
-const CategoryErrorLog       = require("../models/CategoryErrorLog");
 const logger                 = require("../config/logger");
 const n11Service             = require("./n11Service");
-const n11MappingService      = require("./n11MappingService");
 const masterProductAdapter   = require("./masterProductAdapter");
 // ✅ FIX: Credential'ları decrypt ederek kullan
 const { decryptCredentials } = require("../utils/encryption");
@@ -946,55 +944,13 @@ const distributeProductToMarketplaces = async (userId, productMappingId, targetM
                         await mapping.save();
                     }
 
-                    // ✅ Kategori hatası ise CategoryErrorLog'a kaydet
                     const errMsg = uploadResult.error || "Yükleme başarısız";
-                    const isCategoryError = errMsg.includes("categoryId") ||
-                        errMsg.includes("kategori") ||
-                        errMsg.includes("category") ||
-                        errMsg.includes("CATEGORY_MAPPING_MISSING") ||
-                        uploadResult.reason === "CATEGORY_MAPPING_MISSING";
-
-                    if (isCategoryError) {
-                        try {
-                            const mp = mapping.masterProduct || {};
-                            await CategoryErrorLog.findOneAndUpdate(
-                                { userId, productMappingId: mapping._id, marketplace: marketplaceName },
-                                {
-                                    $set: {
-                                        productName:     mp.name || "İsimsiz",
-                                        productBarcode:  mp.barcode || "",
-                                        productSku:      mp.sku || "",
-                                        productCategory: mp.category || "",
-                                        productImage:    (mp.images || [])[0] || "",
-                                        errorMessage:    errMsg,
-                                        errorType:       uploadResult.reason === "CATEGORY_MAPPING_MISSING"
-                                            ? "CATEGORY_MAPPING_MISSING"
-                                            : "CATEGORY_REJECTED",
-                                        lastSeenAt:      new Date(),
-                                        isResolved:      false,
-                                        retryStatus:     null
-                                    },
-                                    $inc: { hitCount: 1 },
-                                    $setOnInsert: { detectedAt: new Date() }
-                                },
-                                { upsert: true }
-                            );
-                            logger.info(
-                                `[DISTRIBUTE] 📋 Kategori hatası kaydedildi: "${mp.name}" → ${marketplaceName}`
-                            );
-                        } catch (logErr) {
-                            if (logErr.code !== 11000) {
-                                logger.warn(`[DISTRIBUTE] CategoryErrorLog kaydetme hatası: ${logErr.message}`);
-                            }
-                        }
-                    }
 
                     results.push({
                         marketplace: marketplaceName,
                         status:      "error",
                         taskId:      uploadResult.taskId,
-                        message:     errMsg,
-                        isCategoryError
+                        message:     errMsg
                     });
                 }
 
@@ -1053,78 +1009,13 @@ const uploadProductToTrendyol = async (credentials, product) => {
         categoryId = parseInt(product.category);
     }
 
-    // 4. UnifiedCategoryMap'ten Trendyol categoryId
-    //    Önce normalizeKey ile exact match (en güvenilir), sonra regex fallback
-    if (!categoryId) {
-        try {
-            const UnifiedCategoryMap = require("../models/UnifiedCategoryMap");
-            const { normalizeKey } = require("../utils/textNormalize");
-            const categoryName = (product.category || product.categoryName || "").trim();
-            if (categoryName) {
-                const nKey = normalizeKey(categoryName);
 
-                // 4a. normalizeKey ile exact match (ID bazlı mapping ile uyumlu)
-                let catMap = null;
-                if (nKey) {
-                    catMap = await UnifiedCategoryMap.findOne({
-                        normalizedKey: nKey,
-                        "trendyol.categoryId": { $ne: null }
-                    });
-                }
-
-                // 4b. Fallback: regex ile arama
-                if (!catMap) {
-                    const escaped = categoryName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-                    catMap = await UnifiedCategoryMap.findOne({
-                        $or: [
-                            { canonicalName: { $regex: new RegExp(`^${escaped}$`, "i") } },
-                            { "trendyol.categoryName": { $regex: new RegExp(`^${escaped}$`, "i") } }
-                        ],
-                        "trendyol.categoryId": { $ne: null }
-                    });
-                }
-
-                if (catMap && catMap.trendyol && catMap.trendyol.categoryId) {
-                    // ── isLeaf Kontrolü — parent kategori ise leaf child'a otomatik in ──
-                    if (catMap.trendyol.isLeaf === false) {
-                        logger.info(
-                            `[UPLOAD TRENDYOL] ⚠️ "${categoryName}" → parent kategori ` +
-                            `(ID: ${catMap.trendyol.categoryId}, isLeaf:false). Leaf child aranıyor...`
-                        );
-                        const leafChild = await UnifiedCategoryMap.findOne({
-                            "trendyol.parentId": catMap.trendyol.categoryId,
-                            "trendyol.categoryId": { $ne: null },
-                            "trendyol.isLeaf": true
-                        });
-                        if (leafChild && leafChild.trendyol?.categoryId) {
-                            categoryId = parseInt(leafChild.trendyol.categoryId);
-                            logger.info(
-                                `[UPLOAD TRENDYOL] ✅ Leaf child bulundu: "${categoryName}" → ` +
-                                `"${leafChild.trendyol.categoryName}" (ID: ${categoryId})`
-                            );
-                        } else {
-                            // Leaf bulunamadı — parent ID'yi kullan (platform reddedebilir)
-                            categoryId = parseInt(catMap.trendyol.categoryId);
-                            logger.warn(
-                                `[UPLOAD TRENDYOL] ⚠️ Leaf child bulunamadı — parent ID kullanılıyor: ${categoryId}`
-                            );
-                        }
-                    } else {
-                        categoryId = parseInt(catMap.trendyol.categoryId);
-                    }
-                    logger.info(`[UPLOAD TRENDYOL] Kategori eşleştirildi — "${categoryName}" → categoryId: ${categoryId}`);
-                }
-            }
-        } catch (catErr) {
-            logger.warn(`[UPLOAD TRENDYOL] Kategori arama hatası: ${catErr.message}`);
-        }
-    }
 
     if (!categoryId) {
         return {
             success: false,
             error: `Trendyol yükleme başarısız: "${productName}" için categoryId bulunamadı. ` +
-                   `Lütfen ürünün kategorisini Trendyol kategori eşleştirmesinden ayarlayın. ` +
+                   `Lütfen ürünün Trendyol categoryId bilgisini kontrol edin. ` +
                    `(Mevcut kategori: "${product.category || "yok"}")`
         };
     }
@@ -1451,22 +1342,17 @@ const uploadProductToN11 = async (credentials, product, userId = null) => {
     // Marka, model, başlık, açıklama gibi eksik alanlar tamamlanır.
     const fixed = masterProductAdapter.autoFix(masterRaw);
 
-    // ── 6. Kategori mapping + Attribute transform ─────────────────────────────
-    // toN11() içinde n11MappingService.transformProductForN11() çağrılır
-    // Kategori mapping yoksa → throw eder → ürün atlanır
+    // ── 6. N11 payload oluştur ──────────────────────────────────────────────────
     let n11Payload;
     try {
         n11Payload = await masterProductAdapter.toN11(fixed, userId, credentials);
     } catch (mappingErr) {
-        // Kategori mapping bulunamadı — ürünü gönderme
-        const isCategoryMissing = mappingErr.message.includes("CATEGORY_MAPPING_MISSING");
-
-        logger.warn(`[UPLOAD N11] ⚠️ Kategori hatası — "${productName}": ${mappingErr.message}`);
+        logger.warn(`[UPLOAD N11] ⚠️ Payload hatası — "${productName}": ${mappingErr.message}`);
 
         return {
             success: false,
             skipped: true,
-            reason:  isCategoryMissing ? "CATEGORY_MAPPING_MISSING" : "MAPPING_ERROR",
+            reason:  "MAPPING_ERROR",
             error:   mappingErr.message
         };
     }
@@ -1606,78 +1492,13 @@ const uploadProductToCicekSepeti = async (credentials, product) => {
         categoryId = parseInt(product.category);
     }
 
-    // 4. UnifiedCategoryMap'ten ÇiçekSepeti categoryId'yi bul
-    //    Önce normalizeKey ile exact match (en güvenilir), sonra regex fallback
-    if (!categoryId) {
-        try {
-            const UnifiedCategoryMap = require("../models/UnifiedCategoryMap");
-            const { normalizeKey } = require("../utils/textNormalize");
-            const categoryName = (product.category || product.categoryName || "").trim();
-            if (categoryName) {
-                const nKey = normalizeKey(categoryName);
 
-                // 4a. normalizeKey ile exact match (ID bazlı mapping ile uyumlu)
-                let catMap = null;
-                if (nKey) {
-                    catMap = await UnifiedCategoryMap.findOne({
-                        normalizedKey: nKey,
-                        "ciceksepeti.categoryId": { $ne: null }
-                    });
-                }
-
-                // 4b. Fallback: regex ile arama (eski davranış)
-                if (!catMap) {
-                    const escaped = categoryName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-                    catMap = await UnifiedCategoryMap.findOne({
-                        $or: [
-                            { canonicalName: { $regex: new RegExp(`^${escaped}$`, "i") } },
-                            { "trendyol.categoryName": { $regex: new RegExp(`^${escaped}$`, "i") } }
-                        ],
-                        "ciceksepeti.categoryId": { $ne: null }
-                    });
-                }
-
-                if (catMap && catMap.ciceksepeti && catMap.ciceksepeti.categoryId) {
-                    // ── isLeaf Kontrolü — parent kategori ise leaf child'a otomatik in ──
-                    if (catMap.ciceksepeti.isLeaf === false) {
-                        logger.info(
-                            `[UPLOAD CİÇEKSEPETİ] ⚠️ "${categoryName}" → parent kategori ` +
-                            `(ID: ${catMap.ciceksepeti.categoryId}, isLeaf:false). Leaf child aranıyor...`
-                        );
-                        const leafChild = await UnifiedCategoryMap.findOne({
-                            "ciceksepeti.parentId": catMap.ciceksepeti.categoryId,
-                            "ciceksepeti.categoryId": { $ne: null },
-                            "ciceksepeti.isLeaf": true
-                        });
-                        if (leafChild && leafChild.ciceksepeti?.categoryId) {
-                            categoryId = parseInt(leafChild.ciceksepeti.categoryId);
-                            logger.info(
-                                `[UPLOAD CİÇEKSEPETİ] ✅ Leaf child bulundu: "${categoryName}" → ` +
-                                `"${leafChild.ciceksepeti.categoryName}" (ID: ${categoryId})`
-                            );
-                        } else {
-                            // Leaf bulunamadı — parent ID'yi kullan (platform reddedebilir)
-                            categoryId = parseInt(catMap.ciceksepeti.categoryId);
-                            logger.warn(
-                                `[UPLOAD CİÇEKSEPETİ] ⚠️ Leaf child bulunamadı — parent ID kullanılıyor: ${categoryId}`
-                            );
-                        }
-                    } else {
-                        categoryId = parseInt(catMap.ciceksepeti.categoryId);
-                    }
-                    logger.info(`[UPLOAD CİÇEKSEPETİ] Kategori eşleştirildi — "${categoryName}" → categoryId: ${categoryId}`);
-                }
-            }
-        } catch (catErr) {
-            logger.warn(`[UPLOAD CİÇEKSEPETİ] Kategori arama hatası: ${catErr.message}`);
-        }
-    }
 
     if (!categoryId) {
         return {
             success: false,
             error: `ÇiçekSepeti yükleme başarısız: "${productName}" için categoryId bulunamadı. ` +
-                   `Lütfen ürünün kategorisini ÇiçekSepeti kategori eşleştirmesinden ayarlayın. ` +
+                   `Lütfen ürünün ÇiçekSepeti categoryId bilgisini kontrol edin. ` +
                    `(Mevcut kategori: "${product.category || "yok"}")`
         };
     }
@@ -1798,7 +1619,7 @@ const uploadProductToMarketplace = async (marketplace, product, userId = null) =
             case "Hepsiburada":
                 return await uploadProductToHepsiburada(credentials, product);
             case "N11":
-                // userId — n11MappingService'in kategori/attribute mapping için gerekli
+                // userId — N11 ürün yükleme için gerekli
                 return await uploadProductToN11(credentials, product, userId);
             case "ÇiçekSepeti":
                 return await uploadProductToCicekSepeti(credentials, product);

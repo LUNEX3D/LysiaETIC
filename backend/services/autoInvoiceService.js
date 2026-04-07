@@ -90,6 +90,7 @@ const processAutoInvoice = async (userId, marketplaceName, newOrderIds) => {
             invoiceStatus: { $ne: "created" },
             isCancelled: false,
             isReturned: false,
+            totalPrice: { $gt: 0 }, // ✅ FIX: 0 TL siparişleri atla (KDV validasyon hatası önlenir)
         }).lean();
 
         if (orders.length === 0) {
@@ -97,10 +98,10 @@ const processAutoInvoice = async (userId, marketplaceName, newOrderIds) => {
             return stats;
         }
 
-        // Durum filtresi — varsayılan: Yeni, İşlemde, Kargoda, Teslim Edildi
+        // Durum filtresi — varsayılan: Yeni, İşlemde, Kargoda, Teslim Edildi, Picking
         const triggerStatuses = config.triggerStatuses && config.triggerStatuses.length > 0
             ? config.triggerStatuses
-            : ["Created", "New", "Yeni", "Processing", "İşlemde", "Shipped", "Kargoda", "Delivered", "Teslim"];
+            : ["Created", "New", "Yeni", "Processing", "İşlemde", "Picking", "Shipped", "Kargoda", "Delivered", "Teslim"];
 
         const eligibleOrders = orders.filter(order => {
             const status = (order.status || "").toLowerCase();
@@ -116,17 +117,30 @@ const processAutoInvoice = async (userId, marketplaceName, newOrderIds) => {
         logger.info("[AutoInvoice] " + eligibleOrders.length + " sipariş için fatura kesilecek — userId=" + userId + " marketplace=" + marketplaceName);
 
         // ── 3. QNB Login (e-Arşiv + e-Fatura ayrı oturumlar) ────────────
+        // ⚠️ QNB'de e-Fatura ve e-Arşiv FARKLI ortamlar — FARKLI credentials!
+        //   e-Arşiv:  connectortest   → VKN.portaltest / ayrı şifre
+        //   e-Fatura: erpefaturatest1 → VKN / ayrı şifre
+        //
+        // ⚠️ ÖNEMLİ: Eski config.qnbCredentials.username alanı e-Fatura credential'ıdır!
+        //   Bu alan e-Arşiv için KULLANILMAMALI — ayrı ortam, ayrı şifre.
+        //   e-Arşiv fallback: earsivUsername > .env QNB_EARSIV_USERNAME
+        //   e-Fatura fallback: efaturaUsername > eski username > supplier.vkn > .env QNB_EFATURA_USERNAME
         let earsivSessionId = null;
         let efaturaSessionId = null;
         const env = config.qnbCredentials.env || "test";
 
         if (config.provider === "qnb") {
-            const loginUsername = config.qnbCredentials.username || process.env.QNB_EARSIV_USERNAME;
-            const loginPassword = config.qnbCredentials.password || process.env.QNB_EARSIV_PASSWORD;
+            // e-Arşiv credentials — SADECE earsiv-specific alanlardan al, eski username'i KULLANMA!
+            const earsivUsername = config.qnbCredentials.earsivUsername || process.env.QNB_EARSIV_USERNAME;
+            const earsivPassword = config.qnbCredentials.earsivPassword || process.env.QNB_EARSIV_PASSWORD;
 
-            if (!loginUsername || !loginPassword) {
-                logger.error("[AutoInvoice] QNB credentials eksik — userId=" + userId);
-                config.stats.lastError = "QNB kullanıcı adı veya şifre eksik";
+            // e-Fatura credentials — eski username alanı e-Fatura'ya ait
+            const efaturaUsername = config.qnbCredentials.efaturaUsername || config.qnbCredentials.username || config.supplier.vkn || process.env.QNB_EFATURA_USERNAME;
+            const efaturaPassword = config.qnbCredentials.efaturaPassword || config.qnbCredentials.password || process.env.QNB_EFATURA_PASSWORD;
+
+            if (!earsivUsername || !earsivPassword) {
+                logger.error("[AutoInvoice] QNB e-Arşiv credentials eksik — userId=" + userId);
+                config.stats.lastError = "QNB e-Arşiv kullanıcı adı veya şifre eksik";
                 config.stats.lastErrorDate = new Date();
                 await config.save();
                 return stats;
@@ -134,8 +148,8 @@ const processAutoInvoice = async (userId, marketplaceName, newOrderIds) => {
 
             // e-Arşiv login (her zaman gerekli — çoğu pazaryeri müşterisi bireysel)
             const earsivLogin = await qnbService.login({
-                username: loginUsername,
-                password: loginPassword,
+                username: earsivUsername,
+                password: earsivPassword,
                 env: env,
                 service: "earsiv"
             });
@@ -153,22 +167,26 @@ const processAutoInvoice = async (userId, marketplaceName, newOrderIds) => {
             logger.info("[AutoInvoice] QNB e-Arşiv login başarılı — sessionId=" + earsivSessionId.substring(0, 8) + "...");
 
             // e-Fatura login (opsiyonel — sadece B2B müşteriler için gerekir)
-            // e-Fatura ayrı ortamda çalışır (erpefaturatest vs portaltest)
-            try {
-                const efaturaLogin = await qnbService.login({
-                    username: config.supplier.vkn || loginUsername,
-                    password: loginPassword,
-                    env: env,
-                    service: "efatura"
-                });
-                if (efaturaLogin.success) {
-                    efaturaSessionId = efaturaLogin.sessionId;
-                    logger.info("[AutoInvoice] QNB e-Fatura login başarılı — sessionId=" + efaturaSessionId.substring(0, 8) + "...");
-                } else {
-                    logger.warn("[AutoInvoice] QNB e-Fatura login başarısız (e-Arşiv ile devam edilecek): " + efaturaLogin.error);
+            // e-Fatura FARKLI ortamda çalışır (erpefaturatest — farklı credentials)
+            if (efaturaUsername && efaturaPassword) {
+                try {
+                    const efaturaLogin = await qnbService.login({
+                        username: efaturaUsername,
+                        password: efaturaPassword,
+                        env: env,
+                        service: "efatura"
+                    });
+                    if (efaturaLogin.success) {
+                        efaturaSessionId = efaturaLogin.sessionId;
+                        logger.info("[AutoInvoice] QNB e-Fatura login başarılı — sessionId=" + efaturaSessionId.substring(0, 8) + "...");
+                    } else {
+                        logger.warn("[AutoInvoice] QNB e-Fatura login başarısız (e-Arşiv ile devam edilecek): " + efaturaLogin.error);
+                    }
+                } catch (efErr) {
+                    logger.warn("[AutoInvoice] e-Fatura login atlandı: " + efErr.message);
                 }
-            } catch (efErr) {
-                logger.warn("[AutoInvoice] e-Fatura login atlandı: " + efErr.message);
+            } else {
+                logger.info("[AutoInvoice] e-Fatura credentials yok, sadece e-Arşiv kullanılacak");
             }
         }
 
@@ -338,6 +356,7 @@ const processAutoInvoice = async (userId, marketplaceName, newOrderIds) => {
                         })),
                         status: "created",
                         createdBy: "auto",
+                        faturaURL: result.faturaURL || "",
                         providerResponse: {
                             resultCode: result.data ? result.data.resultCode : "",
                             resultText: result.data ? result.data.resultText : "",
@@ -374,6 +393,15 @@ const processAutoInvoice = async (userId, marketplaceName, newOrderIds) => {
 
                     logger.error("[AutoInvoice] ❌ Fatura hatası — Sipariş: " + order.trackingNumber +
                         " Hata: " + (result.error || "Bilinmeyen"));
+
+                    // ⚠️ Kontör hatası → döngüyü kır (tüm siparişler aynı hatayı alacak)
+                    // Gereksiz fatura numarası üretimini ve QNB yükünü önle
+                    const errLower = (result.error || "").toLowerCase();
+                    if (errLower.includes("kontör") || errLower.includes("kontor") || errLower.includes("kredit") || errLower.includes("credit")) {
+                        logger.warn("[AutoInvoice] ⛔ Kontör/kredi hatası tespit edildi — kalan " + (eligibleOrders.length - stats.processed) + " sipariş atlanıyor");
+                        stats.skipped += (eligibleOrders.length - stats.processed);
+                        break;
+                    }
                 }
 
             } catch (orderErr) {
@@ -433,31 +461,59 @@ const processAutoInvoice = async (userId, marketplaceName, newOrderIds) => {
 /**
  * Sipariş kalemlerinden fatura kalemleri oluştur
  * Pazaryeri siparişlerinde ürün bilgisi items[] içinde gelir
+ *
+ * ── KDV Dahil / Hariç Hesaplama ──────────────────────────────────────
+ * Türkiye'deki pazaryerlerinde fiyatlar genelde KDV DAHİLDİR.
+ * config.pricesIncludeVat = true ise:
+ *   Marketplace fiyatı (229,99 TL) KDV dahildir → ters hesaplama yapılır
+ *   KDV hariç = 229,99 / 1.20 = 191,66 TL
+ *   KDV      = 229,99 - 191,66 = 38,33 TL
+ *   Toplam   = 191,66 + 38,33 = 229,99 TL ✓
+ *
+ * config.pricesIncludeVat = false ise:
+ *   Marketplace fiyatı (229,99 TL) KDV hariçtir → üzerine KDV eklenir
+ *   KDV hariç = 229,99 TL
+ *   KDV      = 229,99 * 0.20 = 46,00 TL
+ *   Toplam   = 229,99 + 46,00 = 275,99 TL
  */
 const buildInvoiceLinesFromOrder = (order, config) => {
     const defaultVatRate = config.defaultVatRate || 20;
+    const pricesIncludeVat = config.pricesIncludeVat !== false; // varsayılan: true (KDV dahil)
     const items = order.items || [];
+
+    /**
+     * Fiyatı KDV hariç'e çevir (eğer KDV dahilse)
+     * Formül: kdvHariç = kdvDahilFiyat / (1 + kdvOranı/100)
+     */
+    const toExVat = (price, vatRate) => {
+        if (!pricesIncludeVat || vatRate === 0) return price;
+        return price / (1 + vatRate / 100);
+    };
 
     if (items.length === 0) {
         // Tek kalem — sipariş toplamı
+        const rawPrice = Number(order.totalPrice || 0);
         return [{
             name: "Sipariş #" + (order.trackingNumber || ""),
             quantity: 1,
             unit: "adet",
-            unitPrice: Number(order.totalPrice || 0),
+            unitPrice: toExVat(rawPrice, defaultVatRate),
             vatRate: defaultVatRate,
             discountAmount: 0,
         }];
     }
 
-    return items.map(item => ({
-        name: item.productName || "Ürün",
-        quantity: Number(item.quantity || 1),
-        unit: "adet",
-        unitPrice: Number(item.price || 0),
-        vatRate: defaultVatRate,
-        discountAmount: 0,
-    }));
+    return items.map(item => {
+        const rawPrice = Number(item.price || 0);
+        return {
+            name: item.productName || "Ürün",
+            quantity: Number(item.quantity || 1),
+            unit: "adet",
+            unitPrice: toExVat(rawPrice, defaultVatRate),
+            vatRate: defaultVatRate,
+            discountAmount: 0,
+        };
+    });
 };
 
 /**
@@ -472,6 +528,10 @@ const buildInvoiceLinesFromOrder = (order, config) => {
  * Öncelik sırası:
  *   1. Siparişten gelen müşteri bilgileri (customerName, customerAddress)
  *   2. Config'deki defaultCustomer (fallback)
+ *
+ * ✅ FIX: Artık her sipariş için gerçek müşteri adı ve adresi kullanılıyor.
+ *   ordersService.js'deki fetch fonksiyonları shipmentAddress/invoiceAddress
+ *   bilgisini rawOrders'a aktarıyor, syncOrdersBackground DB'ye kaydediyor.
  */
 const buildCustomerFromOrder = (order, config) => {
     const defaultCustomer = config.defaultCustomer || {};
@@ -495,15 +555,20 @@ const buildCustomerFromOrder = (order, config) => {
     // Siparişte müşteri adı varsa onu kullan, yoksa defaultCustomer'a düş
     const hasOrderCustomer = !!fullName;
 
+    // Fallback isim: defaultCustomer'da name boş olabilir → firstName+lastName'den oluştur
+    const defaultFullName = (defaultCustomer.name || "").trim()
+        || ((defaultCustomer.firstName || "") + " " + (defaultCustomer.lastName || "")).trim()
+        || "Nihai Tuketici";
+
     return {
-        // VKN/TCKN: Pazaryeri siparişlerinde gelmez → defaultCustomer'dan al
+        // VKN/TCKN: Pazaryeri siparişlerinde genelde gelmez → defaultCustomer'dan al
         // e-Arşiv "Nihai Tüketici" için 11111111111 standart TCKN
         vkn: defaultCustomer.vkn || "11111111111",
 
-        // İsim: Siparişten gelen gerçek müşteri adı
-        name: hasOrderCustomer ? fullName : (defaultCustomer.name || "Nihai Tüketici"),
+        // İsim: Siparişten gelen gerçek müşteri adı (her sipariş farklı kişi!)
+        name: hasOrderCustomer ? fullName : defaultFullName,
         firstName: hasOrderCustomer ? firstName : (defaultCustomer.firstName || "Nihai"),
-        lastName: hasOrderCustomer ? lastName : (defaultCustomer.lastName || "Tüketici"),
+        lastName: hasOrderCustomer ? lastName : (defaultCustomer.lastName || "Tuketici"),
 
         // Adres: Siparişten gelen adres bilgileri
         city: addr.city || defaultCustomer.city || "Istanbul",

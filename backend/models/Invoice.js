@@ -93,9 +93,12 @@ const InvoiceSchema = new mongoose.Schema({
     // ── Oluşturma Yöntemi ─────────────────────────────────────────────────
     createdBy: {
         type: String,
-        enum: ["auto", "manual"],
+        enum: ["auto", "manual", "batch-script"],
         default: "manual"
     },
+
+    // ── Fatura Görüntüleme URL'si (QNB tarafından döndürülür) ────────────
+    faturaURL: { type: String, default: "" },
 
     // ── QNB Yanıt Bilgileri ───────────────────────────────────────────────
     providerResponse: {
@@ -108,6 +111,9 @@ const InvoiceSchema = new mongoose.Schema({
 
     // ── Hata Bilgisi ──────────────────────────────────────────────────────
     errorMessage: { type: String, default: "" },
+
+    // ── QNB'nin atadığı gerçek fatura numarası (farklıysa) ──────────────
+    qnbInvoiceNumber: { type: String, default: "" },
 
     // ── Not ───────────────────────────────────────────────────────────────
     note: { type: String, default: "" },

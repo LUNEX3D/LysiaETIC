@@ -100,15 +100,32 @@ const AutoInvoiceConfigSchema = new mongoose.Schema({
     },
 
     // ── QNB Bağlantı Bilgileri ────────────────────────────────────────────
-    // QNB oturum bilgileri (her seferinde login yapılır veya cache'lenir)
+    // ⚠️ e-Arşiv ve e-Fatura FARKLI ortamlar — FARKLI credentials!
+    //   e-Arşiv:  connectortest   → VKN.portaltest / ayrı şifre
+    //   e-Fatura: erpefaturatest1 → VKN / ayrı şifre
     qnbCredentials: {
+        // Eski alan (geriye uyumluluk — e-Fatura olarak kullanılır)
         username: { type: String, default: "" },
         password: { type: String, default: "" },
+        // e-Arşiv ayrı credentials
+        earsivUsername: { type: String, default: "" },
+        earsivPassword: { type: String, default: "" },
+        // e-Fatura ayrı credentials
+        efaturaUsername: { type: String, default: "" },
+        efaturaPassword: { type: String, default: "" },
         env: { type: String, enum: ["test", "production"], default: "test" },
     },
 
     // ── KDV Ayarları ──────────────────────────────────────────────────────
     defaultVatRate: { type: Number, default: 20 },
+
+    // Pazaryeri fiyatları KDV dahil mi?
+    // true  → Fiyat KDV dahildir, fatura keserken KDV ters hesaplanır
+    //         Örn: 229,99 TL (KDV dahil) → KDV hariç: 191,66 + KDV: 38,33 = 229,99
+    // false → Fiyat KDV hariçtir, üzerine KDV eklenir
+    //         Örn: 229,99 TL (KDV hariç) → KDV hariç: 229,99 + KDV: 46,00 = 275,99
+    // Türkiye'deki pazaryerlerinde fiyatlar genelde KDV DAHİLDİR!
+    pricesIncludeVat: { type: Boolean, default: true },
 
     // ── Fatura Notu ───────────────────────────────────────────────────────
     defaultNote: { type: String, default: "" },

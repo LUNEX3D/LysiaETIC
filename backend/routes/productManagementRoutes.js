@@ -37,31 +37,11 @@ router.post("/sync/base-price-sync", controller.basePriceSync);
 router.post("/sync/check-pending",   controller.checkPendingTasks);
 
 // ═══════════════════════════════════════════════════════════════
-// 📋 KATEGORİ YÖNETİMİ
-// ═══════════════════════════════════════════════════════════════
-router.get("/categories", controller.getCategoryMappings);
-router.post("/categories", controller.upsertCategoryMapping);
-router.put("/products/:productId/category", controller.updateProductCategoryMapping);
-
-// ═══════════════════════════════════════════════════════════════
-// 🗂️ OTOMATİK KATEGORİ EŞLEŞTİRME MERKEZİ
-// ═══════════════════════════════════════════════════════════════
-router.get("/categories/all-platforms",      controller.getAllPlatformCategories);
-router.post("/categories/auto-match",        controller.autoCategoryMatch);
-router.post("/categories/auto-match-all",    controller.autoCategoryMatchAll);
-router.post("/categories/save-mapping",      controller.saveCategoryMappingManual);
-
-// ═══════════════════════════════════════════════════════════════
 // 🚀 ÜRÜN YÜKLE & DAĞIT
 // ═══════════════════════════════════════════════════════════════
 router.post("/products/create-and-distribute", controller.createAndDistribute);
 router.post("/products/suggest-codes",         controller.suggestBarcodeAndSku);
 router.post("/products/generate-description",  controller.generateAIDescription);
-
-// ═══════════════════════════════════════════════════════════════
-// 🌳 KATEGORİ AĞACI (Hiyerarşik)
-// ═══════════════════════════════════════════════════════════════
-router.get("/categories/tree",                 controller.getCategoryTree);
 
 // ═══════════════════════════════════════════════════════════════
 // 📢 BİLDİRİM & LOG
