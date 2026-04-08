@@ -346,6 +346,26 @@ exports.qnbSendEInvoice = async (req, res) => {
     }
 };
 
+// ─── QNB e-Fatura Gönder (ERP Kodu ile — belgeGonderExt) ─────────────────────
+exports.qnbSendEInvoiceExt = async (req, res) => {
+    try {
+        const { sessionId, invoiceXml, vkn, belgeTuru, belgeNo, env } = req.body;
+        if (!sessionId || !invoiceXml) {
+            return res.status(400).json({ success: false, message: "Session ID ve fatura XML'i gerekli" });
+        }
+
+        const result = await qnbService.sendEInvoiceExt({ sessionId, invoiceXml, vkn, belgeTuru, belgeNo, env });
+        if (!result.success) {
+            return res.status(result.status || 400).json({ success: false, message: result.error });
+        }
+
+        res.json({ success: true, data: result });
+    } catch (error) {
+        logger.error("[QNB Controller] e-Fatura (Ext) gönderme hatası: " + error.message);
+        res.status(500).json({ success: false, message: "Sunucu hatası" });
+    }
+};
+
 // ─── QNB Giden Belge Durum Sorgula (belgeOid) ──────────────────────────────
 exports.qnbGetOutgoingStatus = async (req, res) => {
     try {
@@ -673,6 +693,26 @@ exports.qnbCreateEArchiveFromForm = async (req, res) => {
         });
     } catch (error) {
         logger.error("[QNB Controller] e-Arşiv form oluşturma hatası: " + error.message);
+        res.status(500).json({ success: false, message: "Sunucu hatası" });
+    }
+};
+
+// ─── QNB e-Arşiv Fatura Oluştur (ERP Kodu ile — faturaOlusturExt) ─────────────
+exports.qnbCreateEArchiveExt = async (req, res) => {
+    try {
+        const { sessionId, vkn, invoiceXml, sube, kasa, faturaTipi, faturaSeri, env } = req.body;
+        if (!sessionId || !invoiceXml) {
+            return res.status(400).json({ success: false, message: "Session ID ve fatura XML'i gerekli" });
+        }
+
+        const result = await qnbService.createEArchiveInvoiceExt({ sessionId, vkn, invoiceXml, sube, kasa, faturaTipi, faturaSeri, env });
+        if (!result.success) {
+            return res.status(result.status || 400).json({ success: false, message: result.error });
+        }
+
+        res.json({ success: true, data: result });
+    } catch (error) {
+        logger.error("[QNB Controller] e-Arşiv (Ext) oluşturma hatası: " + error.message);
         res.status(500).json({ success: false, message: "Sunucu hatası" });
     }
 };

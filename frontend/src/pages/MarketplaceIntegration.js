@@ -34,7 +34,7 @@ const MarketplaceIntegration = () => {
             name: "Türkiye",
             platforms: [
                 { name: "Trendyol", fields: ["apiKey", "apiSecret", "sellerId"], description: "Trendyol Entegratör API - Supplier ID, API Key ve API Secret gereklidir" },
-                { name: "Hepsiburada", fields: ["merchantId", "apiKey"], fieldLabels: { merchantId: "Mağaza ID", apiKey: "Servis Anahtarı" }, description: "Hepsiburada Merchant API - Mağaza ID ve Servis Anahtarı gereklidir." },
+                { name: "Hepsiburada", fields: ["merchantId", "secretKey", "userAgent", "useSit"], fieldLabels: { merchantId: "Merchant ID (Mağaza ID)", secretKey: "Secret Key (Servis Anahtarı)", userAgent: "Developer Username (User-Agent)", useSit: "API Ortamı" }, fieldHints: { merchantId: "Hepsiburada'nın size verdiği Merchant ID (UUID formatında)", secretKey: "Satıcı Paneli → Entegrasyon → Entegratör Bilgileri → Servis Anahtarı", userAgent: "Hepsiburada'nın size verdiği Developer Username (ör: firmaadi_dev)", useSit: "Test hesabı için SIT, gerçek mağaza için Canlı seçin" }, fieldTypes: { useSit: "toggle" }, fieldDefaults: { useSit: false }, description: "Hepsiburada Merchant API — Merchant ID, Secret Key ve Developer Username gereklidir. Basic Auth: base64(merchantId:secretKey)" },
                 { name: "n11", fields: ["apiKey", "secretKey", "shipmentTemplate"], fieldLabels: { apiKey: "App Key", secretKey: "App Secret", shipmentTemplate: "Kargo Şablon Adı" }, fieldDefaults: { shipmentTemplate: "STANDART" }, fieldHints: { shipmentTemplate: "N11 Paneli → Hesabım → Teslimat Bilgileri → Şablon Adı" }, description: "N11 REST API — App Key ve App Secret zorunludur." },
                 { name: "Amazon Türkiye", fields: ["sellerId", "clientId", "clientSecret", "refreshToken", "accessKeyId", "secretAccessKey", "marketplaceId"], fieldLabels: { sellerId: "Seller ID", clientId: "LWA Client ID", clientSecret: "LWA Client Secret", refreshToken: "LWA Refresh Token", accessKeyId: "AWS Access Key ID", secretAccessKey: "AWS Secret Access Key", marketplaceId: "Marketplace ID" }, fieldDefaults: { marketplaceId: "A33AVAJ2PDY3EV" }, fieldHints: { sellerId: "Seller Central → Hesap Bilgileri → Satıcı ID", clientId: "Developer Central → LWA Credentials → Client ID", clientSecret: "Developer Central → LWA Credentials → Client Secret", refreshToken: "SP-API uygulaması yetkilendirildikten sonra alınan token", accessKeyId: "AWS IAM → Kullanıcı → Access Key ID", secretAccessKey: "AWS IAM → Kullanıcı → Secret Access Key", marketplaceId: "Türkiye: A33AVAJ2PDY3EV" }, description: "Amazon SP-API — Seller ID, LWA Credentials ve AWS IAM Keys gereklidir" },
                 { name: "ÇiçekSepeti", fields: ["apiKey", "sellerId", "integratorName"], fieldLabels: { apiKey: "API Key (x-api-key)", sellerId: "Satıcı ID", integratorName: "Entegratör Adı (opsiyonel)" }, fieldHints: { apiKey: "Satıcı Paneli → Hesap Yönetimi → Entegrasyon Bilgilerim", sellerId: "Satıcı Paneli → Entegrasyon Bilgilerim → Satıcı ID", integratorName: "Entegratör firma ile çalışıyorsanız doldurun, yoksa boş bırakın" }, fieldRequired: { apiKey: true, sellerId: true, integratorName: false }, description: "ÇiçekSepeti Marketplace API — API Key ve Satıcı ID zorunludur. Canlı ortam: apis.ciceksepeti.com" },
@@ -96,13 +96,17 @@ const MarketplaceIntegration = () => {
         const platformFormData = formData[platform.name] || {};
         const credentials = {};
         platform.fields.forEach(field => {
-            credentials[field] = platformFormData[field] || platform.fieldDefaults?.[field] || "";
+            const val = platformFormData[field];
+            credentials[field] = val !== undefined && val !== null && val !== ""
+                ? val
+                : (platform.fieldDefaults?.[field] ?? "");
         });
 
         const hasEmptyRequiredFields = platform.fields.some(field => {
             const isRequired = platform.fieldRequired ? platform.fieldRequired[field] !== false : true;
             const val = credentials[field];
-            return isRequired && (!val || !val.trim());
+            if (typeof val === "boolean") return false; // checkbox alanları boş sayılmaz
+            return isRequired && (!val || !String(val).trim());
         });
         if (hasEmptyRequiredFields) { alert(`❌ ${t("mi.fillRequired")}`); return; }
 
@@ -296,9 +300,50 @@ const MarketplaceIntegration = () => {
                                                                 const label = platform.fieldLabels?.[field] || field.replace(/([A-Z])/g, ' $1').trim();
                                                                 const hint = platform.fieldHints?.[field];
                                                                 const isOptional = platform.fieldRequired && platform.fieldRequired[field] === false;
+                                                                const fieldType = platform.fieldTypes?.[field];
                                                                 const sensitive = ["apiKey","secretKey","appKey","appSecret","apiSecret","apiPassword","accessToken","sessionKey","clientSecret","mwsAuthToken","userToken","certId","partnerKey","licenseKey","serviceSecret"];
-                                                                const inputType = sensitive.includes(field) ? "password" : "text";
+                                                                const inputType = fieldType === "checkbox" ? "checkbox" : (sensitive.includes(field) ? "password" : "text");
                                                                 const defaultVal = platform.fieldDefaults?.[field] || "";
+
+                                                                // Toggle buton alanı (Canlı Ortam / SIT Ortamı)
+                                                                if (fieldType === "toggle" || fieldType === "checkbox") {
+                                                                    const isActive = !!(formData[platform.name]?.[field]);
+                                                                    return (
+                                                                        <div key={field} className="mi-field mi-field--toggle">
+                                                                            <label className="mi-toggle-label">{label}</label>
+                                                                            <div className="mi-toggle-buttons">
+                                                                                <button
+                                                                                    type="button"
+                                                                                    className={`mi-toggle-btn ${!isActive ? "mi-toggle-btn--active mi-toggle-btn--live" : ""}`}
+                                                                                    onClick={() => setFormData(prev => ({
+                                                                                        ...prev,
+                                                                                        [platform.name]: {
+                                                                                            ...(prev[platform.name] || {}),
+                                                                                            [field]: false
+                                                                                        }
+                                                                                    }))}
+                                                                                >
+                                                                                    🟢 Canlı Ortam
+                                                                                </button>
+                                                                                <button
+                                                                                    type="button"
+                                                                                    className={`mi-toggle-btn ${isActive ? "mi-toggle-btn--active mi-toggle-btn--sit" : ""}`}
+                                                                                    onClick={() => setFormData(prev => ({
+                                                                                        ...prev,
+                                                                                        [platform.name]: {
+                                                                                            ...(prev[platform.name] || {}),
+                                                                                            [field]: true
+                                                                                        }
+                                                                                    }))}
+                                                                                >
+                                                                                    🧪 SIT Ortamı
+                                                                                </button>
+                                                                            </div>
+                                                                            {hint && <small className="mi-field-hint">💡 {hint}</small>}
+                                                                        </div>
+                                                                    );
+                                                                }
+
                                                                 return (
                                                                     <div key={field} className="mi-field">
                                                                         <label>{label}{isOptional && <span style={{ color: '#64748b', fontSize: '0.75rem', marginLeft: '0.4rem', fontWeight: 400 }}>(opsiyonel)</span>}</label>

@@ -160,29 +160,38 @@ exports.deleteMarketplace = async (req, res) => {
 };
 
 // 🧪 Hepsiburada Credential Test (POST)
+// Hepsiburada Auth: Basic base64(merchantId:secretKey) + User-Agent header
 exports.testHepsiburadaCredentials = async (req, res) => {
     try {
-        const { merchantId, serviceKey } = req.body;
+        const { merchantId, secretKey, serviceKey, apiKey, userAgent } = req.body;
 
-        if (!merchantId || !serviceKey) {
+        // Geriye dönük uyumluluk: secretKey, serviceKey veya apiKey kabul et
+        const actualSecretKey = secretKey || serviceKey || apiKey;
+        const actualUserAgent = userAgent || "LysiaETIC";
+
+        if (!merchantId || !actualSecretKey) {
             return res.status(400).json({
                 success: false,
-                message: "❌ MerchantId ve ServiceKey gerekli!"
+                message: "❌ Merchant ID ve Secret Key (Servis Anahtarı) gerekli!"
             });
         }
 
         const axios = require("axios");
-        const credentials = `${merchantId}:${serviceKey}`;
-        const authHeader = `Basic ${Buffer.from(credentials).toString("base64")}`;
+        const { getAuthHeader, getEndpoints } = require("../services/hepsiburadaService");
+        const authHeader = getAuthHeader(merchantId, actualSecretKey);
 
-        // Test endpoint: Basit bir API çağrısı yap
-        const testUrl = `https://listing-external.hepsiburada.com/listings/merchantid/${merchantId}?offset=0&limit=1`;
+        // SIT/Production ortamına göre dinamik endpoint
+        const useSit = req.body.useSit === true || req.body.useSit === "true";
+        const ep = getEndpoints({ useSit });
+
+        // Test endpoint: Listing API'den 1 ürün çekmeyi dene
+        const testUrl = `${ep.LISTING}/listings/merchantid/${merchantId}?offset=0&limit=1`;
 
         try {
             const response = await axios.get(testUrl, {
                 headers: {
                     "Authorization": authHeader,
-                    "User-Agent": "LysiaETIC",
+                    "User-Agent": actualUserAgent,
                     "Content-Type": "application/json"
                 },
                 timeout: 10000
@@ -196,15 +205,22 @@ exports.testHepsiburadaCredentials = async (req, res) => {
             });
 
         } catch (error) {
-            logger.warn("Hepsiburada credential test failed", { status: error.response?.status });
+            logger.warn("Hepsiburada credential test failed", {
+                status: error.response?.status,
+                merchantId: merchantId.substring(0, 8) + "..."
+            });
 
+            // 401 = credentials hatalı, diğer hatalar farklı sebeplerden olabilir
+            const isAuthError = error.response?.status === 401 || error.response?.status === 403;
             return res.status(200).json({
                 success: false,
-                message: "❌ Credential'lar geçersiz!",
+                message: isAuthError
+                    ? "❌ Credential'lar geçersiz! Merchant ID ve Secret Key'i kontrol edin."
+                    : `❌ API hatası (${error.response?.status || "bağlantı hatası"})`,
                 error: {
                     status: error.response?.status,
                     statusText: error.response?.statusText,
-                    message: error.response?.data || error.message
+                    message: error.response?.data?.message || error.response?.data || error.message
                 }
             });
         }

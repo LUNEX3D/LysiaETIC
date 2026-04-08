@@ -427,9 +427,12 @@ async function main() {
 
     // ═══ Hepsiburada Migrasyon ═══
     async function migrateHepsiburada(credentials, orders) {
-        const { merchantId, apiKey } = credentials;
+        const { normalizeCredentials, getEndpoints } = require("./services/hepsiburadaService");
+        const hbCreds = normalizeCredentials(credentials);
+        const { merchantId, secretKey, userAgent } = hbCreds;
+        const ep = getEndpoints(hbCreds);
         const moment = require("moment");
-        const authHeader = `Basic ${Buffer.from(`${merchantId}:${apiKey}`).toString("base64")}`;
+        const authHeader = `Basic ${Buffer.from(`${merchantId}:${secretKey}`).toString("base64")}`;
 
         const dates = orders.map(o => new Date(o.orderDate).getTime()).filter(d => !isNaN(d));
         const minDate = Math.min(...dates) - 24 * 60 * 60 * 1000;
@@ -443,26 +446,26 @@ async function main() {
 
         while (true) {
             try {
-                const url = `https://marketplace.hepsiburada.com/orders?` +
-                    `startDate=${encodeURIComponent(moment(minDate).format("YYYY-MM-DD HH:mm:ss"))}` +
-                    `&endDate=${encodeURIComponent(moment(maxDate).format("YYYY-MM-DD HH:mm:ss"))}` +
+                const url = `${ep.OMS}/orders/merchantid/${merchantId}?` +
+                    `begindate=${encodeURIComponent(moment(minDate).format("YYYY-MM-DD HH:mm:ss"))}` +
+                    `&enddate=${encodeURIComponent(moment(maxDate).format("YYYY-MM-DD HH:mm:ss"))}` +
                     `&offset=${offset}&limit=${limit}`;
 
                 const resp = await axios.get(url, {
                     headers: {
                         Authorization: authHeader,
-                        "User-Agent": "lysiaaccessory_dev",
+                        "User-Agent": userAgent || "lysiaaccessory_dev",
                         "Content-Type": "application/json"
                     },
                     timeout: 30000
                 });
 
-                const data = resp.data?.orders || resp.data?.data || resp.data?.content || [];
+                const data = resp.data?.items || resp.data?.orders || resp.data?.data || resp.data?.content || [];
                 if (!Array.isArray(data) || data.length === 0) break;
 
                 apiOrders.push(...data);
                 if (data.length < limit) break;
-                offset += limit;
+                offset += data.length;
                 await new Promise(r => setTimeout(r, 500));
             } catch (err) {
                 console.log(`   ❌ Hepsiburada API hatası: ${err.response?.status || err.message}`);

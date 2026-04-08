@@ -16,31 +16,29 @@ const { buildInvoiceXml } = require("../utils/ublBuilder");
  *   EarsivWebService  → e-Arşiv fatura oluşturma/sorgulama/iptal
  *
  * ─── KİMLİK DOĞRULAMA ──────────────────────────────────────────────────────
- *   Cookie-based session (CSAPSESSIONID)
+ *   Cookie-based session (CSAPSESSIONID / TEST_CSAPSESSIONID)
  *   wsLogin → userId, password, lang
- *   ERP Kodu: belgeGonderExt parametreler objesi içinde
  *
- * ─── WSDL METOT PARAMETRELERİ (describe'dan keşfedildi) ────────────────────
- *
+ * ─── API REFERANSI ──────────────────────────────────────────────────────────
  *   connectorService:
- *     belgeGonderExt(parametreler)
  *     belgeGonder(vergiTcKimlikNo, belgeTuru, belgeNo, veri, belgeHash, mimeType, belgeVersiyon)
+ *     belgeGonderExt(parametreler)  — ERP kodu ile
  *     faturaNoUret(vknTckn, faturaKodu)
  *     irsaliyeNoUret(vknTckn, irsaliyeKodu)
- *     efaturaKullanicisi(vergiTcKimlikNo)
+ *     efaturaKullanicisi(vergiTcKimlikNo) → boolean
  *     eIrsaliyeKullanicisi(vergiTcKimlikNo)
  *     gidenBelgeDurumSorgula(vergiTcKimlikNo, belgeOid)
  *     gidenBelgeDurumSorgulaEttn(vergiTcKimlikNo, ettn)
- *     gelenBelgeleriListele(vergiTcKimlikNo, sonAlinanBelgeSiraNumarasi, belgeTuru)
  *     gidenBelgeleriListele(parametreler)
+ *     gelenBelgeleriListele(vergiTcKimlikNo, sonAlinanBelgeSiraNumarasi, belgeTuru)
  *     gidenBelgeleriIndir(vergiTcKimlikNo, belgeOidListesi[], belgeTuru, belgeFormati)
  *     gelenBelgeleriIndir(vergiTcKimlikNo, ettnler[], belgeTuru, belgeFormati, tekPdfDosya)
  *     kontorBilgisiGetir(vknTckn, kontorTipi, kontorBirimi)
  *     faturaTarihcesiSorgula(ettn, faturaYonu, vknTckn)
  *
  *   EarsivWebService:
- *     faturaOlustur(input, fatura)
- *     faturaOlusturExt(input, fatura)
+ *     faturaOlustur(input, fatura)       — standart e-Arşiv oluşturma
+ *     faturaOlusturExt(input, fatura)    — ERP kodu ile e-Arşiv oluşturma
  *     faturaNoUret(input)
  *     faturaSorgula(input)
  *     faturaIptalEt(input)
@@ -77,19 +75,19 @@ const ERP_CODE = process.env.QNB_ERP_CODE || "ESC31309";
 
 // Test VKN'leri (QNB tarafından sağlanan)
 // ⚠️ e-Fatura ve e-Arşiv FARKLI ortamlar — farklı credentials!
-// e-Fatura: erpefaturatest1 → VKN / ***REDACTED***@
-// e-Arşiv:  connectortest   → VKN.portaltest / ***REDACTED***
+// e-Fatura: erpefaturatest1 → VKN / şifre
+// e-Arşiv:  connectortest   → VKN.portaltest / şifre
 const TEST_ACCOUNTS = {
-    test1: { vkn: "7610650466", userCode: "7610650466", password: process.env.QNB_EFATURA_PASSWORD || "***REDACTED***@" },
-    test2: { vkn: "7610650467", userCode: "7610650467", password: process.env.QNB_EFATURA2_PASSWORD || "***REDACTED***@" },
-    earsiv: { vkn: "7610650466", userCode: "7610650466.portaltest", password: process.env.QNB_EARSIV_PASSWORD || "***REDACTED***" }
+    test1: { vkn: "7610650466", userCode: "7610650466", password: process.env.QNB_EFATURA_PASSWORD || "***REDACTED***" },
+    test2: { vkn: "7610650467", userCode: "7610650467", password: process.env.QNB_EFATURA2_PASSWORD || "***REDACTED***" },
+    earsiv: { vkn: "7610650466", userCode: process.env.QNB_EARSIV_USERNAME || "7610650466.portaltest2", password: process.env.QNB_EARSIV_PASSWORD || "***REDACTED***" }
 };
 
 // ─── Session Yönetimi ───────────────────────────────────────────────────────
 // Oturum bazlı cookie string'lerini tut
 // QNB test ortamında TEST_CSAPSESSIONID, prod'da CSAPSESSIONID kullanır
-// Domain: qnbesolutions.com.tr — tüm subdomain'lerde geçerli
 const sessionStore = {};
+const sessionClients = {};
 
 const getWsdlUrl = (env, service) => {
     const envConfig = WSDL[env] || WSDL.test;
@@ -122,11 +120,10 @@ const storeSession = (sessionId, cookieStr) => {
     sessionStore[sessionId] = { cookieStr, createdAt: Date.now() };
 };
 
-/** Oturum cookie string'ini getir */
+/** Oturum cookie string'ini getir (25dk TTL — QNB session ~30dk) */
 const getSessionCookies = (sessionId) => {
     const entry = sessionStore[sessionId];
     if (!entry) return null;
-    // 25 dakikadan eski session'ları temizle (QNB timeout ~30dk)
     if (Date.now() - entry.createdAt > 25 * 60 * 1000) {
         delete sessionStore[sessionId];
         return null;
@@ -134,8 +131,7 @@ const getSessionCookies = (sessionId) => {
     return entry.cookieStr;
 };
 
-// Eski API uyumluluğu için alias'lar
-const sessionClients = {};
+/** Session client'ını getir (25dk TTL) */
 const getSessionClient = (sessionId) => {
     const entry = sessionClients[sessionId];
     if (!entry) return null;
@@ -145,6 +141,8 @@ const getSessionClient = (sessionId) => {
     }
     return entry.client;
 };
+
+/** Session client'ını sakla */
 const storeSessionClient = (sessionId, client) => {
     sessionClients[sessionId] = { client, createdAt: Date.now() };
 };
@@ -160,32 +158,55 @@ const clearSessionClient = (sessionId) => {
     }
 };
 
+/** Periyodik session temizliği — 30dk'dan eski session'ları sil */
+const cleanupStaleSessions = () => {
+    const now = Date.now();
+    const maxAge = 30 * 60 * 1000;
+    let cleaned = 0;
+    for (const key of Object.keys(sessionStore)) {
+        if (now - sessionStore[key].createdAt > maxAge) {
+            delete sessionStore[key];
+            cleaned++;
+        }
+    }
+    for (const key of Object.keys(sessionClients)) {
+        if (now - sessionClients[key].createdAt > maxAge) {
+            delete sessionClients[key];
+            cleaned++;
+        }
+    }
+    if (cleaned > 0) {
+        logger.info("[QNB] " + cleaned + " eski session temizlendi");
+    }
+};
+
+// Her 10 dakikada bir eski session'ları temizle
+setInterval(cleanupStaleSessions, 10 * 60 * 1000);
+
 /** Cookie string'ini client'a set et */
 const applyCookiesToClient = (client, cookies) => {
-    if (!cookies || !cookies.length) return;
+    if (!cookies || !cookies.length) return "";
     const cookieStr = cookies.map(c => c.split(";")[0]).join("; ");
     if (!client.httpHeaders) client.httpHeaders = {};
     client.httpHeaders.Cookie = cookieStr;
     return cookieStr;
 };
 
-/** Session cookie'sini HTTP header olarak ekle — tüm cookie string'ini kullan */
+/** Session cookie'sini HTTP header olarak ekle */
 const setCookieHeader = (client, sessionId) => {
     if (!sessionId) return;
     if (!client.httpHeaders) client.httpHeaders = {};
-    // Önce tam cookie string'ini dene (cross-domain uyumluluk)
     const fullCookies = getSessionCookies(sessionId);
     if (fullCookies) {
         client.httpHeaders.Cookie = fullCookies;
     } else {
-        // Fallback: sadece CSAPSESSIONID
-        client.httpHeaders.Cookie = "CSAPSESSIONID=" + sessionId;
+        // Fallback: hem TEST_CSAPSESSIONID hem CSAPSESSIONID gönder
+        client.httpHeaders.Cookie = "TEST_CSAPSESSIONID=" + sessionId + "; CSAPSESSIONID=" + sessionId;
     }
 };
 
 /**
  * Oturum cookie'si ile authenticate edilmiş client getir
- * Login sırasında saklanan cookie string'ini kullanır
  * Farklı servis (connectorService, earsiv) için yeni client oluşturup cookie ekler
  */
 const getAuthenticatedClient = async (sessionId, env, service) => {
@@ -207,6 +228,11 @@ const extractSoapError = (error) => {
     return error.message || "Bilinmeyen hata";
 };
 
+/** MD5 hash hesapla (e-Fatura belgeHash için) */
+const md5Hash = (data) => {
+    return crypto.createHash("md5").update(data, "utf-8").digest("hex");
+};
+
 // ═══════════════════════════════════════════════════════════════════════════
 //  1. OTURUM YÖNETİMİ
 // ═══════════════════════════════════════════════════════════════════════════
@@ -214,7 +240,7 @@ const extractSoapError = (error) => {
 /**
  * SOAP Login — userService.wsLogin
  * Parametreler: userId, password, lang
- * Oturum: Cookie-based (CSAPSESSIONID)
+ * Oturum: Cookie-based (CSAPSESSIONID / TEST_CSAPSESSIONID)
  */
 const login = async ({ username, password, env = "test", service = "efatura" }) => {
     try {
@@ -233,7 +259,6 @@ const login = async ({ username, password, env = "test", service = "efatura" }) 
         });
 
         // QNB cookie-based session kullanır
-        // Test ortamında TEST_CSAPSESSIONID, prod'da CSAPSESSIONID
         const cookies = client.lastResponseHeaders && client.lastResponseHeaders["set-cookie"];
 
         // Session cookie'sini çıkar (TEST_CSAPSESSIONID veya CSAPSESSIONID)
@@ -259,7 +284,7 @@ const login = async ({ username, password, env = "test", service = "efatura" }) 
             return { success: false, error: "Oturum bilgisi alınamadı.", status: 401 };
         }
 
-        // Tüm cookie string'ini sakla (cross-domain uyumluluk)
+        // Tüm cookie string'ini sakla
         const cookieStr = applyCookiesToClient(client, cookies);
         storeSession(sessionId, cookieStr || "");
         storeSessionClient(sessionId, client);
@@ -362,17 +387,17 @@ const getMukellefEtiketList = async ({ sessionId, vkn, env = "test" }) => {
 /**
  * Fatura numarası üret
  * connectorService.faturaNoUret(vknTckn, faturaKodu)
- * @param {string} faturaKodu - Fatura seri kodu (örn: "ABC")
+ * @param {string} faturaKodu - Fatura seri kodu (örn: "ABC", max 3 hane)
  */
 const generateInvoiceNumber = async ({ sessionId, vkn, faturaKodu, env = "test" }) => {
     try {
         const client = await getAuthenticatedClient(sessionId, env, "efatura");
         const [result] = await client.faturaNoUretAsync({
             vknTckn: vkn,
-            faturaKodu: faturaKodu
+            faturaKodu: faturaKodu || ""
         });
 
-        logger.info("[QNB] Fatura numarası üretildi");
+        logger.info("[QNB] Fatura numarası üretildi: " + (result ? result.return : ""));
         return { success: true, invoiceNumber: result ? result.return : null };
     } catch (error) {
         logger.error("[QNB] Fatura no üretme hatası: " + extractSoapError(error));
@@ -381,35 +406,40 @@ const generateInvoiceNumber = async ({ sessionId, vkn, faturaKodu, env = "test" 
 };
 
 /**
- * e-Fatura gönderme (belgeGonderExt — ERP kodu ile)
- * connectorService.belgeGonderExt(parametreler)
+ * e-Fatura gönderme — belgeGonder (standart)
+ * connectorService.belgeGonder(vergiTcKimlikNo, belgeTuru, belgeNo, veri, belgeHash, mimeType, belgeVersiyon)
  *
- * parametreler objesi içinde:
- *   - vergiTcKimlikNo, belgeTuru, belgeNo, veri, belgeHash, mimeType, belgeVersiyon, erpKodu
+ * ⚠️ ÖNEMLİ API DETAYLARI:
+ *   - belgeTuru: "FATURA_UBL" (e-Fatura için), "IRSALIYE_UBL" (e-İrsaliye için)
+ *   - veri: RAW XML string (base64 DEĞİL!)
+ *   - belgeHash: MD5 hash of XML string
+ *   - belgeVersiyon: "3.0"
+ *   - mimeType: "application/xml"
  *
- * @param {string} invoiceXml - UBL 2.1 formatında fatura XML'i (Base64)
+ * @param {string} invoiceXml - UBL 2.1 formatında fatura XML'i (RAW XML, base64 değil!)
  * @param {string} vkn - Gönderen VKN
- * @param {string} belgeTuru - FATURA, IRSALIYE
+ * @param {string} belgeTuru - FATURA_UBL, IRSALIYE_UBL
  * @param {string} belgeNo - Fatura numarası (faturaNoUret ile üretilmiş)
  */
-const sendEInvoice = async ({ sessionId, invoiceXml, vkn, belgeTuru = "FATURA", belgeNo = "", env = "test" }) => {
+const sendEInvoice = async ({ sessionId, invoiceXml, vkn, belgeTuru = "FATURA_UBL", belgeNo = "", env = "test" }) => {
     try {
         const client = await getAuthenticatedClient(sessionId, env, "efatura");
+        const resolvedVkn = vkn || TEST_ACCOUNTS.test1.vkn;
 
-        const [result] = await client.belgeGonderExtAsync({
-            parametreler: {
-                vergiTcKimlikNo: vkn || TEST_ACCOUNTS.test1.vkn,
-                belgeTuru: belgeTuru,
-                belgeNo: belgeNo,
-                veri: invoiceXml,
-                belgeHash: "",
-                mimeType: "application/xml",
-                belgeVersiyon: "",
-                erpKodu: ERP_CODE
-            }
+        // XML hash hesapla — QNB doğrulama için kullanır
+        const xmlHash = md5Hash(invoiceXml);
+
+        const [result] = await client.belgeGonderAsync({
+            vergiTcKimlikNo: resolvedVkn,
+            belgeTuru: belgeTuru,
+            belgeNo: belgeNo,
+            veri: invoiceXml,
+            belgeHash: xmlHash,
+            mimeType: "application/xml",
+            belgeVersiyon: "3.0"
         });
 
-        logger.info("[QNB] e-Fatura gönderildi — BelgeNo: " + belgeNo);
+        logger.info("[QNB] e-Fatura gönderildi — BelgeNo: " + belgeNo + ", belgeOid: " + (result ? result.return : ""));
         return {
             success: true,
             belgeOid: result && result.return ? result.return : null,
@@ -417,6 +447,46 @@ const sendEInvoice = async ({ sessionId, invoiceXml, vkn, belgeTuru = "FATURA", 
         };
     } catch (error) {
         logger.error("[QNB] e-Fatura gönderme hatası: " + extractSoapError(error));
+        return { success: false, error: extractSoapError(error), status: 400 };
+    }
+};
+
+/**
+ * e-Fatura gönderme — belgeGonderExt (ERP kodu ile)
+ * connectorService.belgeGonderExt(parametreler)
+ *
+ * belgeGonder ile aynı ama ek olarak erpKodu parametresi alır.
+ * ERP kodu QNB'de tanımlı olmalıdır.
+ *
+ * @param {string} invoiceXml - UBL 2.1 formatında fatura XML'i (RAW XML)
+ */
+const sendEInvoiceExt = async ({ sessionId, invoiceXml, vkn, belgeTuru = "FATURA_UBL", belgeNo = "", env = "test" }) => {
+    try {
+        const client = await getAuthenticatedClient(sessionId, env, "efatura");
+        const resolvedVkn = vkn || TEST_ACCOUNTS.test1.vkn;
+        const xmlHash = md5Hash(invoiceXml);
+
+        const [result] = await client.belgeGonderExtAsync({
+            parametreler: {
+                vergiTcKimlikNo: resolvedVkn,
+                belgeTuru: belgeTuru,
+                belgeNo: belgeNo,
+                veri: invoiceXml,
+                belgeHash: xmlHash,
+                mimeType: "application/xml",
+                belgeVersiyon: "3.0",
+                erpKodu: ERP_CODE
+            }
+        });
+
+        logger.info("[QNB] e-Fatura (Ext) gönderildi — BelgeNo: " + belgeNo);
+        return {
+            success: true,
+            belgeOid: result && result.return ? result.return : null,
+            data: result ? result.return : null
+        };
+    } catch (error) {
+        logger.error("[QNB] e-Fatura (Ext) gönderme hatası: " + extractSoapError(error));
         return { success: false, error: extractSoapError(error), status: 400 };
     }
 };
@@ -735,7 +805,7 @@ const markDocumentsReceived = async ({ sessionId, vkn, ettnList, belgeTuru = "FA
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
-//  3. e-İRSALİYE İŞLEMLERİ (connectorService — belgeTuru: IRSALIYE)
+//  3. e-İRSALİYE İŞLEMLERİ (connectorService — belgeTuru: IRSALIYE_UBL)
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
@@ -780,23 +850,22 @@ const generateDespatchNumber = async ({ sessionId, vkn, irsaliyeKodu, env = "tes
 
 /**
  * e-İrsaliye gönderme
- * connectorService.belgeGonderExt(parametreler) — belgeTuru: IRSALIYE
+ * connectorService.belgeGonder — belgeTuru: IRSALIYE_UBL
  */
 const sendDespatch = async ({ sessionId, despatchXml, vkn, belgeNo = "", env = "test" }) => {
     try {
         const client = await getAuthenticatedClient(sessionId, env, "efatura");
+        const resolvedVkn = vkn || TEST_ACCOUNTS.test1.vkn;
+        const xmlHash = md5Hash(despatchXml);
 
-        const [result] = await client.belgeGonderExtAsync({
-            parametreler: {
-                vergiTcKimlikNo: vkn || TEST_ACCOUNTS.test1.vkn,
-                belgeTuru: "IRSALIYE",
-                belgeNo: belgeNo,
-                veri: despatchXml,
-                belgeHash: "",
-                mimeType: "application/xml",
-                belgeVersiyon: "",
-                erpKodu: ERP_CODE
-            }
+        const [result] = await client.belgeGonderAsync({
+            vergiTcKimlikNo: resolvedVkn,
+            belgeTuru: "IRSALIYE_UBL",
+            belgeNo: belgeNo,
+            veri: despatchXml,
+            belgeHash: xmlHash,
+            mimeType: "application/xml",
+            belgeVersiyon: "3.0"
         });
 
         logger.info("[QNB] e-İrsaliye gönderildi — BelgeNo: " + belgeNo);
@@ -820,7 +889,7 @@ const getDespatchHistory = async ({ sessionId, vkn, ettn, irsaliyeYonu = "GIDEN"
         const client = await getAuthenticatedClient(sessionId, env, "efatura");
         const [result] = await client.irsaliyeTarihcesiSorgulaAsync({
             ettn: ettn,
-            irasliyeYonu: irsaliyeYonu,  // WSDL'de "irasliye" (typo QNB'de)
+            irasliyeYonu: irsaliyeYonu,  // WSDL'de "irasliye" (QNB'deki typo)
             vknTckn: vkn || TEST_ACCOUNTS.test1.vkn
         });
 
@@ -838,27 +907,39 @@ const getDespatchHistory = async ({ sessionId, vkn, ettn, irsaliyeYonu = "GIDEN"
 /**
  * e-Arşiv fatura numarası üret
  * EarsivWebService.faturaNoUret(input)
- * input: JSON string — FaturaData alanları: vkn, faturaSeri, islemId
+ * input: JSON string — { vkn, faturaSeri, islemId }
  */
 const generateEArchiveNumber = async ({ sessionId, vkn, faturaKodu, env = "test" }) => {
     try {
         const client = await getAuthenticatedClient(sessionId, env, "earsiv");
+        const islemId = crypto.randomUUID();
+
+        const inputObj = {
+            vkn: vkn || TEST_ACCOUNTS.earsiv.vkn,
+            faturaSeri: faturaKodu || "",
+            islemId: islemId
+        };
+
+        logger.info("[QNB] faturaNoUret input: " + JSON.stringify(inputObj));
+
         const [result] = await client.faturaNoUretAsync({
-            input: JSON.stringify({
-                vkn: vkn || TEST_ACCOUNTS.earsiv.vkn,
-                faturaSeri: faturaKodu || "",
-                islemId: crypto.randomUUID()
-            })
+            input: JSON.stringify(inputObj)
         });
 
-        // Başarılı: resultCode=AE00000, fatura numarası "output" alanında
+        // Yanıt: result.return (resultCode/resultText) + result.output (fatura numarası)
         const ret = result ? result.return : null;
         const faturaNo = result ? result.output : null;
-        if (ret && ret.resultCode === "AE00000" && faturaNo) {
+
+        if (faturaNo) {
             logger.info("[QNB] e-Arşiv fatura numarası üretildi: " + faturaNo);
             return { success: true, invoiceNumber: faturaNo };
         }
-        // Hata durumu
+
+        // resultCode kontrolü
+        if (ret && ret.resultCode === "AE00000") {
+            return { success: true, invoiceNumber: ret.resultText || "" };
+        }
+
         const errMsg = ret ? (ret.resultText || ret.resultCode) : "Bilinmeyen hata";
         logger.error("[QNB] e-Arşiv fatura no üretme hatası: " + errMsg);
         return { success: false, error: errMsg };
@@ -869,39 +950,46 @@ const generateEArchiveNumber = async ({ sessionId, vkn, faturaKodu, env = "test"
 };
 
 /**
- * e-Arşiv fatura oluştur
- * EarsivWebService.faturaOlusturExt(input, fatura)
+ * e-Arşiv fatura oluştur — faturaOlustur (standart)
+ * EarsivWebService.faturaOlustur(input, fatura)
  *
- * input: JSON string — FaturaData alanları:
- *   vkn, sube, kasa, faturaTipi, numaraVerilsinMi (0/1),
- *   faturaImzalansinMi (0/1), islemId (UUID)
+ * input: JSON string — {
+ *   vkn, sube, kasa, islemId,
+ *   numaraVerilsinMi (0/1),    — 1 ise QNB otomatik numara atar
+ *   faturaSeri,                 — numaraVerilsinMi=1 ise seri kodu (max 3 hane)
+ *   donenBelgeFormati (int)     — 9 = tüm formatlar
+ * }
  *
- * fatura: { belgeFormati: "UBL", belgeIcerigi: base64XML }
+ * fatura: { belgeFormati: "UBL", belgeIcerigi: rawXmlString }
  *
- * @param {string} invoiceXml - UBL XML (Base64 encoded)
+ * ⚠️ ÖNEMLİ: belgeIcerigi RAW XML string olmalı, base64 DEĞİL!
+ *
+ * @param {string} invoiceXml - UBL XML (RAW string, base64 değil!)
  */
-const createEArchiveInvoice = async ({ sessionId, vkn, invoiceXml, sube, kasa, faturaTipi, env = "test" }) => {
+const createEArchiveInvoice = async ({ sessionId, vkn, invoiceXml, sube, kasa, faturaTipi, faturaSeri, env = "test" }) => {
     try {
         const client = await getAuthenticatedClient(sessionId, env, "earsiv");
         const islemId = crypto.randomUUID();
+        const resolvedVkn = vkn || TEST_ACCOUNTS.earsiv.vkn;
 
         const inputData = {
-            vkn: vkn || TEST_ACCOUNTS.earsiv.vkn,
+            vkn: resolvedVkn,
             sube: sube || "DFLT",
             kasa: kasa || "DFLT",
-            faturaTipi: faturaTipi || "SATIS",
-            numaraVerilsinMi: 1,
-            faturaImzalansinMi: 1,
-            islemId: islemId
+            islemId: islemId,
+            donenBelgeFormati: 9,
         };
 
-        // ERP kodu her zaman gönderilir (test + production)
-        // QNB test ortamında da ERP kodu kayıtlı olmalı — yoksa [AE00147] kontör hatası alınır
-        // ERP kodu kayıtlı değilse [AE00001] hatası alınır → QNB'ye tanımlatılmalı
-        inputData.erpKodu = ERP_CODE;
+        // Fatura numarası XML'de boşsa QNB'den otomatik üretilmesini iste
+        // XML'deki <cbc:ID> boş ise numaraVerilsinMi=1 gönder
+        inputData.numaraVerilsinMi = 1;
+        if (faturaSeri) {
+            inputData.faturaSeri = faturaSeri;
+        }
 
-        logger.info("[QNB] faturaOlusturExt input: " + JSON.stringify(inputData));
-        const [result] = await client.faturaOlusturExtAsync({
+        logger.info("[QNB] faturaOlustur input: " + JSON.stringify(inputData));
+
+        const [result] = await client.faturaOlusturAsync({
             input: JSON.stringify(inputData),
             fatura: {
                 belgeFormati: "UBL",
@@ -930,44 +1018,80 @@ const createEArchiveInvoice = async ({ sessionId, vkn, invoiceXml, sube, kasa, f
 };
 
 /**
+ * e-Arşiv fatura oluştur — faturaOlusturExt (ERP kodu ile)
+ * EarsivWebService.faturaOlusturExt(input, fatura)
+ * input JSON'ına ek olarak erpKodu alanı eklenir.
+ */
+const createEArchiveInvoiceExt = async ({ sessionId, vkn, invoiceXml, sube, kasa, faturaTipi, faturaSeri, env = "test" }) => {
+    try {
+        const client = await getAuthenticatedClient(sessionId, env, "earsiv");
+        const islemId = crypto.randomUUID();
+        const resolvedVkn = vkn || TEST_ACCOUNTS.earsiv.vkn;
+
+        const inputData = {
+            vkn: resolvedVkn,
+            sube: sube || "DFLT",
+            kasa: kasa || "DFLT",
+            islemId: islemId,
+            donenBelgeFormati: 9,
+            erpKodu: ERP_CODE,
+            numaraVerilsinMi: 1,
+        };
+
+        if (faturaSeri) {
+            inputData.faturaSeri = faturaSeri;
+        }
+
+        logger.info("[QNB] faturaOlusturExt input: " + JSON.stringify(inputData));
+
+        const [result] = await client.faturaOlusturExtAsync({
+            input: JSON.stringify(inputData),
+            fatura: {
+                belgeFormati: "UBL",
+                belgeIcerigi: invoiceXml
+            }
+        });
+
+        const ret = result ? result.return : null;
+        if (ret && ret.resultCode === "AE00000") {
+            logger.info("[QNB] e-Arşiv fatura (Ext) oluşturuldu — islemId: " + islemId);
+            return {
+                success: true,
+                data: ret,
+                islemId: islemId,
+                output: result.output || null
+            };
+        }
+
+        const errMsg = ret ? (ret.resultText || ret.resultCode) : "Bilinmeyen hata";
+        logger.error("[QNB] e-Arşiv fatura (Ext) oluşturma hatası: " + errMsg);
+        return { success: false, error: errMsg, status: 400 };
+    } catch (error) {
+        logger.error("[QNB] e-Arşiv fatura (Ext) oluşturma hatası: " + extractSoapError(error));
+        return { success: false, error: extractSoapError(error), status: 400 };
+    }
+};
+
+/**
  * e-Arşiv fatura oluştur — FORM VERİLERİNDEN
  * Frontend'den gelen form verilerini UBL-TR XML'e çevirip QNB'ye gönderir
  *
  * Akış:
- *   1. Fatura numarası üret (faturaNoUret) veya mevcut numarayı kullan
- *   2. UBL-TR XML oluştur (ublBuilder)
- *   3. QNB'ye gönder (faturaOlusturExt)
+ *   1. UBL-TR XML oluştur (ublBuilder)
+ *   2. QNB'ye gönder (faturaOlustur)
+ *   3. QNB'nin döndürdüğü gerçek fatura numarasını çıkar
  */
 const createEArchiveFromForm = async ({ sessionId, vkn, invoiceData, env = "test" }) => {
     try {
         const resolvedVkn = vkn || (invoiceData.supplier && invoiceData.supplier.vkn) || TEST_ACCOUNTS.earsiv.vkn;
-        let invoiceNumber = invoiceData.invoiceNumber || "";
-
-        // Fatura numarası yoksa QNB'den üret
-        if (!invoiceNumber) {
-            const faturaKodu = invoiceData.faturaKodu || "LYS";
-            logger.info("[QNB] Fatura numarası üretiliyor — seri: " + faturaKodu);
-            const noResult = await generateEArchiveNumber({
-                sessionId, vkn: resolvedVkn, faturaKodu, env
-            });
-            if (noResult.success && noResult.invoiceNumber) {
-                invoiceNumber = noResult.invoiceNumber;
-                logger.info("[QNB] Fatura numarası üretildi: " + invoiceNumber);
-            } else {
-                // Numara üretilemezse otomatik oluştur (ABC2026000000001 formatı)
-                const seri = faturaKodu.substring(0, 3).toUpperCase().padEnd(3, "A");
-                const yil = new Date().getFullYear();
-                const sira = String(Math.floor(Math.random() * 999999999)).padStart(9, "0");
-                invoiceNumber = seri + yil + sira;
-                logger.warn("[QNB] Fatura no üretilemedi, otomatik oluşturuldu: " + invoiceNumber);
-            }
-        }
+        const faturaKodu = invoiceData.faturaKodu || "LYS";
 
         // UBL-TR XML oluştur
-        const { base64, uuid, totals } = buildInvoiceXml({
+        // ⚠️ invoiceNumber boş bırakılır — QNB numaraVerilsinMi=1 ile otomatik atar
+        const { xml, uuid, totals } = buildInvoiceXml({
             profileId: "EARSIVFATURA",
             invoiceTypeCode: invoiceData.invoiceTypeCode || "SATIS",
-            invoiceNumber: invoiceNumber,
+            invoiceNumber: invoiceData.invoiceNumber || "",
             issueDate: invoiceData.issueDate,
             currency: invoiceData.currency || "TRY",
             note: invoiceData.note || "",
@@ -977,38 +1101,40 @@ const createEArchiveFromForm = async ({ sessionId, vkn, invoiceData, env = "test
             lines: invoiceData.lines || [],
         });
 
-        logger.info("[QNB] e-Arşiv UBL XML oluşturuldu — UUID: " + uuid + " FaturaNo: " + invoiceNumber);
+        logger.info("[QNB] e-Arşiv UBL XML oluşturuldu — UUID: " + uuid);
 
-        // QNB'ye gönder
-        const result = await createEArchiveInvoice({
+        // QNB'ye gönder — faturaOlusturExt (ERP kodu ile)
+        // ⚠️ QNB resmi dokümantasyon: "e-Arşiv uygulamasında fatura gönderim
+        //    aşamasında input içerisine erpKodu eklenmelidir"
+        const result = await createEArchiveInvoiceExt({
             sessionId,
             vkn: resolvedVkn,
-            invoiceXml: base64,
+            invoiceXml: xml,
             faturaTipi: invoiceData.invoiceTypeCode || "SATIS",
+            faturaSeri: faturaKodu,
             env
         });
 
         if (result.success) {
-            // ✅ FIX: QNB'nin döndürdüğü gerçek fatura numarasını ve URL'yi çıkar
-            // QNB numaraVerilsinMi=1 olduğunda kendi numarasını atar (EAA... formatı)
+            // QNB'nin döndürdüğü gerçek fatura numarasını ve URL'yi çıkar
             // resultExtra.entry[] içinde faturaNo, uuid, faturaURL döner
-            let qnbFaturaNo = invoiceNumber;
+            let qnbFaturaNo = invoiceData.invoiceNumber || "";
             let qnbUuid = uuid;
             let faturaURL = "";
 
-            const entries = result.data?.resultExtra?.entry;
+            const entries = result.data && result.data.resultExtra && result.data.resultExtra.entry;
             if (Array.isArray(entries)) {
                 entries.forEach(entry => {
-                    const key = entry.key?.$value || entry.key || "";
-                    const val = entry.value?.$value || entry.value || "";
+                    const key = (entry.key && entry.key.$value) || entry.key || "";
+                    const val = (entry.value && entry.value.$value) || entry.value || "";
                     if (key === "faturaNo" && val) qnbFaturaNo = val;
                     if (key === "uuid" && val) qnbUuid = val;
                     if (key === "faturaURL" && val) faturaURL = val;
                 });
             }
 
-            if (qnbFaturaNo !== invoiceNumber) {
-                logger.info("[QNB] QNB fatura numarası atadı: " + qnbFaturaNo + " (gönderilen: " + invoiceNumber + ")");
+            if (qnbFaturaNo && qnbFaturaNo !== invoiceData.invoiceNumber) {
+                logger.info("[QNB] QNB fatura numarası atadı: " + qnbFaturaNo);
             }
             if (faturaURL) {
                 logger.info("[QNB] Fatura URL: " + faturaURL);
@@ -1026,24 +1152,36 @@ const createEArchiveFromForm = async ({ sessionId, vkn, invoiceData, env = "test
 /**
  * e-Arşiv fatura sorgula
  * EarsivWebService.faturaSorgula(input)
+ * input: JSON string — { vkn, faturaUuid, donenBelgeFormati }
+ *
+ * donenBelgeFormati: 0=PDF, 1=HTML, 9=tümü
  */
-const queryEArchiveInvoice = async ({ sessionId, vkn, uuid, faturaNo, env = "test" }) => {
+const queryEArchiveInvoice = async ({ sessionId, vkn, uuid, faturaNo, belgeFormati, env = "test" }) => {
     try {
         const client = await getAuthenticatedClient(sessionId, env, "earsiv");
+
+        const inputObj = {
+            vkn: vkn || TEST_ACCOUNTS.earsiv.vkn,
+            faturaUuid: uuid || "",
+            islemId: crypto.randomUUID()
+        };
+
+        // donenBelgeFormati: fatura sorgulama sonucunda dönen belge formatı
+        if (belgeFormati != null) {
+            inputObj.donenBelgeFormati = belgeFormati;
+        }
+        if (faturaNo) {
+            inputObj.faturaNo = faturaNo;
+        }
+
         const [result] = await client.faturaSorgulaAsync({
-            input: JSON.stringify({
-                vkn: vkn || TEST_ACCOUNTS.earsiv.vkn,
-                faturaUuid: uuid || "",
-                faturaNo: faturaNo || "",
-                islemId: crypto.randomUUID()
-            })
+            input: JSON.stringify(inputObj)
         });
 
         const ret = result ? result.return : null;
-        if (ret && ret.resultCode === "AE00000") {
-            return { success: true, data: ret };
-        }
-        return { success: true, data: ret };
+        const output = result ? result.output : null;
+
+        return { success: true, data: output || ret };
     } catch (error) {
         logger.error("[QNB] e-Arşiv fatura sorgu hatası: " + extractSoapError(error));
         return { success: false, error: extractSoapError(error) };
@@ -1053,25 +1191,51 @@ const queryEArchiveInvoice = async ({ sessionId, vkn, uuid, faturaNo, env = "tes
 /**
  * e-Arşiv fatura listesi sorgula
  * EarsivWebService.faturaListeSorgula(input)
+ *
+ * ✅ QNB FaturaSorgulamaInput kabul edilen alanlar:
+ *   mukellefVkn, aliciVkn, faturaUuid, faturaNo, islemId,
+ *   faturaTarihiBaslangic, faturaTarihiBitis,
+ *   pagingStart, pagingLimit (max 100),
+ *   siralamaAlani, siralamaYonu,
+ *   sube, kasa
+ *
+ * ⚠️ "vkn" ve "baslangicTarih/bitisTarih" KABUL EDİLMEZ!
+ * ⚠️ faturaTarihiBaslangic ZORUNLU — verilmezse hata alınır
+ * ⚠️ pagingLimit max 100 — aşılırsa AE00067 hatası
  */
 const listEArchiveInvoices = async ({ sessionId, vkn, searchParams = {}, env = "test" }) => {
     try {
         const client = await getAuthenticatedClient(sessionId, env, "earsiv");
         const resolvedVkn = vkn || TEST_ACCOUNTS.earsiv.vkn;
 
-        // faturaListeSorgula input: JSON string
-        // Bilinen alanlar: vkn, faturaUuid, faturaNo, baslangicTarih, bitisTarih,
-        // maxTutar, dovizCinsi, yazdirildi, yalnizIptalEdilenFaturalar, siralamaYonu
+        // Tarih formatı: YYYYMMDD
+        const fmtDate = (d) => d.getFullYear() + String(d.getMonth() + 1).padStart(2, "0") + String(d.getDate()).padStart(2, "0");
+        const now = new Date();
+        const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
         const inputObj = {
-            vkn: resolvedVkn,
-            islemId: crypto.randomUUID()
+            mukellefVkn: resolvedVkn,
+            sube: searchParams.sube || "DFLT",
+            kasa: searchParams.kasa || "DFLT",
+            islemId: crypto.randomUUID(),
+            pagingStart: 0,
+            pagingLimit: 100,
+            faturaTarihiBaslangic: searchParams.startDate || fmtDate(thirtyDaysAgo),
+            faturaTarihiBitis: searchParams.endDate || fmtDate(now)
         };
 
-        // Tarih aralığı — yyyyMMdd formatında
-        if (searchParams.startDate) inputObj.baslangicTarih = searchParams.startDate;
-        if (searchParams.endDate) inputObj.bitisTarih = searchParams.endDate;
+        // Ek filtreler
         if (searchParams.faturaNo) inputObj.faturaNo = searchParams.faturaNo;
         if (searchParams.faturaUuid) inputObj.faturaUuid = searchParams.faturaUuid;
+        if (searchParams.aliciVkn) inputObj.aliciVkn = searchParams.aliciVkn;
+
+        // Sayfalama
+        if (searchParams.pagingStart != null) inputObj.pagingStart = searchParams.pagingStart;
+        if (searchParams.pagingLimit != null) inputObj.pagingLimit = Math.min(searchParams.pagingLimit, 100);
+
+        // Sıralama
+        if (searchParams.siralamaAlani) inputObj.siralamaAlani = searchParams.siralamaAlani;
+        if (searchParams.siralamaYonu) inputObj.siralamaYonu = searchParams.siralamaYonu;
 
         logger.info("[QNB] e-Arşiv faturaListeSorgula input: " + JSON.stringify(inputObj));
 
@@ -1092,6 +1256,7 @@ const listEArchiveInvoices = async ({ sessionId, vkn, searchParams = {}, env = "
 /**
  * e-Arşiv fatura iptal et
  * EarsivWebService.faturaIptalEt(input)
+ * input: JSON string — { vkn, faturaUuid, faturaNo, islemId }
  */
 const cancelEArchiveInvoice = async ({ sessionId, vkn, uuid, faturaNo, env = "test" }) => {
     try {
@@ -1121,19 +1286,14 @@ const cancelEArchiveInvoice = async ({ sessionId, vkn, uuid, faturaNo, env = "te
  * e-Arşiv fatura önizleme (HTML/PDF)
  * EarsivWebService.faturaOnizleme(input, fatura)
  *
- * faturaOnizleme iki parametre alır:
- *   input: JSON string — { faturaUuid, faturaNo, vkn, islemId }
- *   fatura: opsiyonel — { belgeFormati, belgeIcerigi } (yeni fatura önizlemesi için)
- *
- * Mevcut faturayı önizlemek için sadece input yeterli (UUID ile).
+ * Mevcut faturayı önizlemek için: input'ta faturaUuid ver
+ * Yeni fatura önizlemesi için: fatura parametresini de ekle
  */
 const previewEArchiveInvoice = async ({ sessionId, vkn, invoiceXml, uuid, faturaNo, env = "test" }) => {
     try {
         const client = await getAuthenticatedClient(sessionId, env, "earsiv");
         const resolvedVkn = vkn || TEST_ACCOUNTS.earsiv.vkn;
 
-        // ✅ FIX: sube ve kasa alanları zorunlu — eksik olunca QNB hata veriyor
-        // Hata: "Eksik alanlar: sube, kasa, bu alan(lar)ın boş olmadığından emin olunuz!"
         const inputData = {
             vkn: resolvedVkn,
             sube: "DFLT",
@@ -1147,7 +1307,7 @@ const previewEArchiveInvoice = async ({ sessionId, vkn, invoiceXml, uuid, fatura
             input: JSON.stringify(inputData)
         };
 
-        // Eğer ham XML verilmişse (yeni fatura önizlemesi), fatura parametresini de ekle
+        // Yeni fatura önizlemesi — RAW XML gönder
         if (invoiceXml && !uuid) {
             args.fatura = {
                 belgeFormati: "UBL",
@@ -1181,10 +1341,11 @@ const previewEArchiveInvoice = async ({ sessionId, vkn, invoiceXml, uuid, fatura
  * e-Arşiv fatura ZIP indir
  * EarsivWebService.faturaZipiAl(input)
  *
- * QNB FaturaZipiAlInputData yalnızca 3 alan kabul eder:
- *   uuidList       — indirilecek faturaların UUID listesi (virgülle ayrılmış string)
- *   tasinanFaturalar — taşınan faturalar bayrağı (boolean/int, genelde 0)
- *   donenBelgeFormati — dönen belge formatı ("ZIP", "PDF" vb.)
+ * input: JSON string — {
+ *   uuidList: [uuid1, uuid2, ...],  — indirilecek faturaların UUID listesi
+ *   tasinanFaturalar: 0,             — taşınan faturalar bayrağı
+ *   donenBelgeFormati: 0              — 0=ZIP, 1=PDF
+ * }
  */
 const downloadEArchiveZip = async ({ sessionId, uuid, env = "test" }) => {
     try {
@@ -1194,10 +1355,6 @@ const downloadEArchiveZip = async ({ sessionId, uuid, env = "test" }) => {
             return { success: false, error: "UUID gerekli — faturaZipiAl için fatura UUID'si belirtilmeli." };
         }
 
-        // ✅ FIX: QNB FaturaZipiAlInputData alanları:
-        //   uuidList: ArrayList<String> → JSON array olmalı
-        //   tasinanFaturalar: Integer → 0 veya 1
-        //   donenBelgeFormati: Integer → 0=ZIP, 1=PDF (String "ZIP" değil!)
         const inputData = {
             uuidList: [uuid],
             tasinanFaturalar: 0,
@@ -1209,7 +1366,6 @@ const downloadEArchiveZip = async ({ sessionId, uuid, env = "test" }) => {
             input: JSON.stringify(inputData)
         });
 
-        // Yanıt yapısı: result.return (resultCode/resultText) + result.output (base64 ZIP)
         const ret = result ? result.return : null;
         const output = result ? result.output : null;
 
@@ -1218,12 +1374,10 @@ const downloadEArchiveZip = async ({ sessionId, uuid, env = "test" }) => {
             return { success: true, data: output };
         }
 
-        // resultCode başarılı ama output yoksa, return'ü data olarak dön
         if (ret && ret.resultCode === "AE00000") {
             return { success: true, data: ret };
         }
 
-        // Hata durumu
         const errMsg = ret ? (ret.resultText || ret.resultCode || "Bilinmeyen hata") : "Yanıt alınamadı";
         logger.error("[QNB] e-Arşiv ZIP indirme hatası: " + errMsg);
         return { success: false, error: errMsg };
@@ -1307,41 +1461,105 @@ const getEArchiveConfig = async ({ sessionId, vkn, env = "test" }) => {
 //  5. GENEL ARAMA & DURUM
 // ═══════════════════════════════════════════════════════════════════════════
 
+// ── Session Cache — aynı servis için tekrar login yapmayı önler ──────────────
+const _sessionCache = {};
+const SESSION_CACHE_TTL_MS = 20 * 60 * 1000;   // 20 dakika (QNB session ~30dk geçerli)
+const BLOCK_COOLDOWN_MS = 5 * 60 * 1000;       // 5 dakika — login başarısız olursa cooldown
+
+/**
+ * Cached login — aynı servis+env için mevcut session varsa tekrar login yapmaz
+ * Login başarısız olursa 5dk boyunca tekrar denemez (bloke koruması)
+ */
+const getCachedSession = async (service, env, vkn) => {
+    const cacheKey = service + "_" + env;
+    const cached = _sessionCache[cacheKey];
+
+    // Bloke koruması
+    if (cached && cached.blocked && (Date.now() - cached.blockedAt) < BLOCK_COOLDOWN_MS) {
+        const remainSec = Math.ceil((BLOCK_COOLDOWN_MS - (Date.now() - cached.blockedAt)) / 1000);
+        logger.warn("[QNB] " + service + " login cooldown aktif — " + remainSec + "sn kaldı");
+        return { success: false, error: cached.error || (service + " geçici olarak devre dışı (cooldown)") };
+    }
+
+    // Geçerli session cache var mı?
+    if (cached && cached.sessionId && !cached.blocked && (Date.now() - cached.createdAt) < SESSION_CACHE_TTL_MS) {
+        return { success: true, sessionId: cached.sessionId };
+    }
+
+    // Yeni login
+    let username, password;
+    if (service === "earsiv") {
+        username = process.env.QNB_EARSIV_USERNAME || TEST_ACCOUNTS.earsiv.userCode;
+        password = process.env.QNB_EARSIV_PASSWORD || TEST_ACCOUNTS.earsiv.password;
+    } else {
+        username = process.env.QNB_EFATURA_USERNAME || vkn;
+        password = process.env.QNB_EFATURA_PASSWORD || "";
+    }
+
+    if (!username || !password) {
+        return { success: false, error: service + " bağlantı bilgileri eksik" };
+    }
+
+    logger.info("[QNB] " + service + " login yapılıyor — user: " + username);
+    const loginResult = await login({ username, password, env, service });
+
+    if (!loginResult.success) {
+        logger.error("[QNB] " + service + " login başarısız: " + loginResult.error);
+        _sessionCache[cacheKey] = {
+            blocked: true,
+            blockedAt: Date.now(),
+            error: loginResult.error,
+            service
+        };
+        return { success: false, error: service + " oturumu açılamadı: " + loginResult.error };
+    }
+
+    // Başarılı — cache'e kaydet
+    _sessionCache[cacheKey] = {
+        sessionId: loginResult.sessionId,
+        createdAt: Date.now(),
+        blocked: false,
+        service
+    };
+
+    logger.info("[QNB] " + service + " login başarılı, session cached");
+    return { success: true, sessionId: loginResult.sessionId };
+};
+
 /**
  * Genel belge arama — documentType'a göre ilgili servisi çağırır
  */
 const searchDocuments = async ({ sessionId, vkn, searchParams = {}, documentType, env = "test" }) => {
     try {
         switch (documentType) {
-            case "outgoing-einvoice":
-                return listOutgoingDocuments({ sessionId, vkn, searchParams, env });
-            case "incoming-einvoice":
-                return listIncomingDocuments({ sessionId, vkn, belgeTuru: "FATURA", sonSiraNo: searchParams.sonSiraNo || "0", env });
+            case "outgoing-einvoice": {
+                const sess = await getCachedSession("efatura", env, vkn);
+                if (!sess.success) return { success: false, error: sess.error };
+                return await listOutgoingDocuments({ sessionId: sess.sessionId, vkn, searchParams, env });
+            }
+            case "incoming-einvoice": {
+                const sess = await getCachedSession("efatura", env, vkn);
+                if (!sess.success) return { success: false, error: sess.error };
+                return await listIncomingDocuments({ sessionId: sess.sessionId, vkn, belgeTuru: "FATURA", sonSiraNo: searchParams.sonSiraNo || "0", env });
+            }
             case "outgoing-despatch":
-                return listOutgoingDocuments({ sessionId, vkn, searchParams: { ...searchParams, belgeTuru: "IRSALIYE" }, env });
-            case "incoming-despatch":
-                return listIncomingDocuments({ sessionId, vkn, belgeTuru: "IRSALIYE", sonSiraNo: searchParams.sonSiraNo || "0", env });
+            case "despatch-advice": {
+                const sess = await getCachedSession("efatura", env, vkn);
+                if (!sess.success) return { success: false, error: sess.error };
+                return await listOutgoingDocuments({ sessionId: sess.sessionId, vkn, searchParams: { ...searchParams, belgeTuru: "IRSALIYE" }, env });
+            }
+            case "incoming-despatch": {
+                const sess = await getCachedSession("efatura", env, vkn);
+                if (!sess.success) return { success: false, error: sess.error };
+                return await listIncomingDocuments({ sessionId: sess.sessionId, vkn, belgeTuru: "IRSALIYE", sonSiraNo: searchParams.sonSiraNo || "0", env });
+            }
             case "earchive": {
-                // e-Arşiv servisi farklı credentials ile ayrı login gerektirir
-                // Frontend'den gelen sessionId e-Fatura'ya ait, e-Arşiv'de geçersiz
-                const earsivCreds = {
-                    username: process.env.QNB_EARSIV_USERNAME || TEST_ACCOUNTS.earsiv.userCode,
-                    password: process.env.QNB_EARSIV_PASSWORD || TEST_ACCOUNTS.earsiv.password,
-                };
-                logger.info("[QNB] e-Arşiv sorgusu için ayrı login yapılıyor — user: " + earsivCreds.username);
-                const loginResult = await login({ ...earsivCreds, env, service: "earsiv" });
-                if (!loginResult.success) {
-                    logger.error("[QNB] e-Arşiv login başarısız: " + loginResult.error);
-                    return { success: false, error: "e-Arşiv oturumu açılamadı: " + loginResult.error };
-                }
-                const earsivSessionId = loginResult.sessionId;
-                const result = await listEArchiveInvoices({ sessionId: earsivSessionId, vkn, searchParams, env });
-                // Session'ı temizle (tek kullanımlık)
-                try { await logout({ sessionId: earsivSessionId, env, service: "earsiv" }); } catch (e) { /* ignore */ }
-                return result;
+                const sess = await getCachedSession("earsiv", env, vkn);
+                if (!sess.success) return { success: false, error: sess.error };
+                return await listEArchiveInvoices({ sessionId: sess.sessionId, vkn, searchParams, env });
             }
             default:
-                return listOutgoingDocuments({ sessionId, vkn, searchParams, env });
+                return { success: false, error: "Bilinmeyen belge tipi: " + documentType };
         }
     } catch (error) {
         logger.error("[QNB] Belge arama hatası: " + extractSoapError(error));
@@ -1396,6 +1614,7 @@ module.exports = {
     getMukellefEtiketList,
     generateInvoiceNumber,
     sendEInvoice,
+    sendEInvoiceExt,
     getOutgoingStatus,
     getOutgoingStatusByEttn,
     getOutgoingStatusByBelgeNo,
@@ -1421,6 +1640,7 @@ module.exports = {
     // e-Arşiv (EarsivWebService)
     generateEArchiveNumber,
     createEArchiveInvoice,
+    createEArchiveInvoiceExt,
     createEArchiveFromForm,
     queryEArchiveInvoice,
     listEArchiveInvoices,

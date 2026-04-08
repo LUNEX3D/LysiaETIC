@@ -69,6 +69,11 @@ router.post("/toggle", autoInvoiceController.toggleEnabled);
 router.post("/reset-errors", autoInvoiceController.resetErrors);
 router.post("/cleanup-ghost-invoices", autoInvoiceController.cleanupGhostInvoices);
 
+// ── Pazaryeri Bazlı Ayarlar ───────────────────────────────────────────────
+router.post("/toggle-marketplace", autoInvoiceController.toggleMarketplace);
+router.put("/marketplace-settings", autoInvoiceController.saveMarketplaceSettings);
+router.get("/marketplace-stats", autoInvoiceController.getMarketplaceStats);
+
 // ── Manuel Tetikleme ──────────────────────────────────────────────────────
 router.post("/process", autoInvoiceController.processOrders);
 router.post("/process-all", autoInvoiceController.processAllOrders);
@@ -78,6 +83,10 @@ router.post("/process-single/:orderId", autoInvoiceController.processSingleOrder
 router.get("/invoices", autoInvoiceController.listInvoices);
 router.get("/invoices/:invoiceId", autoInvoiceController.getInvoiceDetail);
 router.get("/invoices/:invoiceId/pdf", autoInvoiceController.getInvoicePdf);
+
+// ── QNB'den Doğrudan Fatura Listesi (DB yerine) ──────────────────────────
+router.get("/qnb-invoices", autoInvoiceController.getQnbInvoices);
+router.get("/qnb-invoices/:uuid/preview", autoInvoiceController.getQnbInvoicePreview);
 
 // ── İstatistikler ─────────────────────────────────────────────────────────
 router.get("/stats", autoInvoiceController.getStats);

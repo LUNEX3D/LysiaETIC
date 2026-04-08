@@ -9,6 +9,11 @@
  *   - TICARIFATURA  (e-Fatura — Ticari)
  *   - TEMELFATURA   (e-Fatura — Temel)
  *   - IRSALIYE      (e-İrsaliye)
+ *
+ * ⚠️ ÖNEMLİ: QNB API'ye RAW XML gönderilir (base64 DEĞİL!)
+ *   - e-Arşiv: faturaOlustur → fatura.belgeIcerigi = raw XML
+ *   - e-Fatura: belgeGonder → veri = raw XML
+ *   - base64 sadece geriye uyumluluk için döndürülür
  */
 
 const crypto = require("crypto");
@@ -36,7 +41,7 @@ const esc = (s) => String(s || "")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&apos;");
 
-// ─── Birim Kodları ──────────────────────────────────────────────────────────
+// ─── Birim Kodları (UN/ECE Rec 20) ──────────────────────────────────────────
 const UNIT_CODES = {
     "adet": "C62",
     "kg": "KGM",
@@ -51,6 +56,8 @@ const UNIT_CODES = {
     "gun": "DAY",
     "ay": "MON",
     "yil": "ANN",
+    "set": "SET",
+    "duzine": "DZN",
 };
 
 const getUnitCode = (unit) => {
@@ -85,30 +92,10 @@ const TAX_CODES = {
  * @param {string} [data.sendingType] - Gönderim şekli: ELEKTRONIK | KAGIT (e-Arşiv için zorunlu)
  *
  * @param {Object} data.supplier - Satıcı bilgileri
- * @param {string} data.supplier.vkn - VKN (10 hane) veya TCKN (11 hane)
- * @param {string} data.supplier.name - Firma/Kişi adı
- * @param {string} [data.supplier.taxOffice] - Vergi dairesi
- * @param {string} [data.supplier.street] - Adres
- * @param {string} [data.supplier.district] - İlçe
- * @param {string} [data.supplier.city] - İl
- * @param {string} [data.supplier.country] - Ülke
- * @param {string} [data.supplier.phone] - Telefon
- * @param {string} [data.supplier.email] - E-posta
- *
- * @param {Object} data.customer - Alıcı bilgileri (supplier ile aynı yapı)
- * @param {string} [data.customer.firstName] - Ad (TCKN için zorunlu)
- * @param {string} [data.customer.lastName] - Soyad (TCKN için zorunlu)
- *
+ * @param {Object} data.customer - Alıcı bilgileri
  * @param {Array} data.lines - Fatura kalemleri
- * @param {string} data.lines[].name - Ürün/Hizmet adı
- * @param {number} data.lines[].quantity - Miktar
- * @param {string} [data.lines[].unit] - Birim (adet, kg, lt, m, m2, paket...)
- * @param {number} data.lines[].unitPrice - Birim fiyat (KDV hariç)
- * @param {number} [data.lines[].vatRate] - KDV oranı (varsayılan: 20)
- * @param {number} [data.lines[].discountAmount] - İndirim tutarı
- * @param {string} [data.lines[].discountReason] - İndirim nedeni
  *
- * @returns {Object} { xml: string, uuid: string, base64: string }
+ * @returns {Object} { xml: string, uuid: string, base64: string, totals: Object }
  */
 const buildInvoiceXml = (data) => {
     const uuid = data.uuid || crypto.randomUUID();
@@ -170,13 +157,25 @@ const buildInvoiceXml = (data) => {
     // ═══ XML OLUŞTUR ═══
     const parts = [];
 
+    // ── XML Declaration & Root Element ──
+    // QNB eSolutions UBL-TR 2.1 uyumlu namespace'ler
     parts.push('<?xml version="1.0" encoding="UTF-8"?>');
-    parts.push('<Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2"');
+    parts.push('<Invoice');
+    parts.push(' xsi:schemaLocation="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2 ../xsdrt/maindoc/UBL-Invoice-2.1.xsd"');
+    parts.push(' xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2"');
     parts.push(' xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"');
     parts.push(' xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2"');
-    parts.push(' xmlns:ext="urn:oasis:names:specification:ubl:schema:xsd:CommonExtensionComponents-2">');
+    parts.push(' xmlns:ext="urn:oasis:names:specification:ubl:schema:xsd:CommonExtensionComponents-2"');
+    parts.push(' xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">');
 
-    // Header
+    // ── UBL Extensions (QNB imza için kullanır) ──
+    parts.push('<ext:UBLExtensions>');
+    parts.push('<ext:UBLExtension>');
+    parts.push('<ext:ExtensionContent/>');
+    parts.push('</ext:UBLExtension>');
+    parts.push('</ext:UBLExtensions>');
+
+    // ── Header ──
     parts.push('<cbc:UBLVersionID>2.1</cbc:UBLVersionID>');
     parts.push('<cbc:CustomizationID>TR1.2</cbc:CustomizationID>');
     parts.push('<cbc:ProfileID>' + esc(profileId) + '</cbc:ProfileID>');
@@ -187,71 +186,130 @@ const buildInvoiceXml = (data) => {
     parts.push('<cbc:IssueTime>' + issueTime + '</cbc:IssueTime>');
     parts.push('<cbc:InvoiceTypeCode>' + esc(invoiceTypeCode) + '</cbc:InvoiceTypeCode>');
 
-    // Notes — e-Arşiv için Gönderim Şekli zorunlu
-    if (data.note) {
-        parts.push('<cbc:Note>' + esc(data.note) + '</cbc:Note>');
-    }
+    // ── Notes ──
+    // e-Arşiv için "Gönderim Şekli: ELEKTRONIK" notu ZORUNLU
     if (profileId === "EARSIVFATURA") {
         parts.push('<cbc:Note>Gonderim Sekli: ' + esc(sendingType) + '</cbc:Note>');
+    }
+    if (data.note) {
+        parts.push('<cbc:Note>' + esc(data.note) + '</cbc:Note>');
     }
 
     parts.push('<cbc:DocumentCurrencyCode>' + esc(currency) + '</cbc:DocumentCurrencyCode>');
     parts.push('<cbc:LineCountNumeric>' + calculatedLines.length + '</cbc:LineCountNumeric>');
 
+    // ── Signature (QNB zorunlu kılıyor) ──
+    parts.push('<cac:Signature>');
+    parts.push('<cbc:ID schemeID="VKN_TCKN">' + esc(supplier.vkn) + '</cbc:ID>');
+    parts.push('<cac:SignatoryParty>');
+    parts.push('<cac:PartyIdentification><cbc:ID schemeID="' + supplierIdType + '">' + esc(supplier.vkn) + '</cbc:ID></cac:PartyIdentification>');
+    parts.push('<cac:PostalAddress><cbc:CityName>' + esc(supplier.city || "Istanbul") + '</cbc:CityName><cac:Country><cbc:Name>' + esc(supplier.country || "Turkiye") + '</cbc:Name></cac:Country></cac:PostalAddress>');
+    parts.push('</cac:SignatoryParty>');
+    parts.push('<cac:DigitalSignatureAttachment><cac:ExternalReference><cbc:URI>#Signature</cbc:URI></cac:ExternalReference></cac:DigitalSignatureAttachment>');
+    parts.push('</cac:Signature>');
+
     // ── Satıcı (Supplier) ──
     parts.push('<cac:AccountingSupplierParty><cac:Party>');
+
+    // WebsiteURI (opsiyonel)
+    if (supplier.website) {
+        parts.push('<cbc:WebsiteURI>' + esc(supplier.website) + '</cbc:WebsiteURI>');
+    }
+
     parts.push('<cac:PartyIdentification><cbc:ID schemeID="' + supplierIdType + '">' + esc(supplier.vkn) + '</cbc:ID></cac:PartyIdentification>');
-    parts.push('<cac:PartyName><cbc:Name>' + esc(supplier.name) + '</cbc:Name></cac:PartyName>');
+
+    // PartyName — firma adı
+    if (supplierIdType === "VKN") {
+        parts.push('<cac:PartyName><cbc:Name>' + esc(supplier.name) + '</cbc:Name></cac:PartyName>');
+    }
+
     parts.push('<cac:PostalAddress>');
     if (supplier.street) parts.push('<cbc:StreetName>' + esc(supplier.street) + '</cbc:StreetName>');
+    if (supplier.buildingNumber) parts.push('<cbc:BuildingNumber>' + esc(supplier.buildingNumber) + '</cbc:BuildingNumber>');
     parts.push('<cbc:CitySubdivisionName>' + esc(supplier.district || "Merkez") + '</cbc:CitySubdivisionName>');
     parts.push('<cbc:CityName>' + esc(supplier.city || "Istanbul") + '</cbc:CityName>');
+    if (supplier.postalZone) parts.push('<cbc:PostalZone>' + esc(supplier.postalZone) + '</cbc:PostalZone>');
     parts.push('<cac:Country><cbc:Name>' + esc(supplier.country || "Turkiye") + '</cbc:Name></cac:Country>');
     parts.push('</cac:PostalAddress>');
+
+    // PartyTaxScheme — Vergi Dairesi
     if (supplier.taxOffice) {
         parts.push('<cac:PartyTaxScheme><cac:TaxScheme><cbc:Name>' + esc(supplier.taxOffice) + '</cbc:Name></cac:TaxScheme></cac:PartyTaxScheme>');
     }
-    if (supplier.phone || supplier.email) {
+
+    // Contact
+    if (supplier.phone || supplier.email || supplier.fax) {
         parts.push('<cac:Contact>');
         if (supplier.phone) parts.push('<cbc:Telephone>' + esc(supplier.phone) + '</cbc:Telephone>');
+        if (supplier.fax) parts.push('<cbc:Telefax>' + esc(supplier.fax) + '</cbc:Telefax>');
         if (supplier.email) parts.push('<cbc:ElectronicMail>' + esc(supplier.email) + '</cbc:ElectronicMail>');
         parts.push('</cac:Contact>');
     }
-    if (supplierIdType === "TCKN" && (supplier.firstName || supplier.lastName)) {
+
+    // Person — TCKN için zorunlu
+    if (supplierIdType === "TCKN") {
         parts.push('<cac:Person>');
-        parts.push('<cbc:FirstName>' + esc(supplier.firstName || "") + '</cbc:FirstName>');
+        parts.push('<cbc:FirstName>' + esc(supplier.firstName || supplier.name || "") + '</cbc:FirstName>');
         parts.push('<cbc:FamilyName>' + esc(supplier.lastName || "") + '</cbc:FamilyName>');
         parts.push('</cac:Person>');
     }
+
     parts.push('</cac:Party></cac:AccountingSupplierParty>');
 
     // ── Alıcı (Customer) ──
     parts.push('<cac:AccountingCustomerParty><cac:Party>');
+
+    if (customer.website) {
+        parts.push('<cbc:WebsiteURI>' + esc(customer.website) + '</cbc:WebsiteURI>');
+    }
+
     parts.push('<cac:PartyIdentification><cbc:ID schemeID="' + customerIdType + '">' + esc(customer.vkn) + '</cbc:ID></cac:PartyIdentification>');
-    parts.push('<cac:PartyName><cbc:Name>' + esc(customer.name) + '</cbc:Name></cac:PartyName>');
+
+    // PartyName — firma adı (VKN için)
+    if (customerIdType === "VKN") {
+        parts.push('<cac:PartyName><cbc:Name>' + esc(customer.name) + '</cbc:Name></cac:PartyName>');
+    }
+
     parts.push('<cac:PostalAddress>');
     if (customer.street) parts.push('<cbc:StreetName>' + esc(customer.street) + '</cbc:StreetName>');
+    if (customer.buildingNumber) parts.push('<cbc:BuildingNumber>' + esc(customer.buildingNumber) + '</cbc:BuildingNumber>');
     parts.push('<cbc:CitySubdivisionName>' + esc(customer.district || "Merkez") + '</cbc:CitySubdivisionName>');
     parts.push('<cbc:CityName>' + esc(customer.city || "Istanbul") + '</cbc:CityName>');
+    if (customer.postalZone) parts.push('<cbc:PostalZone>' + esc(customer.postalZone) + '</cbc:PostalZone>');
     parts.push('<cac:Country><cbc:Name>' + esc(customer.country || "Turkiye") + '</cbc:Name></cac:Country>');
     parts.push('</cac:PostalAddress>');
+
+    // PartyTaxScheme — Vergi Dairesi (VKN için)
     if (customer.taxOffice && customerIdType === "VKN") {
         parts.push('<cac:PartyTaxScheme><cac:TaxScheme><cbc:Name>' + esc(customer.taxOffice) + '</cbc:Name></cac:TaxScheme></cac:PartyTaxScheme>');
     }
-    if (customer.phone || customer.email) {
+
+    // Contact
+    if (customer.phone || customer.email || customer.fax) {
         parts.push('<cac:Contact>');
         if (customer.phone) parts.push('<cbc:Telephone>' + esc(customer.phone) + '</cbc:Telephone>');
+        if (customer.fax) parts.push('<cbc:Telefax>' + esc(customer.fax) + '</cbc:Telefax>');
         if (customer.email) parts.push('<cbc:ElectronicMail>' + esc(customer.email) + '</cbc:ElectronicMail>');
         parts.push('</cac:Contact>');
     }
-    // TCKN için Person zorunlu
+
+    // Person — TCKN için ZORUNLU
     if (customerIdType === "TCKN") {
         parts.push('<cac:Person>');
         parts.push('<cbc:FirstName>' + esc(customer.firstName || customer.name || "") + '</cbc:FirstName>');
         parts.push('<cbc:FamilyName>' + esc(customer.lastName || "") + '</cbc:FamilyName>');
         parts.push('</cac:Person>');
     }
+
     parts.push('</cac:Party></cac:AccountingCustomerParty>');
+
+    // ── Ödeme Koşulları (opsiyonel) ──
+    if (data.paymentNote || data.paymentDueDate) {
+        parts.push('<cac:PaymentTerms>');
+        if (data.paymentNote) parts.push('<cbc:Note>' + esc(data.paymentNote) + '</cbc:Note>');
+        if (data.paymentDueDate) parts.push('<cbc:PaymentDueDate>' + esc(data.paymentDueDate) + '</cbc:PaymentDueDate>');
+        parts.push('</cac:PaymentTerms>');
+    }
 
     // ── Vergi Toplamları ──
     parts.push('<cac:TaxTotal>');
@@ -262,10 +320,10 @@ const buildInvoiceXml = (data) => {
         parts.push('<cbc:TaxAmount currencyID="' + currency + '">' + fmt(g.tax) + '</cbc:TaxAmount>');
         parts.push('<cbc:Percent>' + g.rate + '</cbc:Percent>');
         parts.push('<cac:TaxCategory>');
-        // ✅ FIX: KDV oranı 0 ise TaxExemptionReason zorunlu (QNB validasyonu)
+        // KDV oranı 0 ise TaxExemptionReason zorunlu (QNB validasyonu)
         if (g.rate === 0) {
             parts.push('<cbc:TaxExemptionReasonCode>350</cbc:TaxExemptionReasonCode>');
-            parts.push('<cbc:TaxExemptionReason>Diğerlerinde yazılı işlemler (KDVK 17/4)</cbc:TaxExemptionReason>');
+            parts.push('<cbc:TaxExemptionReason>Digerlerinde yazili islemler (KDVK 17/4)</cbc:TaxExemptionReason>');
         }
         parts.push('<cac:TaxScheme>');
         parts.push('<cbc:TaxTypeCode>0015</cbc:TaxTypeCode>');
@@ -310,10 +368,9 @@ const buildInvoiceXml = (data) => {
         parts.push('<cbc:TaxAmount currencyID="' + currency + '">' + fmt(line.vatAmount) + '</cbc:TaxAmount>');
         parts.push('<cbc:Percent>' + line.vatRate + '</cbc:Percent>');
         parts.push('<cac:TaxCategory>');
-        // ✅ FIX: Kalem KDV oranı 0 ise TaxExemptionReason zorunlu
         if (line.vatRate === 0) {
             parts.push('<cbc:TaxExemptionReasonCode>350</cbc:TaxExemptionReasonCode>');
-            parts.push('<cbc:TaxExemptionReason>Diğerlerinde yazılı işlemler (KDVK 17/4)</cbc:TaxExemptionReason>');
+            parts.push('<cbc:TaxExemptionReason>Digerlerinde yazili islemler (KDVK 17/4)</cbc:TaxExemptionReason>');
         }
         parts.push('<cac:TaxScheme>');
         parts.push('<cbc:TaxTypeCode>0015</cbc:TaxTypeCode>');

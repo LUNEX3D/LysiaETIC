@@ -9,6 +9,15 @@ const fmtCurrency = (v) => {
     } catch { return `${Number(v || 0).toFixed(2)} ₺`; }
 };
 
+const fmtDate = (d) => {
+    if (!d) return "—";
+    try {
+        const date = new Date(d);
+        if (isNaN(date.getTime())) return String(d);
+        return date.toLocaleDateString("tr-TR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+    } catch { return String(d); }
+};
+
 /* ═══════════════════════════════════════════════════════════
    DURUM SINIFLANDIRMA
    ═══════════════════════════════════════════════════════════ */
@@ -43,15 +52,24 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
     const userId = propUserId || localStorage.getItem("userId");
     const token = localStorage.getItem("token");
 
-    const [allOrders, setAllOrders] = useState([]);
-    const [loading, setLoading] = useState(false);
+    // ── Veri kaynağı: her zaman pazaryeri API ──
+    const viewMode = "api";
+
+    // ── API modu state ──
+    const [apiOrders, setApiOrders] = useState([]);
+    const [loadingApi, setLoadingApi] = useState(false);
     const [loadingMp, setLoadingMp] = useState("");
+
+    // ── Fatura istatistikleri (API modunda DB'den çekilir) ──
+    const [invoiceStats, setInvoiceStats] = useState({ total: 0, invoiced: 0, uninvoiced: 0, error: 0 });
+
     const [error, setError] = useState("");
 
     // Filtreler
     const [searchQuery, setSearchQuery] = useState("");
     const [statusFilter, setStatusFilter] = useState("all");
     const [mpFilter, setMpFilter] = useState("all");
+
     const [startDate, setStartDate] = useState("");
     const [endDate, setEndDate] = useState("");
     const [sortField, setSortField] = useState("orderDate");
@@ -63,6 +81,10 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
 
     // Modal
     const [selectedOrder, setSelectedOrder] = useState(null);
+
+    // Aktif veri kaynağı
+    const allOrders = apiOrders;
+    const loading = loadingApi;
 
     /* ── Status helpers (C bağımlı) ── */
     const statusMeta = useMemo(() => ({
@@ -89,6 +111,60 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
         );
     }, [statusMeta]);
 
+    /* ── Fatura durumu badge ── */
+    const getInvoiceBadge = useCallback((order) => {
+        const invStatus = order.invoiceStatus || "";
+        const hasInvoice = !!order.invoice;
+
+        if (invStatus === "created" || hasInvoice) {
+            return (
+                <span style={{
+                    display: "inline-flex", alignItems: "center", gap: "0.25rem",
+                    background: `${C.green}15`, border: `1px solid ${C.green}40`,
+                    color: C.green, padding: "0.22rem 0.55rem", borderRadius: 8,
+                    fontSize: "0.7rem", fontWeight: 700, whiteSpace: "nowrap",
+                }}>
+                    ✅ {t("orders.invoiceCreated")}
+                </span>
+            );
+        }
+        if (invStatus === "pending") {
+            return (
+                <span style={{
+                    display: "inline-flex", alignItems: "center", gap: "0.25rem",
+                    background: `${C.yellow}15`, border: `1px solid ${C.yellow}40`,
+                    color: C.yellow, padding: "0.22rem 0.55rem", borderRadius: 8,
+                    fontSize: "0.7rem", fontWeight: 700, whiteSpace: "nowrap",
+                }}>
+                    ⏳ {t("orders.invoicePending")}
+                </span>
+            );
+        }
+        if (invStatus === "error") {
+            return (
+                <span style={{
+                    display: "inline-flex", alignItems: "center", gap: "0.25rem",
+                    background: `${C.red}15`, border: `1px solid ${C.red}40`,
+                    color: C.red, padding: "0.22rem 0.55rem", borderRadius: 8,
+                    fontSize: "0.7rem", fontWeight: 700, whiteSpace: "nowrap",
+                }}>
+                    ❌ {t("orders.invoiceError")}
+                </span>
+            );
+        }
+        // Faturasız
+        return (
+            <span style={{
+                display: "inline-flex", alignItems: "center", gap: "0.25rem",
+                background: "rgba(148,163,184,0.1)", border: "1px solid rgba(148,163,184,0.25)",
+                color: C.dim, padding: "0.22rem 0.55rem", borderRadius: 8,
+                fontSize: "0.7rem", fontWeight: 700, whiteSpace: "nowrap",
+            }}>
+                📄 {t("orders.uninvoiced")}
+            </span>
+        );
+    }, [C, t]);
+
     const getMpColor = useCallback((name) => {
         const l = String(name || "").toLowerCase();
         return Object.entries(mpColors).find(([k]) => l.includes(k))?.[1] || C.accent;
@@ -108,10 +184,10 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
         );
     }, [getMpColor, t]);
 
-    /* ── TÜM PAZARYERLERINDEN SİPARİŞ ÇEK ── */
-    const fetchAllOrders = useCallback(async () => {
+    /* ── API SİPARİŞLERİ ÇEK (pazaryeri API) ── */
+    const fetchApiOrders = useCallback(async () => {
         if (!marketplaces.length) return;
-        setLoading(true);
+        setLoadingApi(true);
         setError("");
         const collected = [];
 
@@ -145,15 +221,56 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
             return db - da;
         });
 
-        setAllOrders(collected);
-        setCurrentPage(1);
-        setLoading(false);
-        setLoadingMp("");
-    }, [marketplaces, userId, token, startDate, endDate, t]);
+        // ── Fatura durumlarını DB'den çek ve eşleştir ──
+        try {
+            const dbResponse = await axios.get(`/orders/db-orders?limit=1000`, {
+                headers: { Authorization: `Bearer ${token}` },
+            });
 
+            if (dbResponse.data?.success) {
+                const dbOrdersData = dbResponse.data.data || [];
+                // Fatura istatistiklerini güncelle
+                if (dbResponse.data.invoiceStats) {
+                    setInvoiceStats(dbResponse.data.invoiceStats);
+                }
+                // orderNumber ile eşleştir
+                const invoiceMap = new Map();
+                dbOrdersData.forEach(dbOrder => {
+                    invoiceMap.set(dbOrder.orderNumber, {
+                        invoiceStatus: dbOrder.invoiceStatus,
+                        invoice: dbOrder.invoice,
+                    });
+                });
+
+                // API siparişlerine fatura bilgisini ekle
+                collected.forEach(order => {
+                    const invoiceInfo = invoiceMap.get(order.orderNumber);
+                    if (invoiceInfo) {
+                        order.invoiceStatus = invoiceInfo.invoiceStatus;
+                        order.invoice = invoiceInfo.invoice;
+                    }
+                });
+            }
+        } catch (err) {
+            // Fatura bilgisi çekilemezse sessizce devam et
+            console.warn("Fatura durumları yüklenemedi:", err.message);
+        }
+
+        setApiOrders(collected);
+        setCurrentPage(1);
+        setLoadingApi(false);
+        setLoadingMp("");
+    }, [marketplaces, token, startDate, endDate, t]);
+
+    /* ── İlk yükleme ── */
     useEffect(() => {
-        fetchAllOrders();
-    }, [fetchAllOrders]);
+        fetchApiOrders();
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+    const handleRefresh = () => {
+        fetchApiOrders();
+        setCurrentPage(1);
+    };
 
     /* ── FİLTRELEME & SIRALAMA ── */
     const filteredOrders = useMemo(() => {
@@ -173,7 +290,9 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
                 (o.orderNumber || "").toLowerCase().includes(q) ||
                 (o.customerName || "").toLowerCase().includes(q) ||
                 (o.trackingNumber || "").toLowerCase().includes(q) ||
-                (o.products || []).some(p => (p.productName || "").toLowerCase().includes(q))
+                (o.firstProduct || "").toLowerCase().includes(q) ||
+                (o.products || []).some(p => (p.productName || "").toLowerCase().includes(q)) ||
+                (o.invoice?.invoiceNumber || "").toLowerCase().includes(q)
             );
         }
 
@@ -237,6 +356,22 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
         return <span style={{ color: C.accent, fontSize: "0.65rem", marginLeft: 4 }}>{sortDir === "asc" ? "↑" : "↓"}</span>;
     };
 
+    // Tablo kolonları — her iki modda da fatura kolonu gösterilir
+    const tableColumns = useMemo(() => {
+        const cols = [
+            { field: "orderNumber", label: t("orders.orderNo"), width: "14%" },
+            { field: "marketplace", label: t("orders.marketplace"), width: "10%" },
+            { field: "customerName", label: t("orders.customer"), width: "14%" },
+            { field: "products", label: t("orders.products"), width: "16%", noSort: true },
+            { field: "totalPrice", label: t("orders.amount"), width: "9%" },
+            { field: "orderDate", label: t("orders.date"), width: "11%" },
+            { field: "status", label: t("orders.status"), width: "9%", noSort: true },
+            { field: "invoiceStatus", label: t("orders.invoice"), width: "12%", noSort: true },
+            { field: "actions", label: "", width: "5%", noSort: true },
+        ];
+        return cols;
+    }, [t]);
+
     /* ═══════════════════════════════════════════════════════
        RENDER
        ═══════════════════════════════════════════════════════ */
@@ -259,6 +394,7 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
                 </div>
 
                 <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
+                    {/* ── Özet kartları ── */}
                     {[
                         { label: t("orders.totalLabel"), value: allOrders.length, color: C.accent },
                         { label: t("orders.revenue"), value: fmtCurrency(totalRevenue), color: C.green },
@@ -362,7 +498,7 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
                 />
 
                 <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
-                    onClick={fetchAllOrders}
+                    onClick={handleRefresh}
                     disabled={loading}
                     style={{
                         padding: "0.6rem 1.2rem", background: `linear-gradient(135deg, ${C.accent}, ${C.purple})`,
@@ -403,7 +539,9 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
                             marginBottom: "1rem",
                         }}
                     />
-                    <p style={{ fontSize: "0.95rem", fontWeight: 600, margin: 0 }}>{t("orders.loadingOrders")}</p>
+                    <p style={{ fontSize: "0.95rem", fontWeight: 600, margin: 0 }}>
+                        {t("orders.loadingOrders")}
+                    </p>
                     {loadingMp && <p style={{ fontSize: "0.78rem", color: C.dim, margin: "0.3rem 0 0 0" }}>{loadingMp} {t("orders.fetchingOrders")}</p>}
                 </div>
             )}
@@ -439,19 +577,10 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
                     </div>
 
                     <div style={{ overflowX: "auto" }}>
-                        <table style={{ width: "100%", minWidth: 900, borderCollapse: "collapse" }}>
+                        <table style={{ width: "100%", minWidth: 1050, borderCollapse: "collapse" }}>
                             <thead>
                                 <tr style={{ borderBottom: `1px solid ${C.glassBr}` }}>
-                                    {[
-                                        { field: "orderNumber", label: t("orders.orderNo"), width: "15%" },
-                                        { field: "marketplace", label: t("orders.marketplace"), width: "11%" },
-                                        { field: "customerName", label: t("orders.customer"), width: "17%" },
-                                        { field: "products", label: t("orders.products"), width: "20%", noSort: true },
-                                        { field: "totalPrice", label: t("orders.amount"), width: "10%" },
-                                        { field: "orderDate", label: t("orders.date"), width: "12%" },
-                                        { field: "status", label: t("orders.status"), width: "10%", noSort: true },
-                                        { field: "actions", label: "", width: "5%", noSort: true },
-                                    ].map(col => (
+                                    {tableColumns.map(col => (
                                         <th key={col.field}
                                             onClick={() => !col.noSort && handleSort(col.field)}
                                             style={{
@@ -473,7 +602,7 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
                             <tbody>
                                 {paginatedOrders.length > 0 ? paginatedOrders.map((order, idx) => (
                                     <motion.tr
-                                        key={`${order.orderNumber}-${order.marketplace}-${idx}`}
+                                        key={`${order.orderNumber || order._id}-${order.marketplace}-${idx}`}
                                         initial={{ opacity: 0, y: 6 }}
                                         animate={{ opacity: 1, y: 0 }}
                                         transition={{ delay: idx * 0.02 }}
@@ -531,6 +660,21 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
                                         <td style={{ padding: "0.75rem 0.5rem" }}>
                                             {getStatusBadge(order.status)}
                                         </td>
+                                        {/* ── FATURA DURUMU KOLONU ── */}
+                                        <td style={{ padding: "0.75rem 0.5rem" }}>
+                                            <div style={{ display: "flex", flexDirection: "column", gap: "0.2rem" }}>
+                                                {getInvoiceBadge(order)}
+                                                {order.invoice?.invoiceNumber && (
+                                                    <span style={{
+                                                        color: C.dim, fontSize: "0.62rem", fontFamily: "monospace",
+                                                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                                                        maxWidth: 120, display: "block",
+                                                    }}>
+                                                        {order.invoice.invoiceNumber}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </td>
                                         <td style={{ padding: "0.75rem 0.5rem", textAlign: "center" }}>
                                             <motion.button whileHover={{ scale: 1.15 }} whileTap={{ scale: 0.9 }}
                                                 onClick={e => { e.stopPropagation(); setSelectedOrder(order); }}
@@ -547,7 +691,7 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
                                     </motion.tr>
                                 )) : (
                                     <tr>
-                                        <td colSpan={8} style={{ padding: "4rem 2rem", textAlign: "center" }}>
+                                        <td colSpan={tableColumns.length} style={{ padding: "4rem 2rem", textAlign: "center" }}>
                                             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", color: C.dim }}>
                                                 <span style={{ fontSize: "3rem", marginBottom: "0.75rem" }}>📭</span>
                                                 <p style={{ fontSize: "1rem", fontWeight: 700, margin: 0, color: C.muted }}>{t("orders.notFound")}</p>
@@ -674,8 +818,8 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
                                     { label: t("orders.amount"), value: fmtCurrency(selectedOrder.totalPrice), icon: "💰", color: C.green },
                                     { label: t("orders.date"), value: selectedOrder.orderDate || "N/A", icon: "📅" },
                                     { label: t("orders.status"), value: selectedOrder.status || t("orders.unknown"), icon: "📦" },
-                                    { label: t("orders.trackingNo"), value: selectedOrder.trackingNumber || t("orders.none"), icon: "🚚" },
-                                    { label: t("orders.cargoCompany"), value: selectedOrder.cargoCompany || t("orders.unknown"), icon: "📮" },
+                                    { label: t("orders.trackingNo"), value: selectedOrder.trackingNumber || selectedOrder.orderNumber || t("orders.none"), icon: "🚚" },
+                                    ...(selectedOrder.cargoCompany ? [{ label: t("orders.cargoCompany"), value: selectedOrder.cargoCompany, icon: "📮" }] : []),
                                 ].map((item, i) => (
                                     <div key={i} style={{
                                         background: C.glass, border: `1px solid ${C.glassBr}`,
@@ -691,42 +835,107 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
                                 ))}
                             </div>
 
-                            <div style={{ marginBottom: "0.5rem" }}>
+                            {/* ── FATURA BİLGİSİ ── */}
+                            <div style={{
+                                background: C.glass, border: `1px solid ${C.glassBr}`,
+                                borderRadius: 14, padding: "1rem 1.25rem", marginBottom: "1.5rem",
+                            }}>
                                 <h3 style={{ color: C.text, fontSize: "0.95rem", fontWeight: 700, margin: "0 0 0.75rem 0" }}>
-                                    🛍️ {t("orders.products")} ({(selectedOrder.products || []).length})
+                                    🧾 {t("orders.invoiceStatus")}
                                 </h3>
-                                <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-                                    {(selectedOrder.products || []).map((product, idx) => (
-                                        <div key={idx} style={{
-                                            display: "flex", alignItems: "center", gap: "0.85rem",
-                                            background: C.glass, border: `1px solid ${C.glassBr}`,
-                                            borderRadius: 12, padding: "0.75rem 1rem",
-                                        }}>
-                                            {product.imageUrl && product.imageUrl !== "/default-product.jpg" && (
-                                                <img src={product.imageUrl} alt={product.productName}
-                                                    style={{
-                                                        width: 52, height: 52, borderRadius: 10,
-                                                        objectFit: "cover", border: `1px solid ${C.glassBr}`,
-                                                        flexShrink: 0,
-                                                    }}
-                                                    onError={e => { e.target.style.display = "none"; }}
-                                                />
+                                <div style={{ display: "flex", alignItems: "center", gap: "1rem", flexWrap: "wrap" }}>
+                                    {getInvoiceBadge(selectedOrder)}
+
+                                    {selectedOrder.invoice ? (
+                                        <div style={{ display: "flex", flexDirection: "column", gap: "0.2rem" }}>
+                                            <span style={{ color: C.text, fontSize: "0.82rem", fontWeight: 600 }}>
+                                                {t("orders.invoiceNo")}: <span style={{ fontFamily: "monospace", color: C.accent }}>{selectedOrder.invoice.invoiceNumber || "—"}</span>
+                                            </span>
+                                            {selectedOrder.invoice.uuid && (
+                                                <span style={{ color: C.dim, fontSize: "0.68rem", fontFamily: "monospace" }}>
+                                                    UUID: {selectedOrder.invoice.uuid}
+                                                </span>
                                             )}
-                                            <div style={{ flex: 1, minWidth: 0 }}>
-                                                <p style={{ color: C.text, fontSize: "0.85rem", fontWeight: 700, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                                    {product.productName || t("orders.product")}
-                                                </p>
-                                                <div style={{ display: "flex", gap: "1rem", marginTop: "0.25rem" }}>
-                                                    <span style={{ color: C.muted, fontSize: "0.75rem" }}>{t("orders.quantity")}: <strong style={{ color: C.text }}>{product.quantity || 1}</strong></span>
-                                                    {product.price && <span style={{ color: C.muted, fontSize: "0.75rem" }}>{t("orders.price")}: <strong style={{ color: C.green }}>{fmtCurrency(product.price)}</strong></span>}
-                                                </div>
-                                            </div>
+                                            {selectedOrder.invoice.issueDate && (
+                                                <span style={{ color: C.dim, fontSize: "0.72rem" }}>
+                                                    📅 {fmtDate(selectedOrder.invoice.issueDate)}
+                                                </span>
+                                            )}
+                                            {selectedOrder.invoice.faturaURL && (
+                                                <a href={selectedOrder.invoice.faturaURL} target="_blank" rel="noopener noreferrer"
+                                                    style={{
+                                                        color: C.accent, fontSize: "0.75rem", fontWeight: 600,
+                                                        textDecoration: "none", display: "inline-flex", alignItems: "center", gap: "0.3rem",
+                                                        marginTop: "0.25rem",
+                                                    }}
+                                                    onClick={e => e.stopPropagation()}
+                                                >
+                                                    🔗 {t("orders.viewInvoice")}
+                                                </a>
+                                            )}
                                         </div>
-                                    ))}
-                                    {(!selectedOrder.products || selectedOrder.products.length === 0) && (
-                                        <p style={{ color: C.dim, fontSize: "0.82rem", textAlign: "center", padding: "1rem" }}>{t("orders.noProductInfo")}</p>
+                                    ) : (
+                                        <span style={{ color: C.dim, fontSize: "0.82rem" }}>
+                                            {selectedOrder.invoiceStatus === "error"
+                                                ? "❌ " + t("orders.invoiceErrorLabel")
+                                                : "📄 " + t("orders.uninvoicedLabel")
+                                            }
+                                        </span>
                                     )}
                                 </div>
+                            </div>
+
+                            <div style={{ marginBottom: "0.5rem" }}>
+                                <h3 style={{ color: C.text, fontSize: "0.95rem", fontWeight: 700, margin: "0 0 0.75rem 0" }}>
+                                    🛍️ {t("orders.products")} ({(selectedOrder.products || []).length || selectedOrder.productCount || 0})
+                                </h3>
+                                {(selectedOrder.products || []).length > 0 ? (
+                                    <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                                        {(selectedOrder.products || []).map((product, idx) => (
+                                            <div key={idx} style={{
+                                                display: "flex", alignItems: "center", gap: "0.85rem",
+                                                background: C.glass, border: `1px solid ${C.glassBr}`,
+                                                borderRadius: 12, padding: "0.75rem 1rem",
+                                            }}>
+                                                {product.imageUrl && product.imageUrl !== "/default-product.jpg" && (
+                                                    <img src={product.imageUrl} alt={product.productName}
+                                                        style={{
+                                                            width: 52, height: 52, borderRadius: 10,
+                                                            objectFit: "cover", border: `1px solid ${C.glassBr}`,
+                                                            flexShrink: 0,
+                                                        }}
+                                                        onError={e => { e.target.style.display = "none"; }}
+                                                    />
+                                                )}
+                                                <div style={{ flex: 1, minWidth: 0 }}>
+                                                    <p style={{ color: C.text, fontSize: "0.85rem", fontWeight: 700, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                                        {product.productName || t("orders.product")}
+                                                    </p>
+                                                    <div style={{ display: "flex", gap: "1rem", marginTop: "0.25rem" }}>
+                                                        <span style={{ color: C.muted, fontSize: "0.75rem" }}>{t("orders.quantity")}: <strong style={{ color: C.text }}>{product.quantity || 1}</strong></span>
+                                                        {product.price && <span style={{ color: C.muted, fontSize: "0.75rem" }}>{t("orders.price")}: <strong style={{ color: C.green }}>{fmtCurrency(product.price)}</strong></span>}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : selectedOrder.firstProduct ? (
+                                    <div style={{
+                                        background: C.glass, border: `1px solid ${C.glassBr}`,
+                                        borderRadius: 12, padding: "1rem",
+                                    }}>
+                                        <p style={{ color: C.text, fontSize: "0.85rem", fontWeight: 600, margin: 0 }}>
+                                            {selectedOrder.firstProduct}
+                                            {selectedOrder.productCount > 1 && (
+                                                <span style={{ color: C.dim, fontSize: "0.75rem", marginLeft: "0.5rem" }}>
+                                                    +{selectedOrder.productCount - 1} {t("orders.moreProducts")}
+                                                </span>
+                                            )}
+                                        </p>
+                                    </div>
+                                ) : (
+                                    <p style={{ color: C.dim, fontSize: "0.82rem", textAlign: "center", padding: "1rem" }}>{t("orders.noProductInfo")}</p>
+                                )}
                             </div>
                         </motion.div>
                     </motion.div>

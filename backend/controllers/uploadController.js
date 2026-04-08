@@ -48,14 +48,16 @@ exports.uploadProduct = async (req, res) => {
                 break;
 
             case "Hepsiburada":
-                apiUrl = `https://listing-external.hepsiburada.com/api/products`;
+                const { HB_ENDPOINTS: hbUploadEp } = require("../services/hepsiburadaService");
+                apiUrl = `${hbUploadEp.LISTING}/listings/merchantid/${sellerId}/inventory-uploads`;
                 requestData = {
-                    supplierId: sellerId,
-                    productName: productData.title,
-                    salePrice: productData.salePrice,
-                    stock: productData.quantity,
-                    barcode: productData.barcode,
-                    images: productData.images
+                    listings: [{
+                        merchantSku: (productData.barcode || productData.sku || "").toUpperCase().replace(/\s/g, ""),
+                        hepsiburadaSku: productData.barcode || productData.sku,
+                        availableStock: parseInt(productData.quantity) || 0,
+                        price: parseFloat(productData.salePrice) || 0,
+                        listPrice: parseFloat(productData.listPrice || productData.salePrice) || 0
+                    }]
                 };
                 break;
 

@@ -18,7 +18,8 @@ import {
     getUserPreferences, updateUserPreferences,
     getActiveSessions, revokeSession, revokeAllSessions,
     generateApiKey, revokeApiKey,
-    getAutoInvoiceConfig, updateAutoInvoiceConfig, toggleAutoInvoice
+    getAutoInvoiceConfig, updateAutoInvoiceConfig, toggleAutoInvoice,
+    toggleMarketplaceInvoice, getMarketplaceInvoiceStats
 } from "../services/productManagementApi";
 
 /* ═══════════════════════════════════════════════════════════════
@@ -108,6 +109,7 @@ const SettingsPage = ({ userId }) => {
     const [invoiceConfig, setInvoiceConfig] = useState(null);
     const [invoiceLoading, setInvoiceLoading] = useState(false);
     const [invoiceMsg, setInvoiceMsg] = useState({ type: "", text: "" });
+    const [mpStats, setMpStats] = useState(null); // Pazaryeri bazlı fatura istatistikleri
 
     // ── Sessions ──
     const [sessions, setSessions] = useState({ activeSessions: [], loginHistory: [] });
@@ -195,8 +197,13 @@ const SettingsPage = ({ userId }) => {
         if (activeTab === "invoice" && !invoiceConfig) {
             getAutoInvoiceConfig().then(res => {
                 if (res?.config) setInvoiceConfig(res.config);
+                else if (res?.data) setInvoiceConfig(res.data);
                 else setInvoiceConfig({});
             }).catch(() => setInvoiceConfig({}));
+            // Pazaryeri bazlı istatistikleri de yükle
+            getMarketplaceInvoiceStats().then(res => {
+                if (res?.data) setMpStats(res.data);
+            }).catch(() => {});
         }
         if (activeTab === "security" && sessions.activeSessions.length === 0) {
             setSessionsLoading(true);
@@ -280,6 +287,25 @@ const SettingsPage = ({ userId }) => {
     const handleToggleInvoice = async () => {
         try { const res = await toggleAutoInvoice(); setInvoiceConfig(prev => ({ ...prev, enabled: res.enabled ?? !prev?.enabled })); }
         catch (e) { console.error(e); }
+    };
+
+    const handleToggleMarketplace = async (mpName) => {
+        try {
+            const res = await toggleMarketplaceInvoice(mpName);
+            if (res.success) {
+                setInvoiceConfig(prev => ({ ...prev, enabledMarketplaces: res.enabledMarketplaces || [] }));
+                // mpStats'ı da güncelle
+                setMpStats(prev => {
+                    if (!prev?.marketplaces) return prev;
+                    return {
+                        ...prev,
+                        marketplaces: prev.marketplaces.map(m =>
+                            m.marketplace === res.marketplace ? { ...m, enabled: res.enabled } : m
+                        )
+                    };
+                });
+            }
+        } catch (e) { console.error(e); }
     };
 
     const handleChangePassword = async () => {
@@ -871,6 +897,64 @@ const SettingsPage = ({ userId }) => {
                 rows={2} style={{ ...inp, resize: "vertical", lineHeight: 1.5 }}
                 placeholder={tr ? "Örn: Bizi tercih ettiğiniz için teşekkür ederiz..." : "E.g.: Thank you for choosing us..."}
                 onFocus={focusRing} onBlur={blurRing} />
+        </div>
+
+        {/* Pazaryeri Bazlı Otomatik Fatura — tam genişlik */}
+        <div style={{ ...card, gridColumn: "1 / -1" }}>
+            <SH icon="🏪" title={tr ? "Pazaryeri Bazlı Otomatik Fatura" : "Per-Marketplace Auto Invoice"}
+                desc={tr ? "Her pazaryeri için otomatik faturayı ayrı ayrı açıp kapatabilirsiniz. Boş bırakırsanız tüm pazaryerleri aktif olur." : "Enable/disable auto invoice per marketplace. Leave empty to enable all."} />
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "0.7rem", marginTop: "0.8rem" }}>
+                {[
+                    { name: "Trendyol", icon: "🟠", color: "#f27a1a" },
+                    { name: "Hepsiburada", icon: "🟡", color: "#ff6000" },
+                    { name: "N11", icon: "🔵", color: "#4a90d9" },
+                    { name: "ÇiçekSepeti", icon: "🌸", color: "#e91e63" },
+                    { name: "Amazon Türkiye", icon: "📦", color: "#ff9900" },
+                    { name: "Amazon Europe", icon: "🌍", color: "#ff9900" },
+                    { name: "Amazon USA", icon: "🇺🇸", color: "#ff9900" },
+                ].map(mp => {
+                    const enabledList = (invoiceConfig.enabledMarketplaces || []);
+                    // Boş liste = tümü aktif
+                    const isActive = enabledList.length === 0 || enabledList.includes(mp.name);
+                    const mpStat = mpStats?.marketplaces?.find(m => m.marketplace === mp.name);
+                    return (
+                        <div key={mp.name}
+                            onClick={() => handleToggleMarketplace(mp.name)}
+                            style={{
+                                display: "flex", alignItems: "center", gap: "0.6rem",
+                                padding: "0.65rem 0.85rem", borderRadius: "10px", cursor: "pointer",
+                                background: isActive ? `${mp.color}15` : "rgba(255,255,255,0.03)",
+                                border: isActive ? `2px solid ${mp.color}50` : `1px solid rgba(255,255,255,0.08)`,
+                                transition: "all 0.2s ease",
+                                opacity: isActive ? 1 : 0.55,
+                            }}>
+                            <span style={{ fontSize: "1.2rem" }}>{mp.icon}</span>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontSize: "0.78rem", fontWeight: 600, color: isActive ? mp.color : C.muted }}>{mp.name}</div>
+                                {mpStat && mpStat.totalOrders > 0 && (
+                                    <div style={{ fontSize: "0.65rem", color: C.muted, marginTop: "2px" }}>
+                                        {mpStat.invoicedCount}/{mpStat.totalOrders} {tr ? "faturalı" : "invoiced"}
+                                    </div>
+                                )}
+                            </div>
+                            <div style={{
+                                width: 18, height: 18, borderRadius: "50%",
+                                background: isActive ? mp.color : "rgba(255,255,255,0.1)",
+                                display: "flex", alignItems: "center", justifyContent: "center",
+                                fontSize: "0.65rem", color: "#fff", fontWeight: 700,
+                                transition: "all 0.2s ease",
+                            }}>
+                                {isActive ? "✓" : ""}
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+            {(invoiceConfig.enabledMarketplaces || []).length === 0 && (
+                <div style={{ marginTop: "0.6rem", fontSize: "0.72rem", color: C.muted, fontStyle: "italic" }}>
+                    ℹ️ {tr ? "Hiçbir pazaryeri seçilmedi — tüm pazaryerlerinden gelen siparişler otomatik faturalanır." : "No marketplace selected — orders from all marketplaces will be auto-invoiced."}
+                </div>
+            )}
         </div>
 
         <div style={{ gridColumn: "1 / -1" }}>

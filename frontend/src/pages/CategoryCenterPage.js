@@ -10,13 +10,15 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { useApp } from "../context/AppContext";
 import {
     getMappings, getMappingStats, updateMapping, exportMappingsExcel,
-    getMarketplaces, searchCategories
+    getMarketplaces, searchCategories,
+    getHepsiburadaCategoryTree, exportHepsiburadaCategoriesExcel
 } from "../services/categoryCenterApi";
 import { motion, AnimatePresence } from "framer-motion";
 import {
     FaSitemap, FaSearch, FaTimes, FaCheck, FaSpinner,
     FaExclamationTriangle, FaSave, FaChevronLeft, FaChevronRight,
-    FaEdit, FaTable, FaChartBar, FaFileExcel, FaDownload
+    FaEdit, FaTable, FaChartBar, FaFileExcel, FaDownload,
+    FaChevronDown, FaChevronRight as FaChevronRightIcon, FaFolder, FaFolderOpen, FaLeaf
 } from "react-icons/fa";
 
 // ═══════════════════════════════════════════════════════════════
@@ -218,6 +220,15 @@ const CategorySearchPopup = ({ platform, mappingId, currentId, currentPath, C, i
                                                 </div>
                                             )}
                                         </div>
+                                        {item.leaf && (
+                                            <span style={{
+                                                background: `${C.green}18`, color: C.green,
+                                                fontSize: "0.5rem", fontWeight: 700, padding: "0.08rem 0.25rem",
+                                                borderRadius: 3, flexShrink: 0, letterSpacing: "0.03em",
+                                            }}>
+                                                LEAF
+                                            </span>
+                                        )}
                                         <span style={{
                                             color: C.dim, fontSize: "0.55rem", fontFamily: "monospace",
                                             background: `${C.text}08`, padding: "0.1rem 0.25rem", borderRadius: 3, flexShrink: 0,
@@ -328,13 +339,132 @@ const StatsBar = ({ stats, C, isDark, t }) => {
 };
 
 // ═══════════════════════════════════════════════════════════════
+// 🌳 HB KATEGORİ AĞACI BİLEŞENİ
+// ═══════════════════════════════════════════════════════════════
+const HBCategoryTreeNode = ({ node, depth = 0, searchQuery, C, expandAll }) => {
+    const [isExpanded, setIsExpanded] = useState(depth === 0);
+    const hasChildren = node.children && node.children.length > 0;
+    const isLeaf = node.leaf === true;
+
+    // expandAll değiştiğinde tüm node'ları aç/kapat
+    useEffect(() => {
+        if (expandAll !== undefined) {
+            setIsExpanded(expandAll);
+        }
+    }, [expandAll]);
+
+    const toggleExpand = () => {
+        if (hasChildren) setIsExpanded(!isExpanded);
+    };
+
+    return (
+        <div style={{ marginLeft: depth > 0 ? "1.2rem" : 0 }}>
+            <div
+                onClick={toggleExpand}
+                style={{
+                    display: "flex", alignItems: "center", gap: "0.4rem",
+                    padding: "0.35rem 0.5rem", borderRadius: 6,
+                    cursor: hasChildren ? "pointer" : "default",
+                    background: isExpanded && hasChildren ? `${C.accent}08` : "transparent",
+                    transition: "background 0.15s",
+                    borderLeft: isLeaf ? `2px solid ${C.green}40` : hasChildren ? `2px solid ${C.accent}40` : "2px solid transparent",
+                }}
+                onMouseEnter={(e) => { if (hasChildren) e.currentTarget.style.background = `${C.accent}12`; }}
+                onMouseLeave={(e) => { if (hasChildren) e.currentTarget.style.background = isExpanded && hasChildren ? `${C.accent}08` : "transparent"; }}
+            >
+                {/* Expand/Collapse Icon */}
+                {hasChildren ? (
+                    isExpanded ? (
+                        <FaChevronDown style={{ color: C.accent, fontSize: "0.65rem", flexShrink: 0 }} />
+                    ) : (
+                        <FaChevronRightIcon style={{ color: C.dim, fontSize: "0.65rem", flexShrink: 0 }} />
+                    )
+                ) : (
+                    <div style={{ width: "0.65rem", flexShrink: 0 }} />
+                )}
+
+                {/* Folder/Leaf Icon */}
+                {isLeaf ? (
+                    <FaLeaf style={{ color: C.green, fontSize: "0.7rem", flexShrink: 0 }} />
+                ) : hasChildren ? (
+                    isExpanded ? (
+                        <FaFolderOpen style={{ color: C.accent, fontSize: "0.75rem", flexShrink: 0 }} />
+                    ) : (
+                        <FaFolder style={{ color: C.muted, fontSize: "0.75rem", flexShrink: 0 }} />
+                    )
+                ) : (
+                    <FaFolder style={{ color: C.dim, fontSize: "0.75rem", flexShrink: 0, opacity: 0.5 }} />
+                )}
+
+                {/* Category Name */}
+                <span style={{
+                    color: isLeaf ? C.green : hasChildren ? C.text : C.dim,
+                    fontSize: "0.78rem", fontWeight: isLeaf ? 600 : hasChildren ? 500 : 400,
+                    flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                }}>
+                    {node.name}
+                </span>
+
+                {/* Category ID Badge */}
+                <span style={{
+                    color: C.dim, fontSize: "0.58rem", fontFamily: "monospace",
+                    background: `${C.text}08`, padding: "0.1rem 0.3rem", borderRadius: 4, flexShrink: 0,
+                }}>
+                    {node.categoryId}
+                </span>
+
+                {/* Leaf Badge */}
+                {isLeaf && (
+                    <span style={{
+                        background: `${C.green}18`, color: C.green,
+                        fontSize: "0.55rem", fontWeight: 700, padding: "0.1rem 0.3rem",
+                        borderRadius: 4, flexShrink: 0,
+                    }}>
+                        LEAF
+                    </span>
+                )}
+
+                {/* Children Count */}
+                {hasChildren && (
+                    <span style={{
+                        color: C.dim, fontSize: "0.6rem",
+                        background: `${C.accent}12`, padding: "0.1rem 0.3rem", borderRadius: 4, flexShrink: 0,
+                    }}>
+                        {node.children.length}
+                    </span>
+                )}
+            </div>
+
+            {/* Children */}
+            {hasChildren && isExpanded && (
+                <div style={{ marginTop: "0.15rem" }}>
+                    {node.children.map((child) => (
+                        <HBCategoryTreeNode
+                            key={child.categoryId}
+                            node={child}
+                            depth={depth + 1}
+                            searchQuery={searchQuery}
+                            C={C}
+                            expandAll={expandAll}
+                        />
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+};
+
+// ═══════════════════════════════════════════════════════════════
 // 🏠 ANA BİLEŞEN
 // ═══════════════════════════════════════════════════════════════
 const CategoryCenterPage = ({ userId }) => {
     const { theme: C, t, resolvedTheme } = useApp();
     const isDark = resolvedTheme === "dark";
 
-    // State
+    // Tab State
+    const [activeTab, setActiveTab] = useState("mappings"); // "mappings" | "hb-categories"
+
+    // Mappings State
     const [mappings, setMappings] = useState([]);
     const [stats, setStats] = useState(null);
     const [platforms, setPlatforms] = useState([]);
@@ -345,10 +475,21 @@ const CategoryCenterPage = ({ userId }) => {
     const [totalRows, setTotalRows] = useState(0);
     const [searchQuery, setSearchQuery] = useState("");
     const [searchInput, setSearchInput] = useState("");
-    const [popup, setPopup] = useState(null); // { mappingId, platform, currentId, currentPath }
+    const [popup, setPopup] = useState(null);
     const [exporting, setExporting] = useState(false);
     const searchTimerRef = useRef(null);
     const limit = 50;
+
+    // HB Categories State
+    const [hbTree, setHbTree] = useState([]);
+    const [hbLoading, setHbLoading] = useState(false);
+    const [hbError, setHbError] = useState("");
+    const [hbSearchQuery, setHbSearchQuery] = useState("");
+    const [hbSearchInput, setHbSearchInput] = useState("");
+    const [hbStats, setHbStats] = useState({ flatCount: 0, treeRootCount: 0 });
+    const [hbExporting, setHbExporting] = useState(false);
+    const [expandedAll, setExpandedAll] = useState(undefined); // undefined = kullanıcı henüz tıklamadı
+    const hbSearchTimerRef = useRef(null);
 
     // Platformları yükle (entegrasyon durumu)
     useEffect(() => {
@@ -429,6 +570,43 @@ const CategoryCenterPage = ({ userId }) => {
         if (platformKey === "amazon") return platformIntegrated["amazon"] || false;
         return false;
     };
+
+    // HB Kategorileri yükle
+    const loadHBCategories = useCallback(async (q = "") => {
+        setHbLoading(true);
+        setHbError("");
+        try {
+            const res = await getHepsiburadaCategoryTree(q);
+            setHbTree(res?.data?.tree || []);
+            setHbStats({
+                flatCount: res?.data?.flatCount || 0,
+                treeRootCount: res?.data?.treeRootCount || 0
+            });
+        } catch (err) {
+            const errMsg = err?.response?.data?.message || err.message || t("categoryCenter.treeError");
+            setHbError(errMsg);
+            setHbTree([]);
+        } finally {
+            setHbLoading(false);
+        }
+    }, [t]);
+
+    // HB kategorileri tab'a geçince yükle
+    useEffect(() => {
+        if (activeTab === "hb-categories" && hbTree.length === 0 && !hbLoading && !hbError) {
+            loadHBCategories(hbSearchQuery);
+        }
+    }, [activeTab, hbTree.length, hbLoading, hbError, hbSearchQuery, loadHBCategories]);
+
+    // HB arama (debounced)
+    const handleHBSearchInput = useCallback((val) => {
+        setHbSearchInput(val);
+        if (hbSearchTimerRef.current) clearTimeout(hbSearchTimerRef.current);
+        hbSearchTimerRef.current = setTimeout(() => {
+            setHbSearchQuery(val);
+            loadHBCategories(val);
+        }, 600);
+    }, [loadHBCategories]);
 
     // Popup kaydetme
     const handlePopupSave = useCallback(async (mappingId, updates) => {
@@ -620,248 +798,494 @@ const CategoryCenterPage = ({ userId }) => {
                     </div>
                 </div>
 
-                {/* İstatistikler */}
-                <StatsBar stats={stats} C={C} isDark={isDark} t={t} />
+                {/* İstatistikler — sadece mappings tab'ında */}
+                {activeTab === "mappings" && <StatsBar stats={stats} C={C} isDark={isDark} t={t} />}
+
+                {/* ── TAB BAR ── */}
+                <div style={{
+                    display: "flex", gap: "0.3rem", marginTop: "0.5rem",
+                }}>
+                    {[
+                        { id: "mappings", label: t("categoryCenter.title"), icon: <FaTable style={{ fontSize: "0.7rem" }} /> },
+                        { id: "hb-categories", label: t("categoryCenter.hbCategories"), icon: <span style={{ fontSize: "0.85rem" }}>🟧</span> },
+                    ].map(tab => {
+                        const isActive = activeTab === tab.id;
+                        return (
+                            <button
+                                key={tab.id}
+                                onClick={() => setActiveTab(tab.id)}
+                                style={{
+                                    display: "flex", alignItems: "center", gap: "0.35rem",
+                                    padding: "0.45rem 0.85rem",
+                                    background: isActive
+                                        ? (tab.id === "hb-categories" ? "rgba(255,96,0,0.12)" : `${C.accent}15`)
+                                        : "transparent",
+                                    border: `1px solid ${isActive
+                                        ? (tab.id === "hb-categories" ? "rgba(255,96,0,0.3)" : `${C.accent}30`)
+                                        : C.border}`,
+                                    borderBottom: isActive ? "none" : `1px solid ${C.border}`,
+                                    borderRadius: "8px 8px 0 0",
+                                    cursor: "pointer",
+                                    color: isActive
+                                        ? (tab.id === "hb-categories" ? "#FF6000" : C.accent)
+                                        : C.dim,
+                                    fontSize: "0.78rem", fontWeight: isActive ? 700 : 500,
+                                    transition: "all 0.15s",
+                                    fontFamily: "inherit",
+                                }}
+                            >
+                                {tab.icon}
+                                {tab.label}
+                            </button>
+                        );
+                    })}
+                </div>
             </div>
 
-            {/* ── LOADING / ERROR ── */}
-            {loading && mappings.length === 0 && (
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "3rem", color: C.dim }}>
-                    <FaSpinner style={{ animation: "cc-spin 1s linear infinite", marginRight: "0.5rem" }} />
-                    {t("common.loading")}
-                </div>
-            )}
-
-            {error && !loading && (
-                <div style={{
-                    margin: "1rem", padding: "0.65rem 0.85rem",
-                    background: `${C.red}12`, border: `1px solid ${C.red}30`,
-                    borderRadius: 8, color: C.red, fontSize: "0.78rem",
-                    display: "flex", alignItems: "center", gap: "0.4rem",
-                }}>
-                    <FaExclamationTriangle /> {error}
-                </div>
-            )}
-
-            {/* ── EXCEL TABLO ── */}
-            {(!loading || mappings.length > 0) && !error && (
-                <div style={{
-                    flex: 1, overflow: "auto", padding: "0.5rem 0.75rem",
-                }}>
-                    <div style={{
-                        minWidth: 900,
-                        border: `1px solid ${C.border}`,
-                        borderRadius: 8, overflow: "hidden",
-                    }}>
-                        {/* Tablo Başlığı */}
-                        <div style={{
-                            display: "grid",
-                            gridTemplateColumns: "50px 1fr 1fr 1fr 1fr 1fr",
-                            background: isDark
-                                ? "linear-gradient(135deg, #1e2337 0%, #171b2e 100%)"
-                                : "linear-gradient(135deg, #f8f9fb 0%, #eef0f4 100%)",
-                            borderBottom: `2px solid ${C.border}`,
-                            position: "sticky", top: 0, zIndex: 10,
-                        }}>
-                            {/* # sütunu */}
-                            <div style={{
-                                padding: "0.5rem 0.4rem", textAlign: "center",
-                                color: C.dim, fontSize: "0.65rem", fontWeight: 700,
-                                borderRight: `1px solid ${C.border}`,
-                            }}>
-                                #
-                            </div>
-                            {/* Platform sütunları */}
-                            {PLATFORMS.map((p, i) => (
-                                <div key={p.key} style={{
-                                    padding: "0.45rem 0.5rem",
-                                    borderRight: i < PLATFORMS.length - 1 ? `1px solid ${C.border}` : "none",
-                                    display: "flex", alignItems: "center", gap: "0.3rem",
-                                    background: `${p.color}06`,
-                                }}>
-                                    <span style={{ fontSize: "0.85rem" }}>{p.icon}</span>
-                                    <span style={{
-                                        color: p.color, fontSize: "0.72rem", fontWeight: 800,
-                                        whiteSpace: "nowrap",
-                                    }}>
-                                        {p.label}
-                                    </span>
-                                    {p.key === "trendyol" && (
-                                        <span style={{
-                                            background: `${p.color}18`, borderRadius: 4,
-                                            padding: "0 0.25rem", fontSize: "0.5rem",
-                                            fontWeight: 700, color: p.color,
-                                        }}>
-                                            MASTER
-                                        </span>
-                                    )}
-                                    {p.key !== "trendyol" && isIntegrated(p.key) && (
-                                        <span style={{
-                                            background: `${C.green}18`, borderRadius: 4,
-                                            padding: "0 0.25rem", fontSize: "0.5rem",
-                                            fontWeight: 700, color: C.green,
-                                        }}>
-                                            ✓
-                                        </span>
-                                    )}
-                                </div>
-                            ))}
+            {/* ═══════════════════════════════════════════════════════
+                TAB 1: MAPPINGS (Eşleştirme Tablosu)
+               ═══════════════════════════════════════════════════════ */}
+            {activeTab === "mappings" && (
+                <>
+                    {/* ── LOADING / ERROR ── */}
+                    {loading && mappings.length === 0 && (
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "3rem", color: C.dim }}>
+                            <FaSpinner style={{ animation: "cc-spin 1s linear infinite", marginRight: "0.5rem" }} />
+                            {t("common.loading")}
                         </div>
+                    )}
 
-                        {/* Tablo Satırları */}
-                        {mappings.map((row, idx) => {
-                            const rowNum = (page - 1) * limit + idx + 1;
-                            const hasN11 = row.n11Id !== null && row.n11Id !== undefined;
-                            const hasCS = row.ciceksepetiId !== null && row.ciceksepetiId !== undefined;
-                            const hasHB = row.hepsiburadaId !== null && row.hepsiburadaId !== undefined;
-                            const hasAZ = row.amazonId !== null && row.amazonId !== undefined;
-                            const matchCount = [hasN11, hasCS, hasHB, hasAZ].filter(Boolean).length;
+                    {error && !loading && (
+                        <div style={{
+                            margin: "1rem", padding: "0.65rem 0.85rem",
+                            background: `${C.red}12`, border: `1px solid ${C.red}30`,
+                            borderRadius: 8, color: C.red, fontSize: "0.78rem",
+                            display: "flex", alignItems: "center", gap: "0.4rem",
+                        }}>
+                            <FaExclamationTriangle /> {error}
+                        </div>
+                    )}
 
-                            return (
-                                <div
-                                    key={row._id}
-                                    style={{
-                                        display: "grid",
-                                        gridTemplateColumns: "50px 1fr 1fr 1fr 1fr 1fr",
-                                        borderBottom: `1px solid ${C.border}`,
-                                        background: idx % 2 === 0
-                                            ? "transparent"
-                                            : isDark ? "rgba(255,255,255,0.015)" : "rgba(0,0,0,0.015)",
-                                        transition: "background 0.1s",
-                                    }}
-                                    onMouseEnter={(e) => { e.currentTarget.style.background = isDark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.025)"; }}
-                                    onMouseLeave={(e) => { e.currentTarget.style.background = idx % 2 === 0 ? "transparent" : isDark ? "rgba(255,255,255,0.015)" : "rgba(0,0,0,0.015)"; }}
-                                >
-                                    {/* Satır numarası */}
+                    {/* ── EXCEL TABLO ── */}
+                    {(!loading || mappings.length > 0) && !error && (
+                        <div style={{
+                            flex: 1, overflow: "auto", padding: "0.5rem 0.75rem",
+                        }}>
+                            <div style={{
+                                minWidth: 900,
+                                border: `1px solid ${C.border}`,
+                                borderRadius: 8, overflow: "hidden",
+                            }}>
+                                {/* Tablo Başlığı */}
+                                <div style={{
+                                    display: "grid",
+                                    gridTemplateColumns: "50px 1fr 1fr 1fr 1fr 1fr",
+                                    background: isDark
+                                        ? "linear-gradient(135deg, #1e2337 0%, #171b2e 100%)"
+                                        : "linear-gradient(135deg, #f8f9fb 0%, #eef0f4 100%)",
+                                    borderBottom: `2px solid ${C.border}`,
+                                    position: "sticky", top: 0, zIndex: 10,
+                                }}>
+                                    {/* # sütunu */}
                                     <div style={{
-                                        padding: "0.3rem 0.3rem", textAlign: "center",
-                                        color: C.dim, fontSize: "0.58rem", fontFamily: "monospace",
+                                        padding: "0.5rem 0.4rem", textAlign: "center",
+                                        color: C.dim, fontSize: "0.65rem", fontWeight: 700,
                                         borderRight: `1px solid ${C.border}`,
-                                        display: "flex", flexDirection: "column",
-                                        alignItems: "center", justifyContent: "center",
                                     }}>
-                                        <span>{rowNum}</span>
-                                        {matchCount > 0 && (
-                                            <div style={{
-                                                display: "flex", gap: "1px", marginTop: "0.15rem",
-                                            }}>
-                                                {[hasN11, hasCS, hasHB, hasAZ].map((has, di) => (
-                                                    <div key={di} style={{
-                                                        width: 4, height: 4, borderRadius: "50%",
-                                                        background: has ? PLATFORMS[di + 1].color : `${C.dim}30`,
-                                                    }} />
-                                                ))}
-                                            </div>
-                                        )}
+                                        #
                                     </div>
-
-                                    {/* Platform hücreleri */}
+                                    {/* Platform sütunları */}
                                     {PLATFORMS.map((p, i) => (
                                         <div key={p.key} style={{
+                                            padding: "0.45rem 0.5rem",
                                             borderRight: i < PLATFORMS.length - 1 ? `1px solid ${C.border}` : "none",
-                                            minWidth: 0,
+                                            display: "flex", alignItems: "center", gap: "0.3rem",
+                                            background: `${p.color}06`,
                                         }}>
-                                            {renderCell(row, p)}
+                                            <span style={{ fontSize: "0.85rem" }}>{p.icon}</span>
+                                            <span style={{
+                                                color: p.color, fontSize: "0.72rem", fontWeight: 800,
+                                                whiteSpace: "nowrap",
+                                            }}>
+                                                {p.label}
+                                            </span>
+                                            {p.key === "trendyol" && (
+                                                <span style={{
+                                                    background: `${p.color}18`, borderRadius: 4,
+                                                    padding: "0 0.25rem", fontSize: "0.5rem",
+                                                    fontWeight: 700, color: p.color,
+                                                }}>
+                                                    MASTER
+                                                </span>
+                                            )}
+                                            {p.key !== "trendyol" && isIntegrated(p.key) && (
+                                                <span style={{
+                                                    background: `${C.green}18`, borderRadius: 4,
+                                                    padding: "0 0.25rem", fontSize: "0.5rem",
+                                                    fontWeight: 700, color: C.green,
+                                                }}>
+                                                    ✓
+                                                </span>
+                                            )}
                                         </div>
                                     ))}
                                 </div>
-                            );
-                        })}
 
-                        {/* Boş durum */}
-                        {mappings.length === 0 && !loading && (
-                            <div style={{
-                                padding: "3rem 2rem", textAlign: "center", color: C.dim,
-                                gridColumn: "1 / -1",
-                            }}>
-                                <FaTable style={{ fontSize: "2rem", marginBottom: "0.5rem", color: C.muted }} />
-                                <p style={{ fontSize: "0.85rem", fontWeight: 600, color: C.text, margin: "0 0 0.2rem" }}>
-                                    {searchQuery ? t("categoryCenter.noResults") : t("categoryCenter.noData")}
-                                </p>
-                                {!searchQuery && (
-                                    <p style={{ fontSize: "0.72rem", margin: 0 }}>
-                                        {t("categoryCenter.importHint")}
-                                    </p>
+                                {/* Tablo Satırları */}
+                                {mappings.map((row, idx) => {
+                                    const rowNum = (page - 1) * limit + idx + 1;
+                                    const hasN11 = row.n11Id !== null && row.n11Id !== undefined;
+                                    const hasCS = row.ciceksepetiId !== null && row.ciceksepetiId !== undefined;
+                                    const hasHB = row.hepsiburadaId !== null && row.hepsiburadaId !== undefined;
+                                    const hasAZ = row.amazonId !== null && row.amazonId !== undefined;
+                                    const matchCount = [hasN11, hasCS, hasHB, hasAZ].filter(Boolean).length;
+
+                                    return (
+                                        <div
+                                            key={row._id}
+                                            style={{
+                                                display: "grid",
+                                                gridTemplateColumns: "50px 1fr 1fr 1fr 1fr 1fr",
+                                                borderBottom: `1px solid ${C.border}`,
+                                                background: idx % 2 === 0
+                                                    ? "transparent"
+                                                    : isDark ? "rgba(255,255,255,0.015)" : "rgba(0,0,0,0.015)",
+                                                transition: "background 0.1s",
+                                            }}
+                                            onMouseEnter={(e) => { e.currentTarget.style.background = isDark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.025)"; }}
+                                            onMouseLeave={(e) => { e.currentTarget.style.background = idx % 2 === 0 ? "transparent" : isDark ? "rgba(255,255,255,0.015)" : "rgba(0,0,0,0.015)"; }}
+                                        >
+                                            {/* Satır numarası */}
+                                            <div style={{
+                                                padding: "0.3rem 0.3rem", textAlign: "center",
+                                                color: C.dim, fontSize: "0.58rem", fontFamily: "monospace",
+                                                borderRight: `1px solid ${C.border}`,
+                                                display: "flex", flexDirection: "column",
+                                                alignItems: "center", justifyContent: "center",
+                                            }}>
+                                                <span>{rowNum}</span>
+                                                {matchCount > 0 && (
+                                                    <div style={{
+                                                        display: "flex", gap: "1px", marginTop: "0.15rem",
+                                                    }}>
+                                                        {[hasN11, hasCS, hasHB, hasAZ].map((has, di) => (
+                                                            <div key={di} style={{
+                                                                width: 4, height: 4, borderRadius: "50%",
+                                                                background: has ? PLATFORMS[di + 1].color : `${C.dim}30`,
+                                                            }} />
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            {/* Platform hücreleri */}
+                                            {PLATFORMS.map((p, i) => (
+                                                <div key={p.key} style={{
+                                                    borderRight: i < PLATFORMS.length - 1 ? `1px solid ${C.border}` : "none",
+                                                    minWidth: 0,
+                                                }}>
+                                                    {renderCell(row, p)}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    );
+                                })}
+
+                                {/* Boş durum */}
+                                {mappings.length === 0 && !loading && (
+                                    <div style={{
+                                        padding: "3rem 2rem", textAlign: "center", color: C.dim,
+                                        gridColumn: "1 / -1",
+                                    }}>
+                                        <FaTable style={{ fontSize: "2rem", marginBottom: "0.5rem", color: C.muted }} />
+                                        <p style={{ fontSize: "0.85rem", fontWeight: 600, color: C.text, margin: "0 0 0.2rem" }}>
+                                            {searchQuery ? t("categoryCenter.noResults") : t("categoryCenter.noData")}
+                                        </p>
+                                        {!searchQuery && (
+                                            <p style={{ fontSize: "0.72rem", margin: 0 }}>
+                                                {t("categoryCenter.importHint")}
+                                            </p>
+                                        )}
+                                    </div>
                                 )}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* ── PAGINATION ── */}
+                    {totalPages > 1 && (
+                        <div style={{
+                            padding: "0.5rem 1rem",
+                            borderTop: `1px solid ${C.border}`,
+                            display: "flex", alignItems: "center", justifyContent: "center", gap: "0.5rem",
+                            flexShrink: 0,
+                            background: isDark ? C.card : "#fafbfc",
+                        }}>
+                            <button
+                                onClick={() => setPage(p => Math.max(1, p - 1))}
+                                disabled={page <= 1}
+                                style={{
+                                    background: "transparent", border: `1px solid ${C.border}`,
+                                    borderRadius: 6, padding: "0.3rem 0.5rem", cursor: page <= 1 ? "not-allowed" : "pointer",
+                                    color: page <= 1 ? C.dim : C.text, fontSize: "0.72rem",
+                                    display: "flex", alignItems: "center", gap: "0.2rem",
+                                    opacity: page <= 1 ? 0.4 : 1,
+                                }}
+                            >
+                                <FaChevronLeft style={{ fontSize: "0.55rem" }} />
+                            </button>
+
+                            <div style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
+                                {/* Sayfa numaraları */}
+                                {Array.from({ length: Math.min(7, totalPages) }, (_, i) => {
+                                    let pageNum;
+                                    if (totalPages <= 7) {
+                                        pageNum = i + 1;
+                                    } else if (page <= 4) {
+                                        pageNum = i + 1;
+                                    } else if (page >= totalPages - 3) {
+                                        pageNum = totalPages - 6 + i;
+                                    } else {
+                                        pageNum = page - 3 + i;
+                                    }
+                                    const isActive = pageNum === page;
+                                    return (
+                                        <button
+                                            key={pageNum}
+                                            onClick={() => setPage(pageNum)}
+                                            style={{
+                                                background: isActive ? C.accent : "transparent",
+                                                border: isActive ? "none" : `1px solid ${C.border}`,
+                                                borderRadius: 6, padding: "0.25rem 0.5rem",
+                                                cursor: "pointer", color: isActive ? "#fff" : C.text,
+                                                fontSize: "0.72rem", fontWeight: isActive ? 700 : 500,
+                                                minWidth: 28,
+                                            }}
+                                        >
+                                            {pageNum}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+
+                            <button
+                                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                                disabled={page >= totalPages}
+                                style={{
+                                    background: "transparent", border: `1px solid ${C.border}`,
+                                    borderRadius: 6, padding: "0.3rem 0.5rem", cursor: page >= totalPages ? "not-allowed" : "pointer",
+                                    color: page >= totalPages ? C.dim : C.text, fontSize: "0.72rem",
+                                    display: "flex", alignItems: "center", gap: "0.2rem",
+                                    opacity: page >= totalPages ? 0.4 : 1,
+                                }}
+                            >
+                                <FaChevronRight style={{ fontSize: "0.55rem" }} />
+                            </button>
+
+                            <span style={{ color: C.dim, fontSize: "0.65rem", marginLeft: "0.5rem" }}>
+                                {totalRows.toLocaleString()} {t("categoryCenter.totalRecords")}
+                            </span>
+                        </div>
+                    )}
+                </>
+            )}
+
+            {/* ═══════════════════════════════════════════════════════
+                TAB 2: HB KATEGORİLERİ (Ağaç Görünümü)
+               ═══════════════════════════════════════════════════════ */}
+            {activeTab === "hb-categories" && (
+                <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+
+                    {/* ── HB Header: Arama + Butonlar + İstatistikler ── */}
+                    <div style={{
+                        padding: "0.6rem 1rem",
+                        borderBottom: `1px solid ${C.border}`,
+                        background: isDark ? "rgba(255,96,0,0.03)" : "rgba(255,96,0,0.02)",
+                        flexShrink: 0,
+                    }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+                            {/* Arama */}
+                            <div style={{
+                                display: "flex", alignItems: "center", gap: "0.4rem",
+                                background: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)",
+                                border: `1px solid ${C.border}`, borderRadius: 8,
+                                padding: "0.35rem 0.6rem", flex: "1 1 200px", minWidth: 0, maxWidth: 400,
+                            }}>
+                                {hbLoading ? (
+                                    <FaSpinner style={{ color: "#FF6000", fontSize: "0.72rem", animation: "cc-spin 1s linear infinite", flexShrink: 0 }} />
+                                ) : (
+                                    <FaSearch style={{ color: C.dim, fontSize: "0.72rem", flexShrink: 0 }} />
+                                )}
+                                <input
+                                    type="text" value={hbSearchInput}
+                                    onChange={(e) => handleHBSearchInput(e.target.value)}
+                                    placeholder={t("categoryCenter.searchPlaceholder")}
+                                    style={{
+                                        flex: 1, background: "transparent", border: "none", outline: "none",
+                                        color: C.text, fontSize: "0.78rem", fontFamily: "inherit",
+                                    }}
+                                />
+                                {hbSearchInput && (
+                                    <FaTimes
+                                        style={{ color: C.dim, fontSize: "0.65rem", cursor: "pointer", flexShrink: 0 }}
+                                        onClick={() => { setHbSearchInput(""); setHbSearchQuery(""); loadHBCategories(""); }}
+                                    />
+                                )}
+                            </div>
+
+                            {/* Tümünü Aç/Kapat */}
+                            <button
+                                onClick={() => setExpandedAll(prev => prev === true ? false : true)}
+                                style={{
+                                    background: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)",
+                                    border: `1px solid ${C.border}`, borderRadius: 8,
+                                    padding: "0.35rem 0.65rem", cursor: "pointer",
+                                    color: C.text, fontSize: "0.72rem", fontWeight: 600,
+                                    display: "flex", alignItems: "center", gap: "0.3rem",
+                                    whiteSpace: "nowrap", fontFamily: "inherit",
+                                }}
+                            >
+                                {expandedAll === true ? <FaChevronDown style={{ fontSize: "0.6rem" }} /> : <FaChevronRightIcon style={{ fontSize: "0.6rem" }} />}
+                                {expandedAll === true ? t("categoryCenter.collapseAll") : t("categoryCenter.expandAll")}
+                            </button>
+
+                            {/* Yenile */}
+                            <button
+                                onClick={() => loadHBCategories(hbSearchQuery)}
+                                disabled={hbLoading}
+                                style={{
+                                    background: "rgba(255,96,0,0.1)",
+                                    border: `1px solid rgba(255,96,0,0.25)`, borderRadius: 8,
+                                    padding: "0.35rem 0.65rem", cursor: hbLoading ? "not-allowed" : "pointer",
+                                    color: "#FF6000", fontSize: "0.72rem", fontWeight: 600,
+                                    display: "flex", alignItems: "center", gap: "0.3rem",
+                                    whiteSpace: "nowrap", fontFamily: "inherit",
+                                    opacity: hbLoading ? 0.6 : 1,
+                                }}
+                            >
+                                {hbLoading ? <FaSpinner style={{ animation: "cc-spin 1s linear infinite" }} /> : <FaSitemap style={{ fontSize: "0.65rem" }} />}
+                                {hbLoading ? t("categoryCenter.loadingTree") : "Yenile"}
+                            </button>
+
+                            {/* Excel Export */}
+                            <motion.button
+                                whileHover={{ scale: 1.04 }}
+                                whileTap={{ scale: 0.96 }}
+                                onClick={async () => {
+                                    setHbExporting(true);
+                                    try {
+                                        await exportHepsiburadaCategoriesExcel(hbSearchQuery);
+                                    } catch (err) {
+                                        console.error("HB Export hatası:", err);
+                                    } finally {
+                                        setHbExporting(false);
+                                    }
+                                }}
+                                disabled={hbExporting || hbLoading}
+                                style={{
+                                    background: "#1D6F42",
+                                    border: "none", borderRadius: 8,
+                                    padding: "0.35rem 0.65rem", cursor: (hbExporting || hbLoading) ? "not-allowed" : "pointer",
+                                    color: "#fff", fontSize: "0.72rem", fontWeight: 700,
+                                    display: "flex", alignItems: "center", gap: "0.3rem",
+                                    whiteSpace: "nowrap", flexShrink: 0,
+                                    opacity: (hbExporting || hbLoading) ? 0.6 : 1,
+                                    boxShadow: "0 2px 8px rgba(29,111,66,0.3)",
+                                    fontFamily: "inherit",
+                                }}
+                            >
+                                {hbExporting ? (
+                                    <FaSpinner style={{ animation: "cc-spin 1s linear infinite" }} />
+                                ) : (
+                                    <FaFileExcel />
+                                )}
+                                {t("categoryCenter.exportHbExcel")}
+                            </motion.button>
+                        </div>
+
+                        {/* İstatistikler */}
+                        {hbStats.flatCount > 0 && (
+                            <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.4rem", flexWrap: "wrap" }}>
+                                {[
+                                    { label: t("categoryCenter.totalCategories"), value: hbStats.flatCount, color: "#FF6000" },
+                                    { label: t("categoryCenter.rootCategories"), value: hbStats.treeRootCount, color: C.accent },
+                                ].map((item, i) => (
+                                    <div key={i} style={{
+                                        background: `${item.color}10`,
+                                        border: `1px solid ${item.color}25`,
+                                        borderRadius: 8, padding: "0.2rem 0.5rem",
+                                        display: "flex", alignItems: "center", gap: "0.3rem",
+                                    }}>
+                                        <span style={{ color: item.color, fontSize: "0.85rem", fontWeight: 800 }}>
+                                            {item.value.toLocaleString()}
+                                        </span>
+                                        <span style={{ color: C.dim, fontSize: "0.6rem", fontWeight: 600 }}>
+                                            {item.label}
+                                        </span>
+                                    </div>
+                                ))}
                             </div>
                         )}
                     </div>
-                </div>
-            )}
 
-            {/* ── PAGINATION ── */}
-            {totalPages > 1 && (
-                <div style={{
-                    padding: "0.5rem 1rem",
-                    borderTop: `1px solid ${C.border}`,
-                    display: "flex", alignItems: "center", justifyContent: "center", gap: "0.5rem",
-                    flexShrink: 0,
-                    background: isDark ? C.card : "#fafbfc",
-                }}>
-                    <button
-                        onClick={() => setPage(p => Math.max(1, p - 1))}
-                        disabled={page <= 1}
-                        style={{
-                            background: "transparent", border: `1px solid ${C.border}`,
-                            borderRadius: 6, padding: "0.3rem 0.5rem", cursor: page <= 1 ? "not-allowed" : "pointer",
-                            color: page <= 1 ? C.dim : C.text, fontSize: "0.72rem",
-                            display: "flex", alignItems: "center", gap: "0.2rem",
-                            opacity: page <= 1 ? 0.4 : 1,
-                        }}
-                    >
-                        <FaChevronLeft style={{ fontSize: "0.55rem" }} />
-                    </button>
+                    {/* ── HB Loading ── */}
+                    {hbLoading && hbTree.length === 0 && (
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "3rem", color: "#FF6000" }}>
+                            <FaSpinner style={{ animation: "cc-spin 1s linear infinite", marginRight: "0.5rem", fontSize: "1.2rem" }} />
+                            <span style={{ fontSize: "0.85rem", fontWeight: 600 }}>{t("categoryCenter.loadingTree")}</span>
+                        </div>
+                    )}
 
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
-                        {/* Sayfa numaraları */}
-                        {Array.from({ length: Math.min(7, totalPages) }, (_, i) => {
-                            let pageNum;
-                            if (totalPages <= 7) {
-                                pageNum = i + 1;
-                            } else if (page <= 4) {
-                                pageNum = i + 1;
-                            } else if (page >= totalPages - 3) {
-                                pageNum = totalPages - 6 + i;
-                            } else {
-                                pageNum = page - 3 + i;
-                            }
-                            const isActive = pageNum === page;
-                            return (
-                                <button
-                                    key={pageNum}
-                                    onClick={() => setPage(pageNum)}
-                                    style={{
-                                        background: isActive ? C.accent : "transparent",
-                                        border: isActive ? "none" : `1px solid ${C.border}`,
-                                        borderRadius: 6, padding: "0.25rem 0.5rem",
-                                        cursor: "pointer", color: isActive ? "#fff" : C.text,
-                                        fontSize: "0.72rem", fontWeight: isActive ? 700 : 500,
-                                        minWidth: 28,
-                                    }}
-                                >
-                                    {pageNum}
-                                </button>
-                            );
-                        })}
-                    </div>
+                    {/* ── HB Error ── */}
+                    {hbError && !hbLoading && (
+                        <div style={{
+                            margin: "1rem", padding: "0.65rem 0.85rem",
+                            background: `${C.red}12`, border: `1px solid ${C.red}30`,
+                            borderRadius: 8, color: C.red, fontSize: "0.78rem",
+                            display: "flex", alignItems: "center", gap: "0.4rem",
+                        }}>
+                            <FaExclamationTriangle /> {hbError}
+                        </div>
+                    )}
 
-                    <button
-                        onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                        disabled={page >= totalPages}
-                        style={{
-                            background: "transparent", border: `1px solid ${C.border}`,
-                            borderRadius: 6, padding: "0.3rem 0.5rem", cursor: page >= totalPages ? "not-allowed" : "pointer",
-                            color: page >= totalPages ? C.dim : C.text, fontSize: "0.72rem",
-                            display: "flex", alignItems: "center", gap: "0.2rem",
-                            opacity: page >= totalPages ? 0.4 : 1,
-                        }}
-                    >
-                        <FaChevronRight style={{ fontSize: "0.55rem" }} />
-                    </button>
+                    {/* ── HB Ağaç Görünümü ── */}
+                    {!hbLoading && !hbError && hbTree.length > 0 && (
+                        <div style={{
+                            flex: 1, overflow: "auto", padding: "0.5rem 0.75rem",
+                        }}>
+                            <div style={{
+                                border: `1px solid ${C.border}`,
+                                borderRadius: 8, overflow: "hidden",
+                                background: isDark ? "rgba(255,255,255,0.01)" : "rgba(0,0,0,0.01)",
+                            }}>
+                                <div style={{ padding: "0.5rem" }}>
+                                    {hbTree.map((rootNode) => (
+                                        <HBCategoryTreeNode
+                                            key={rootNode.categoryId}
+                                            node={rootNode}
+                                            depth={0}
+                                            searchQuery={hbSearchQuery}
+                                            C={C}
+                                            expandAll={expandedAll}
+                                        />
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    )}
 
-                    <span style={{ color: C.dim, fontSize: "0.65rem", marginLeft: "0.5rem" }}>
-                        {totalRows.toLocaleString()} {t("categoryCenter.totalRecords")}
-                    </span>
+                    {/* ── HB Boş durum ── */}
+                    {!hbLoading && !hbError && hbTree.length === 0 && hbStats.flatCount === 0 && (
+                        <div style={{ padding: "3rem 2rem", textAlign: "center", color: C.dim }}>
+                            <span style={{ fontSize: "2.5rem", display: "block", marginBottom: "0.5rem" }}>🟧</span>
+                            <p style={{ fontSize: "0.85rem", fontWeight: 600, color: C.text, margin: "0 0 0.2rem" }}>
+                                {t("categoryCenter.noHbIntegration")}
+                            </p>
+                            <p style={{ fontSize: "0.72rem", margin: 0 }}>
+                                {t("categoryCenter.addHbFirst")}
+                            </p>
+                        </div>
+                    )}
                 </div>
             )}
 

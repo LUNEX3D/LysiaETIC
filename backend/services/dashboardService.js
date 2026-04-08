@@ -190,67 +190,107 @@ const fetchTrendyolOrders = async (credentials, start, end) => {
 };
 
 const fetchHepsiburadaOrders = async (credentials, start, end) => {
-    const { merchantId, apiKey } = credentials || {};
-    if (!merchantId || !apiKey) {
+    const { normalizeCredentials, getHeaders, getEndpoints } = require("./hepsiburadaService");
+    const hbCreds = normalizeCredentials(credentials);
+    const { merchantId, secretKey, userAgent } = hbCreds;
+
+    if (!merchantId || !secretKey) {
         throw Object.assign(new Error("Hepsiburada credentials missing"), { status: 401 });
     }
 
-    logger.info("📦 [Hepsiburada Dashboard] Radium API ile siparişler çekiliyor...");
+    logger.info("📦 [Hepsiburada Dashboard] OMS Orders API ile siparişler çekiliyor...");
 
-    const headers = {
-        Authorization: `Basic ${Buffer.from(`${merchantId}:${apiKey}`).toString("base64")}`,
-        "User-Agent": "lysia-dashboard",
-        "Content-Type": "application/json"
-    };
+    const headers = getHeaders(merchantId, secretKey, userAgent);
+    const ep = getEndpoints(hbCreds);
 
-    // Tarih formatı: Y-m-d H:i:s (Radium API formatı)
     const moment = require("moment");
     const formattedStartDate = moment(start).format('YYYY-MM-DD HH:mm:ss');
     const formattedEndDate = moment(end).format('YYYY-MM-DD HH:mm:ss');
 
     const allOrders = [];
-    const pageSize = 200; // Maksimum 200
 
-    // Sadece önemli statusları çek (dashboard için)
-    const statuses = ['OPEN', 'APPROVED', 'SHIPPED', 'DELIVERED'];
+    // ── Yardımcı: Bir endpoint'ten pagination ile sipariş çek ──
+    const fetchFromEndpoint = async (endpointUrl, label, maxLimit) => {
+        let offset = 0;
+        const limit = maxLimit || 100;
+        let hasMore = true;
+        while (hasMore) {
+            try {
+                const url = endpointUrl.includes('?')
+                    ? `${endpointUrl}&offset=${offset}&limit=${limit}`
+                    : `${endpointUrl}?offset=${offset}&limit=${limit}`;
 
-    for (const status of statuses) {
-        try {
-            const url = `https://radium.hepsiburada.com/api/order/order_status?` +
-                `startDate=${encodeURIComponent(formattedStartDate)}` +
-                `&endDate=${encodeURIComponent(formattedEndDate)}` +
-                `&status=${status}` +
-                `&page=0` +
-                `&size=${pageSize}`;
+                const result = await requestWithControls({ url, method: "GET", headers });
 
-            const result = await requestWithControls({
-                url,
-                method: "GET",
-                headers
-            });
-
-            if (result.ok) {
-                const data = result.response?.data;
-                const orders = data?.orders || data?.data || data?.content || [];
-
-                if (Array.isArray(orders) && orders.length > 0) {
-                    allOrders.push(...orders.map(order => ({
-                        orderNumber: order.orderNumber || order.merchantOrderNumber || order.id,
-                        orderDate: order.orderDate || order.createdDate || order.orderCreatedDate,
-                        totalPrice: order.totalPrice || order.totalAmount || order.grandTotal || 0,
-                        status: order.status || status
-                    })));
-                }
+                if (result.ok) {
+                    const data = result.response?.data;
+                    const items = data?.items || data?.orders || data?.data || data?.content || [];
+                    if (Array.isArray(items) && items.length > 0) {
+                        items.forEach(item => {
+                            // Packages endpoint: items[] içinde kalemler var
+                            const subItems = item.items || [];
+                            const orderNum = item.orderNumber || item.orderId || item.id;
+                            const totalPrice = subItems.length > 0
+                                ? subItems.reduce((sum, s) => sum + Number(s.totalPrice?.amount || s.totalPrice || s.price?.amount || 0), 0)
+                                : Number(item.totalPrice?.amount || item.totalPrice || item.unitPrice?.amount || 0);
+                            allOrders.push({
+                                orderNumber: orderNum,
+                                orderDate: item.orderDate,
+                                totalPrice: totalPrice,
+                                status: item.status || label || "UNKNOWN"
+                            });
+                        });
+                        if (items.length < limit) { hasMore = false; } else { offset += items.length; }
+                    } else { hasMore = false; }
+                } else { hasMore = false; }
+            } catch (err) {
+                logger.warn(`⚠️ [Hepsiburada Dashboard ${label}] Hata (offset=${offset}): ${err.message}`);
+                hasMore = false;
             }
-        } catch (err) {
-            logger.warn(`⚠️ [Hepsiburada Dashboard] ${status} statusu çekilemedi:`, err.message);
         }
-    }
+    };
 
-    // Tekrar eden siparişleri temizle
+    const encStart = encodeURIComponent(formattedStartDate);
+    const encEnd = encodeURIComponent(formattedEndDate);
+
+    // 1) Ödemesi tamamlanmış (Open) — limit max 100
+    await fetchFromEndpoint(
+        `${ep.OMS}/orders/merchantid/${merchantId}?begindate=${encStart}&enddate=${encEnd}`,
+        "Open", 100
+    );
+
+    // 2) Paketlenmiş — timespan=720 (30 gün), limit max 50 (offset ile)
+    await fetchFromEndpoint(
+        `${ep.OMS}/packages/merchantid/${merchantId}?timespan=720`,
+        "Packaged", 50
+    );
+
+    // 3) Kargoya verilmiş — son 30 gün, limit max 50
+    const shipStart = encodeURIComponent(moment().subtract(30, 'days').format('YYYY-MM-DD HH:mm:ss'));
+    const shipEnd = encodeURIComponent(moment().format('YYYY-MM-DD HH:mm:ss'));
+    await fetchFromEndpoint(
+        `${ep.OMS}/packages/merchantid/${merchantId}/shipped?begindate=${shipStart}&enddate=${shipEnd}`,
+        "Shipped", 50
+    );
+
+    // 4) Teslim edilmiş — son 30 gün, limit max 50
+    await fetchFromEndpoint(
+        `${ep.OMS}/packages/merchantid/${merchantId}/delivered?begindate=${shipStart}&enddate=${shipEnd}`,
+        "Delivered", 50
+    );
+
+    // 5) İptal edilmiş — son 30 gün, limit max 50
+    await fetchFromEndpoint(
+        `${ep.OMS}/packages/merchantid/${merchantId}/cancelled?begindate=${shipStart}&enddate=${shipEnd}`,
+        "Cancelled", 50
+    );
+
+    // Tekrar eden siparişleri temizle (orderNumber'a göre)
     const uniqueOrders = Array.from(
         new Map(allOrders.map(order => [order.orderNumber, order])).values()
     );
+
+    logger.info(`✅ [Hepsiburada Dashboard] ${uniqueOrders.length} benzersiz sipariş çekildi`);
 
     const summary = summarizeOrders(uniqueOrders);
     return { ...summary, errorCount: 0, healthStatus: "healthy", pendingSync: 0 };
@@ -597,23 +637,20 @@ const fetchStockMismatch = async (name, credentials, productMap) => {
             return mismatches;
         }
         if (normalized === "hepsiburada") {
-            const { merchantId, apiKey } = credentials || {};
-            if (!merchantId || !apiKey) return 0;
+            const { normalizeCredentials: normHbDash, getHeaders: getHbDashHeaders, HB_ENDPOINTS: hbDashEp } = require("./hepsiburadaService");
+            const hbDashCreds = normHbDash(credentials);
+            if (!hbDashCreds.merchantId || !hbDashCreds.secretKey) return 0;
             const result = await requestWithControls({
-                url: `https://listing-external.hepsiburada.com/listings/merchantid/${merchantId}`,
+                url: `${hbDashEp.LISTING}/listings/merchantid/${hbDashCreds.merchantId}`,
                 method: "GET",
                 params: { offset: 0, limit: MAX_SUMMARY_PAGE_SIZE },
-                headers: {
-                    Authorization: `Basic ${Buffer.from(`${merchantId}:${apiKey}`).toString("base64")}`,
-                    "User-Agent": "lysia-dashboard",
-                    "Content-Type": "application/json"
-                }
+                headers: getHbDashHeaders(hbDashCreds.merchantId, hbDashCreds.secretKey, hbDashCreds.userAgent)
             });
             if (!result.ok) return 0;
-            const items = Array.isArray(result.response?.data?.items) ? result.response.data.items : [];
+            const items = Array.isArray(result.response?.data?.listings) ? result.response.data.listings : [];
             let mismatches = 0;
             items.forEach(item => {
-                const sku = item.sku || item.barcode;
+                const sku = item.merchantSku || item.sku || item.barcode;
                 const marketplaceStock = item.availableStock || item.stock || item.quantity || 0;
                 if (sku && productMap.has(sku)) {
                     const local = Number(productMap.get(sku));

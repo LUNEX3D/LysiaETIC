@@ -206,34 +206,72 @@ const fetchTrendyolProducts = async (credentials) => {
 
 // Hepsiburada ürünlerini çek
 const fetchHepsiburadaProducts = async (credentials) => {
-    // Hepsiburada API Format:
-    // merchantId: Mağaza ID (sayısal, örn: "123456")
-    // username: API kullanıcı adı (UUID formatında, örn: "825f9afd-e1c5-4416-9dbd-632f70730568")
-    // password: API şifresi (UUID formatında)
-    // Authorization: Basic base64(username:password)
-    const { merchantId, username, password, apiKey } = credentials;
+    const { normalizeCredentials, getHeaders, getEndpoints, validateCredentials } = require("./hepsiburadaService");
+    const hbCreds = normalizeCredentials(credentials);
+    const { merchantId, secretKey, userAgent } = hbCreds;
 
-    // Geriye dönük uyumluluk: apiKey varsa username olarak kullan
-    const actualUsername = username || apiKey;
-    const actualPassword = password || credentials.apiSecret || credentials.secretKey;
-
-    if (!merchantId || !actualUsername || !actualPassword) {
-        throw new Error(
-            "Hepsiburada credentials eksik. Gerekli alanlar:\n" +
-            "- merchantId: Mağaza ID (sayısal)\n" +
-            "- username: API kullanıcı adı (UUID)\n" +
-            "- password: API şifresi (UUID)\n" +
-            "Hepsiburada Paneli → Entegrasyonlar → API Bilgileri'nden alabilirsiniz."
-        );
+    // Credential doğrulama
+    const validation = validateCredentials(hbCreds, "ürün çekme");
+    if (!validation.valid) {
+        throw new Error(validation.error);
     }
 
-    const authHeader = `Basic ${Buffer.from(`${actualUsername}:${actualPassword}`).toString("base64")}`;
-
+    const ep = getEndpoints(hbCreds);
+    const hbHeaders = getHeaders(merchantId, secretKey, userAgent);
     logger.info(
-        `[Hepsiburada] Ürün çekme başlatılıyor — merchantId: ${merchantId}, ` +
-        `username: ${actualUsername.substring(0, 8)}...`
+        `[Hepsiburada] Ürün çekme başlatılıyor — merchantId: ${merchantId.substring(0, 8)}...`
     );
 
+    // ── Adım 0: Kategori API'den categoryId → categoryName map'i oluştur ──
+    const categoryMap = new Map();
+    try {
+        let catPage = 0;
+        let catHasMore = true;
+        while (catHasMore) {
+            const catUrl = `${ep.MPOP}/product/api/categories/get-all-categories` +
+                `?leaf=true&status=ACTIVE&available=true&version=1&page=${catPage}&size=2000`;
+            const catResp = await axios.get(catUrl, { headers: hbHeaders, timeout: 30000 });
+            const catData = catResp.data;
+            const cats = Array.isArray(catData) ? catData : (catData?.data || catData?.content || []);
+            for (const cat of cats) {
+                const cid = cat.categoryId || cat.id;
+                const cname = cat.name || cat.categoryName || "";
+                if (cid && cname) categoryMap.set(String(cid), cname);
+            }
+            catHasMore = cats.length >= 2000;
+            catPage++;
+        }
+        logger.info(`[Hepsiburada CAT] ${categoryMap.size} kategori çekildi`);
+    } catch (catErr) {
+        logger.warn(`[Hepsiburada CAT] Kategori çekme hatası: ${catErr.message}`);
+    }
+
+    // ── Adım 1: MPOP API'den toplu ürün detaylarını çek ──
+    const mpopDetailMap = new Map();
+    for (const status of ["CREATED", "MATCHED", "WAITING", "IN_EXTERNAL_PROGRESS", "PRE_MATCHED"]) {
+        try {
+            let page = 0;
+            let hasMorePages = true;
+            while (hasMorePages) {
+                const mpopUrl = `${ep.MPOP}/product/api/products/products-by-merchant-and-status` +
+                    `?merchantId=${merchantId}&productStatus=${status}&version=1&page=${page}&size=1000`;
+                const mpopResp = await axios.get(mpopUrl, { headers: hbHeaders, timeout: 20000 });
+                const mpopData = mpopResp.data;
+                const items = Array.isArray(mpopData) ? mpopData : (mpopData?.data || mpopData?.products || mpopData?.content || []);
+                for (const item of items) {
+                    if (item.merchantSku) mpopDetailMap.set(item.merchantSku, item);
+                    if (item.hepsiburadaSku) mpopDetailMap.set(item.hepsiburadaSku, item);
+                }
+                hasMorePages = items.length >= 1000;
+                page++;
+            }
+        } catch (mpopErr) {
+            logger.warn(`[Hepsiburada MPOP] status=${status} hatası: ${mpopErr.message}`);
+        }
+    }
+    logger.info(`[Hepsiburada MPOP] Toplu detay: ${mpopDetailMap.size} ürün detayı çekildi`);
+
+    // ── Adım 2: Listing API'den fiyat/stok çek ve MPOP detaylarıyla birleştir ──
     const products = [];
     let offset = 0;
     const limit = 200;
@@ -242,13 +280,9 @@ const fetchHepsiburadaProducts = async (credentials) => {
     while (hasMore) {
         try {
             const response = await axios.get(
-                `https://listing-external.hepsiburada.com/listings/merchantid/${merchantId}`,
+                `${ep.LISTING}/listings/merchantid/${merchantId}`,
                 {
-                    headers: {
-                        Authorization: authHeader,
-                        "User-Agent": "LysiaETIC",
-                        "Content-Type": "application/json"
-                    },
+                    headers: hbHeaders,
                     params: { offset, limit },
                     timeout: 15000
                 }
@@ -258,18 +292,27 @@ const fetchHepsiburadaProducts = async (credentials) => {
             if (items.length === 0) {
                 hasMore = false;
             } else {
-                products.push(...items.map(p => ({
-                    marketplaceProductId: p.hepsiburadaSku,
-                    barcode: p.merchantSku,
-                    sku: p.merchantSku,
-                    name: p.productName,
-                    price: p.price,
-                    listPrice: p.listPrice || p.price,
-                    stock: p.availableStock,
-                    category: p.categoryName,
-                    images: p.imageUrl ? [p.imageUrl] : [],
-                    attributes: {}
-                })));
+                products.push(...items.map(p => {
+                    const detail = mpopDetailMap.get(p.merchantSku) || mpopDetailMap.get(p.hepsiburadaSku) || null;
+                    const matched = detail?.matchedHbProductInfo?.[0] || {};
+                    const rawImg = matched?.images?.[0] || detail?.defaultImageUrl || "";
+                    const imgUrl = rawImg ? rawImg.replace("{size}", "550") : "";
+                    const rawCatId = detail?.categoryId || matched?.categoryId || "";
+                    const catName = (rawCatId ? categoryMap.get(String(rawCatId)) : "") || detail?.categoryName || matched?.categoryName || "";
+                    return {
+                        marketplaceProductId: p.hepsiburadaSku,
+                        barcode: p.merchantSku,
+                        sku: p.merchantSku,
+                        name: detail?.productName || matched?.productName || p.merchantSku || "",
+                        price: p.price,
+                        listPrice: p.listPrice || p.price,
+                        stock: p.availableStock,
+                        category: catName,
+                        brand: matched?.brand || detail?.brand || "",
+                        images: imgUrl ? [imgUrl] : [],
+                        attributes: {}
+                    };
+                }));
                 offset += limit;
             }
         } catch (error) {
@@ -1119,22 +1162,26 @@ const uploadProductToTrendyol = async (credentials, product) => {
 };
 
 // Hepsiburada'ya ürün yükle
-// ✅ FIX: Doğru endpoint — inventory-uploads stok/fiyat güncelleme içindir, ürün oluşturma değil
-// Hepsiburada ürün oluşturma: POST /listings/merchantid/{merchantId}/inventory-uploads
-//   → Bu endpoint aslında hem yeni listing oluşturur hem de mevcut listing günceller
+// Endpoint: POST /listings/merchantid/{merchantId}/inventory-uploads
+//   → Bu endpoint hem yeni listing oluşturur hem de mevcut listing günceller
 //   → hepsiburadaSku (katalog SKU) zorunlu — ürün Hepsiburada kataloğunda olmalı
-//   → Eğer ürün katalogda yoksa, önce Hepsiburada Seller Panel'den ürün eşleştirmesi yapılmalı
-// ✅ FIX: Detaylı hata logu eklendi
+//   → merchantSku BÜYÜK HARF olmalı, boşluk olmamalı
 const uploadProductToHepsiburada = async (credentials, product) => {
-    const { merchantId, apiKey } = credentials;
-    if (!merchantId || !apiKey) {
-        return { success: false, error: "Hepsiburada credentials eksik: merchantId ve apiKey gerekli" };
+    const { normalizeCredentials, getHeaders, getEndpoints, validateCredentials } = require("./hepsiburadaService");
+    const hbCreds = normalizeCredentials(credentials);
+    const { merchantId, secretKey, userAgent } = hbCreds;
+
+    const validation = validateCredentials(hbCreds, "ürün yükleme");
+    if (!validation.valid) {
+        return { success: false, error: validation.error };
     }
-    const authHeader = `Basic ${Buffer.from(`${merchantId}:${apiKey}`).toString("base64")}`;
+
+    const ep = getEndpoints(hbCreds);
+
     const productName = product.name || product.title || "İsimsiz Ürün";
 
-    // Hepsiburada SKU — katalog eşleştirmesi için gerekli
-    const merchantSku    = product.sku || product.barcode;
+    // Hepsiburada: merchantSku BÜYÜK HARF ve boşluksuz olmalı
+    const merchantSku    = (product.sku || product.barcode || "").toUpperCase().replace(/\s/g, "");
     const hepsiburadaSku = product.barcode || product.sku;
 
     if (!merchantSku) {
@@ -1158,14 +1205,10 @@ const uploadProductToHepsiburada = async (credentials, product) => {
         );
 
         const response = await axios.post(
-            `https://listing-external.hepsiburada.com/listings/merchantid/${merchantId}/inventory-uploads`,
+            `${ep.LISTING}/listings/merchantid/${merchantId}/inventory-uploads`,
             payload,
             {
-                headers: {
-                    Authorization:  authHeader,
-                    "User-Agent":   "LysiaETIC",
-                    "Content-Type": "application/json"
-                },
+                headers: getHeaders(merchantId, secretKey, userAgent),
                 timeout: 15000
             }
         );
@@ -1957,17 +2000,15 @@ const deleteProductFromMarketplaces = async (userId, productMapping, targetPlatf
                 case "Hepsiburada": {
                     // ✅ Hepsiburada: 3 aşamalı silme stratejisi
                     // 1) Listing Deactivate — satıştan kaldır
-                    // 2) Listing Silme (DELETE) — tamamen sil
-                    // 3) Fallback: stok=0 gönder
-                    const { merchantId, username, password, apiKey: hbKey } = credentials;
-                    const authUser = username || merchantId;
-                    const authPass = password || hbKey;
-                    if (!merchantId || !authUser || !authPass) {
+                    // 2) Stok=0 gönder — satışı tamamen kapat
+                    // 3) Listing Silme (DELETE) — tamamen sil
+                    const { normalizeCredentials: normHbCreds, getHeaders: getHbHeaders, HB_ENDPOINTS: hbEp } = require("./hepsiburadaService");
+                    const hbDelCreds = normHbCreds(credentials);
+                    if (!hbDelCreds.merchantId || !hbDelCreds.secretKey) {
                         deleteResult = { success: false, error: "Hepsiburada credentials eksik" };
                         break;
                     }
-                    const hbAuth = `Basic ${Buffer.from(`${authUser}:${authPass}`).toString("base64")}`;
-                    const hbHeaders = { Authorization: hbAuth, "Content-Type": "application/json", "User-Agent": "LysiaETIC" };
+                    const hbHeaders = getHbHeaders(hbDelCreds.merchantId, hbDelCreds.secretKey, hbDelCreds.userAgent);
 
                     const hbSku = mp.marketplaceBarcode || mp.marketplaceSku || productMapping.masterProduct?.barcode || productMapping.masterProduct?.sku;
                     const merchantSku = mp.marketplaceSku || mp.marketplaceBarcode || productMapping.masterProduct?.sku || productMapping.masterProduct?.barcode;
@@ -1980,7 +2021,7 @@ const deleteProductFromMarketplaces = async (userId, productMapping, targetPlatf
                     // Adım 1: Listing Deactivate — satıştan kaldır
                     try {
                         await axios.post(
-                            `https://listing-external.hepsiburada.com/listings/merchantid/${merchantId}/sku/${hbSku}/deactivate`,
+                            `${hbEp.LISTING}/listings/merchantid/${hbDelCreds.merchantId}/sku/${hbSku}/deactivate`,
                             {},
                             { headers: hbHeaders, timeout: 15000 }
                         );
@@ -1992,7 +2033,7 @@ const deleteProductFromMarketplaces = async (userId, productMapping, targetPlatf
                     // Adım 2: Stok=0 gönder — satışı tamamen kapat
                     try {
                         await axios.post(
-                            `https://listing-external.hepsiburada.com/listings/merchantid/${merchantId}/inventory-uploads`,
+                            `${hbEp.LISTING}/listings/merchantid/${hbDelCreds.merchantId}/inventory-uploads`,
                             { listings: [{ hepsiburadaSku: hbSku, merchantSku: merchantSku, availableStock: 0 }] },
                             { headers: hbHeaders, timeout: 15000 }
                         );
@@ -2002,10 +2043,9 @@ const deleteProductFromMarketplaces = async (userId, productMapping, targetPlatf
                     }
 
                     // Adım 3: Listing Silme (DELETE) — tamamen sil
-                    // Not: Satışta olan listing silinemez, bu yüzden önce deactivate + stok=0 yapıyoruz
                     try {
                         await axios.delete(
-                            `https://listing-external.hepsiburada.com/listings/merchantid/${merchantId}/sku/${hbSku}/merchantsku/${merchantSku}`,
+                            `${hbEp.LISTING}/listings/merchantid/${hbDelCreds.merchantId}/sku/${hbSku}/merchantsku/${merchantSku}`,
                             { headers: hbHeaders, timeout: 15000 }
                         );
                         deleteResult = { success: true };
@@ -2013,7 +2053,6 @@ const deleteProductFromMarketplaces = async (userId, productMapping, targetPlatf
                     } catch (delErr) {
                         const errMsg = delErr.response?.data?.message || delErr.response?.data || delErr.message;
                         logger.warn(`[PRODUCT DELETE] Hepsiburada Adım 3/3 ⚠️ DELETE başarısız (${errMsg}) — listing deaktif ve stok=0`);
-                        // DELETE başarısız olsa bile listing deaktif ve stok=0 — satışta değil
                         deleteResult = { success: true, archived: true };
                     }
                     break;

@@ -580,3 +580,29 @@ export const toggleAutoInvoice = async () => {
     const res = await API.post("/auto-invoice/toggle");
     return res.data;
 };
+
+/**
+ * Belirli bir pazaryerini otomatik fatura için aç/kapat
+ * @param {string} marketplace - Pazaryeri adı (Trendyol, Hepsiburada, N11, ÇiçekSepeti, Amazon...)
+ */
+export const toggleMarketplaceInvoice = async (marketplace) => {
+    const res = await API.post("/auto-invoice/toggle-marketplace", { marketplace });
+    return res.data;
+};
+
+/**
+ * Pazaryerine özel fatura ayarlarını kaydet
+ * @param {Object} settings - { marketplace, vatRate, note, pricesIncludeVat, invoiceSeriesCode }
+ */
+export const saveMarketplaceInvoiceSettings = async (settings) => {
+    const res = await API.put("/auto-invoice/marketplace-settings", settings);
+    return res.data;
+};
+
+/**
+ * Pazaryeri bazlı fatura istatistiklerini getir
+ */
+export const getMarketplaceInvoiceStats = async () => {
+    const res = await API.get("/auto-invoice/marketplace-stats");
+    return res.data;
+};

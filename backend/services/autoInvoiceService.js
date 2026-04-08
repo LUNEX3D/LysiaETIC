@@ -38,6 +38,140 @@ const qnbService = require("./qnbEInvoiceService");
 // Ardışık hata limiti — bu kadar hatadan sonra otomatik fatura devre dışı kalır
 const MAX_CONSECUTIVE_ERRORS = 5;
 
+// ═══════════════════════════════════════════════════════════════════════════════
+//  PAZARYERI BAZLI DURUM HARİTALARI
+//  Her pazaryerinin sipariş durumu farklı terminoloji kullanır.
+//  Bu harita, hangi durumların fatura kesilebilir olduğunu belirler.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const MARKETPLACE_STATUS_MAP = {
+    // Trendyol: İngilizce durum kodları
+    Trendyol: [
+        "Created", "Picking", "Invoiced", "Shipped", "Delivered",
+        "UnDelivered", "Returned", "Repack", "UnSupplied",
+        // Fatura kesilecek durumlar (varsayılan)
+    ],
+    // Hepsiburada: İngilizce büyük harf durum kodları
+    Hepsiburada: [
+        "Open", "New", "Approved", "OPEN", "NEW", "APPROVED",
+        "Shipped", "SHIPPED", "Delivered", "DELIVERED",
+        "Processing", "PROCESSING", "InTransit", "IN_TRANSIT",
+        "Packed", "PACKED", "ReadyToShip", "READY_TO_SHIP",
+    ],
+    // N11: İngilizce durum kodları (REST API v1)
+    N11: [
+        "New", "Approved", "Rejected", "Shipped", "Delivered",
+        "Completed", "COMPLETED", "APPROVED", "SHIPPED", "DELIVERED",
+        "CancelRequested", "CancelApproved",
+    ],
+    // ÇiçekSepeti: Türkçe durum kodları
+    "ÇiçekSepeti": [
+        "Yeni", "Hazırlanıyor", "Onaylandı", "Kargoda", "Kargoya Verildi",
+        "Teslim Edildi", "Teslim", "Sipariş Alındı", "Hazırlandı",
+        "Gönderildi", "Tamamlandı",
+    ],
+    // Amazon: İngilizce durum kodları (SP-API)
+    Amazon: [
+        "Pending", "Unshipped", "PartiallyShipped", "Shipped",
+        "InTransit", "Delivered", "Complete",
+    ],
+    "Amazon Türkiye": [
+        "Pending", "Unshipped", "PartiallyShipped", "Shipped",
+        "InTransit", "Delivered", "Complete",
+    ],
+    "Amazon Europe": [
+        "Pending", "Unshipped", "PartiallyShipped", "Shipped",
+        "InTransit", "Delivered", "Complete",
+    ],
+    "Amazon USA": [
+        "Pending", "Unshipped", "PartiallyShipped", "Shipped",
+        "InTransit", "Delivered", "Complete",
+    ],
+    // eBay
+    eBay: [
+        "Active", "Completed", "Shipped", "Delivered", "Paid",
+    ],
+    // Diğer platformlar
+    Morhipo: ["New", "Approved", "Shipped", "Delivered", "Processing"],
+    PttAVM: ["New", "Approved", "Shipped", "Delivered", "Processing"],
+    Teknosa: ["New", "Approved", "Shipped", "Delivered", "Processing"],
+    ePttAVM: ["New", "Approved", "Shipped", "Delivered", "Processing"],
+};
+
+/**
+ * Pazaryeri adını normalize et (case-insensitive eşleştirme)
+ * "çiçeksepeti" → "ÇiçekSepeti", "amazon türkiye" → "Amazon Türkiye" vb.
+ */
+const normalizeMarketplaceName = (name) => {
+    if (!name) return "Diğer";
+    const lower = name.toLowerCase().trim();
+    const MAP = {
+        "trendyol": "Trendyol",
+        "hepsiburada": "Hepsiburada",
+        "n11": "N11",
+        "çiçeksepeti": "ÇiçekSepeti",
+        "ciceksepeti": "ÇiçekSepeti",
+        "amazon": "Amazon",
+        "amazon türkiye": "Amazon Türkiye",
+        "amazon turkey": "Amazon Türkiye",
+        "amazon europe": "Amazon Europe",
+        "amazon usa": "Amazon USA",
+        "ebay": "eBay",
+        "morhipo": "Morhipo",
+        "pttavm": "PttAVM",
+        "teknosa": "Teknosa",
+        "epttavm": "ePttAVM",
+    };
+    return MAP[lower] || name;
+};
+
+/**
+ * Verilen pazaryeri ve config için geçerli tetikleme durumlarını döndür
+ * Öncelik: config.triggerStatuses > MARKETPLACE_STATUS_MAP > geniş varsayılan
+ */
+const getEffectiveTriggerStatuses = (config, marketplaceName) => {
+    // Kullanıcı özel durum listesi tanımladıysa onu kullan
+    if (config.triggerStatuses && config.triggerStatuses.length > 0) {
+        return config.triggerStatuses;
+    }
+
+    const normalized = normalizeMarketplaceName(marketplaceName);
+
+    // Pazaryerine özel durum haritası
+    if (MARKETPLACE_STATUS_MAP[normalized]) {
+        return MARKETPLACE_STATUS_MAP[normalized];
+    }
+
+    // Geniş varsayılan — tüm bilinen durumları kapsar
+    return [
+        "Created", "New", "Yeni", "Approved", "Onaylandı",
+        "Processing", "İşlemde", "Picking", "Hazırlanıyor",
+        "Shipped", "Kargoda", "Kargoya Verildi", "InTransit",
+        "Delivered", "Teslim Edildi", "Teslim", "Complete", "Completed",
+        "Tamamlandı", "Packed", "ReadyToShip", "Unshipped",
+        "PartiallyShipped", "Open", "OPEN", "Paid",
+        "Invoiced", "Gönderildi", "Hazırlandı", "Sipariş Alındı",
+    ];
+};
+
+/**
+ * Pazaryerine özel ayarları al (KDV oranı, not, seri kodu vb.)
+ * marketplaceSettings Map'inden alır, yoksa genel config'e düşer
+ */
+const getMarketplaceSpecificSettings = (config, marketplaceName) => {
+    const normalized = normalizeMarketplaceName(marketplaceName);
+    const mpSettings = config.marketplaceSettings instanceof Map
+        ? config.marketplaceSettings.get(normalized)
+        : (config.marketplaceSettings && config.marketplaceSettings[normalized]);
+
+    return {
+        vatRate: mpSettings?.vatRate ?? config.defaultVatRate ?? 20,
+        note: mpSettings?.note || config.defaultNote || "",
+        pricesIncludeVat: mpSettings?.pricesIncludeVat ?? (config.pricesIncludeVat !== false),
+        invoiceSeriesCode: mpSettings?.invoiceSeriesCode || config.invoiceSeriesCode || "LYS",
+    };
+};
+
 /**
  * Sipariş listesi için otomatik fatura kesme işlemini başlat
  *
@@ -71,10 +205,14 @@ const processAutoInvoice = async (userId, marketplaceName, newOrderIds) => {
             return stats;
         }
 
-        // Pazaryeri aktif mi?
-        if (config.enabledMarketplaces.length > 0 && !config.enabledMarketplaces.includes(marketplaceName)) {
-            logger.info("[AutoInvoice] " + marketplaceName + " bu kullanıcı için aktif değil — userId=" + userId);
-            return stats;
+        // Pazaryeri aktif mi? (normalize ederek karşılaştır)
+        const normalizedMp = normalizeMarketplaceName(marketplaceName);
+        if (config.enabledMarketplaces.length > 0) {
+            const enabledNormalized = config.enabledMarketplaces.map(m => normalizeMarketplaceName(m));
+            if (!enabledNormalized.includes(normalizedMp)) {
+                logger.info("[AutoInvoice] " + normalizedMp + " bu kullanıcı için aktif değil — userId=" + userId);
+                return stats;
+            }
         }
 
         // Satıcı bilgisi zorunlu
@@ -98,10 +236,8 @@ const processAutoInvoice = async (userId, marketplaceName, newOrderIds) => {
             return stats;
         }
 
-        // Durum filtresi — varsayılan: Yeni, İşlemde, Kargoda, Teslim Edildi, Picking
-        const triggerStatuses = config.triggerStatuses && config.triggerStatuses.length > 0
-            ? config.triggerStatuses
-            : ["Created", "New", "Yeni", "Processing", "İşlemde", "Picking", "Shipped", "Kargoda", "Delivered", "Teslim"];
+        // Durum filtresi — pazaryerine özel durum haritası kullanılır
+        const triggerStatuses = getEffectiveTriggerStatuses(config, normalizedMp);
 
         const eligibleOrders = orders.filter(order => {
             const status = (order.status || "").toLowerCase();
@@ -195,30 +331,53 @@ const processAutoInvoice = async (userId, marketplaceName, newOrderIds) => {
             stats.processed++;
 
             try {
-                // Zaten fatura kesilmiş mi? (race condition koruması)
+                // ── ÇOKLU KORUMA: Aynı faturayı 2 kere kesmeyelim ──────────
+                // 1. Invoice tablosunda orderId kontrolü
                 const existingInvoice = await Invoice.findOne({ orderId: order._id });
                 if (existingInvoice) {
-                    logger.info("[AutoInvoice] Sipariş zaten faturalandı — orderNumber=" + order.trackingNumber);
+                    logger.info("[AutoInvoice] ⏭️ Sipariş zaten faturalandı (Invoice var) — orderNumber=" + order.trackingNumber + " faturaNo=" + existingInvoice.invoiceNumber);
                     stats.skipped++;
                     continue;
                 }
 
-                // Siparişi "pending" olarak işaretle
-                await Order.updateOne({ _id: order._id }, { invoiceStatus: "pending" });
+                // 2. Order'da invoiceId veya invoiceStatus=created kontrolü
+                const freshOrder = await Order.findById(order._id).lean();
+                if (freshOrder && (freshOrder.invoiceId || freshOrder.invoiceStatus === "created")) {
+                    logger.info("[AutoInvoice] ⏭️ Sipariş zaten faturalandı (Order flag) — orderNumber=" + order.trackingNumber);
+                    stats.skipped++;
+                    continue;
+                }
 
-                // Fatura kalemlerini oluştur
-                const invoiceLines = buildInvoiceLinesFromOrder(order, config);
+                // 3. Atomik olarak "pending" yap — sadece henüz faturalanmamışsa
+                // Bu, race condition'ı önler: iki paralel işlem aynı siparişi alamaz
+                const lockResult = await Order.updateOne(
+                    { _id: order._id, invoiceStatus: { $nin: ["created", "pending"] }, invoiceId: { $exists: false } },
+                    { invoiceStatus: "pending" }
+                );
+                if (lockResult.modifiedCount === 0) {
+                    logger.info("[AutoInvoice] ⏭️ Sipariş başka bir işlem tarafından kilitlendi — orderNumber=" + order.trackingNumber);
+                    stats.skipped++;
+                    continue;
+                }
 
-                // Müşteri bilgilerini hazırla
-                const customer = buildCustomerFromOrder(order, config);
+                // Pazaryerine özel ayarları al
+                const mpSpecific = getMarketplaceSpecificSettings(config, normalizedMp);
+
+                // Fatura kalemlerini oluştur (pazaryerine özel KDV oranı)
+                const invoiceLines = buildInvoiceLinesFromOrder(order, config, normalizedMp);
+
+                // Müşteri bilgilerini hazırla (pazaryerine özel VKN çıkarma)
+                const customer = buildCustomerFromOrder(order, config, normalizedMp);
 
                 // invoiceData oluştur
+                const invoiceNote = mpSpecific.note
+                    || ("Otomatik fatura — " + normalizedMp + " Sipariş: " + (order.trackingNumber || ""));
                 const invoiceData = {
-                    faturaKodu: config.invoiceSeriesCode || "LYS",
+                    faturaKodu: mpSpecific.invoiceSeriesCode,
                     invoiceTypeCode: config.invoiceTypeCode || "SATIS",
                     issueDate: new Date().toISOString().split("T")[0],
                     currency: config.currency || "TRY",
-                    note: config.defaultNote || ("Otomatik fatura — " + marketplaceName + " Sipariş: " + (order.trackingNumber || "")),
+                    note: invoiceNote,
                     sendingType: config.sendingType || "ELEKTRONIK",
                     supplier: {
                         vkn: config.supplier.vkn,
@@ -269,20 +428,8 @@ const processAutoInvoice = async (userId, marketplaceName, newOrderIds) => {
                 let result;
 
                 if (useEFatura && efaturaSessionId) {
-                    // ── e-Fatura gönder (connectorService.belgeGonderExt) ────
+                    // ── e-Fatura gönder (connectorService.belgeGonder) ────
                     const { buildInvoiceXml } = require("../utils/ublBuilder");
-                    const { base64, uuid, totals } = buildInvoiceXml({
-                        profileId: resolvedProfileId,
-                        invoiceTypeCode: invoiceData.invoiceTypeCode || "SATIS",
-                        invoiceNumber: "", // QNB'den üretilecek
-                        issueDate: invoiceData.issueDate,
-                        currency: invoiceData.currency || "TRY",
-                        note: invoiceData.note || "",
-                        sendingType: invoiceData.sendingType || "ELEKTRONIK",
-                        supplier: invoiceData.supplier || {},
-                        customer: invoiceData.customer || {},
-                        lines: invoiceData.lines || [],
-                    });
 
                     // Fatura numarası üret (e-Fatura için connectorService.faturaNoUret)
                     const noResult = await qnbService.generateInvoiceNumber({
@@ -293,11 +440,28 @@ const processAutoInvoice = async (userId, marketplaceName, newOrderIds) => {
                     });
                     const invoiceNumber = (noResult.success && noResult.invoiceNumber) ? noResult.invoiceNumber : "";
 
-                    const sendResult = await qnbService.sendEInvoice({
+                    // UBL XML oluştur — fatura numarasını dahil et
+                    const { xml, uuid, totals } = buildInvoiceXml({
+                        profileId: resolvedProfileId,
+                        invoiceTypeCode: invoiceData.invoiceTypeCode || "SATIS",
+                        invoiceNumber: invoiceNumber,
+                        issueDate: invoiceData.issueDate,
+                        currency: invoiceData.currency || "TRY",
+                        note: invoiceData.note || "",
+                        sendingType: invoiceData.sendingType || "ELEKTRONIK",
+                        supplier: invoiceData.supplier || {},
+                        customer: invoiceData.customer || {},
+                        lines: invoiceData.lines || [],
+                    });
+
+                    // QNB'ye gönder — belgeGonderExt (ERP kodu ile)
+                    // ⚠️ QNB resmi dokümantasyon: SOAP Header kullanılamadığı için
+                    //    belgeGonderExt metodu kullanılmalı (erpKodu parametresi ile)
+                    const sendResult = await qnbService.sendEInvoiceExt({
                         sessionId: efaturaSessionId,
-                        invoiceXml: base64,
+                        invoiceXml: xml,
                         vkn: config.supplier.vkn,
-                        belgeTuru: "FATURA",
+                        belgeTuru: "FATURA_UBL",
                         belgeNo: invoiceNumber,
                         env
                     });
@@ -308,7 +472,7 @@ const processAutoInvoice = async (userId, marketplaceName, newOrderIds) => {
 
                     logger.info("[AutoInvoice] e-Fatura gönderildi — " + invoiceNumber + " UUID: " + uuid);
                 } else {
-                    // ── e-Arşiv gönder (EarsivWebService.faturaOlusturExt) ───
+                    // ── e-Arşiv gönder (EarsivWebService.faturaOlustur) ───
                     resolvedProfileId = "EARSIVFATURA";
                     result = await qnbService.createEArchiveFromForm({
                         sessionId: earsivSessionId,
@@ -475,10 +639,22 @@ const processAutoInvoice = async (userId, marketplaceName, newOrderIds) => {
  *   KDV hariç = 229,99 TL
  *   KDV      = 229,99 * 0.20 = 46,00 TL
  *   Toplam   = 229,99 + 46,00 = 275,99 TL
+ *
+ * ── Pazaryerine Özel Davranışlar ─────────────────────────────────────
+ *   Trendyol:     grossAmount KDV dahil, line.amount KDV dahil
+ *   Hepsiburada:  totalPrice KDV dahil, item.price KDV dahil
+ *   N11:          sellerInvoiceAmount KDV dahil
+ *   ÇiçekSepeti:  totalPrice KDV dahil, itemPrice KDV dahil
+ *   Amazon:       OrderTotal KDV dahil (TR), KDV hariç (US/EU — ülkeye göre)
+ *
+ * @param {Object} order - Sipariş belgesi (Order model)
+ * @param {Object} config - AutoInvoiceConfig belgesi
+ * @param {string} [marketplaceName] - Pazaryeri adı (normalize edilmiş)
  */
-const buildInvoiceLinesFromOrder = (order, config) => {
-    const defaultVatRate = config.defaultVatRate || 20;
-    const pricesIncludeVat = config.pricesIncludeVat !== false; // varsayılan: true (KDV dahil)
+const buildInvoiceLinesFromOrder = (order, config, marketplaceName) => {
+    const mpSpecific = getMarketplaceSpecificSettings(config, marketplaceName || order.marketplaceName);
+    const defaultVatRate = mpSpecific.vatRate;
+    const pricesIncludeVat = mpSpecific.pricesIncludeVat;
     const items = order.items || [];
 
     /**
@@ -490,11 +666,32 @@ const buildInvoiceLinesFromOrder = (order, config) => {
         return price / (1 + vatRate / 100);
     };
 
+    // ── Pazaryerine özel kalem adı prefix'i ──
+    const normalized = normalizeMarketplaceName(marketplaceName || order.marketplaceName);
+    const mpPrefix = {
+        "Trendyol": "TY",
+        "Hepsiburada": "HB",
+        "N11": "N11",
+        "ÇiçekSepeti": "CS",
+        "Amazon": "AMZ",
+        "Amazon Türkiye": "AMZ-TR",
+        "Amazon Europe": "AMZ-EU",
+        "Amazon USA": "AMZ-US",
+        "eBay": "EBAY",
+        "Morhipo": "MRH",
+        "PttAVM": "PTT",
+        "Teknosa": "TKN",
+        "ePttAVM": "EPTT",
+    }[normalized] || "";
+
     if (items.length === 0) {
         // Tek kalem — sipariş toplamı
         const rawPrice = Number(order.totalPrice || 0);
+        const label = mpPrefix
+            ? (mpPrefix + " Sipariş #" + (order.trackingNumber || ""))
+            : ("Sipariş #" + (order.trackingNumber || ""));
         return [{
-            name: "Sipariş #" + (order.trackingNumber || ""),
+            name: label,
             quantity: 1,
             unit: "adet",
             unitPrice: toExVat(rawPrice, defaultVatRate),
@@ -505,8 +702,9 @@ const buildInvoiceLinesFromOrder = (order, config) => {
 
     return items.map(item => {
         const rawPrice = Number(item.price || 0);
+        const itemName = item.productName || "Ürün";
         return {
-            name: item.productName || "Ürün",
+            name: itemName,
             quantity: Number(item.quantity || 1),
             unit: "adet",
             unitPrice: toExVat(rawPrice, defaultVatRate),
@@ -529,11 +727,22 @@ const buildInvoiceLinesFromOrder = (order, config) => {
  *   1. Siparişten gelen müşteri bilgileri (customerName, customerAddress)
  *   2. Config'deki defaultCustomer (fallback)
  *
+ * ── Pazaryerine Özel VKN/TCKN Çıkarma ───────────────────────────────
+ *   Trendyol:     invoiceAddress.taxNumber (B2B siparişlerde)
+ *   Hepsiburada:  invoiceAddress.taxNumber / vkn (B2B siparişlerde)
+ *   N11:          invoiceAddress.taxNumber (B2B siparişlerde)
+ *   ÇiçekSepeti:  accountCode (bazen VKN içerir)
+ *   Amazon:       BuyerTaxInfo (B2B siparişlerde — SP-API)
+ *
  * ✅ FIX: Artık her sipariş için gerçek müşteri adı ve adresi kullanılıyor.
  *   ordersService.js'deki fetch fonksiyonları shipmentAddress/invoiceAddress
  *   bilgisini rawOrders'a aktarıyor, syncOrdersBackground DB'ye kaydediyor.
+ *
+ * @param {Object} order - Sipariş belgesi (Order model)
+ * @param {Object} config - AutoInvoiceConfig belgesi
+ * @param {string} [marketplaceName] - Pazaryeri adı (normalize edilmiş)
  */
-const buildCustomerFromOrder = (order, config) => {
+const buildCustomerFromOrder = (order, config, marketplaceName) => {
     const defaultCustomer = config.defaultCustomer || {};
     const addr = order.customerAddress || {};
 
@@ -560,13 +769,49 @@ const buildCustomerFromOrder = (order, config) => {
         || ((defaultCustomer.firstName || "") + " " + (defaultCustomer.lastName || "")).trim()
         || "Nihai Tuketici";
 
-    return {
-        // VKN/TCKN: Pazaryeri siparişlerinde genelde gelmez → defaultCustomer'dan al
-        // e-Arşiv "Nihai Tüketici" için 11111111111 standart TCKN
-        vkn: defaultCustomer.vkn || "11111111111",
+    // ── Pazaryerine özel VKN/TCKN çıkarma ──────────────────────────────
+    // Bazı pazaryerlerinde B2B siparişlerde fatura adresinde VKN bilgisi gelir
+    // Bu bilgi varsa e-Fatura mükellefi sorgusu yapılabilir
+    let extractedVkn = "";
+    let extractedTaxOffice = "";
+    let extractedCompany = "";
 
-        // İsim: Siparişten gelen gerçek müşteri adı (her sipariş farklı kişi!)
-        name: hasOrderCustomer ? fullName : defaultFullName,
+    // Order model'de customerAddress.taxNumber alanı yok ama
+    // ordersService.js sync sırasında invoiceAddress bilgisini
+    // rawOrders'dan çıkarıp customerAddress'e aktarıyor.
+    // Ek olarak, Order model'e kaydedilmemiş olabilecek raw alanları kontrol et
+    const rawInvoiceAddr = order._rawInvoiceAddress || {};
+
+    // Tüm platformlar için ortak VKN çıkarma
+    const possibleVkn = rawInvoiceAddr.taxNumber
+        || rawInvoiceAddr.vkn
+        || addr.taxNumber
+        || addr.vkn
+        || "";
+
+    if (possibleVkn && possibleVkn.length >= 10 && possibleVkn !== "11111111111") {
+        extractedVkn = possibleVkn;
+        extractedTaxOffice = rawInvoiceAddr.taxOffice || addr.taxOffice || "";
+        extractedCompany = rawInvoiceAddr.company || rawInvoiceAddr.companyName || "";
+        logger.info("[AutoInvoice] B2B müşteri tespit edildi — VKN: " + extractedVkn +
+            " Firma: " + extractedCompany + " Marketplace: " + (marketplaceName || order.marketplaceName));
+    }
+
+    // VKN belirleme: çıkarılan VKN > defaultCustomer VKN > Nihai Tüketici
+    const finalVkn = extractedVkn || defaultCustomer.vkn || "11111111111";
+
+    // Firma adı varsa müşteri adı olarak kullan (B2B)
+    const customerName = extractedCompany
+        ? extractedCompany
+        : (hasOrderCustomer ? fullName : defaultFullName);
+
+    return {
+        // VKN/TCKN
+        vkn: finalVkn,
+        taxOffice: extractedTaxOffice || "",
+
+        // İsim
+        name: customerName,
         firstName: hasOrderCustomer ? firstName : (defaultCustomer.firstName || "Nihai"),
         lastName: hasOrderCustomer ? lastName : (defaultCustomer.lastName || "Tuketici"),
 
@@ -605,11 +850,12 @@ const processManualBatchInvoice = async (userId, orderIds) => {
     }
 
     // Siparişleri getir (Order modelinde alan adı "user", "userId" değil)
+    // ✅ FIX: "pending" durumundaki siparişleri de atla (başka işlem tarafından kilitlenmiş olabilir)
     const orders = await Order.find({
         _id: { $in: orderIds },
         user: userId,
         invoiceId: { $exists: false },
-        invoiceStatus: { $ne: "created" },
+        invoiceStatus: { $nin: ["created", "pending"] },
     }).lean();
 
     if (orders.length === 0) {
@@ -684,4 +930,8 @@ module.exports = {
     processAllUninvoiced,
     buildInvoiceLinesFromOrder,
     buildCustomerFromOrder,
+    normalizeMarketplaceName,
+    getEffectiveTriggerStatuses,
+    getMarketplaceSpecificSettings,
+    MARKETPLACE_STATUS_MAP,
 };

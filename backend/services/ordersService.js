@@ -97,191 +97,382 @@ const fetchTrendyolOrders = async (sellerId, apiKey, apiSecret, startDate, endDa
     }
 };
 
-const fetchHepsiburadaOrders = async (merchantId, serviceKey, startDate, endDate) => {
+const fetchHepsiburadaOrders = async (merchantId, serviceKey, startDate, endDate, userAgent, useSit = false) => {
     try {
         if (!merchantId || !serviceKey) {
             logger.warn("Hepsiburada: MerchantId veya ServiceKey eksik");
             return [];
         }
 
-        logger.info("📦 [Hepsiburada] Marketplace Orders API ile siparişler çekiliyor...", {
+        logger.info("📦 [Hepsiburada] OMS Orders API ile siparişler çekiliyor...", {
             merchantId: merchantId.substring(0, 8) + "...",
             startDate: moment(startDate).format('YYYY-MM-DD HH:mm:ss'),
-            endDate: moment(endDate).format('YYYY-MM-DD HH:mm:ss')
+            endDate: moment(endDate).format('YYYY-MM-DD HH:mm:ss'),
+            useSit
         });
 
-        // Marketplace Orders API için Basic Auth (username:password formatında)
+        // Hepsiburada Auth: Basic base64(merchantId:secretKey)
         const credentials = `${merchantId}:${serviceKey}`;
         const authHeader = `Basic ${Buffer.from(credentials, "utf-8").toString("base64")}`;
 
+        // User-Agent: Hepsiburada'nın satıcıya verdiği developer username
         const headers = {
             "Authorization": authHeader,
-            "User-Agent": "lysiaaccessory_dev", // ⚠️ ÖNEMLİ: Mailden gelen User-Agent
+            "User-Agent": userAgent || "LysiaETIC",
             "Content-Type": "application/json"
         };
 
-        // Tarih formatı: YYYY-MM-DD HH:mm:ss
-        const formattedStartDate = moment(startDate).format('YYYY-MM-DD HH:mm:ss');
-        const formattedEndDate = moment(endDate).format('YYYY-MM-DD HH:mm:ss');
+        // SIT/Production ortamına göre dinamik endpoint
+        const { getEndpoints } = require("./hepsiburadaService");
+        const ep = getEndpoints({ useSit });
+        const BASE_URL = ep.OMS;
 
-        const allOrders = [];
-        let currentOffset = 0;
-        const limit = 200; // Maksimum 200
+        // ═══════════════════════════════════════════════════════════════
+        // Hepsiburada OMS API — Farklı statüdeki siparişler FARKLI
+        // endpoint'lerden çekilir. Tek bir endpoint tüm siparişleri vermez.
+        //
+        // 1. /orders/merchantid/{id}                    → Ödemesi tamamlanmış (Open/Unpacked)
+        // 2. /packages/merchantid/{id}                  → Paketlenmiş (kargoya hazır)
+        // 3. /packages/merchantid/{id}/shipped           → Kargoya verilmiş
+        // 4. /packages/merchantid/{id}/delivered         → Teslim edilmiş
+        // 5. /packages/merchantid/{id}/cancelled         → İptal edilmiş
+        //
+        // Limit: max 100 (orders), max 50 (packages — shipped/delivered/cancelled)
+        // Offset + Limit birlikte zorunlu
+        // begindate/enddate: YYYY-MM-DD HH:mm:ss formatında
+        // Packages endpoint'leri: begindate/enddate veya timespan parametresi
+        // Shipped/Delivered/Cancelled: son 1 aylık data, limit max 50
+        // ═══════════════════════════════════════════════════════════════
 
-        // ⚠️ ÖNEMLİ: Ortam seçimi (TEST vs PRODUCTION)
-        // TEST ortamı: marketplace-sit.hepsiburada.com
-        // PRODUCTION ortamı: marketplace.hepsiburada.com
-        const USE_TEST_ENV = false; // false = PRODUCTION (gerçek siparişler için)
+        const allOrderMap = new Map(); // orderNumber → order (tüm kaynaklardan birleştir)
 
-        const BASE_URL = USE_TEST_ENV
-            ? "https://marketplace-sit.hepsiburada.com"
-            : "https://marketplace.hepsiburada.com";
+        // ── Yardımcı: OMS item'larını orderMap'e ekle ──
+        const addItemsToMap = (items, defaultStatus) => {
+            items.forEach(item => {
+                const orderNum = item.orderNumber || item.orderId || item.id;
+                if (!orderNum) return;
 
-        logger.info(`🌍 [Hepsiburada] Ortam: ${USE_TEST_ENV ? 'TEST (SIT)' : 'PRODUCTION'}`);
-
-        // Pagination ile tüm siparişleri çek
-        let hasMorePages = true;
-
-        while (hasMorePages) {
-            try {
-                const url = `${BASE_URL}/orders?` +
-                    `startDate=${encodeURIComponent(formattedStartDate)}` +
-                    `&endDate=${encodeURIComponent(formattedEndDate)}` +
-                    `&offset=${currentOffset}` +
-                    `&limit=${limit}`;
-
-                logger.info(`🔍 [Hepsiburada] Offset ${currentOffset} çekiliyor...`);
-
-                const response = await axios.get(url, { headers, timeout: 30000 });
-
-                if (response.status === 200) {
-                    const data = response.data;
-                    const orders = data?.orders || data?.data || data?.content || [];
-
-                    if (!Array.isArray(orders) || orders.length === 0) {
-                        logger.info(`✅ [Hepsiburada] Daha fazla sipariş yok`);
-                        hasMorePages = false;
-                        break;
-                    }
-
-                    logger.info(`✅ [Hepsiburada] ${orders.length} sipariş bulundu (Offset: ${currentOffset})`);
-
-                    // Siparişleri formatla ve ekle
-                    const formattedOrders = orders.map(order => {
-                        // ✅ FIX: Tutar hesaplama — birden fazla alan kontrol et + item toplamı fallback
-                        const rawItems = order.items || order.orderItems || [];
-                        const itemTotal = rawItems.reduce((sum, item) => {
-                            const p = Number(item.price || item.unitPrice || item.amount || 0);
-                            const q = Number(item.quantity || 1);
-                            return sum + (p * q);
-                        }, 0);
-                        const rawTotal = Number(order.totalPrice || order.totalAmount || order.grandTotal || order.orderTotal || 0);
-                        const finalTotal = rawTotal > 0 ? rawTotal : itemTotal;
-
-                        return {
-                        orderNumber: order.orderNumber || order.merchantOrderNumber || order.id,
-                        orderDate: order.orderDate || order.createdDate || order.orderCreatedDate
-                            ? new Date(order.orderDate || order.createdDate || order.orderCreatedDate).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' })
-                            : 'Bilinmiyor',
-                        customerName: order.customerName || order.buyerName || order.shippingAddress?.fullName || 'Hepsiburada Müşteri',
-                        customerEmail: order.customerEmail || order.buyerEmail || '',
-                        customerPhone: order.customerPhone || order.shippingAddress?.phone || '',
-                        totalPrice: finalTotal > 0 ? finalTotal.toFixed(2) : '0.00',
-                        status: order.status || 'UNKNOWN',
-                        trackingNumber: order.trackingNumber || order.cargoTrackingNumber || 'Yok',
-                        cargoCompany: order.cargoCompany || order.cargoProviderName || 'Bilinmiyor',
-                        // ── Müşteri adres bilgileri (fatura için) ──
-                        shippingAddress: order.shippingAddress ? {
-                            fullName: order.shippingAddress.fullName || order.customerName || '',
-                            city: order.shippingAddress.city || order.shippingAddress.province || '',
-                            district: order.shippingAddress.district || order.shippingAddress.county || '',
-                            fullAddress: order.shippingAddress.fullAddress || order.shippingAddress.address || order.shippingAddress.addressLine1 || '',
-                            phone: order.shippingAddress.phone || order.shippingAddress.phoneNumber || '',
-                            country: order.shippingAddress.country || 'Turkiye',
-                        } : {},
-                        invoiceAddress: order.invoiceAddress ? {
-                            fullName: order.invoiceAddress.fullName || '',
-                            city: order.invoiceAddress.city || '',
-                            district: order.invoiceAddress.district || '',
-                            fullAddress: order.invoiceAddress.fullAddress || order.invoiceAddress.address || '',
-                            taxNumber: order.invoiceAddress.taxNumber || order.invoiceAddress.vkn || '',
-                            taxOffice: order.invoiceAddress.taxOffice || '',
-                            company: order.invoiceAddress.company || order.invoiceAddress.companyName || '',
-                        } : {},
-                        products: Array.isArray(order.items) && order.items.length > 0
-                            ? order.items.map(item => ({
-                                productId: item.sku || item.merchantSku || item.barcode || item.id,
-                                productName: item.productName || item.name || item.title || 'Ürün',
-                                quantity: item.quantity || 1,
-                                price: item.price?.toFixed?.(2) ||
-                                    item.unitPrice?.toFixed?.(2) ||
-                                    Number(item.price || item.unitPrice || 0).toFixed(2),
-                                imageUrl: item.imageUrl || item.image || '/default-product.jpg',
-                                sku: item.sku || item.merchantSku
-                            }))
-                            : Array.isArray(order.orderItems) && order.orderItems.length > 0
-                                ? order.orderItems.map(item => ({
-                                    productId: item.sku || item.merchantSku || item.barcode || item.id,
-                                    productName: item.productName || item.name || 'Ürün',
-                                    quantity: item.quantity || 1,
-                                    price: item.unitPrice?.toFixed?.(2) || Number(item.unitPrice || 0).toFixed(2),
-                                    imageUrl: item.imageUrl || '/default-product.jpg',
-                                    sku: item.sku || item.merchantSku
-                                }))
-                                : [{
-                                    productId: order.sku || order.merchantSku,
-                                    productName: order.productName || 'Ürün',
-                                    quantity: 1,
-                                    price: '0.00',
-                                    imageUrl: '/default-product.jpg'
-                                }]
-                    };
+                if (!allOrderMap.has(orderNum)) {
+                    allOrderMap.set(orderNum, {
+                        orderNumber: orderNum,
+                        orderDate: item.orderDate,
+                        customerName: item.customerName || item.shippingAddress?.name || item.shippingAddressDetail?.name || item.recipientName || item.invoice?.address?.name || 'Hepsiburada Müşteri',
+                        customerEmail: item.invoice?.address?.email || item.shippingAddress?.email || item.email || '',
+                        customerPhone: item.shippingAddress?.phoneNumber || item.invoice?.address?.phoneNumber || item.phoneNumber || '',
+                        totalPrice: 0,
+                        status: item.status || defaultStatus || 'Open',
+                        trackingNumber: item.barcode || item.trackingInfoCode || 'Yok',
+                        cargoCompany: item.cargoCompany || item.cargoCompanyModel?.name || 'Bilinmiyor',
+                        packageNumber: item.packageNumber || '',
+                        shippingAddress: item.shippingAddress ? {
+                            fullName: item.shippingAddress.name || item.customerName || item.recipientName || '',
+                            city: item.shippingAddress.city || item.shippingCity || '',
+                            district: item.shippingAddress.district || item.shippingDistrict || '',
+                            fullAddress: item.shippingAddress.address || item.shippingAddress.addressDetail || item.shippingAddressDetail || '',
+                            phone: item.shippingAddress.phoneNumber || item.phoneNumber || '',
+                            country: item.shippingAddress.countryCode || item.shippingCountryCode || 'Turkiye',
+                        } : {
+                            fullName: item.recipientName || item.customerName || '',
+                            city: item.shippingCity || '',
+                            district: item.shippingDistrict || '',
+                            fullAddress: item.shippingAddressDetail || '',
+                            phone: item.phoneNumber || '',
+                            country: item.shippingCountryCode || 'Turkiye',
+                        },
+                        invoiceAddress: item.invoice?.address ? {
+                            fullName: item.invoice.address.name || item.companyName || '',
+                            city: item.invoice.address.city || item.billingCity || '',
+                            district: item.invoice.address.district || item.billingDistrict || '',
+                            fullAddress: item.invoice.address.address || item.billingAddress || '',
+                            taxNumber: item.invoice.taxNumber || item.taxNumber || '',
+                            taxOffice: item.invoice.taxOffice || item.taxOffice || '',
+                            company: item.invoice.address.name || item.companyName || '',
+                        } : {
+                            fullName: item.companyName || '',
+                            city: item.billingCity || '',
+                            district: item.billingDistrict || '',
+                            fullAddress: item.billingAddress || '',
+                            taxNumber: item.taxNumber || '',
+                            taxOffice: item.taxOffice || '',
+                            company: item.companyName || '',
+                        },
+                        products: []
                     });
-
-                    allOrders.push(...formattedOrders);
-
-                    // Pagination kontrolü
-                    if (orders.length < limit) {
-                        hasMorePages = false;
-                    } else {
-                        currentOffset += limit;
-                        // Rate limiting için kısa bekleme
-                        await new Promise(resolve => setTimeout(resolve, 500));
-                    }
-                } else {
-                    logger.warn(`⚠️ [Hepsiburada] Beklenmeyen status kodu: ${response.status}`);
-                    hasMorePages = false;
                 }
-            } catch (err) {
-                if (err.response?.status === 401) {
-                    logger.error("❌ [Hepsiburada] 401 Unauthorized - Credentials hatalı!");
-                    throw new Error("Hepsiburada credentials hatalı veya süresi dolmuş");
-                } else if (err.response?.status === 404) {
-                    logger.info(`ℹ️ [Hepsiburada] Sipariş bulunamadı`);
-                    hasMorePages = false;
-                } else {
-                    logger.error(`❌ [Hepsiburada] API hatası (Offset: ${currentOffset})`, {
-                        error: err.message,
-                        status: err.response?.status
+
+                const orderEntry = allOrderMap.get(orderNum);
+
+                // Fiyat: totalPrice obje { amount, currency } veya düz sayı olabilir
+                const itemTotalPrice = Number(item.totalPrice?.amount || item.totalPrice || 0);
+                const itemUnitPrice = Number(item.unitPrice?.amount || item.unitPrice || item.price?.amount || item.price || 0);
+                const qty = Number(item.quantity || 1);
+                const lineTotal = itemTotalPrice > 0 ? itemTotalPrice : (itemUnitPrice * qty);
+                orderEntry.totalPrice += lineTotal;
+
+                // Packages endpoint'i items[] array'i içinde kalemler döner
+                // Orders endpoint'i her satırı ayrı item olarak döner
+                const subItems = item.items || [];
+                if (subItems.length > 0) {
+                    // Packages response — items içinde kalemler var
+                    subItems.forEach(sub => {
+                        orderEntry.products.push({
+                            productId: sub.hbSku || sub.sku || sub.merchantSku || sub.lineItemId || '',
+                            productName: sub.productName || sub.name || 'Ürün',
+                            quantity: Number(sub.quantity || 1),
+                            price: Number(sub.totalPrice?.amount || sub.totalPrice || sub.price?.amount || sub.price || sub.merchantTotalPrice || 0),
+                            imageUrl: sub.imageUrl || sub.productImageUrl || '/default-product.jpg',
+                            sku: sub.hbSku || sub.sku || sub.merchantSku || '',
+                            barcode: sub.merchantSku || sub.productBarcode || sub.sku || '',
+                            commissionAmount: Number(sub.commission?.amount || 0)
+                        });
                     });
-                    hasMorePages = false;
+                } else {
+                    // Orders response — her satır bir kalem
+                    orderEntry.products.push({
+                        productId: item.sku || item.merchantSku || item.hbSku || item.id,
+                        productName: item.productName || item.name || 'Ürün',
+                        quantity: qty,
+                        price: lineTotal > 0 ? lineTotal.toFixed(2) : itemUnitPrice.toFixed(2),
+                        imageUrl: item.imageUrl || item.productImageUrl || '/default-product.jpg',
+                        sku: item.sku || item.merchantSku || '',
+                        barcode: item.merchantSku || item.productBarcode || item.sku || '',
+                        commissionAmount: Number(item.commission?.amount || 0)
+                    });
+                }
+            });
+        };
+
+        // ── Yardımcı: Pagination ile bir endpoint'ten tüm item'ları çek ──
+        const fetchAllFromEndpoint = async (endpointUrl, label, maxLimit) => {
+            let offset = 0;
+            const limit = maxLimit || 100;
+            let hasMore = true;
+            let totalFetched = 0;
+
+            while (hasMore) {
+                try {
+                    const url = endpointUrl.includes('?')
+                        ? `${endpointUrl}&offset=${offset}&limit=${limit}`
+                        : `${endpointUrl}?offset=${offset}&limit=${limit}`;
+
+                    const response = await axios.get(url, { headers, timeout: 30000 });
+
+                    if (response.status === 200) {
+                        const data = response.data;
+                        const items = data?.items || data?.orders || data?.data || data?.content || [];
+
+                        if (!Array.isArray(items) || items.length === 0) {
+                            hasMore = false;
+                            break;
+                        }
+
+                        totalFetched += items.length;
+                        return { items, totalCount: data?.totalCount || totalFetched };
+                    } else {
+                        hasMore = false;
+                    }
+                } catch (err) {
+                    if (err.response?.status === 401) {
+                        logger.error(`❌ [Hepsiburada ${label}] 401 Unauthorized`);
+                    } else if (err.response?.status === 404) {
+                        // 404 = bu statüde sipariş yok — normal durum
+                    } else {
+                        logger.warn(`⚠️ [Hepsiburada ${label}] API hatası: ${err.response?.status || err.message}`, {
+                            responseData: typeof err.response?.data === 'string' ? err.response.data.substring(0, 500) : JSON.stringify(err.response?.data || '').substring(0, 500)
+                        });
+                    }
+                    hasMore = false;
                 }
             }
-        }
+            return { items: [], totalCount: 0 };
+        };
 
-        // Tekrar eden siparişleri temizle (orderNumber'a göre unique)
-        const uniqueOrders = Array.from(
-            new Map(allOrders.map(order => [order.orderNumber, order])).values()
-        );
+        // Tarih formatı: YYYY-MM-DD HH:mm:ss
+        const fmtStart = moment(startDate).format('YYYY-MM-DD HH:mm:ss');
+        const fmtEnd = moment(endDate).format('YYYY-MM-DD HH:mm:ss');
+        const encStart = encodeURIComponent(fmtStart);
+        const encEnd = encodeURIComponent(fmtEnd);
 
-        logger.info(`✅ [Hepsiburada] Toplam ${uniqueOrders.length} benzersiz sipariş çekildi`);
+        // ═══════════════════════════════════════════════════════════════
+        // 1) Ödemesi Tamamlanmış Siparişler (Open/Unpacked) — limit max 100
+        // ═══════════════════════════════════════════════════════════════
+        logger.info(`🔍 [Hepsiburada] Adım 1: Ödemesi tamamlanmış siparişler çekiliyor...`);
+        try {
+            let offset = 0;
+            const limit = 100;
+            let hasMore = true;
+            while (hasMore) {
+                const url = `${BASE_URL}/orders/merchantid/${merchantId}?begindate=${encStart}&enddate=${encEnd}&offset=${offset}&limit=${limit}`;
+                try {
+                    const resp = await axios.get(url, { headers, timeout: 30000 });
+                    const items = resp.data?.items || [];
+                    if (!Array.isArray(items) || items.length === 0) { hasMore = false; break; }
+                    logger.info(`✅ [Hepsiburada Orders] ${items.length} kalem (offset=${offset})`);
+                    addItemsToMap(items, 'Open');
+                    if (items.length < limit) { hasMore = false; } else { offset += items.length; }
+                    await new Promise(r => setTimeout(r, 300));
+                } catch (err) {
+                    if (err.response?.status === 404) { hasMore = false; }
+                    else if (err.response?.status === 401) {
+                        logger.error(`❌ [Hepsiburada Orders] 401 Unauthorized — credentials hatalı veya ortam uyumsuz (useSit=${useSit})`);
+                        hasMore = false;
+                    } else {
+                        logger.warn(`⚠️ [Hepsiburada Orders] Hata: ${err.response?.status || err.message}`, {
+                            responseBody: JSON.stringify(err.response?.data || '').substring(0, 500)
+                        });
+                        hasMore = false;
+                    }
+                }
+            }
+        } catch (e) { logger.warn(`[Hepsiburada Orders] Genel hata: ${e.message}`); }
+
+        // ═══════════════════════════════════════════════════════════════
+        // 2) Paketlenmiş Siparişler (Packages) — timespan=720 (30 gün saat)
+        //    veya begindate/enddate ile max 24 saat aralık
+        //    timespan + limit + offset birlikte kullanılabilir
+        // ═══════════════════════════════════════════════════════════════
+        logger.info(`🔍 [Hepsiburada] Adım 2: Paketlenmiş siparişler çekiliyor...`);
+        try {
+            let offset = 0;
+            const limit = 50;
+            let hasMore = true;
+            while (hasMore) {
+                const url = `${BASE_URL}/packages/merchantid/${merchantId}?timespan=720&offset=${offset}&limit=${limit}`;
+                try {
+                    const resp = await axios.get(url, { headers, timeout: 30000 });
+                    const items = resp.data?.items || resp.data || [];
+                    const arr = Array.isArray(items) ? items : [];
+                    if (arr.length === 0) { hasMore = false; break; }
+                    logger.info(`✅ [Hepsiburada Packages] ${arr.length} paket (offset=${offset})`);
+                    addItemsToMap(arr, 'Packaged');
+                    if (arr.length < limit) { hasMore = false; } else { offset += arr.length; }
+                    await new Promise(r => setTimeout(r, 300));
+                } catch (err) {
+                    if (err.response?.status === 404 || err.response?.status === 401) { hasMore = false; }
+                    else {
+                        logger.warn(`⚠️ [Hepsiburada Packages] Hata: ${err.response?.status || err.message}`);
+                        hasMore = false;
+                    }
+                }
+            }
+        } catch (e) { logger.warn(`[Hepsiburada Packages] Genel hata: ${e.message}`); }
+
+        // ═══════════════════════════════════════════════════════════════
+        // 3) Kargoya Verilmiş Siparişler — son 1 ay, limit max 50
+        // ═══════════════════════════════════════════════════════════════
+        logger.info(`🔍 [Hepsiburada] Adım 3: Kargoya verilmiş siparişler çekiliyor...`);
+        try {
+            let offset = 0;
+            const limit = 50;
+            let hasMore = true;
+            // Son 30 gün — API max 1 ay
+            const shipStart = encodeURIComponent(moment().subtract(30, 'days').format('YYYY-MM-DD HH:mm:ss'));
+            const shipEnd = encodeURIComponent(moment().format('YYYY-MM-DD HH:mm:ss'));
+            while (hasMore) {
+                const url = `${BASE_URL}/packages/merchantid/${merchantId}/shipped?begindate=${shipStart}&enddate=${shipEnd}&offset=${offset}&limit=${limit}`;
+                try {
+                    const resp = await axios.get(url, { headers, timeout: 30000 });
+                    const items = resp.data?.items || resp.data || [];
+                    const arr = Array.isArray(items) ? items : [];
+                    if (arr.length === 0) { hasMore = false; break; }
+                    logger.info(`✅ [Hepsiburada Shipped] ${arr.length} sipariş (offset=${offset})`);
+                    addItemsToMap(arr, 'Shipped');
+                    if (arr.length < limit) { hasMore = false; } else { offset += arr.length; }
+                    await new Promise(r => setTimeout(r, 300));
+                } catch (err) {
+                    if (err.response?.status === 404 || err.response?.status === 401) { hasMore = false; }
+                    else {
+                        logger.warn(`⚠️ [Hepsiburada Shipped] Hata: ${err.response?.status || err.message}`);
+                        hasMore = false;
+                    }
+                }
+            }
+        } catch (e) { logger.warn(`[Hepsiburada Shipped] Genel hata: ${e.message}`); }
+
+        // ═══════════════════════════════════════════════════════════════
+        // 4) Teslim Edilmiş Siparişler — son 1 ay, limit max 50
+        // ═══════════════════════════════════════════════════════════════
+        logger.info(`🔍 [Hepsiburada] Adım 4: Teslim edilmiş siparişler çekiliyor...`);
+        try {
+            let offset = 0;
+            const limit = 50;
+            let hasMore = true;
+            const delStart = encodeURIComponent(moment().subtract(30, 'days').format('YYYY-MM-DD HH:mm:ss'));
+            const delEnd = encodeURIComponent(moment().format('YYYY-MM-DD HH:mm:ss'));
+            while (hasMore) {
+                const url = `${BASE_URL}/packages/merchantid/${merchantId}/delivered?begindate=${delStart}&enddate=${delEnd}&offset=${offset}&limit=${limit}`;
+                try {
+                    const resp = await axios.get(url, { headers, timeout: 30000 });
+                    const items = resp.data?.items || resp.data || [];
+                    const arr = Array.isArray(items) ? items : [];
+                    if (arr.length === 0) { hasMore = false; break; }
+                    logger.info(`✅ [Hepsiburada Delivered] ${arr.length} sipariş (offset=${offset})`);
+                    addItemsToMap(arr, 'Delivered');
+                    if (arr.length < limit) { hasMore = false; } else { offset += arr.length; }
+                    await new Promise(r => setTimeout(r, 300));
+                } catch (err) {
+                    if (err.response?.status === 404 || err.response?.status === 401) { hasMore = false; }
+                    else {
+                        logger.warn(`⚠️ [Hepsiburada Delivered] Hata: ${err.response?.status || err.message}`);
+                        hasMore = false;
+                    }
+                }
+            }
+        } catch (e) { logger.warn(`[Hepsiburada Delivered] Genel hata: ${e.message}`); }
+
+        // ═══════════════════════════════════════════════════════════════
+        // 5) İptal Edilmiş Siparişler — son 1 ay, limit max 50
+        // ═══════════════════════════════════════════════════════════════
+        logger.info(`🔍 [Hepsiburada] Adım 5: İptal edilmiş siparişler çekiliyor...`);
+        try {
+            let offset = 0;
+            const limit = 50;
+            let hasMore = true;
+            const canStart = encodeURIComponent(moment().subtract(30, 'days').format('YYYY-MM-DD HH:mm:ss'));
+            const canEnd = encodeURIComponent(moment().format('YYYY-MM-DD HH:mm:ss'));
+            while (hasMore) {
+                const url = `${BASE_URL}/packages/merchantid/${merchantId}/cancelled?begindate=${canStart}&enddate=${canEnd}&offset=${offset}&limit=${limit}`;
+                try {
+                    const resp = await axios.get(url, { headers, timeout: 30000 });
+                    const items = resp.data?.items || resp.data || [];
+                    const arr = Array.isArray(items) ? items : [];
+                    if (arr.length === 0) { hasMore = false; break; }
+                    logger.info(`✅ [Hepsiburada Cancelled] ${arr.length} sipariş (offset=${offset})`);
+                    addItemsToMap(arr, 'Cancelled');
+                    if (arr.length < limit) { hasMore = false; } else { offset += arr.length; }
+                    await new Promise(r => setTimeout(r, 300));
+                } catch (err) {
+                    if (err.response?.status === 404 || err.response?.status === 401) { hasMore = false; }
+                    else {
+                        logger.warn(`⚠️ [Hepsiburada Cancelled] Hata: ${err.response?.status || err.message}`);
+                        hasMore = false;
+                    }
+                }
+            }
+        } catch (e) { logger.warn(`[Hepsiburada Cancelled] Genel hata: ${e.message}`); }
+
+        // ═══════════════════════════════════════════════════════════════
+        // Tüm siparişleri formatla
+        // ═══════════════════════════════════════════════════════════════
+        const uniqueOrders = Array.from(allOrderMap.values()).map(order => {
+            return {
+                ...order,
+                orderDate: order.orderDate
+                    ? new Date(order.orderDate).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' })
+                    : 'Bilinmiyor',
+                orderDateRaw: order.orderDate,
+                totalPrice: order.totalPrice > 0 ? order.totalPrice.toFixed(2) : '0.00',
+            };
+        });
+
+        logger.info(`✅ [Hepsiburada] Toplam ${uniqueOrders.length} benzersiz sipariş çekildi (orderMap)`);
 
         return uniqueOrders;
     } catch (error) {
         logger.error("❌ [Hepsiburada] Sipariş çekme hatası", {
             error: error.message,
             status: error.response?.status,
-            data: error.response?.data
+            data: JSON.stringify(error.response?.data || '').substring(0, 500)
         });
 
         return [];

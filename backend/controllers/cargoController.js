@@ -213,7 +213,7 @@ exports.getCargoTrackingOrders = async (req, res) => {
         //   - VEYA timespan: saat cinsinden (tek başına max 24)
         //   - limit: max 10 (limit-offset ile birlikte)
         //   - offset: pagination
-        const fetchHepsiburadaCargo = async (merchantId, authUser, authPass, startDate, endDate) => {
+        const fetchHepsiburadaCargo = async (merchantId, authUser, authPass, startDate, endDate, useSit = false) => {
             let cargoOrdersFetched = [];
 
             try {
@@ -222,17 +222,19 @@ exports.getCargoTrackingOrders = async (req, res) => {
                     return [];
                 }
 
-                // Debug: credential'ların gelip gelmediğini logla (değerleri değil, varlığını)
                 logger.info(`🔑 [Hepsiburada Cargo] Auth — merchantId: ${merchantId?.substring(0, 6)}..., authUser: ${authUser?.substring(0, 6)}..., authPass: ${authPass ? "***(" + authPass.length + " chars)" : "MISSING"}`);
 
-                const authHeader = `Basic ${Buffer.from(`${authUser}:${authPass}`, "utf-8").toString("base64")}`;
+                const { getAuthHeader: getHbCargoAuth, getEndpoints: getHbCargoEndpoints } = require("../services/hepsiburadaService");
+                const authHeader = getHbCargoAuth(authUser, authPass);
                 const headers = {
                     Authorization: authHeader,
                     "Content-Type": "application/json",
                     "User-Agent": "LysiaETIC"
                 };
 
-                const OMS_BASE = "https://oms-external.hepsiburada.com";
+                // SIT/Production: credentials'tan useSit flag'i geçirilir
+                const hbCargoEp = getHbCargoEndpoints({ useSit });
+                const OMS_BASE = hbCargoEp.OMS;
                 const seenPackages = new Set();
 
                 // ── Tarih aralığını 24 saatlik dilimlere böl ──
@@ -478,23 +480,18 @@ exports.getCargoTrackingOrders = async (req, res) => {
                         }
                         break;
 
-                    case "hepsiburada":
-                        // ✅ Hepsiburada Auth: Basic base64(merchantId:serviceKey)
-                        // hepsiburadaService.js ve marketplaceController.js ile aynı format
-                        // merchantId = URL'de ve auth user olarak kullanılır
-                        // serviceKey = auth password (DB'de serviceKey, apiKey veya password olarak kayıtlı olabilir)
-                        const {
-                            merchantId,
-                            serviceKey: hbServiceKey, apiKey: hbApiKey,
-                            password: hbPass, apiSecret: hbApiSecret
-                        } = integration.credentials;
-                        const hbAuthPass = hbServiceKey || hbApiKey || hbPass || hbApiSecret;
-                        if (merchantId && hbAuthPass) {
-                            cargoOrders = await fetchHepsiburadaCargo(merchantId, merchantId, hbAuthPass, startDate, endDate);
+                    case "hepsiburada": {
+                        // ✅ Hepsiburada Auth: Basic base64(merchantId:secretKey)
+                        // hepsiburadaService.js normalizeCredentials ile tutarlı
+                        const { normalizeCredentials: normHbCargo } = require("../services/hepsiburadaService");
+                        const hbCargoCreds = normHbCargo(integration.credentials);
+                        if (hbCargoCreds.merchantId && hbCargoCreds.secretKey) {
+                            cargoOrders = await fetchHepsiburadaCargo(hbCargoCreds.merchantId, hbCargoCreds.merchantId, hbCargoCreds.secretKey, startDate, endDate, hbCargoCreds.useSit);
                         } else {
-                            logger.warn(`[Hepsiburada Cargo] Credential eksik — merchantId: ${!!merchantId}, serviceKey: ${!!hbAuthPass}`);
+                            logger.warn(`[Hepsiburada Cargo] Credential eksik — merchantId: ${!!hbCargoCreds.merchantId}, secretKey: ${!!hbCargoCreds.secretKey}`);
                         }
                         break;
+                    }
 
                     case "çiçeksepeti":
                     case "ciceksepeti":

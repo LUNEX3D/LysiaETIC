@@ -289,14 +289,19 @@ exports.getAllOrders = async (req, res) => {
                 );
                 break;
 
-            case "hepsiburada":
+            case "hepsiburada": {
+                const { normalizeCredentials: normHbOrd } = require("../services/hepsiburadaService");
+                const hbOrdCreds = normHbOrd(credentials);
                 rawOrders = await fetchHepsiburadaOrders(
-                    credentials.merchantId,
-                    credentials.apiKey,
+                    hbOrdCreds.merchantId,
+                    hbOrdCreds.secretKey,
                     convertedStartDate,
-                    convertedEndDate
+                    convertedEndDate,
+                    hbOrdCreds.userAgent,
+                    hbOrdCreds.useSit
                 );
                 break;
+            }
 
             case "n11":
                 rawOrders = await fetchN11Orders(
@@ -408,6 +413,120 @@ exports.getAllOrders = async (req, res) => {
 // GET /api/orders/sync-all
 // ═══════════════════════════════════════════════════════════════════════
 
+// ═══════════════════════════════════════════════════════════════════════
+// DB ORDERS — MongoDB'deki siparişleri fatura durumuyla birlikte getir
+// Sipariş Yönetimi sayfasında fatura durumunu göstermek için kullanılır
+// GET /api/orders/db-orders
+// ═══════════════════════════════════════════════════════════════════════
+
+exports.getDbOrders = async (req, res) => {
+    try {
+        const userId = req.user._id;
+        const page = Math.max(1, parseInt(req.query.page) || 1);
+        const limit = Math.min(200, Math.max(1, parseInt(req.query.limit) || 100));
+        const skip = (page - 1) * limit;
+
+        // Filtreler
+        const filter = { user: userId };
+
+        if (req.query.marketplace) {
+            filter.marketplaceName = req.query.marketplace;
+        }
+
+        if (req.query.status) {
+            filter.status = { $regex: req.query.status, $options: "i" };
+        }
+
+        if (req.query.invoiceFilter === "invoiced") {
+            filter.invoiceId = { $exists: true };
+        } else if (req.query.invoiceFilter === "uninvoiced") {
+            filter.invoiceId = { $exists: false };
+            filter.invoiceStatus = { $nin: ["created"] };
+        } else if (req.query.invoiceFilter === "error") {
+            filter.invoiceStatus = "error";
+        } else if (req.query.invoiceFilter === "pending") {
+            filter.invoiceStatus = "pending";
+        }
+
+        if (req.query.startDate) {
+            filter.orderDate = filter.orderDate || {};
+            filter.orderDate.$gte = new Date(req.query.startDate);
+        }
+        if (req.query.endDate) {
+            filter.orderDate = filter.orderDate || {};
+            filter.orderDate.$lte = new Date(req.query.endDate + "T23:59:59.999Z");
+        }
+
+        const [orders, total] = await Promise.all([
+            Order.find(filter)
+                .select("trackingNumber marketplaceName customerName totalPrice orderDate status invoiceId invoiceNumber invoiceStatus items isReturned isCancelled")
+                .populate("invoiceId", "invoiceNumber uuid status faturaURL issueDate")
+                .sort({ orderDate: -1 })
+                .skip(skip)
+                .limit(limit)
+                .lean(),
+            Order.countDocuments(filter)
+        ]);
+
+        // Fatura istatistikleri
+        const [totalOrders, invoicedCount, uninvoicedCount, errorCount] = await Promise.all([
+            Order.countDocuments({ user: userId }),
+            Order.countDocuments({ user: userId, invoiceId: { $exists: true } }),
+            Order.countDocuments({ user: userId, invoiceId: { $exists: false }, invoiceStatus: { $nin: ["created"] }, isCancelled: false, isReturned: false }),
+            Order.countDocuments({ user: userId, invoiceStatus: "error" }),
+        ]);
+
+        // Siparişleri formatla
+        const formattedOrders = orders.map(o => {
+            let invoiceInfo = null;
+            if (o.invoiceId && typeof o.invoiceId === "object") {
+                invoiceInfo = {
+                    _id: o.invoiceId._id,
+                    invoiceNumber: o.invoiceId.invoiceNumber || o.invoiceNumber || "",
+                    uuid: o.invoiceId.uuid || "",
+                    status: o.invoiceId.status || "created",
+                    faturaURL: o.invoiceId.faturaURL || "",
+                    issueDate: o.invoiceId.issueDate || "",
+                };
+            } else if (o.invoiceId) {
+                // populate edilmemişse sadece ID var
+                invoiceInfo = { _id: o.invoiceId, invoiceNumber: o.invoiceNumber || "" };
+            }
+
+            return {
+                _id: o._id,
+                orderNumber: o.trackingNumber || "",
+                marketplace: o.marketplaceName || "",
+                customerName: o.customerName || "",
+                totalPrice: o.totalPrice || 0,
+                orderDate: o.orderDate,
+                status: o.status || "",
+                invoiceStatus: o.invoiceStatus || (invoiceInfo ? "created" : ""),
+                invoice: invoiceInfo,
+                productCount: (o.items || []).length,
+                firstProduct: (o.items && o.items[0]) ? o.items[0].productName : "",
+                isReturned: o.isReturned || false,
+                isCancelled: o.isCancelled || false,
+            };
+        });
+
+        res.json({
+            success: true,
+            data: formattedOrders,
+            pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+            invoiceStats: {
+                total: totalOrders,
+                invoiced: invoicedCount,
+                uninvoiced: uninvoicedCount,
+                error: errorCount,
+            }
+        });
+    } catch (error) {
+        logger.error("[Orders] getDbOrders hatası: " + error.message);
+        res.status(500).json({ success: false, message: "Sunucu hatası: " + error.message });
+    }
+};
+
 exports.syncAllOrders = async (req, res) => {
     try {
         const userId = req.user._id;
@@ -444,12 +563,15 @@ exports.syncAllOrders = async (req, res) => {
                             startDate, endDate
                         );
                         break;
-                    case "hepsiburada":
+                    case "hepsiburada": {
+                        const { normalizeCredentials: normHbAll } = require("../services/hepsiburadaService");
+                        const hbAllCreds = normHbAll(credentials);
                         rawOrders = await fetchHepsiburadaOrders(
-                            credentials.merchantId, credentials.apiKey || credentials.serviceKey,
-                            startDate, endDate
+                            hbAllCreds.merchantId, hbAllCreds.secretKey,
+                            startDate, endDate, hbAllCreds.userAgent, hbAllCreds.useSit
                         );
                         break;
+                    }
                     case "n11":
                         rawOrders = await fetchN11Orders(
                             credentials.apiKey, credentials.secretKey,

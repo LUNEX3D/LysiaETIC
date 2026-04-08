@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const { fetchHepsiburadaOrders } = require("../services/ordersService");
+const { normalizeCredentials, validateCredentials } = require("../services/hepsiburadaService");
 const Marketplace = require("../models/Marketplace");
 const logger = require("../config/logger");
 const { authMiddleware } = require("../middlewares/authMiddleware");
@@ -26,16 +27,19 @@ router.post("/orders", authMiddleware, async (req, res) => {
             });
         }
 
-        // ✅ FIX H5: Credential'ları decrypt et
+        // ✅ FIX H5: Credential'ları decrypt et ve normalize et
         const decryptedCreds = decryptCredentials(integration.credentials);
-        const { merchantId, apiKey } = decryptedCreds;
+        const hbCreds = normalizeCredentials(decryptedCreds);
 
-        if (!merchantId || !apiKey) {
+        const validation = validateCredentials(hbCreds, "sipariş çekme");
+        if (!validation.valid) {
             return res.status(400).json({
                 error: "Hepsiburada credentials eksik!",
-                message: "MerchantId ve ApiKey gerekli."
+                message: validation.error
             });
         }
+
+        const { merchantId, secretKey, userAgent } = hbCreds;
 
         // 📌 **Eğer tarih verilmemişse, son 90 günü al**
         const now = Date.now();
@@ -45,9 +49,11 @@ router.post("/orders", authMiddleware, async (req, res) => {
 
         const orders = await fetchHepsiburadaOrders(
             merchantId,
-            apiKey,
+            secretKey,
             convertedStartDate,
-            convertedEndDate
+            convertedEndDate,
+            userAgent,
+            hbCreds.useSit
         );
 
         if (orders.length === 0) {

@@ -524,22 +524,20 @@ const updateTrendyolStock = async (credentials, productId, newStock, priceUpdate
 };
 
 // Hepsiburada stok + fiyat güncelleme
+// Endpoint: POST /listings/merchantid/{merchantId}/inventory-uploads
+// Auth: Basic base64(merchantId:secretKey) + User-Agent header
 const updateHepsiburadaStock = async (credentials, productId, newStock, priceUpdate = null) => {
     try {
-        const { merchantId, apiKey, username, password } = credentials;
-        if (!merchantId) {
-            return { success: false, error: "Hepsiburada credentials eksik: merchantId gerekli" };
+        const { normalizeCredentials, getHeaders, getEndpoints, validateCredentials } = require("./hepsiburadaService");
+        const hbCreds = normalizeCredentials(credentials);
+        const { merchantId, secretKey, userAgent } = hbCreds;
+
+        const validation = validateCredentials(hbCreds, "stok güncelleme");
+        if (!validation.valid) {
+            return { success: false, error: validation.error };
         }
 
-        // ✅ Hepsiburada Basic Auth: username:password (merchantId değil!)
-        // Bazı kullanıcılar username/password, bazıları merchantId/apiKey olarak kaydetmiş olabilir
-        const authUser = username || merchantId;
-        const authPass = password || apiKey;
-        if (!authUser || !authPass) {
-            return { success: false, error: "Hepsiburada credentials eksik: username/password veya merchantId/apiKey gerekli" };
-        }
-        const authHeader = `Basic ${Buffer.from(`${authUser}:${authPass}`).toString("base64")}`;
-
+        const ep = getEndpoints(hbCreds);
         const listing = {
             hepsiburadaSku: productId,
             merchantSku: productId,
@@ -550,14 +548,10 @@ const updateHepsiburadaStock = async (credentials, productId, newStock, priceUpd
         if (priceUpdate?.listPrice) listing.listPrice = priceUpdate.listPrice;
 
         const response = await axios.post(
-            `https://listing-external.hepsiburada.com/listings/merchantid/${merchantId}/inventory-uploads`,
+            `${ep.LISTING}/listings/merchantid/${merchantId}/inventory-uploads`,
             { listings: [listing] },
             {
-                headers: {
-                    Authorization: authHeader,
-                    "Content-Type": "application/json",
-                    "User-Agent": "LysiaETIC"
-                },
+                headers: getHeaders(merchantId, secretKey, userAgent),
                 timeout: 10000
             }
         );

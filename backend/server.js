@@ -344,6 +344,15 @@ const startServer = async () => {
             logger.warn(`Stok cron başlatılamadı: ${err.message}`);
         }
 
+        // ─── Otomatik Faturalama Cron'unu Başlat ────────────────────────────
+        try {
+            const { startInvoiceCron } = require("./services/invoiceCronService");
+            startInvoiceCron();
+            logger.info("🧾 Otomatik faturalama cron'u başlatıldı ✅");
+        } catch (err) {
+            logger.warn(`Fatura cron başlatılamadı: ${err.message}`);
+        }
+
         // ─── AI Background Worker — Tüm kullanıcıları arka planda analiz eder ──
         try {
             const { startAIWorker } = require("./services/aiBackgroundWorker");

@@ -518,6 +518,66 @@
     margin-top: 0.15rem;
 }
 
+/* ── Toggle field variant (Canlı / SIT) ── */
+.mi-field--toggle {
+    padding: 0.4rem 0;
+}
+
+.mi-toggle-label {
+    display: block;
+    font-size: 0.7rem;
+    color: rgba(255, 255, 255, 0.45);
+    margin-bottom: 0.35rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.mi-toggle-buttons {
+    display: flex;
+    gap: 0;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(0, 0, 0, 0.3);
+}
+
+.mi-toggle-btn {
+    flex: 1;
+    padding: 0.55rem 1rem;
+    border: none;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.35);
+    font-size: 0.78rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.25s ease;
+    white-space: nowrap;
+    font-family: inherit;
+}
+
+.mi-toggle-btn:hover {
+    color: rgba(255, 255, 255, 0.6);
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.mi-toggle-btn--active.mi-toggle-btn--live {
+    background: rgba(16, 185, 129, 0.2);
+    color: #10b981;
+    box-shadow: inset 0 0 0 1px rgba(16, 185, 129, 0.4);
+}
+
+.mi-toggle-btn--active.mi-toggle-btn--sit {
+    background: rgba(245, 158, 11, 0.2);
+    color: #f59e0b;
+    box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.4);
+}
+
+.mi-field--toggle .mi-field-hint {
+    display: block;
+    margin-top: 0.3rem;
+}
+
 /* ── Action Buttons ── */
 .mi-actions {
     display: flex;

@@ -303,92 +303,125 @@ exports.getFinanceSummary = async (req, res) => {
 
 // ═══════════════════════════════════════════════════════════════════════
 // HEPSIBURADA — Siparis bazli finans hesaplama
-// Endpoint: marketplace.hepsiburada.com/orders (ordersService.js ile ayni)
-// Auth: Basic base64(merchantId:serviceKey)
-// Credentials: { merchantId, serviceKey, apiKey }
-// User-Agent: Hepsiburada'nin verdigi ozel deger (ordersService.js ile ayni)
+// Endpoint: oms-external.hepsiburada.com/orders/merchantid/{merchantId}
+// Auth: Basic base64(merchantId:secretKey)
+// Credentials: { merchantId, secretKey, userAgent }
 // ═══════════════════════════════════════════════════════════════════════
 
 const fetchHepsiburadaFinance = async (mp, start, end) => {
     try {
-        const { merchantId, serviceKey, apiKey } = mp.credentials || {};
-        const mId = merchantId;
-        const sKey = serviceKey || apiKey;
+        const { normalizeCredentials, getHeaders, getEndpoints } = require("../services/hepsiburadaService");
+        const hbCreds = normalizeCredentials(mp.credentials);
+        const { merchantId, secretKey, userAgent } = hbCreds;
 
-        if (!mId || !sKey) {
-            return { settlements: [], otherFinancials: [], supported: false, message: "Hepsiburada API kimlik bilgileri eksik (merchantId + serviceKey gerekli)." };
+        if (!merchantId || !secretKey) {
+            return { settlements: [], otherFinancials: [], supported: false, message: "Hepsiburada API kimlik bilgileri eksik (merchantId + secretKey gerekli)." };
         }
 
-        // ordersService.js ile birebir ayni auth formati
-        const authHeader = "Basic " + Buffer.from(mId + ":" + sKey, "utf-8").toString("base64");
         const moment = require("moment");
-        // Tarih formati: YYYY-MM-DD HH:mm:ss (ordersService.js ile ayni)
         const formattedStartDate = moment(start).format("YYYY-MM-DD HH:mm:ss");
         const formattedEndDate = moment(end).format("YYYY-MM-DD HH:mm:ss");
 
-        const headers = {
-            Authorization: authHeader,
-            "User-Agent": "lysiaaccessory_dev",  // Hepsiburada'nin verdigi ozel User-Agent
-            "Content-Type": "application/json"
-        };
+        const headers = getHeaders(merchantId, secretKey, userAgent);
+        const ep = getEndpoints(hbCreds);
 
-        // Iki farkli endpoint dene: marketplace.hepsiburada.com (ordersService) ve radium (dashboard)
-        const endpoints = [
-            { base: "https://marketplace.hepsiburada.com", path: "/orders" },
-            { base: "https://radium.hepsiburada.com", path: "/api/order/order_status" }
-        ];
+        // SIT/Production ortamına göre dinamik endpoint — OMS üzerinden sipariş çekme
+        // Hepsiburada farklı statüdeki siparişleri farklı endpoint'lerden döner
+        // Orders: limit max 100, Packages: limit max 50
+        const OMS_BASE = ep.OMS;
 
         let allOrders = [];
         let apiWorked = false;
 
-        for (const ep of endpoints) {
-            if (apiWorked) break;
-            let currentOffset = 0;
-            const limit = 200;
+        // ── Yardımcı: Bir endpoint'ten pagination ile sipariş çek ──
+        const fetchFinanceEndpoint = async (endpointUrl, label, maxLimit) => {
+            let offset = 0;
+            const limit = maxLimit || 100;
             let hasMore = true;
 
             while (hasMore) {
                 try {
-                    const url = ep.base + ep.path + "?" +
-                        "startDate=" + encodeURIComponent(formattedStartDate) +
-                        "&endDate=" + encodeURIComponent(formattedEndDate) +
-                        "&offset=" + currentOffset +
-                        "&limit=" + limit;
+                    const url = endpointUrl.includes('?')
+                        ? `${endpointUrl}&offset=${offset}&limit=${limit}`
+                        : `${endpointUrl}?offset=${offset}&limit=${limit}`;
 
-                    logger.info("[Finance] Hepsiburada deneniyor: " + ep.base + " offset=" + currentOffset);
+                    logger.info("[Finance] Hepsiburada " + label + " offset=" + offset);
 
-                    const resp = await axios.get(url, {
-                        headers: headers,
-                        timeout: 30000
-                    });
-
-                    const orders = resp.data?.orders || resp.data?.data || resp.data?.content || [];
+                    const resp = await axios.get(url, { headers: headers, timeout: 30000 });
+                    const orders = resp.data?.items || resp.data?.orders || resp.data?.data || resp.data?.content || [];
                     if (!Array.isArray(orders) || orders.length === 0) {
                         hasMore = false;
                     } else {
-                        allOrders = allOrders.concat(orders);
+                        // Packages endpoint: her paket içinde items[] var — düzleştir
+                        orders.forEach(function(order) {
+                            const subItems = order.items || [];
+                            if (subItems.length > 0) {
+                                // Paket bazlı — her sub-item'ı ayrı order satırı olarak ekle
+                                subItems.forEach(function(sub) {
+                                    allOrders.push(Object.assign({}, sub, {
+                                        orderNumber: sub.orderNumber || order.orderNumber || order.id,
+                                        orderDate: sub.orderDate || order.orderDate,
+                                        status: sub.status || order.status || label,
+                                        cargoCompany: order.cargoCompany || '',
+                                        packageNumber: order.packageNumber || ''
+                                    }));
+                                });
+                            } else {
+                                allOrders.push(order);
+                            }
+                        });
                         apiWorked = true;
-                        currentOffset += orders.length;
-                        if (orders.length < limit) hasMore = false;
-                        // Rate limiting
-                        await sleep(500);
+                        if (orders.length < limit) { hasMore = false; } else { offset += orders.length; }
+                        await sleep(300);
                     }
                 } catch (e) {
                     if (e.response?.status === 401 || e.response?.status === 403) {
-                        logger.warn("[Finance] Hepsiburada " + ep.base + " auth hatasi: " + e.message);
-                        hasMore = false;
-                        break; // Sonraki endpoint'i dene
+                        logger.warn("[Finance] Hepsiburada " + label + " auth hatasi: " + e.message);
+                    } else if (e.response?.status !== 404) {
+                        logger.warn("[Finance] Hepsiburada " + label + " hatasi: " + (e.response?.status || e.message));
                     }
-                    logger.warn("[Finance] Hepsiburada " + ep.base + " hatasi: " + (e.response?.status || e.message));
                     hasMore = false;
-                    break; // Sonraki endpoint'i dene
                 }
             }
-        }
+        };
+
+        const encStart = encodeURIComponent(formattedStartDate);
+        const encEnd = encodeURIComponent(formattedEndDate);
+
+        // 1) Ödemesi tamamlanmış (Open) — limit max 100
+        await fetchFinanceEndpoint(
+            `${OMS_BASE}/orders/merchantid/${merchantId}?begindate=${encStart}&enddate=${encEnd}`,
+            "Orders", 100
+        );
+
+        // 2) Paketlenmiş — timespan=720 (30 gün saat), limit max 50
+        await fetchFinanceEndpoint(
+            `${OMS_BASE}/packages/merchantid/${merchantId}?timespan=720`,
+            "Packages", 50
+        );
+
+        // 3) Kargoya verilmiş — son 30 gün
+        const shipStart = encodeURIComponent(moment(end).subtract(30, 'days').format("YYYY-MM-DD HH:mm:ss"));
+        const shipEnd = encodeURIComponent(moment(end).format("YYYY-MM-DD HH:mm:ss"));
+        await fetchFinanceEndpoint(
+            `${OMS_BASE}/packages/merchantid/${merchantId}/shipped?begindate=${shipStart}&enddate=${shipEnd}`,
+            "Shipped", 50
+        );
+
+        // 4) Teslim edilmiş — son 30 gün
+        await fetchFinanceEndpoint(
+            `${OMS_BASE}/packages/merchantid/${merchantId}/delivered?begindate=${shipStart}&enddate=${shipEnd}`,
+            "Delivered", 50
+        );
+
+        // 5) İptal edilmiş — son 30 gün
+        await fetchFinanceEndpoint(
+            `${OMS_BASE}/packages/merchantid/${merchantId}/cancelled?begindate=${shipStart}&enddate=${shipEnd}`,
+            "Cancelled", 50
+        );
 
         if (allOrders.length === 0 && !apiWorked) {
             logger.warn("[Finance] Hepsiburada: Hic siparis cekilemedi, tum endpoint'ler basarisiz.");
-            // Bos settlements don ama supported: true (API calisti, veri yok olabilir)
         }
 
         // Tekrar eden siparisleri temizle

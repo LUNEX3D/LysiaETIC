@@ -77,6 +77,51 @@ export const exportMappingsExcel = async (query = "") => {
     window.URL.revokeObjectURL(url);
 };
 
+// ── Hepsiburada Kategori Ağacı ──
+
+/**
+ * Hepsiburada kategori ağacını çek (tree yapısında)
+ * @param {string} query - Opsiyonel arama filtresi
+ */
+export const getHepsiburadaCategoryTree = async (query = "") => {
+    const params = {};
+    if (query && query.trim().length >= 2) params.q = query.trim();
+    const res = await API.get(`${BASE}/hepsiburada/categories`, { params });
+    return res.data;
+};
+
+/**
+ * Hepsiburada kategorilerini Excel olarak dışa aktar
+ * @param {string} query - Opsiyonel arama filtresi
+ */
+export const exportHepsiburadaCategoriesExcel = async (query = "") => {
+    const params = {};
+    if (query && query.trim().length >= 2) params.q = query.trim();
+    const res = await API.get(`${BASE}/hepsiburada/categories/export`, {
+        params,
+        responseType: "blob"
+    });
+    const blob = new Blob([res.data], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+
+    const disposition = res.headers["content-disposition"];
+    let filename = `hb_kategoriler_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    if (disposition) {
+        const match = disposition.match(/filename[^;=\n]*=([^;\n]*)/);
+        if (match && match[1]) filename = decodeURIComponent(match[1].replace(/['"]/g, ""));
+    }
+
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+};
+
 // ── Pazaryeri & Canlı Ağaç ──
 
 /**

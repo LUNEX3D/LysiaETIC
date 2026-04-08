@@ -32,7 +32,11 @@ const AutoInvoiceConfigSchema = new mongoose.Schema({
     // Boş array = tümü aktif
     enabledMarketplaces: [{
         type: String,
-        enum: ["Trendyol", "Hepsiburada", "N11", "ÇiçekSepeti", "Amazon", "Amazon Türkiye", "Amazon Europe", "Amazon USA"]
+        enum: [
+            "Trendyol", "Hepsiburada", "N11", "ÇiçekSepeti",
+            "Amazon", "Amazon Türkiye", "Amazon Europe", "Amazon USA",
+            "eBay", "Morhipo", "PttAVM", "Teknosa", "ePttAVM", "Diğer"
+        ]
     }],
 
     // Hangi sipariş durumlarında fatura kesilsin
@@ -41,6 +45,20 @@ const AutoInvoiceConfigSchema = new mongoose.Schema({
         type: String,
         default: ["Shipped", "Delivered"]
     }],
+
+    // ── Pazaryeri Bazlı Ayarlar ─────────────────────────────────────────
+    // Her pazaryeri için ayrı KDV oranı, fatura notu vb. tanımlanabilir
+    // Tanımlanmamışsa genel ayarlar (defaultVatRate, defaultNote) kullanılır
+    marketplaceSettings: {
+        type: Map,
+        of: new mongoose.Schema({
+            vatRate: { type: Number },           // Pazaryerine özel KDV oranı
+            note: { type: String, default: "" }, // Pazaryerine özel fatura notu
+            pricesIncludeVat: { type: Boolean },  // KDV dahil mi?
+            invoiceSeriesCode: { type: String },  // Pazaryerine özel seri kodu
+        }, { _id: false }),
+        default: {}
+    },
 
     // ── Belge Ayarları ────────────────────────────────────────────────────
     documentType: {

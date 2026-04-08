@@ -1002,8 +1002,11 @@ const BillingPage = () => {
     // ── Belge detay modalı ──
     const [selectedInvoice, setSelectedInvoice] = useState(null);
     const [showDetailModal, setShowDetailModal] = useState(false);
+    const [invoiceDetailLoading, setInvoiceDetailLoading] = useState(false);
+    const [invoiceDetailData, setInvoiceDetailData] = useState(null);
     // ── Belge detay ham veri açılır/kapanır ──
     const [rawDataOpen, setRawDataOpen] = useState(false);
+    const [linesOpen, setLinesOpen] = useState(true);
     // ── Fetch guard (sonsuz döngü önleme) ──
     const hasFetchedRef = useRef(false);
     // ── Otomatik Fatura ──
@@ -1155,17 +1158,36 @@ const BillingPage = () => {
             }
 
             // ═══ QNB eSolutions ═══
+            // ⚠️ e-Arşiv ve e-Fatura FARKLI ortamlar — FARKLI WSDL!
+            // Kullanıcı tek credential girer → önce e-Arşiv login dene, başarısızsa e-Fatura dene
             else if (authType === "qnb") {
-                const loginRes = await fetch(API_URL + "/api/e-invoice/qnb/login", {
+                // Önce e-Arşiv olarak dene (en yaygın kullanım)
+                let loginRes = await fetch(API_URL + "/api/e-invoice/qnb/login", {
                     method: "POST",
                     headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
                     body: JSON.stringify({
                         username: providerForm.username,
                         password: providerForm.password,
-                        env: selectedEnv
+                        env: selectedEnv,
+                        service: "earsiv"
                     })
                 });
-                const loginData = await loginRes.json();
+                let loginData = await loginRes.json();
+
+                // e-Arşiv başarısızsa e-Fatura olarak dene
+                if (!loginData.success) {
+                    loginRes = await fetch(API_URL + "/api/e-invoice/qnb/login", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+                        body: JSON.stringify({
+                            username: providerForm.username,
+                            password: providerForm.password,
+                            env: selectedEnv,
+                            service: "efatura"
+                        })
+                    });
+                    loginData = await loginRes.json();
+                }
 
                 if (!loginData.success) {
                     setConnectionError("QNB giriş başarısız: " + (loginData.message || "Bilinmeyen hata"));
@@ -1185,7 +1207,8 @@ const BillingPage = () => {
                     localStorage.setItem("lysia_qnb_form", JSON.stringify({
                         username: providerForm.username,
                         password: providerForm.password,
-                        env: selectedEnv
+                        env: selectedEnv,
+                        service: "earsiv"
                     }));
                 } catch (e) { /* ignore */ }
             }
@@ -1366,12 +1389,20 @@ const BillingPage = () => {
         const token = localStorage.getItem("token");
         const searchEndpoint = provider.searchEndpoint || "/api/e-invoice/documents/search";
 
-        const docTypes = [
-            { apiType: "earchive", localType: "e-arsiv" },
-            { apiType: "outgoing-einvoice", localType: "e-fatura" },
-            { apiType: "incoming-einvoice", localType: "e-fatura-gelen" },
-            { apiType: "despatch-advice", localType: "e-irsaliye" },
-        ];
+        // QNB: Pazaryeri faturaları e-Arşiv olarak kesilir (bireysel müşteri)
+        // e-Fatura sadece B2B müşteriler için — ayrı credentials gerekir
+        // Diğer sağlayıcılar (Parasut, Sovos vb.) tüm belge tiplerini destekler
+        const docTypes = provider.authType === "qnb"
+            ? [
+                { apiType: "earchive", localType: "e-arsiv" },
+                // e-Fatura/e-İrsaliye: ayrı credentials + bloke riski — kullanıcı ayarlarından aktif edilebilir
+              ]
+            : [
+                { apiType: "earchive", localType: "e-arsiv" },
+                { apiType: "outgoing-einvoice", localType: "e-fatura" },
+                { apiType: "incoming-einvoice", localType: "e-fatura-gelen" },
+                { apiType: "despatch-advice", localType: "e-irsaliye" },
+            ];
 
         let allDocs = [];
         let hasError = false;
@@ -1443,43 +1474,11 @@ const BillingPage = () => {
         isFetchingRef.current = false;
     }, []); // BOŞ bağımlılık — ref üzerinden okur, asla yeniden oluşmaz
 
-    // ── Sayfa yüklendiğinde kaydedilmiş QNB session'ı yenile ──
-    // Sunucu restart veya session expire olmuş olabilir — her zaman yeniden login dene
+    // ── QNB Session Yenileme ──
+    // ⚠️ Frontend'den ayrı login yapmıyoruz — backend searchDocuments içinde
+    // kendi session cache mekanizmasıyla otomatik login yapıyor.
+    // Bu sayede gereksiz login istekleri ve hesap bloke riski önlenir.
     const hasReconnectedRef = useRef(false);
-    useEffect(() => {
-        if (!isConnected || hasReconnectedRef.current) return;
-        hasReconnectedRef.current = true;
-
-        const provider = connectedProviders[0];
-        if (provider && provider.authType === "qnb") {
-            const token = localStorage.getItem("token") || sessionStorage.getItem("token");
-            const savedForm = localStorage.getItem("lysia_qnb_form");
-            if (savedForm && token) {
-                try {
-                    const creds = JSON.parse(savedForm);
-                    fetch(API_URL + "/api/e-invoice/qnb/login", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
-                        body: JSON.stringify(creds)
-                    }).then(r => r.json()).then(data => {
-                        if (data.success && data.data) {
-                            const refreshed = {
-                                ...provider,
-                                sessionId: data.data.sessionId,
-                                apiToken: data.data.sessionId,
-                                connectedAt: new Date().toISOString(),
-                            };
-                            const updated = [refreshed];
-                            setConnectedProviders(updated);
-                            try { localStorage.setItem("lysia_connected_providers", JSON.stringify(updated)); } catch (e) { /* */ }
-                        }
-                        // Başarısız olursa bağlantıyı silme — kullanıcı zaten bağlı görünsün
-                        // Sadece session geçersiz olur, belge çekme hata verir ama bağlantı korunur
-                    }).catch(() => {});
-                } catch (e) { /* ignore */ }
-            }
-        }
-    }, [isConnected, connectedProviders]);
 
     // ── Sağlayıcı bağlandığında otomatik belge çek (tek seferlik) ──
     useEffect(() => {
@@ -1651,7 +1650,7 @@ const BillingPage = () => {
                                     <motion.div key={inv.id}
                                         initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.1 + i * 0.04 }}
                                         whileHover={{ backgroundColor: "rgba(78,205,196,0.06)" }}
-                                        onClick={() => { setSelectedInvoice(inv); setShowDetailModal(true); }}
+                                        onClick={() => { setSelectedInvoice(inv); setShowDetailModal(true); setRawDataOpen(false); setLinesOpen(true); setInvoiceDetailData(null); if (inv.id) fetchInvoiceDetail(inv.id).catch(() => {}); }}
                                         style={{ background: C.glass, border: "1px solid " + C.glassBr, borderRadius: 10, padding: "0.7rem 0.85rem", display: "flex", alignItems: "center", gap: "0.75rem", cursor: "pointer" }}>
                                         <div style={{ flex: 1, minWidth: 0 }}>
                                             <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.2rem" }}>
@@ -1817,16 +1816,18 @@ const BillingPage = () => {
                                     <span style={{ color: C.green, fontSize: "0.82rem", fontWeight: 700 }}>{inv.total > 0 ? fmtCurrency(inv.total) : "—"}</span>
                                     <StatusBadge status={inv.status} />
                                     <div style={{ display: "flex", gap: "0.3rem" }}>
-                                        <motion.button whileHover={{ scale: 1.15 }} whileTap={{ scale: 0.9 }} title="Görüntüle"
-                                            onClick={() => { setSelectedInvoice(inv); setShowDetailModal(true); }}
+                                        <motion.button whileHover={{ scale: 1.15 }} whileTap={{ scale: 0.9 }} title="Detay Görüntüle"
+                                            onClick={() => { setSelectedInvoice(inv); setShowDetailModal(true); setRawDataOpen(false); setLinesOpen(true); setInvoiceDetailData(null); if (inv.id) fetchInvoiceDetail(inv.id).catch(() => {}); }}
                                             style={{ background: C.glass, border: "1px solid " + C.glassBr, borderRadius: 6, padding: "0.35rem", cursor: "pointer", color: C.accent, fontSize: "0.75rem", display: "flex" }}>
                                             <FaEye />
                                         </motion.button>
                                         <motion.button whileHover={{ scale: 1.15 }} whileTap={{ scale: 0.9 }} title="İndir"
+                                            onClick={() => { if (inv.id) downloadInvoicePdf(inv.id, inv.number); }}
                                             style={{ background: C.glass, border: "1px solid " + C.glassBr, borderRadius: 6, padding: "0.35rem", cursor: "pointer", color: C.blue, fontSize: "0.75rem", display: "flex" }}>
                                             <FaDownload />
                                         </motion.button>
                                         <motion.button whileHover={{ scale: 1.15 }} whileTap={{ scale: 0.9 }} title="Yazdır"
+                                            onClick={() => { if (inv.id) downloadInvoicePdf(inv.id, inv.number); }}
                                             style={{ background: C.glass, border: "1px solid " + C.glassBr, borderRadius: 6, padding: "0.35rem", cursor: "pointer", color: C.muted, fontSize: "0.75rem", display: "flex" }}>
                                             <FaPrint />
                                         </motion.button>
@@ -1861,24 +1862,58 @@ const BillingPage = () => {
     /* ═══════════════════════════════════════════════════════
        OTOMATİK FATURA — API ÇAĞRILARI
        ═══════════════════════════════════════════════════════ */
+    // ── QNB Fatura Listesi (DB yerine QNB'den) ──
+    const [qnbInvoices, setQnbInvoices] = useState([]);
+    const [qnbInvoicesLoading, setQnbInvoicesLoading] = useState(false);
+    const [qnbSearchQuery, setQnbSearchQuery] = useState("");
+    const [qnbDateRange, setQnbDateRange] = useState({ start: "", end: "" });
+    const [qnbPagination, setQnbPagination] = useState({ page: 1, total: 0, totalPages: 0 });
+
     const fetchAutoInvoiceData = useCallback(async () => {
         setAutoInvoiceLoading(true);
         setAutoInvoiceError("");
         try {
             const token = localStorage.getItem("token") || sessionStorage.getItem("token");
             const headers = { Authorization: "Bearer " + token };
-            const [configRes, statsRes, invoicesRes] = await Promise.all([
+            const [configRes, statsRes] = await Promise.all([
                 fetch(API_URL + "/api/auto-invoice/config", { headers }).then(r => r.json()),
                 fetch(API_URL + "/api/auto-invoice/stats", { headers }).then(r => r.json()),
-                fetch(API_URL + "/api/auto-invoice/invoices?limit=50", { headers }).then(r => r.json()),
             ]);
             if (configRes.success) setAutoInvoiceConfig(configRes.data);
             if (statsRes.success) setAutoInvoiceStats(statsRes.data);
-            if (invoicesRes.success) setAutoInvoices(invoicesRes.data || []);
         } catch (err) {
             setAutoInvoiceError("Veriler yüklenemedi: " + err.message);
         } finally {
             setAutoInvoiceLoading(false);
+        }
+    }, []);
+
+    const fetchQnbInvoices = useCallback(async (search, dateStart, dateEnd, page) => {
+        setQnbInvoicesLoading(true);
+        setAutoInvoiceError("");
+        try {
+            const token = localStorage.getItem("token") || sessionStorage.getItem("token");
+            const params = new URLSearchParams();
+            if (search) params.set("search", search);
+            if (dateStart) params.set("startDate", dateStart.replace(/-/g, ""));
+            if (dateEnd) params.set("endDate", dateEnd.replace(/-/g, ""));
+            if (page) params.set("page", page);
+            params.set("limit", "50");
+
+            const res = await fetch(API_URL + "/api/auto-invoice/qnb-invoices?" + params.toString(), {
+                headers: { Authorization: "Bearer " + token }
+            });
+            const data = await res.json();
+            if (data.success) {
+                setQnbInvoices(data.data || []);
+                setQnbPagination(data.pagination || { page: 1, total: 0, totalPages: 0 });
+            } else {
+                setAutoInvoiceError(data.message || "QNB fatura listesi alınamadı");
+            }
+        } catch (err) {
+            setAutoInvoiceError("QNB fatura listesi hatası: " + err.message);
+        } finally {
+            setQnbInvoicesLoading(false);
         }
     }, []);
 
@@ -1952,6 +1987,51 @@ const BillingPage = () => {
         }
     };
 
+    // QNB UUID ile fatura önizleme (QNB'den doğrudan)
+    const previewQnbInvoice = async (uuid) => {
+        setPdfLoading(uuid);
+        try {
+            const token = localStorage.getItem("token") || sessionStorage.getItem("token");
+            const res = await fetch(API_URL + "/api/auto-invoice/qnb-invoices/" + encodeURIComponent(uuid) + "/preview", {
+                headers: { Authorization: "Bearer " + token }
+            });
+            if (res.ok) {
+                const contentType = res.headers.get("content-type") || "";
+                if (contentType.includes("html")) {
+                    const htmlText = await res.text();
+                    const blob = new Blob([htmlText], { type: "text/html; charset=utf-8" });
+                    const url = window.URL.createObjectURL(blob);
+                    window.open(url, "_blank");
+                    setTimeout(() => window.URL.revokeObjectURL(url), 60000);
+                } else {
+                    const text = await res.text();
+                    try {
+                        const data = JSON.parse(text);
+                        setAutoInvoiceError(data.message || "Fatura önizlemesi alınamadı");
+                    } catch {
+                        if (text.includes("<html") || text.includes("<HTML") || text.includes("<!DOCTYPE")) {
+                            const blob = new Blob([text], { type: "text/html; charset=utf-8" });
+                            const url = window.URL.createObjectURL(blob);
+                            window.open(url, "_blank");
+                            setTimeout(() => window.URL.revokeObjectURL(url), 60000);
+                        } else {
+                            setAutoInvoiceError("Beklenmeyen yanıt formatı");
+                        }
+                    }
+                }
+            } else {
+                const text = await res.text().catch(() => "");
+                let message = "Fatura önizleme hatası (" + res.status + ")";
+                try { const data = JSON.parse(text); message = data.message || message; } catch { /* ignore */ }
+                setAutoInvoiceError(message);
+            }
+        } catch (err) {
+            setAutoInvoiceError("Fatura önizleme hatası: " + err.message);
+        } finally {
+            setPdfLoading(null);
+        }
+    };
+
     const downloadInvoicePdf = async (invoiceId, invoiceNumber) => {
         setPdfLoading(invoiceId);
         try {
@@ -1961,6 +2041,8 @@ const BillingPage = () => {
             });
             if (res.ok) {
                 const contentType = res.headers.get("content-type") || "";
+
+                // ZIP dosyası → doğrudan indir
                 if (contentType.includes("zip") || contentType.includes("octet")) {
                     const blob = await res.blob();
                     const url = window.URL.createObjectURL(blob);
@@ -1971,7 +2053,24 @@ const BillingPage = () => {
                     a.click();
                     a.remove();
                     window.URL.revokeObjectURL(url);
-                } else {
+
+                // HTML fatura → yeni sekmede aç
+                } else if (contentType.includes("html")) {
+                    const htmlText = await res.text();
+                    const blob = new Blob([htmlText], { type: "text/html; charset=utf-8" });
+                    const url = window.URL.createObjectURL(blob);
+                    window.open(url, "_blank");
+                    setTimeout(() => window.URL.revokeObjectURL(url), 60000);
+
+                // PDF dosyası → yeni sekmede aç veya indir
+                } else if (contentType.includes("pdf")) {
+                    const blob = await res.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    window.open(url, "_blank");
+                    setTimeout(() => window.URL.revokeObjectURL(url), 60000);
+
+                // JSON yanıt (base64 data vb.)
+                } else if (contentType.includes("json")) {
                     const data = await res.json();
                     if (data.success && data.data) {
                         alert("PDF verisi alındı (format: JSON). Konsolu kontrol edin.");
@@ -1979,15 +2078,65 @@ const BillingPage = () => {
                     } else {
                         setAutoInvoiceError(data.message || "PDF indirilemedi");
                     }
+
+                // Bilinmeyen format → güvenli şekilde text olarak oku, JSON dene
+                } else {
+                    const text = await res.text();
+                    try {
+                        const data = JSON.parse(text);
+                        if (data.success && data.data) {
+                            console.log("[PDF Data]", data.data);
+                        } else {
+                            setAutoInvoiceError(data.message || "PDF indirilemedi");
+                        }
+                    } catch {
+                        // JSON değilse HTML olabilir — yeni sekmede aç
+                        if (text.includes("<html") || text.includes("<HTML") || text.includes("<!DOCTYPE")) {
+                            const blob = new Blob([text], { type: "text/html; charset=utf-8" });
+                            const url = window.URL.createObjectURL(blob);
+                            window.open(url, "_blank");
+                            setTimeout(() => window.URL.revokeObjectURL(url), 60000);
+                        } else {
+                            setAutoInvoiceError("Beklenmeyen yanıt formatı: " + contentType);
+                        }
+                    }
                 }
             } else {
-                const data = await res.json().catch(() => ({}));
-                setAutoInvoiceError(data.message || "PDF indirme hatası (" + res.status + ")");
+                // Hata yanıtını güvenli şekilde parse et
+                const text = await res.text().catch(() => "");
+                let message = "PDF indirme hatası (" + res.status + ")";
+                try {
+                    const data = JSON.parse(text);
+                    message = data.message || message;
+                } catch { /* HTML hata sayfası olabilir — ignore */ }
+                setAutoInvoiceError(message);
             }
         } catch (err) {
             setAutoInvoiceError("PDF indirme hatası: " + err.message);
         } finally {
             setPdfLoading(null);
+        }
+    };
+
+    // ── Fatura detayını DB'den çek (otomatik faturalar için) ──
+    const fetchInvoiceDetail = async (invoiceId) => {
+        setInvoiceDetailLoading(true);
+        setInvoiceDetailData(null);
+        try {
+            const token = localStorage.getItem("token") || sessionStorage.getItem("token");
+            const res = await fetch(API_URL + "/api/auto-invoice/invoices/" + invoiceId, {
+                headers: { Authorization: "Bearer " + token }
+            });
+            const data = await res.json();
+            if (data.success) {
+                setInvoiceDetailData(data.data);
+            } else {
+                setAutoInvoiceError(data.message || "Fatura detayı alınamadı");
+            }
+        } catch (err) {
+            setAutoInvoiceError("Fatura detayı hatası: " + err.message);
+        } finally {
+            setInvoiceDetailLoading(false);
         }
     };
 
@@ -2308,170 +2457,200 @@ const BillingPage = () => {
                     </div>
                 )}
 
-                {/* Fatura Listesi */}
-                {hasConfig && autoInvoices.length > 0 && (
+                {/* ════════════════════════════════════════════════
+                    KESİLEN FATURALAR — QNB'DEN DOĞRUDAN
+                   ════════════════════════════════════════════════ */}
+                {hasConfig && (
                     <GlassCard style={{ marginBottom: "1.5rem" }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", flexWrap: "wrap", gap: "0.75rem" }}>
                             <h4 style={{ color: "#fff", fontSize: "0.9rem", fontWeight: 700, margin: 0, display: "flex", alignItems: "center", gap: "0.4rem" }}>
-                                <FaFileInvoice style={{ color: C.accent }} /> Kesilen Faturalar ({autoInvoices.length})
+                                <FaFileInvoice style={{ color: C.accent }} /> Kesilen Faturalar (QNB)
+                                {qnbPagination.total > 0 && <span style={{ color: C.dim, fontWeight: 500, fontSize: "0.78rem" }}>({qnbPagination.total})</span>}
                             </h4>
-                        </div>
-                        {/* Tablo Başlık */}
-                        <div style={{ display: "grid", gridTemplateColumns: "2fr 1.5fr 1.5fr 1fr 1fr 1fr", gap: "0.5rem", padding: "0.5rem 0.75rem", background: "rgba(255,255,255,0.03)", borderRadius: 8, marginBottom: "0.5rem" }}>
-                            {["Fatura No", "Müşteri", "Sipariş", "Tutar", "Durum", "Tarih"].map((h, i) => (
-                                <span key={i} style={{ color: C.dim, fontSize: "0.7rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.5px" }}>{h}</span>
-                            ))}
-                        </div>
-                        {/* Fatura Satırları */}
-                        <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem", maxHeight: 400, overflowY: "auto" }}>
-                            {autoInvoices.map((inv, idx) => {
-                                const statusConfig = {
-                                    created: { color: C.blue, label: "Oluşturuldu" },
-                                    sent: { color: C.accent, label: "Gönderildi" },
-                                    accepted: { color: C.green, label: "Onaylandı" },
-                                    rejected: { color: C.red, label: "Reddedildi" },
-                                    cancelled: { color: C.yellow, label: "İptal" },
-                                    error: { color: C.red, label: "Hata" },
-                                };
-                                const sc = statusConfig[inv.status] || { color: C.dim, label: inv.status || "—" };
-                                return (
-                                    <motion.div
-                                        key={inv._id || idx}
-                                        whileHover={{ backgroundColor: "rgba(255,255,255,0.04)" }}
-                                        onClick={() => setSelectedAutoInvoice(selectedAutoInvoice?._id === inv._id ? null : inv)}
-                                        style={{
-                                            display: "grid", gridTemplateColumns: "2fr 1.5fr 1.5fr 1fr 1fr 1fr", gap: "0.5rem",
-                                            padding: "0.65rem 0.75rem", borderRadius: 8, cursor: "pointer",
-                                            borderBottom: "1px solid rgba(255,255,255,0.04)",
-                                            background: selectedAutoInvoice?._id === inv._id ? "rgba(99,102,241,0.08)" : "transparent",
-                                        }}
-                                    >
-                                        <span style={{ color: C.accent, fontSize: "0.8rem", fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                            {inv.invoiceNumber || "—"}
-                                        </span>
-                                        <span style={{ color: C.text, fontSize: "0.78rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                            {inv.customer?.name || "—"}
-                                        </span>
-                                        <span style={{ color: C.muted, fontSize: "0.78rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                            {inv.marketplaceName ? (inv.marketplaceName + " #" + (inv.orderNumber || "")) : (inv.orderNumber || "—")}
-                                        </span>
-                                        <span style={{ color: C.green, fontSize: "0.8rem", fontWeight: 700 }}>
-                                            {fmtCurrency(inv.totals?.payableAmount || 0)}
-                                        </span>
-                                        <span style={{ color: sc.color, fontSize: "0.72rem", fontWeight: 600, background: sc.color + "15", padding: "0.15rem 0.5rem", borderRadius: 6, textAlign: "center", whiteSpace: "nowrap" }}>
-                                            {sc.label}
-                                        </span>
-                                        <span style={{ color: C.dim, fontSize: "0.75rem" }}>
-                                            {fmtDate(inv.issueDate || inv.createdAt)}
-                                        </span>
-                                    </motion.div>
-                                );
-                            })}
+                            <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+                                onClick={() => fetchQnbInvoices(qnbSearchQuery, qnbDateRange.start, qnbDateRange.end, 1)}
+                                disabled={qnbInvoicesLoading}
+                                style={{
+                                    background: C.glass, border: "1px solid " + C.glassBr, borderRadius: 8,
+                                    padding: "0.45rem 0.85rem", cursor: qnbInvoicesLoading ? "not-allowed" : "pointer",
+                                    color: C.accent, fontSize: "0.78rem", fontWeight: 600,
+                                    display: "flex", alignItems: "center", gap: "0.35rem",
+                                }}>
+                                {qnbInvoicesLoading ? <FaSpinner style={{ animation: "spin 1s linear infinite" }} /> : <FaSyncAlt />} Yenile
+                            </motion.button>
                         </div>
 
-                        {/* Seçili Fatura Detayı */}
-                        {selectedAutoInvoice && (
-                            <motion.div
-                                initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}
-                                style={{ marginTop: "1rem", padding: "1rem", background: "rgba(99,102,241,0.06)", border: "1px solid rgba(99,102,241,0.15)", borderRadius: 12 }}
-                            >
-                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.75rem" }}>
-                                    <h5 style={{ color: "#fff", fontSize: "0.85rem", fontWeight: 700, margin: 0 }}>
-                                        {selectedAutoInvoice.invoiceNumber} — Detay
-                                    </h5>
-                                    <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }}
-                                        onClick={() => setSelectedAutoInvoice(null)}
-                                        style={{ background: "none", border: "none", color: C.dim, cursor: "pointer", fontSize: "1rem" }}>
-                                        ✕
-                                    </motion.button>
-                                </div>
-                                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "0.75rem", marginBottom: "0.75rem" }}>
-                                    {[
-                                        { label: "UUID (ETTN)", value: selectedAutoInvoice.uuid || "—" },
-                                        { label: "Profil", value: selectedAutoInvoice.profileId || "—" },
-                                        { label: "Fatura Tipi", value: selectedAutoInvoice.invoiceTypeCode || "—" },
-                                        { label: "Sağlayıcı", value: (selectedAutoInvoice.provider || "qnb").toUpperCase() },
-                                        { label: "Ortam", value: selectedAutoInvoice.env === "production" ? "Canlı" : "Test" },
-                                        { label: "Oluşturma", value: selectedAutoInvoice.createdBy === "auto" ? "Otomatik" : "Manuel" },
-                                        { label: "Müşteri VKN", value: selectedAutoInvoice.customer?.vkn || "—" },
-                                        { label: "Vergi Dairesi", value: selectedAutoInvoice.customer?.taxOffice || "—" },
-                                    ].map((item, i) => (
-                                        <div key={i} style={{ padding: "0.5rem 0", borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
-                                            <p style={{ color: C.dim, fontSize: "0.68rem", fontWeight: 600, margin: 0, textTransform: "uppercase" }}>{item.label}</p>
-                                            <p style={{ color: C.text, fontSize: "0.8rem", fontWeight: 600, margin: "0.15rem 0 0", wordBreak: "break-all" }}>{item.value}</p>
-                                        </div>
-                                    ))}
-                                </div>
-                                {/* Tutar Özeti */}
-                                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: "0.5rem", padding: "0.75rem", background: "rgba(255,255,255,0.03)", borderRadius: 8, marginBottom: "0.75rem" }}>
-                                    {[
-                                        { label: "KDV Hariç", value: fmtCurrency(selectedAutoInvoice.totals?.lineExtensionAmount || 0), color: C.text },
-                                        { label: "KDV", value: fmtCurrency(selectedAutoInvoice.totals?.totalTax || 0), color: C.purple },
-                                        { label: "KDV Dahil", value: fmtCurrency(selectedAutoInvoice.totals?.taxInclusiveAmount || 0), color: C.blue },
-                                        { label: "Ödenecek", value: fmtCurrency(selectedAutoInvoice.totals?.payableAmount || 0), color: C.green },
-                                    ].map((t, i) => (
-                                        <div key={i} style={{ textAlign: "center" }}>
-                                            <p style={{ color: C.dim, fontSize: "0.68rem", margin: 0 }}>{t.label}</p>
-                                            <p style={{ color: t.color, fontSize: "0.9rem", fontWeight: 700, margin: "0.15rem 0 0" }}>{t.value}</p>
-                                        </div>
-                                    ))}
-                                </div>
-                                {/* Kalemler */}
-                                {selectedAutoInvoice.lines && selectedAutoInvoice.lines.length > 0 && (
-                                    <div>
-                                        <p style={{ color: C.muted, fontSize: "0.75rem", fontWeight: 700, margin: "0 0 0.5rem" }}>Kalemler</p>
-                                        {selectedAutoInvoice.lines.map((line, li) => (
-                                            <div key={li} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.4rem 0", borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
-                                                <div>
-                                                    <span style={{ color: C.text, fontSize: "0.78rem", fontWeight: 600 }}>{line.name || "Ürün"}</span>
-                                                    <span style={{ color: C.dim, fontSize: "0.7rem", marginLeft: "0.5rem" }}>{line.quantity} {line.unit} × {fmtCurrency(line.unitPrice)}</span>
-                                                    <span style={{ color: C.purple, fontSize: "0.7rem", marginLeft: "0.5rem" }}>%{line.vatRate} KDV</span>
-                                                </div>
-                                                <span style={{ color: C.green, fontSize: "0.8rem", fontWeight: 700 }}>{fmtCurrency(line.lineTotal + (line.vatAmount || 0))}</span>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                                {/* QNB Yanıt */}
-                                {selectedAutoInvoice.providerResponse?.resultCode && (
-                                    <div style={{ marginTop: "0.75rem", padding: "0.5rem 0.75rem", background: "rgba(255,255,255,0.03)", borderRadius: 8 }}>
-                                        <p style={{ color: C.dim, fontSize: "0.68rem", fontWeight: 600, margin: 0 }}>QNB YANIT</p>
-                                        <p style={{ color: C.text, fontSize: "0.78rem", margin: "0.15rem 0 0" }}>
-                                            Kod: {selectedAutoInvoice.providerResponse.resultCode} — {selectedAutoInvoice.providerResponse.resultText || ""}
-                                        </p>
-                                    </div>
-                                )}
-                                {/* PDF İndir Butonu */}
-                                <div style={{ marginTop: "1rem", display: "flex", gap: "0.75rem" }}>
-                                    <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
-                                        onClick={(e) => { e.stopPropagation(); downloadInvoicePdf(selectedAutoInvoice._id, selectedAutoInvoice.invoiceNumber); }}
-                                        disabled={pdfLoading === selectedAutoInvoice._id}
-                                        style={{
-                                            background: "linear-gradient(135deg, #10b981 0%, #059669 100%)",
-                                            border: "none", borderRadius: 8, padding: "0.55rem 1.2rem",
-                                            cursor: pdfLoading === selectedAutoInvoice._id ? "not-allowed" : "pointer",
-                                            color: "#fff", fontSize: "0.8rem", fontWeight: 700,
-                                            display: "flex", alignItems: "center", gap: "0.4rem",
-                                            opacity: pdfLoading === selectedAutoInvoice._id ? 0.7 : 1,
-                                        }}>
-                                        {pdfLoading === selectedAutoInvoice._id
-                                            ? <><FaSpinner style={{ animation: "spin 1s linear infinite" }} /> İndiriliyor...</>
-                                            : <><FaDownload /> PDF / ZIP İndir</>}
-                                    </motion.button>
-                                </div>
-                            </motion.div>
+                        {/* Arama & Filtre Çubuğu */}
+                        <div style={{ display: "flex", gap: "0.6rem", marginBottom: "1rem", flexWrap: "wrap", alignItems: "center" }}>
+                            <div style={{ flex: "1 1 220px", position: "relative" }}>
+                                <FaSearch style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: C.dim, fontSize: "0.75rem" }} />
+                                <input
+                                    type="text" placeholder="Fatura no, müşteri adı, VKN veya tutar ara..."
+                                    value={qnbSearchQuery}
+                                    onChange={e => setQnbSearchQuery(e.target.value)}
+                                    onKeyDown={e => { if (e.key === "Enter") fetchQnbInvoices(qnbSearchQuery, qnbDateRange.start, qnbDateRange.end, 1); }}
+                                    style={{
+                                        width: "100%", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)",
+                                        borderRadius: 8, padding: "0.55rem 0.75rem 0.55rem 2rem",
+                                        color: "#fff", fontSize: "0.8rem", outline: "none", boxSizing: "border-box",
+                                    }}
+                                />
+                            </div>
+                            <div style={{ display: "flex", gap: "0.4rem", alignItems: "center" }}>
+                                <input type="date" value={qnbDateRange.start} onChange={e => setQnbDateRange(prev => ({ ...prev, start: e.target.value }))}
+                                    style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, padding: "0.5rem 0.6rem", color: "#fff", fontSize: "0.78rem", outline: "none" }} />
+                                <span style={{ color: C.dim, fontSize: "0.75rem" }}>—</span>
+                                <input type="date" value={qnbDateRange.end} onChange={e => setQnbDateRange(prev => ({ ...prev, end: e.target.value }))}
+                                    style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, padding: "0.5rem 0.6rem", color: "#fff", fontSize: "0.78rem", outline: "none" }} />
+                            </div>
+                            <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+                                onClick={() => fetchQnbInvoices(qnbSearchQuery, qnbDateRange.start, qnbDateRange.end, 1)}
+                                disabled={qnbInvoicesLoading}
+                                style={{
+                                    background: "linear-gradient(135deg, " + C.accent + " 0%, #06b6d4 100%)",
+                                    border: "none", borderRadius: 8, padding: "0.55rem 1rem",
+                                    cursor: qnbInvoicesLoading ? "not-allowed" : "pointer",
+                                    color: "#fff", fontSize: "0.78rem", fontWeight: 700,
+                                    display: "flex", alignItems: "center", gap: "0.35rem",
+                                }}>
+                                <FaSearch /> Ara
+                            </motion.button>
+                        </div>
+
+                        {/* Yükleniyor */}
+                        {qnbInvoicesLoading && qnbInvoices.length === 0 && (
+                            <div style={{ textAlign: "center", padding: "2rem" }}>
+                                <FaSpinner style={{ animation: "spin 1s linear infinite", fontSize: "1.5rem", color: C.accent }} />
+                                <p style={{ color: C.muted, marginTop: "0.75rem", fontSize: "0.82rem" }}>QNB'den faturalar çekiliyor...</p>
+                            </div>
                         )}
-                    </GlassCard>
-                )}
 
-                {/* Fatura yoksa bilgi mesajı */}
-                {hasConfig && autoInvoices.length === 0 && (
-                    <GlassCard style={{ textAlign: "center", padding: "1.5rem", marginBottom: "1.5rem" }}>
-                        <FaFileInvoice style={{ fontSize: "2rem", color: C.dim, marginBottom: "0.5rem" }} />
-                        <p style={{ color: C.muted, fontSize: "0.85rem", fontWeight: 600, margin: "0 0 0.25rem" }}>Henüz Fatura Kesilmedi</p>
-                        <p style={{ color: C.dim, fontSize: "0.78rem", margin: 0 }}>
-                            Pazaryerinden yeni sipariş geldiğinde otomatik fatura kesilecektir.
-                        </p>
+                        {/* Fatura Tablosu */}
+                        {qnbInvoices.length > 0 && (
+                            <>
+                                {/* Tablo Başlık */}
+                                <div style={{ display: "grid", gridTemplateColumns: "2fr 1.5fr 1fr 1fr 1fr", gap: "0.5rem", padding: "0.5rem 0.75rem", background: "rgba(255,255,255,0.03)", borderRadius: 8, marginBottom: "0.5rem" }}>
+                                    {["Fatura No", "Müşteri", "Tarih", "Tutar", "İşlem"].map((h, i) => (
+                                        <span key={i} style={{ color: C.dim, fontSize: "0.7rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.5px" }}>{h}</span>
+                                    ))}
+                                </div>
+                                {/* Satırlar */}
+                                <div style={{ display: "flex", flexDirection: "column", gap: "0.2rem", maxHeight: 450, overflowY: "auto" }}>
+                                    {qnbInvoices.map((inv, idx) => (
+                                        <motion.div
+                                            key={inv.id || idx}
+                                            whileHover={{ backgroundColor: "rgba(255,255,255,0.04)" }}
+                                            style={{
+                                                display: "grid", gridTemplateColumns: "2fr 1.5fr 1fr 1fr 1fr", gap: "0.5rem",
+                                                padding: "0.6rem 0.75rem", borderRadius: 8,
+                                                borderBottom: "1px solid rgba(255,255,255,0.04)",
+                                                alignItems: "center",
+                                            }}
+                                        >
+                                            <div style={{ overflow: "hidden" }}>
+                                                <span style={{ color: C.accent, fontSize: "0.8rem", fontWeight: 700, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                                    {inv.faturaNo || "—"}
+                                                </span>
+                                                {inv.uuid && <span style={{ color: C.dim, fontSize: "0.62rem", fontFamily: "monospace" }}>{inv.uuid.substring(0, 16)}...</span>}
+                                            </div>
+                                            <div style={{ overflow: "hidden" }}>
+                                                <span style={{ color: C.text, fontSize: "0.78rem", display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                                    {inv.aliciAdi || "—"}
+                                                </span>
+                                                {inv.aliciVkn && <span style={{ color: C.dim, fontSize: "0.62rem", fontFamily: "monospace" }}>{inv.aliciVkn}</span>}
+                                            </div>
+                                            <span style={{ color: C.muted, fontSize: "0.78rem" }}>
+                                                {fmtDate(inv.tarih)}
+                                            </span>
+                                            <span style={{ color: C.green, fontSize: "0.82rem", fontWeight: 700 }}>
+                                                {inv.tutar > 0 ? fmtCurrency(inv.tutar) : "—"}
+                                            </span>
+                                            <div style={{ display: "flex", gap: "0.3rem" }}>
+                                                <motion.button whileHover={{ scale: 1.15 }} whileTap={{ scale: 0.9 }} title="Detay"
+                                                    onClick={() => { const lookupId = inv._id || inv.uuid || inv.id; if (lookupId) { fetchInvoiceDetail(lookupId); setSelectedInvoice(inv); setShowDetailModal(true); setRawDataOpen(false); setLinesOpen(true); } }}
+                                                    style={{
+                                                        background: C.glass, border: "1px solid " + C.glassBr, borderRadius: 6,
+                                                        padding: "0.35rem", cursor: "pointer",
+                                                        color: C.purple, fontSize: "0.75rem", display: "flex",
+                                                    }}>
+                                                    <FaInfoCircle />
+                                                </motion.button>
+                                                <motion.button whileHover={{ scale: 1.15 }} whileTap={{ scale: 0.9 }} title="Görüntüle"
+                                                    onClick={() => inv.uuid && previewQnbInvoice(inv.uuid)}
+                                                    disabled={pdfLoading === inv.uuid || !inv.uuid}
+                                                    style={{
+                                                        background: C.glass, border: "1px solid " + C.glassBr, borderRadius: 6,
+                                                        padding: "0.35rem", cursor: inv.uuid ? "pointer" : "not-allowed",
+                                                        color: C.accent, fontSize: "0.75rem", display: "flex",
+                                                        opacity: pdfLoading === inv.uuid ? 0.5 : 1,
+                                                    }}>
+                                                    {pdfLoading === inv.uuid ? <FaSpinner style={{ animation: "spin 1s linear infinite" }} /> : <FaEye />}
+                                                </motion.button>
+                                                {inv._id && (
+                                                    <motion.button whileHover={{ scale: 1.15 }} whileTap={{ scale: 0.9 }} title="İndir"
+                                                        onClick={() => downloadInvoicePdf(inv._id, inv.faturaNo)}
+                                                        disabled={pdfLoading === inv._id}
+                                                        style={{
+                                                            background: C.glass, border: "1px solid " + C.glassBr, borderRadius: 6,
+                                                            padding: "0.35rem", cursor: "pointer",
+                                                            color: C.blue, fontSize: "0.75rem", display: "flex",
+                                                            opacity: pdfLoading === inv._id ? 0.5 : 1,
+                                                        }}>
+                                                        {pdfLoading === inv._id ? <FaSpinner style={{ animation: "spin 1s linear infinite" }} /> : <FaDownload />}
+                                                    </motion.button>
+                                                )}
+                                            </div>
+                                        </motion.div>
+                                    ))}
+                                </div>
+
+                                {/* Sayfalama */}
+                                {qnbPagination.totalPages > 1 && (
+                                    <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: "0.5rem", marginTop: "1rem", paddingTop: "0.75rem", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+                                        <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+                                            onClick={() => fetchQnbInvoices(qnbSearchQuery, qnbDateRange.start, qnbDateRange.end, qnbPagination.page - 1)}
+                                            disabled={qnbPagination.page <= 1 || qnbInvoicesLoading}
+                                            style={{ background: C.glass, border: "1px solid " + C.glassBr, borderRadius: 6, padding: "0.35rem 0.7rem", cursor: qnbPagination.page <= 1 ? "not-allowed" : "pointer", color: C.muted, fontSize: "0.75rem", opacity: qnbPagination.page <= 1 ? 0.4 : 1 }}>
+                                            ← Önceki
+                                        </motion.button>
+                                        <span style={{ color: C.muted, fontSize: "0.78rem" }}>
+                                            Sayfa {qnbPagination.page} / {qnbPagination.totalPages} ({qnbPagination.total} fatura)
+                                        </span>
+                                        <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+                                            onClick={() => fetchQnbInvoices(qnbSearchQuery, qnbDateRange.start, qnbDateRange.end, qnbPagination.page + 1)}
+                                            disabled={qnbPagination.page >= qnbPagination.totalPages || qnbInvoicesLoading}
+                                            style={{ background: C.glass, border: "1px solid " + C.glassBr, borderRadius: 6, padding: "0.35rem 0.7rem", cursor: qnbPagination.page >= qnbPagination.totalPages ? "not-allowed" : "pointer", color: C.muted, fontSize: "0.75rem", opacity: qnbPagination.page >= qnbPagination.totalPages ? 0.4 : 1 }}>
+                                            Sonraki →
+                                        </motion.button>
+                                    </div>
+                                )}
+                            </>
+                        )}
+
+                        {/* Fatura yok + yüklenmedi */}
+                        {!qnbInvoicesLoading && qnbInvoices.length === 0 && (
+                            <div style={{ textAlign: "center", padding: "2rem 1rem" }}>
+                                <FaFileInvoice style={{ fontSize: "2rem", color: C.dim, marginBottom: "0.5rem" }} />
+                                <p style={{ color: C.muted, fontSize: "0.85rem", fontWeight: 600, margin: "0 0 0.25rem" }}>
+                                    {qnbSearchQuery ? "Arama sonucu bulunamadı" : "Fatura listesi yüklenmedi"}
+                                </p>
+                                <p style={{ color: C.dim, fontSize: "0.78rem", margin: "0 0 1rem" }}>
+                                    {qnbSearchQuery ? "Farklı arama kriterleri deneyin." : "QNB'den kesilen faturaları görmek için 'Yenile' butonuna tıklayın."}
+                                </p>
+                                {!qnbSearchQuery && (
+                                    <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+                                        onClick={() => fetchQnbInvoices("", "", "", 1)}
+                                        style={{
+                                            background: "linear-gradient(135deg, " + C.accent + " 0%, #06b6d4 100%)",
+                                            border: "none", borderRadius: 8, padding: "0.55rem 1.2rem",
+                                            cursor: "pointer", color: "#fff", fontSize: "0.8rem", fontWeight: 700,
+                                            display: "inline-flex", alignItems: "center", gap: "0.35rem",
+                                        }}>
+                                        <FaSyncAlt /> QNB'den Faturaları Yükle
+                                    </motion.button>
+                                )}
+                            </div>
+                        )}
                     </GlassCard>
                 )}
 
@@ -2885,7 +3064,7 @@ const BillingPage = () => {
                         {activeTab === "analysis" && (
                             !isConnected ? renderNoConnection() :
                             (invoicesLoading && invoices.length === 0) ? renderLoading() :
-                            <AdvancedAnalysis invoices={invoices} onInvoiceClick={(inv) => { setSelectedInvoice(inv); setShowDetailModal(true); }} />
+                            <AdvancedAnalysis invoices={invoices} onInvoiceClick={(inv) => { setSelectedInvoice(inv); setShowDetailModal(true); setRawDataOpen(false); setLinesOpen(true); setInvoiceDetailData(null); if (inv.id) fetchInvoiceDetail(inv.id).catch(() => {}); }} />
                         )}
                         {activeTab === "invoices" && renderInvoiceList(filteredInvoices, "Tüm Belgeler", true)}
                         {activeTab === "e-archive" && renderInvoiceList(tabInvoices, "e-Arşiv Belgeleri", false)}
@@ -3389,117 +3568,363 @@ const BillingPage = () => {
                 )}
             </AnimatePresence>
 
-            {/* ═══ BELGE DETAY MODAL ═══ */}
+            {/* ═══ BELGE DETAY MODAL — ZENGİN ═══ */}
             <AnimatePresence>
-                {showDetailModal && selectedInvoice && (
+                {showDetailModal && selectedInvoice && (() => {
+                    // Veri kaynağını belirle: DB detay (invoiceDetailData) veya sağlayıcı normalize verisi (selectedInvoice)
+                    const dbInv = invoiceDetailData?.invoice;
+                    const dbOrder = invoiceDetailData?.order;
+                    const hasDbData = !!dbInv;
+
+                    // Birleşik veri — DB varsa onu kullan, yoksa sağlayıcı verisini
+                    const invNo = (hasDbData ? dbInv.invoiceNumber : selectedInvoice.number) || (hasDbData ? dbInv.qnbInvoiceNumber : "") || selectedInvoice.faturaNo || "—";
+                    const invUuid = (hasDbData ? dbInv.uuid : selectedInvoice.id) || selectedInvoice.uuid || "";
+                    const invStatus = (hasDbData ? dbInv.status : selectedInvoice.status) || selectedInvoice.durum || "";
+                    const invDate = (hasDbData ? dbInv.issueDate : selectedInvoice.date) || selectedInvoice.tarih || "";
+                    const invCurrency = (hasDbData ? dbInv.currency : selectedInvoice.currency) || "TRY";
+                    const invNote = (hasDbData ? dbInv.note : "") || "";
+
+                    // Profil & tip
+                    const profileId = (hasDbData ? dbInv.profileId : "") || selectedInvoice.profileId || "";
+                    const profileLabels = { EARSIVFATURA: "e-Arşiv Fatura", TICARIFATURA: "Ticari Fatura", TEMELFATURA: "Temel Fatura", IRSALIYE: "İrsaliye" };
+                    const invoiceTypeCode = (hasDbData ? dbInv.invoiceTypeCode : "") || "";
+                    const typeLabels = { SATIS: "Satış", IADE: "İade", TEVKIFAT: "Tevkifat", ISTISNA: "İstisna", OZELMATRAH: "Özel Matrah", IHRACKAYITLI: "İhraç Kayıtlı" };
+                    const invType = selectedInvoice.type || (profileId === "EARSIVFATURA" ? "e-arsiv" : profileId === "IRSALIYE" ? "e-irsaliye" : "e-fatura");
+
+                    // Tutarlar
+                    const payable = hasDbData ? (dbInv.totals?.payableAmount || 0) : (selectedInvoice.total || selectedInvoice.tutar || 0);
+                    const subtotal = hasDbData ? (dbInv.totals?.lineExtensionAmount || 0) : (selectedInvoice.amount || selectedInvoice.kdvHaric || 0);
+                    const tax = hasDbData ? (dbInv.totals?.totalTax || 0) : (selectedInvoice.tax || selectedInvoice.kdv || 0);
+                    const discount = hasDbData ? (dbInv.totals?.totalDiscount || 0) : 0;
+
+                    // Alıcı & Satıcı
+                    const custName = (hasDbData ? dbInv.customer?.name : selectedInvoice.customer) || selectedInvoice.aliciAdi || "—";
+                    const custVkn = (hasDbData ? dbInv.customer?.vkn : selectedInvoice.vkn) || selectedInvoice.aliciVkn || "";
+                    const custTaxOffice = (hasDbData ? dbInv.customer?.taxOffice : "") || "";
+                    const suppName = (hasDbData ? dbInv.supplier?.name : "") || "";
+                    const suppVkn = (hasDbData ? dbInv.supplier?.vkn : "") || "";
+                    const suppTaxOffice = (hasDbData ? dbInv.supplier?.taxOffice : "") || "";
+
+                    // Kalemler
+                    const lines = hasDbData ? (dbInv.lines || []) : [];
+
+                    // Sipariş
+                    const orderNo = (hasDbData ? dbInv.orderNumber : "") || selectedInvoice.orderNumber || "";
+                    const marketplace = (hasDbData ? dbInv.marketplaceName : "") || selectedInvoice.marketplaceName || "";
+
+                    // Sağlayıcı
+                    const providerKey = (hasDbData ? dbInv.provider : selectedInvoice.provider) || "";
+                    const providerLabel = (PROVIDERS.find(p => p.id === providerKey) || {}).name || providerKey || "—";
+                    const envLabel = (hasDbData ? dbInv.env : "") === "production" ? "Canlı" : "Test";
+                    const createdBy = (hasDbData ? dbInv.createdBy : selectedInvoice.createdBy) || "";
+                    const createdByLabels = { auto: "Otomatik", manual: "Manuel", "batch-script": "Toplu İşlem" };
+
+                    // QNB yanıt
+                    const provResp = hasDbData ? dbInv.providerResponse : null;
+                    const faturaURL = (hasDbData ? dbInv.faturaURL : "") || selectedInvoice.faturaURL || "";
+                    const errorMsg = (hasDbData ? dbInv.errorMessage : "") || "";
+
+                    // Zaman
+                    const createdAt = (hasDbData ? dbInv.createdAt : "") || "";
+                    const updatedAt = (hasDbData ? dbInv.updatedAt : "") || "";
+
+                    // Detay alanı bileşeni
+                    const DetailField = ({ icon, label, value, color, mono, span2 }) => (
+                        <div style={{ background: C.glass, border: "1px solid " + C.glassBr, borderRadius: 10, padding: "0.75rem 0.85rem", gridColumn: span2 ? "1 / -1" : undefined }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "0.35rem", marginBottom: "0.2rem" }}>
+                                <span style={{ color: color || C.accent, fontSize: "0.7rem" }}>{icon}</span>
+                                <span style={{ color: C.dim, fontSize: "0.68rem", fontWeight: 600 }}>{label}</span>
+                            </div>
+                            <p style={{ color: "#fff", fontSize: "0.84rem", fontWeight: 600, margin: 0, fontFamily: mono ? "monospace" : "inherit", wordBreak: "break-all", lineHeight: 1.4 }}>{value || "—"}</p>
+                        </div>
+                    );
+
+                    return (
                     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                        onClick={() => setShowDetailModal(false)}
-                        style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem", background: "rgba(0,0,0,0.8)", backdropFilter: "blur(8px)" }}>
+                        onClick={() => { setShowDetailModal(false); setInvoiceDetailData(null); }}
+                        style={{ position: "fixed", inset: 0, zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem", background: "rgba(0,0,0,0.85)", backdropFilter: "blur(10px)" }}>
                         <motion.div initial={{ scale: 0.92, y: 40 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.92, y: 40 }}
                             onClick={e => e.stopPropagation()}
                             style={{
-                                background: "linear-gradient(135deg, " + C.card + " 0%, rgba(15,20,25,0.98) 100%)",
+                                background: "linear-gradient(135deg, " + C.card + " 0%, rgba(10,14,22,0.98) 100%)",
                                 border: "1px solid " + C.border, borderRadius: 20,
-                                padding: "2rem", maxWidth: 640, width: "100%", maxHeight: "85vh", overflowY: "auto",
+                                padding: "1.75rem", maxWidth: 780, width: "100%", maxHeight: "90vh", overflowY: "auto",
                             }}>
-                            {/* Header */}
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "1.5rem" }}>
+
+                            {/* ── Yükleniyor ── */}
+                            {invoiceDetailLoading && (
+                                <div style={{ textAlign: "center", padding: "2rem" }}>
+                                    <FaSpinner style={{ animation: "spin 1s linear infinite", fontSize: "1.5rem", color: C.accent }} />
+                                    <p style={{ color: C.muted, marginTop: "0.75rem", fontSize: "0.85rem" }}>Fatura detayları yükleniyor...</p>
+                                </div>
+                            )}
+
+                            {/* ── Header ── */}
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "1.25rem" }}>
                                 <div>
-                                    <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "0.4rem" }}>
-                                        <h3 style={{ color: "#fff", fontSize: "1.15rem", fontWeight: 800, margin: 0, fontFamily: "monospace" }}>
-                                            {selectedInvoice.number || "Belge #" + selectedInvoice.id}
-                                        </h3>
-                                        <TypeBadge type={selectedInvoice.type} />
+                                    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.4rem", flexWrap: "wrap" }}>
+                                        <FaFileInvoiceDollar style={{ color: C.accent, fontSize: "1.1rem" }} />
+                                        <h3 style={{ color: "#fff", fontSize: "1.15rem", fontWeight: 800, margin: 0, fontFamily: "monospace" }}>{invNo}</h3>
+                                        <TypeBadge type={invType} />
                                     </div>
-                                    <StatusBadge status={selectedInvoice.status} />
+                                    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+                                        <StatusBadge status={invStatus} />
+                                        {profileId && <Pill color={C.blue}>{profileLabels[profileId] || profileId}</Pill>}
+                                        {invoiceTypeCode && <Pill color={C.orange}>{typeLabels[invoiceTypeCode] || invoiceTypeCode}</Pill>}
+                                        {createdBy && <Pill color={C.dim}>{createdByLabels[createdBy] || createdBy}</Pill>}
+                                    </div>
                                 </div>
                                 <motion.button whileHover={{ scale: 1.1, rotate: 90 }} whileTap={{ scale: 0.9 }}
-                                    onClick={() => setShowDetailModal(false)}
-                                    style={{ background: C.red + "15", border: "1px solid " + C.red + "30", borderRadius: "50%", width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: C.red, fontSize: "0.9rem", flexShrink: 0 }}>
+                                    onClick={() => { setShowDetailModal(false); setInvoiceDetailData(null); }}
+                                    style={{ background: C.red + "15", border: "1px solid " + C.red + "30", borderRadius: "50%", width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: C.red, fontSize: "0.9rem", flexShrink: 0 }}>
                                     <FaTimes />
                                 </motion.button>
                             </div>
 
-                            {/* Tutar Kartı */}
-                            <div style={{ background: C.green + "08", border: "1px solid " + C.green + "25", borderRadius: 14, padding: "1.25rem", marginBottom: "1.25rem", textAlign: "center" }}>
-                                <p style={{ color: C.dim, fontSize: "0.75rem", fontWeight: 600, margin: "0 0 0.25rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>Toplam Tutar</p>
-                                <p style={{ color: C.green, fontSize: "1.8rem", fontWeight: 800, margin: 0 }}>{selectedInvoice.total > 0 ? fmtCurrency(selectedInvoice.total) : "—"}</p>
-                                <div style={{ display: "flex", justifyContent: "center", gap: "1.5rem", marginTop: "0.6rem" }}>
-                                    <div>
-                                        <p style={{ color: C.dim, fontSize: "0.68rem", margin: 0 }}>Ara Toplam</p>
-                                        <p style={{ color: C.text, fontSize: "0.9rem", fontWeight: 600, margin: 0 }}>{fmtCurrency(selectedInvoice.amount)}</p>
-                                    </div>
-                                    <div>
-                                        <p style={{ color: C.dim, fontSize: "0.68rem", margin: 0 }}>KDV</p>
-                                        <p style={{ color: C.purple, fontSize: "0.9rem", fontWeight: 600, margin: 0 }}>{fmtCurrency(selectedInvoice.tax)}</p>
-                                    </div>
-                                    <div>
-                                        <p style={{ color: C.dim, fontSize: "0.68rem", margin: 0 }}>Para Birimi</p>
-                                        <p style={{ color: C.blue, fontSize: "0.9rem", fontWeight: 600, margin: 0 }}>{selectedInvoice.currency || "TRY"}</p>
-                                    </div>
+                            {/* ── Hata Mesajı ── */}
+                            {errorMsg && (
+                                <div style={{ background: C.red + "10", border: "1px solid " + C.red + "30", borderRadius: 10, padding: "0.7rem 0.85rem", marginBottom: "1rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                                    <FaExclamationTriangle style={{ color: C.red, fontSize: "0.85rem", flexShrink: 0 }} />
+                                    <span style={{ color: C.red, fontSize: "0.78rem", fontWeight: 600, wordBreak: "break-word" }}>{errorMsg}</span>
+                                </div>
+                            )}
+
+                            {/* ── Tutar Kartı ── */}
+                            <div style={{ background: "linear-gradient(135deg, " + C.green + "08, " + C.accent + "05)", border: "1px solid " + C.green + "20", borderRadius: 14, padding: "1.25rem", marginBottom: "1.25rem" }}>
+                                <div style={{ textAlign: "center", marginBottom: "0.75rem" }}>
+                                    <p style={{ color: C.dim, fontSize: "0.72rem", fontWeight: 600, margin: "0 0 0.2rem", textTransform: "uppercase", letterSpacing: "0.06em" }}>Ödenecek Tutar</p>
+                                    <p style={{ color: C.green, fontSize: "2rem", fontWeight: 800, margin: 0 }}>{payable > 0 ? fmtCurrency(payable) : "—"}</p>
+                                </div>
+                                <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "0.75rem" }}>
+                                    {[
+                                        { label: "Ara Toplam (KDV Hariç)", value: fmtCurrency(subtotal), color: C.text },
+                                        { label: "Toplam KDV", value: fmtCurrency(tax), color: C.purple },
+                                        { label: "İndirim", value: discount > 0 ? fmtCurrency(discount) : "—", color: C.yellow },
+                                        { label: "Para Birimi", value: invCurrency, color: C.blue },
+                                    ].map((item, i) => (
+                                        <div key={i} style={{ textAlign: "center" }}>
+                                            <p style={{ color: C.dim, fontSize: "0.65rem", margin: "0 0 0.15rem", fontWeight: 600 }}>{item.label}</p>
+                                            <p style={{ color: item.color, fontSize: "0.92rem", fontWeight: 700, margin: 0 }}>{item.value}</p>
+                                        </div>
+                                    ))}
                                 </div>
                             </div>
 
-                            {/* Detay Alanları */}
-                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginBottom: "1.25rem" }}>
-                                {[
-                                    { icon: <FaBuilding />, label: "Müşteri", value: selectedInvoice.customer || "—", color: C.accent },
-                                    { icon: <FaHashtag />, label: "VKN / TCKN", value: selectedInvoice.vkn || "—", color: C.orange, mono: true },
-                                    { icon: <FaCalendarAlt />, label: "Tarih", value: fmtDate(selectedInvoice.date), color: C.blue },
-                                    { icon: <FaLink />, label: "Sağlayıcı", value: (PROVIDERS.find(p => p.id === selectedInvoice.provider) || {}).name || selectedInvoice.provider || "—", color: C.green },
-                                ].map((field, i) => (
-                                    <div key={field.label} style={{ background: C.glass, border: "1px solid " + C.glassBr, borderRadius: 10, padding: "0.85rem" }}>
-                                        <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginBottom: "0.3rem" }}>
-                                            <span style={{ color: field.color, fontSize: "0.75rem" }}>{field.icon}</span>
-                                            <span style={{ color: C.dim, fontSize: "0.7rem", fontWeight: 600 }}>{field.label}</span>
-                                        </div>
-                                        <p style={{ color: "#fff", fontSize: "0.88rem", fontWeight: 600, margin: 0, fontFamily: field.mono ? "monospace" : "inherit", wordBreak: "break-all" }}>{field.value}</p>
-                                    </div>
-                                ))}
+                            {/* ── Alıcı & Satıcı ── */}
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginBottom: "1rem" }}>
+                                {/* Satıcı */}
+                                <div style={{ background: C.accent + "06", border: "1px solid " + C.accent + "18", borderRadius: 12, padding: "0.85rem" }}>
+                                    <p style={{ color: C.accent, fontSize: "0.72rem", fontWeight: 700, margin: "0 0 0.5rem", textTransform: "uppercase", letterSpacing: "0.04em", display: "flex", alignItems: "center", gap: "0.3rem" }}>
+                                        <FaBuilding /> Satıcı
+                                    </p>
+                                    <p style={{ color: "#fff", fontSize: "0.85rem", fontWeight: 700, margin: "0 0 0.2rem" }}>{suppName || "—"}</p>
+                                    {suppVkn && <p style={{ color: C.muted, fontSize: "0.75rem", margin: "0 0 0.15rem", fontFamily: "monospace" }}>VKN: {suppVkn}</p>}
+                                    {suppTaxOffice && <p style={{ color: C.dim, fontSize: "0.72rem", margin: 0 }}>VD: {suppTaxOffice}</p>}
+                                </div>
+                                {/* Alıcı */}
+                                <div style={{ background: C.orange + "06", border: "1px solid " + C.orange + "18", borderRadius: 12, padding: "0.85rem" }}>
+                                    <p style={{ color: C.orange, fontSize: "0.72rem", fontWeight: 700, margin: "0 0 0.5rem", textTransform: "uppercase", letterSpacing: "0.04em", display: "flex", alignItems: "center", gap: "0.3rem" }}>
+                                        <FaBuilding /> Alıcı
+                                    </p>
+                                    <p style={{ color: "#fff", fontSize: "0.85rem", fontWeight: 700, margin: "0 0 0.2rem" }}>{custName}</p>
+                                    {custVkn && <p style={{ color: C.muted, fontSize: "0.75rem", margin: "0 0 0.15rem", fontFamily: "monospace" }}>VKN/TCKN: {custVkn}</p>}
+                                    {custTaxOffice && <p style={{ color: C.dim, fontSize: "0.72rem", margin: 0 }}>VD: {custTaxOffice}</p>}
+                                </div>
                             </div>
 
-                            {/* Ham Veri (raw) — Accordion */}
-                            {selectedInvoice.raw && (
+                            {/* ── Genel Bilgiler Grid ── */}
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.6rem", marginBottom: "1rem" }}>
+                                <DetailField icon={<FaCalendarAlt />} label="Fatura Tarihi" value={fmtDate(invDate)} color={C.blue} />
+                                <DetailField icon={<FaLink />} label="Sağlayıcı" value={providerLabel} color={C.green} />
+                                <DetailField icon={<FaCog />} label="Ortam" value={envLabel} color={C.dim} />
+                                {invUuid && <DetailField icon={<FaHashtag />} label="UUID (ETTN)" value={invUuid} color={C.purple} mono span2 />}
+                                {orderNo && <DetailField icon={<FaClipboardList />} label="Sipariş No" value={orderNo} color={C.yellow} />}
+                                {marketplace && <DetailField icon={<FaBuilding />} label="Pazaryeri" value={marketplace} color={C.orange} />}
+                            </div>
+
+                            {/* ── Sipariş Bilgisi (DB'den geldiyse) ── */}
+                            {dbOrder && (
+                                <div style={{ background: C.purple + "06", border: "1px solid " + C.purple + "18", borderRadius: 12, padding: "0.85rem", marginBottom: "1rem" }}>
+                                    <p style={{ color: C.purple, fontSize: "0.72rem", fontWeight: 700, margin: "0 0 0.5rem", textTransform: "uppercase", letterSpacing: "0.04em", display: "flex", alignItems: "center", gap: "0.3rem" }}>
+                                        <FaClipboardList /> İlişkili Sipariş
+                                    </p>
+                                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: "0.5rem" }}>
+                                        {[
+                                            { label: "Sipariş No", value: dbOrder.orderNumber || "—" },
+                                            { label: "Pazaryeri", value: dbOrder.marketplaceName || "—" },
+                                            { label: "Durum", value: dbOrder.status || "—" },
+                                            { label: "Tutar", value: dbOrder.totalPrice ? fmtCurrency(dbOrder.totalPrice) : "—" },
+                                            { label: "Müşteri", value: [dbOrder.customerFirstName, dbOrder.customerLastName].filter(Boolean).join(" ") || "—" },
+                                            { label: "Sipariş Tarihi", value: fmtDate(dbOrder.createdAt) },
+                                        ].map((f, i) => (
+                                            <div key={i}>
+                                                <p style={{ color: C.dim, fontSize: "0.65rem", margin: "0 0 0.1rem", fontWeight: 600 }}>{f.label}</p>
+                                                <p style={{ color: C.text, fontSize: "0.78rem", fontWeight: 600, margin: 0 }}>{f.value}</p>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* ── Fatura Kalemleri ── */}
+                            {lines.length > 0 && (
+                                <div style={{ marginBottom: "1rem" }}>
+                                    <div
+                                        onClick={() => setLinesOpen(prev => !prev)}
+                                        style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.65rem 0.85rem", background: C.glass, border: "1px solid " + C.glassBr, borderRadius: linesOpen ? "10px 10px 0 0" : 10, cursor: "pointer" }}>
+                                        <FaFileInvoice style={{ color: C.accent, fontSize: "0.8rem" }} />
+                                        <span style={{ color: C.muted, fontSize: "0.78rem", fontWeight: 700, flex: 1 }}>Fatura Kalemleri ({lines.length})</span>
+                                        <FaChevronDown style={{ color: C.dim, fontSize: "0.7rem", transform: linesOpen ? "rotate(180deg)" : "rotate(0)", transition: "transform 0.2s" }} />
+                                    </div>
+                                    {linesOpen && (
+                                        <div style={{ border: "1px solid " + C.glassBr, borderTop: "none", borderRadius: "0 0 10px 10px", overflow: "hidden" }}>
+                                            {/* Tablo başlık */}
+                                            <div style={{ display: "grid", gridTemplateColumns: "0.4fr 2.5fr 0.6fr 0.6fr 0.8fr 0.6fr 0.7fr 0.9fr", gap: "0.3rem", padding: "0.5rem 0.75rem", background: "rgba(255,255,255,0.03)" }}>
+                                                {["#", "Ürün / Hizmet", "Miktar", "Birim", "Birim Fiyat", "KDV %", "KDV", "Toplam"].map(h => (
+                                                    <span key={h} style={{ color: C.dim, fontSize: "0.62rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" }}>{h}</span>
+                                                ))}
+                                            </div>
+                                            {/* Satırlar */}
+                                            {lines.map((line, idx) => (
+                                                <div key={idx} style={{ display: "grid", gridTemplateColumns: "0.4fr 2.5fr 0.6fr 0.6fr 0.8fr 0.6fr 0.7fr 0.9fr", gap: "0.3rem", padding: "0.5rem 0.75rem", borderTop: "1px solid rgba(255,255,255,0.04)", background: idx % 2 === 0 ? "transparent" : "rgba(255,255,255,0.015)" }}>
+                                                    <span style={{ color: C.dim, fontSize: "0.75rem" }}>{line.index || idx + 1}</span>
+                                                    <span style={{ color: "#fff", fontSize: "0.78rem", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{line.name || "—"}</span>
+                                                    <span style={{ color: C.text, fontSize: "0.78rem" }}>{line.quantity}</span>
+                                                    <span style={{ color: C.muted, fontSize: "0.75rem" }}>{line.unit}</span>
+                                                    <span style={{ color: C.text, fontSize: "0.78rem", fontFamily: "monospace" }}>{fmtCurrency(line.unitPrice)}</span>
+                                                    <span style={{ color: C.purple, fontSize: "0.78rem", fontWeight: 600 }}>%{line.vatRate}</span>
+                                                    <span style={{ color: C.purple, fontSize: "0.78rem", fontFamily: "monospace" }}>{fmtCurrency(line.vatAmount)}</span>
+                                                    <span style={{ color: C.green, fontSize: "0.78rem", fontWeight: 700, fontFamily: "monospace" }}>{fmtCurrency(line.lineTotal)}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* ── Not ── */}
+                            {invNote && (
+                                <div style={{ background: C.glass, border: "1px solid " + C.glassBr, borderRadius: 10, padding: "0.75rem 0.85rem", marginBottom: "1rem" }}>
+                                    <p style={{ color: C.dim, fontSize: "0.68rem", fontWeight: 600, margin: "0 0 0.25rem" }}>Not</p>
+                                    <p style={{ color: C.text, fontSize: "0.8rem", margin: 0, lineHeight: 1.5 }}>{invNote}</p>
+                                </div>
+                            )}
+
+                            {/* ── QNB Yanıt Bilgileri ── */}
+                            {provResp && (provResp.resultCode || provResp.islemId || provResp.belgeOid) && (
+                                <div style={{ background: C.blue + "06", border: "1px solid " + C.blue + "18", borderRadius: 12, padding: "0.85rem", marginBottom: "1rem" }}>
+                                    <p style={{ color: C.blue, fontSize: "0.72rem", fontWeight: 700, margin: "0 0 0.5rem", textTransform: "uppercase", letterSpacing: "0.04em" }}>QNB Yanıt Bilgileri</p>
+                                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "0.4rem" }}>
+                                        {[
+                                            provResp.resultCode && { label: "Sonuç Kodu", value: provResp.resultCode },
+                                            provResp.resultText && { label: "Sonuç Mesajı", value: provResp.resultText },
+                                            provResp.islemId && { label: "İşlem ID", value: provResp.islemId },
+                                            provResp.belgeOid && { label: "Belge OID", value: provResp.belgeOid },
+                                            { label: "İmzalı", value: provResp.signedDocument ? "Evet ✅" : "Hayır" },
+                                        ].filter(Boolean).map((f, i) => (
+                                            <div key={i}>
+                                                <p style={{ color: C.dim, fontSize: "0.65rem", margin: "0 0 0.1rem", fontWeight: 600 }}>{f.label}</p>
+                                                <p style={{ color: C.text, fontSize: "0.75rem", fontWeight: 600, margin: 0, fontFamily: "monospace", wordBreak: "break-all" }}>{f.value}</p>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* ── Zaman Damgaları ── */}
+                            {(createdAt || updatedAt) && (
+                                <div style={{ display: "flex", gap: "1.5rem", marginBottom: "1rem", padding: "0.5rem 0" }}>
+                                    {createdAt && (
+                                        <div>
+                                            <p style={{ color: C.dim, fontSize: "0.65rem", margin: "0 0 0.1rem", fontWeight: 600 }}>Oluşturulma</p>
+                                            <p style={{ color: C.muted, fontSize: "0.75rem", margin: 0 }}>{new Date(createdAt).toLocaleString("tr-TR")}</p>
+                                        </div>
+                                    )}
+                                    {updatedAt && (
+                                        <div>
+                                            <p style={{ color: C.dim, fontSize: "0.65rem", margin: "0 0 0.1rem", fontWeight: 600 }}>Son Güncelleme</p>
+                                            <p style={{ color: C.muted, fontSize: "0.75rem", margin: 0 }}>{new Date(updatedAt).toLocaleString("tr-TR")}</p>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* ── Ham Veri (raw) — Accordion ── */}
+                            {(selectedInvoice.raw || hasDbData) && (
                                 <div style={{ marginBottom: "1.25rem" }}>
                                     <div
                                         onClick={() => setRawDataOpen(prev => !prev)}
-                                        style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.7rem 0.85rem", background: C.glass, border: "1px solid " + C.glassBr, borderRadius: rawDataOpen ? "10px 10px 0 0" : 10, cursor: "pointer", transition: "background 0.2s" }}>
-                                        <FaInfoCircle style={{ color: C.accent, fontSize: "0.8rem" }} />
-                                        <span style={{ color: C.muted, fontSize: "0.78rem", fontWeight: 600, flex: 1 }}>Sağlayıcı Ham Verisi (API Response)</span>
-                                        <FaChevronDown style={{ color: C.dim, fontSize: "0.7rem", transform: rawDataOpen ? "rotate(180deg)" : "rotate(0)", transition: "transform 0.2s" }} />
+                                        style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.65rem 0.85rem", background: C.glass, border: "1px solid " + C.glassBr, borderRadius: rawDataOpen ? "10px 10px 0 0" : 10, cursor: "pointer" }}>
+                                        <FaInfoCircle style={{ color: C.accent, fontSize: "0.75rem" }} />
+                                        <span style={{ color: C.muted, fontSize: "0.75rem", fontWeight: 600, flex: 1 }}>Ham Veri (API / DB Response)</span>
+                                        <FaChevronDown style={{ color: C.dim, fontSize: "0.65rem", transform: rawDataOpen ? "rotate(180deg)" : "rotate(0)", transition: "transform 0.2s" }} />
                                     </div>
                                     {rawDataOpen && (
                                         <pre style={{
-                                            background: "rgba(0,0,0,0.3)", border: "1px solid " + C.glassBr, borderTop: "none",
-                                            borderRadius: "0 0 10px 10px", padding: "1rem", margin: 0,
-                                            color: C.muted, fontSize: "0.7rem", lineHeight: 1.5,
-                                            maxHeight: 300, overflowY: "auto", whiteSpace: "pre-wrap", wordBreak: "break-all",
+                                            background: "rgba(0,0,0,0.35)", border: "1px solid " + C.glassBr, borderTop: "none",
+                                            borderRadius: "0 0 10px 10px", padding: "0.85rem", margin: 0,
+                                            color: C.muted, fontSize: "0.68rem", lineHeight: 1.5,
+                                            maxHeight: 280, overflowY: "auto", whiteSpace: "pre-wrap", wordBreak: "break-all",
                                         }}>
-                                            {JSON.stringify(selectedInvoice.raw, null, 2)}
+                                            {JSON.stringify(hasDbData ? invoiceDetailData : (selectedInvoice.raw || selectedInvoice), null, 2)}
                                         </pre>
                                     )}
                                 </div>
                             )}
 
-                            {/* Alt Butonlar */}
-                            <div style={{ display: "flex", gap: "0.5rem" }}>
+                            {/* ── Alt Butonlar ── */}
+                            <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                                {/* Önizleme — QNB fatura URL'si varsa */}
+                                {(faturaURL || (hasDbData && dbInv.uuid)) && (
+                                    <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+                                        onClick={() => {
+                                            if (hasDbData && dbInv._id) {
+                                                downloadInvoicePdf(dbInv._id, invNo);
+                                            } else if (faturaURL) {
+                                                window.open(faturaURL, "_blank");
+                                            } else if (invUuid) {
+                                                previewQnbInvoice(invUuid);
+                                            }
+                                        }}
+                                        disabled={pdfLoading}
+                                        style={{ flex: 1, minWidth: 120, background: C.accent + "15", border: "1px solid " + C.accent + "30", borderRadius: 10, padding: "0.65rem", cursor: pdfLoading ? "not-allowed" : "pointer", color: C.accent, fontSize: "0.82rem", fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: "0.4rem", opacity: pdfLoading ? 0.6 : 1 }}>
+                                        {pdfLoading ? <FaSpinner style={{ animation: "spin 1s linear infinite" }} /> : <FaEye />} Önizleme
+                                    </motion.button>
+                                )}
+                                {/* İndir */}
+                                {hasDbData && dbInv._id && (
+                                    <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+                                        onClick={() => downloadInvoicePdf(dbInv._id, invNo)}
+                                        disabled={pdfLoading}
+                                        style={{ flex: 1, minWidth: 120, background: C.blue + "15", border: "1px solid " + C.blue + "30", borderRadius: 10, padding: "0.65rem", cursor: pdfLoading ? "not-allowed" : "pointer", color: C.blue, fontSize: "0.82rem", fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: "0.4rem", opacity: pdfLoading ? 0.6 : 1 }}>
+                                        {pdfLoading ? <FaSpinner style={{ animation: "spin 1s linear infinite" }} /> : <FaDownload />} İndir
+                                    </motion.button>
+                                )}
+                                {/* Yazdır */}
                                 <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
-                                    style={{ flex: 1, background: C.blue + "15", border: "1px solid " + C.blue + "30", borderRadius: 10, padding: "0.65rem", cursor: "pointer", color: C.blue, fontSize: "0.82rem", fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: "0.4rem" }}>
-                                    <FaDownload /> İndir
-                                </motion.button>
-                                <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
-                                    style={{ flex: 1, background: C.muted + "15", border: "1px solid " + C.muted + "30", borderRadius: 10, padding: "0.65rem", cursor: "pointer", color: C.muted, fontSize: "0.82rem", fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: "0.4rem" }}>
+                                    onClick={() => {
+                                        if (hasDbData && dbInv._id) {
+                                            // PDF'i yeni sekmede aç → kullanıcı oradan yazdırır
+                                            downloadInvoicePdf(dbInv._id, invNo);
+                                        } else if (faturaURL) {
+                                            const w = window.open(faturaURL, "_blank");
+                                            if (w) setTimeout(() => { try { w.print(); } catch(e) {} }, 2000);
+                                        }
+                                    }}
+                                    style={{ flex: 1, minWidth: 100, background: C.muted + "15", border: "1px solid " + C.muted + "30", borderRadius: 10, padding: "0.65rem", cursor: "pointer", color: C.muted, fontSize: "0.82rem", fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: "0.4rem" }}>
                                     <FaPrint /> Yazdır
                                 </motion.button>
+                                {/* Kapat */}
                                 <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
-                                    onClick={() => setShowDetailModal(false)}
+                                    onClick={() => { setShowDetailModal(false); setInvoiceDetailData(null); }}
                                     style={{ background: C.glass, border: "1px solid " + C.glassBr, borderRadius: 10, padding: "0.65rem 1.25rem", cursor: "pointer", color: C.dim, fontSize: "0.82rem", fontWeight: 600 }}>
                                     Kapat
                                 </motion.button>
                             </div>
                         </motion.div>
                     </motion.div>
-                )}
+                    );
+                })()}
             </AnimatePresence>
 
             <style>{`

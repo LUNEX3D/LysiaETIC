@@ -80,6 +80,7 @@ router.post("/qnb/einvoice/etiket-list", eInvoiceController.qnbGetEtiketList);
 // e-Fatura — Numara Üretme & Gönderme
 router.post("/qnb/einvoice/generate-no", eInvoiceController.qnbGenerateInvoiceNo);
 router.post("/qnb/einvoice/send", eInvoiceController.qnbSendEInvoice);
+router.post("/qnb/einvoice/send-ext", eInvoiceController.qnbSendEInvoiceExt);
 
 // e-Fatura — Durum Sorgulama
 router.post("/qnb/einvoice/status", eInvoiceController.qnbGetOutgoingStatus);
@@ -110,6 +111,7 @@ router.post("/qnb/despatch/send", eInvoiceController.qnbSendDespatch);
 // e-Arşiv — Numara & Oluşturma
 router.post("/qnb/earchive/generate-no", eInvoiceController.qnbGenerateEArchiveNo);
 router.post("/qnb/earchive/create", eInvoiceController.qnbCreateEArchive);
+router.post("/qnb/earchive/create-ext", eInvoiceController.qnbCreateEArchiveExt);
 router.post("/qnb/earchive/create-from-form", eInvoiceController.qnbCreateEArchiveFromForm);
 
 // e-Arşiv — Sorgulama & Listeleme

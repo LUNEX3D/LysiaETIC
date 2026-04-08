@@ -346,16 +346,14 @@ const checkHepsiburadaOrders = async (userId, credentials) => {
     const results = [];
 
     try {
-        const { merchantId, apiKey, username, password } = credentials;
-        if (!merchantId) return results;
+        const { normalizeCredentials, getHeaders, getEndpoints } = require("./hepsiburadaService");
+        const hbCreds = normalizeCredentials(credentials);
+        const { merchantId, secretKey, userAgent } = hbCreds;
 
-        // ✅ FIX #4: Hepsiburada Auth tutarlılığı — stockSyncService ile aynı mantık
-        // ESKİ: Sadece merchantId:apiKey kullanılıyordu
-        // YENİ: username/password varsa onları, yoksa merchantId/apiKey kullan
-        const authUser = username || merchantId;
-        const authPass = password || apiKey;
-        if (!authUser || !authPass) return results;
-        const authHeader = `Basic ${Buffer.from(`${authUser}:${authPass}`).toString("base64")}`;
+        if (!merchantId || !secretKey) return results;
+
+        const headers = getHeaders(merchantId, secretKey, userAgent);
+        const ep = getEndpoints(hbCreds);
 
         // ✅ FIX #6: Hepsiburada siparişlerinde zaman filtresi eklendi
         // ESKİ: Tüm paketler çekiliyordu → performans sorunu
@@ -363,13 +361,9 @@ const checkHepsiburadaOrders = async (userId, credentials) => {
         const hbStartDate = moment().subtract(2, "hours").toISOString();
         const hbEndDate = moment().toISOString();
         const response = await axios.get(
-            `https://oms-external.hepsiburada.com/packages/merchantid/${merchantId}?limit=50&offset=0&startDate=${encodeURIComponent(hbStartDate)}&endDate=${encodeURIComponent(hbEndDate)}`,
+            `${ep.OMS}/packages/merchantid/${merchantId}?limit=50&offset=0&startDate=${encodeURIComponent(hbStartDate)}&endDate=${encodeURIComponent(hbEndDate)}`,
             {
-                headers: {
-                    Authorization: authHeader,
-                    "Content-Type": "application/json",
-                    "User-Agent": "LysiaETIC"
-                },
+                headers,
                 timeout: 15000
             }
         );

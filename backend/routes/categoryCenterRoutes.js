@@ -24,6 +24,10 @@ router.put("/mappings/:id", controller.updateMapping);
 // ── Pazaryeri Listesi ──
 router.get("/marketplaces", controller.getMarketplaces);
 
+// ── Hepsiburada Kategori Ağacı (Tree) ──
+router.get("/hepsiburada/categories/export", controller.exportHepsiburadaCategoriesExcel);
+router.get("/hepsiburada/categories", controller.getHepsiburadaCategoryTree);
+
 // ── Canlı Kategori Ağacı ──
 router.get("/:marketplaceName/tree", controller.getCategoryTree);
 
