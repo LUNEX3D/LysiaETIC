@@ -319,10 +319,10 @@ function generateFocusItems(analyzedProducts, data, businessHealth, lossHunter) 
         items.push({
             priority: 5,
             icon: "💀",
-            title: `${deadProducts.length} ölü ürün stokta bekliyor`,
+            title: `${deadProducts.length} ürün 60+ gündür satılmıyor — satış stratejisi uygulayın`,
             description: `Toplam ${deadValue.toFixed(0)}₺ değerinde stok bağlı`,
             impact: `${deadValue.toFixed(0)}₺ bağlı sermaye`,
-            action: "İndirim veya tasfiye kampanyası başlatın",
+            action: "Agresif indirim + kampanya sayfasına ekleme + sosyal medya tanıtımı yapın",
             category: "performance",
             urgency: "medium",
         });
@@ -561,7 +561,7 @@ function segmentProducts(analyzedProducts) {
         stars: { count: segments.stars.length, products: mapSegment(segments.stars), strategy: "Stok artırın, fiyatı koruyun, pazarlamayı artırın" },
         cashCows: { count: segments.cashCows.length, products: mapSegment(segments.cashCows), strategy: "Mevcut durumu koruyun, marjı optimize edin" },
         questionMarks: { count: segments.questionMarks.length, products: mapSegment(segments.questionMarks), strategy: "Pazarlama ile satışları artırın veya fiyat indirin" },
-        dogs: { count: segments.dogs.length, products: mapSegment(segments.dogs), strategy: "İndirim yapın, tasfiye edin veya pasife alın" },
+        dogs: { count: segments.dogs.length, products: mapSegment(segments.dogs), strategy: "Agresif indirim yapın, kampanya/vitrine ekleyin, set oluşturun, reklam verin — satış stratejisi uygulayın" },
         newProducts: { count: segments.newProducts.length, products: mapSegment(segments.newProducts), strategy: "Veri toplanmasını bekleyin, ilk satışları takip edin" },
         summary: {
             total: analyzedProducts.length,
@@ -1205,11 +1205,11 @@ function assessRisks(analyzedProducts, data, businessHealth) {
             type: "dead_stock",
             level: deadProducts.length > 10 ? "high" : "medium",
             icon: "💀",
-            title: `${deadProducts.length} ölü ürün — ${deadValue.toFixed(0)}₺ bağlı sermaye`,
+            title: `${deadProducts.length} satış bekleyen ürün — ${deadValue.toFixed(0)}₺ bağlı sermaye`,
             impact: `${deadValue.toFixed(0)}₺ sermaye riski`,
             monthlyImpact: round2(deadValue),
             probability: 90,
-            mitigation: "Tasfiye kampanyası veya pasife alma",
+            mitigation: "Agresif indirim kampanyası başlatın, ürünleri vitrine/kampanya sayfasına ekleyin, set/kombin oluşturun",
             affectedProducts: deadProducts.slice(0, 5).map(p => ({ name: p.name, barcode: p.barcode, stock: p.stock, daysSinceLastSale: p.daysSinceLastSale })),
         });
     }
@@ -1399,8 +1399,8 @@ async function autoDecide(userId, analyzedProducts, data, businessHealth, lossHu
             priority: 4,
             type: "liquidate",
             icon: "💀",
-            title: `${deadProducts.length} Ölü Ürün — Tasfiye Et`,
-            description: `60+ gündür satılmayan ${deadProducts.length} ürün ${deadValue.toFixed(0)}₺ sermaye bağlıyor. %30-50 indirimle tasfiye edin`,
+            title: `${deadProducts.length} Satış Bekleyen Ürün — Satış Stratejisi Uygula`,
+            description: `60+ gündür satılmayan ${deadProducts.length} ürün ${deadValue.toFixed(0)}₺ sermaye bağlıyor. %30-50 indirim + kampanya sayfası + set/kombin + reklam ile satışa dönüştürün`,
             impact: round2(deadValue * 0.5),
             impactLabel: `${(deadValue * 0.5).toFixed(0)}₺ sermaye kurtarılır`,
             urgency: "medium",
@@ -1503,9 +1503,9 @@ function generateDiagnosis(analyzedProducts, data, businessHealth, lossHunterRes
         const deadValue = deadProducts.reduce((s, p) => s + p.price * p.stock, 0);
         diagnosis.mistakes.push({
             icon: "💀",
-            title: `${deadProducts.length} ölü ürüne para bağlamışsın`,
-            detail: `${deadValue.toFixed(0)}₺ sermaye 60+ gündür satılmayan ürünlerde kilitli.`,
-            fix: "Agresif indirimle tasfiye et veya pasife al",
+            title: `${deadProducts.length} ürün 60+ gündür satış bekliyor`,
+            detail: `${deadValue.toFixed(0)}₺ sermaye bu ürünlerde kilitli. İndirim, kampanya, set/kombin ve reklam ile satışa dönüştürebilirsin.`,
+            fix: "Agresif indirim uygula, kampanya/vitrin sayfasına ekle, set/kombin oluştur, sosyal medyada tanıt",
             severity: "high",
             amount: round2(deadValue),
         });
@@ -1798,10 +1798,10 @@ function generateRedAlerts(analyzedProducts, data, businessHealth) {
                 type: "dead_capital",
                 icon: "💀",
                 headline: "PARAN KİLİTLİ!",
-                message: `${deadProducts.length} ölü üründe ${deadValue.toFixed(0)}₺ sermaye bağlı. Bu para çalışmıyor!`,
+                message: `${deadProducts.length} üründe ${deadValue.toFixed(0)}₺ sermaye bağlı. Bu ürünler satış stratejisi bekliyor!`,
                 severity: "high",
                 amount: round2(deadValue),
-                action: "Tasfiye kampanyası başlat",
+                action: "Agresif indirim + kampanya sayfasına ekleme + set/kombin oluşturma ile satışa dönüştür",
             });
         }
     }
@@ -1891,9 +1891,10 @@ async function getFullBrainDashboard(userId, aiEngine, strategyMode) {
     const moneyTracker = trackMoney(analyzed, data);
     const redAlerts = generateRedAlerts(analyzed, data, businessHealth);
 
-    // DB queries
-    const [pendingRecs, pendingCount, executedCount, approvedCount, rejectedCount, selfEval, decisionHistory] = await Promise.all([
-        Recommendation.find({ userId, status: "pending" }).sort({ createdAt: -1 }).limit(30).lean(),
+    // DB queries — TÜM statülerdeki önerileri getir (pending, approved, executed, rejected)
+    const [allRecs, pendingCount, executedCount, approvedCount, rejectedCount, selfEval, decisionHistory] = await Promise.all([
+        Recommendation.find({ userId, status: { $in: ["pending", "approved", "executed", "rejected"] } })
+            .sort({ createdAt: -1 }).limit(50).lean(),
         Recommendation.countDocuments({ userId, status: "pending" }),
         Recommendation.countDocuments({ userId, status: "executed" }),
         Recommendation.countDocuments({ userId, status: "approved" }),
@@ -1903,7 +1904,14 @@ async function getFullBrainDashboard(userId, aiEngine, strategyMode) {
     ]);
 
     const priorityOrder = { critical: 0, high: 1, medium: 2, low: 3 };
-    pendingRecs.sort((a, b) => (priorityOrder[a.priority] || 3) - (priorityOrder[b.priority] || 3));
+    allRecs.sort((a, b) => {
+        // Önce statüye göre sırala: pending > approved > executed > rejected
+        const statusOrder = { pending: 0, approved: 1, executed: 2, rejected: 3 };
+        const sd = (statusOrder[a.status] || 4) - (statusOrder[b.status] || 4);
+        if (sd !== 0) return sd;
+        // Aynı statüde priority'ye göre sırala
+        return (priorityOrder[a.priority] || 3) - (priorityOrder[b.priority] || 3);
+    });
 
     // Product health segments
     const segments = {
@@ -1949,8 +1957,8 @@ async function getFullBrainDashboard(userId, aiEngine, strategyMode) {
         learning,
         goals,
 
-        // Recommendations
-        recommendations: pendingRecs,
+        // Recommendations — tüm statüler (pending, approved, executed, rejected)
+        recommendations: allRecs,
         recSummary: { pending: pendingCount, executed: executedCount, approved: approvedCount, rejected: rejectedCount },
 
         // Product Health

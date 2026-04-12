@@ -146,6 +146,12 @@ app.use("/api/", (req, res, next) => {
     if (req.originalUrl.startsWith("/api/webhooks/") && req.method === "POST") {
         return next(); // Rate limiter atla — pazaryeri sunucuları erişmeli
     }
+    // ✅ v3: AI Engine + AI Chat endpoint'leri rate limiter'dan muaf
+    // Zaten authMiddleware + subscriptionMiddleware ile korunuyorlar
+    // LysiaBrain 25 tab + polling ile çok fazla istek atıyor, cache'den okuyor zaten
+    if (req.originalUrl.startsWith("/api/ai-engine/") || req.originalUrl.startsWith("/api/ai-chat/")) {
+        return next();
+    }
     apiLimiter(req, res, next);
 });
 
@@ -360,6 +366,33 @@ const startServer = async () => {
             logger.info("🧠 AI Background Worker başlatıldı ✅");
         } catch (err) {
             logger.warn(`AI Worker başlatılamadı: ${err.message}`);
+        }
+
+        // ─── Startup Cleanup: Eski "pasife al" / "Ölü Ürün" önerilerini sil + cache invalidate ──
+        try {
+            const Recommendation = require("./models/Recommendation");
+            const AIAnalysisCache = require("./models/AIAnalysisCache");
+
+            // 1. DB'den eski önerileri sil
+            Recommendation.deleteMany({ $or: [
+                { "actionPayload.actionType": "mark_inactive" },
+                { description: { $regex: /[Pp]asife al/i } },
+                { title: { $regex: /Ölü Ürün/i } },
+            ]}).then(cleaned => {
+                if (cleaned.deletedCount > 0) {
+                    logger.info(`🧹 Startup cleanup: ${cleaned.deletedCount} eski "pasife al/Ölü Ürün" önerisi silindi ✅`);
+                }
+            }).catch(e => logger.warn(`Startup cleanup (recommendations) başarısız: ${e.message}`));
+
+            // 2. Tüm AI cache'leri invalidate et — worker taze veri üretsin
+            AIAnalysisCache.updateMany({}, { $set: { lastAnalyzedAt: new Date(0) } })
+                .then(r => {
+                    if (r.modifiedCount > 0) {
+                        logger.info(`🧹 Startup cleanup: ${r.modifiedCount} AI cache invalidate edildi ✅`);
+                    }
+                }).catch(e => logger.warn(`Startup cleanup (cache) başarısız: ${e.message}`));
+        } catch (err) {
+            logger.warn(`Startup cleanup başarısız: ${err.message}`);
         }
     });
 };

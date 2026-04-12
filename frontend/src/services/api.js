@@ -4,10 +4,19 @@
  * ✅ FIX #21: baseURL environment'tan alınıyor
  * ✅ SEC #2: Refresh token rotation desteği — yeni refresh token da kaydedilir
  * ✅ SEC #3: clearSession helper + logout API çağrısı
+ * ✅ v2: 429 Rate Limit otomatik retry (exponential backoff) + toast bildirimi
  */
 import axios from "axios";
 
 const BASE_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
+
+// ─── 429 Rate Limit Event — UI bildirim sistemi ────────────────────────────────
+// Herhangi bir component dinleyebilir: window.addEventListener("api:rate-limited", handler)
+const emitRateLimited = (retryAfter, attempt) => {
+    window.dispatchEvent(new CustomEvent("api:rate-limited", {
+        detail: { retryAfter, attempt, timestamp: Date.now() }
+    }));
+};
 
 // Axios instance oluştur
 const API = axios.create({
@@ -59,6 +68,39 @@ API.interceptors.response.use(
     (response) => response,
     async (error) => {
         const originalRequest = error.config;
+
+        // ─── 429 Rate Limit — Otomatik Retry (exponential backoff) ──────────
+        if (error.response?.status === 429) {
+            const attempt = (originalRequest._retryCount || 0) + 1;
+            const MAX_RETRIES = 3;
+
+            if (attempt <= MAX_RETRIES) {
+                originalRequest._retryCount = attempt;
+
+                // Retry-After header'ından veya response body'den bekleme süresi al
+                const retryAfterHeader = error.response.headers?.["retry-after"];
+                const retryAfterBody = error.response.data?.retryAfter;
+                const retryAfterSec = parseInt(retryAfterHeader || retryAfterBody, 10) || 0;
+
+                // Exponential backoff: 2s, 4s, 8s — ama Retry-After varsa onu kullan
+                const backoffMs = retryAfterSec > 0
+                    ? Math.min(retryAfterSec * 1000, 30000)
+                    : Math.min(2000 * Math.pow(2, attempt - 1), 15000);
+
+                // UI'a bildir (toast göstermek için)
+                emitRateLimited(Math.ceil(backoffMs / 1000), attempt);
+
+                // Bekle ve tekrar dene
+                await new Promise(resolve => setTimeout(resolve, backoffMs));
+                return API(originalRequest);
+            }
+
+            // Max retry aşıldı — hatayı fırlat ama mesajı güzelleştir
+            const friendlyError = new Error("Sunucu yoğun. Lütfen birkaç saniye bekleyip tekrar deneyin.");
+            friendlyError.response = error.response;
+            friendlyError.isRateLimited = true;
+            return Promise.reject(friendlyError);
+        }
 
         if (error.response?.status === 401 && !originalRequest._retry) {
             const currentPath = window.location.pathname;

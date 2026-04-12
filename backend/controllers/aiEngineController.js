@@ -31,6 +31,7 @@
 
 const AIEngine = require("../services/aiEngineService");
 const AIBrain = require("../services/aiOperationsBrain");
+const AIAdvisor = require("../services/aiProductAdvisor");
 const Recommendation = require("../models/Recommendation");
 const AIGoal = require("../models/AIGoal");
 const AIAnalysisCache = require("../models/AIAnalysisCache");
@@ -96,6 +97,132 @@ exports.getBrainDashboard = async (req, res) => {
     } catch (err) {
         logger.error(`[AI Brain] getBrainDashboard error: ${err.message}`);
         res.status(500).json({ success: false, message: "AI Brain yüklenemedi", error: err.message });
+    }
+};
+
+// ═════════════════════════════════════════════════════════════════════════════
+// GET /brain/section/:name — Read a specific section from cache (FAST)
+// ═════════════════════════════════════════════════════════════════════════════
+// Instead of each tab calling collectData+analyzeProducts (8 DB queries each),
+// this reads from the pre-computed cache that background worker maintains.
+// Falls back to computing fresh if cache is missing.
+// ═════════════════════════════════════════════════════════════════════════════
+const SECTION_MAP = {
+    losses:       (d) => ({ success: true, ...(d.lossHunter || {}) }),
+    risks:        (d) => ({ success: true, ...(d.riskAssessment || {}) }),
+    predictions:  (d) => ({ success: true, ...(d.predictions || {}) }),
+    segmentation: (d) => ({ success: true, segmentation: d.segmentation || {} }),
+    causes:       (d) => ({ success: true, causes: d.causeAnalysis || [] }),
+    opportunities:(d) => ({ success: true, opportunities: d.opportunityRadar || [] }),
+    self_eval:    (d) => ({ success: true, selfEvaluation: d.selfEvaluation || {} }),
+    decisions:    (d) => ({ success: true, decisionHistory: d.decisionHistory || {} }),
+    heatmap:      (d) => ({ success: true, heatmap: d.heatmap || {} }),
+    timing:       (d) => ({ success: true, timing: d.timing || {} }),
+    retro:        (d) => ({ success: true, retro: d.retro || {} }),
+    roi:          (d) => ({ success: true, roi: d.roi || {} }),
+    health:       (d) => ({ success: true, products: (d.productHealth?.worstProducts || []).concat(d.productHealth?.bestProducts || []), segments: d.productHealth?.segments || {}, avgHealthScore: d.productHealth?.avgHealthScore || 0 }),
+    learning:     (d) => ({ success: true, learning: d.learning || {} }),
+};
+
+exports.getBrainSection = async (req, res) => {
+    try {
+        const userId = uid(req);
+        const section = req.params.name;
+
+        if (!SECTION_MAP[section]) {
+            return res.status(400).json({ success: false, message: `Bilinmeyen bölüm: ${section}` });
+        }
+
+        // 1. Try cache first (instant response)
+        if (aiWorker) {
+            const cached = await aiWorker.getCachedAnalysis(userId);
+            if (cached && !cached._cache?.isStale) {
+                const result = SECTION_MAP[section](cached);
+                result._fromCache = true;
+                result._cacheAge = cached._cache?.ageMinutes || 0;
+                return res.json(result);
+            }
+        }
+
+        // 2. Cache miss — fall back to individual endpoint logic
+        // This is slower but ensures data is always available
+        const data = await AIEngine.collectData(userId);
+        const analyzed = AIEngine.analyzeProducts(data.products, data.orders90);
+
+        let result;
+        switch (section) {
+            case "losses":
+                result = { success: true, ...AIBrain.huntLosses(analyzed, data) };
+                break;
+            case "risks": {
+                const aiScore = AIEngine.calculateAIScore(analyzed, data);
+                const bh = AIBrain.calculateBusinessHealth(analyzed, data, aiScore);
+                result = { success: true, ...AIBrain.assessRisks(analyzed, data, bh) };
+                break;
+            }
+            case "predictions":
+                result = { success: true, ...AIBrain.generatePredictions(analyzed, data) };
+                break;
+            case "segmentation":
+                result = { success: true, segmentation: AIBrain.segmentProducts(analyzed) };
+                break;
+            case "causes":
+                result = { success: true, causes: AIBrain.analyzeCauses(analyzed, data) };
+                break;
+            case "opportunities":
+                result = { success: true, opportunities: AIBrain.scanOpportunities(analyzed, data) };
+                break;
+            case "self_eval":
+                result = { success: true, selfEvaluation: await AIBrain.selfEvaluate(userId) };
+                break;
+            case "decisions":
+                result = { success: true, decisionHistory: await AIBrain.getDecisionHistory(userId) };
+                break;
+            case "heatmap":
+                result = { success: true, heatmap: AIEngine.buildProfitHeatmap(analyzed) };
+                break;
+            case "timing":
+                result = { success: true, timing: AIEngine.analyzeTimingPatterns(data.orders90) };
+                break;
+            case "retro":
+                result = { success: true, retro: AIEngine.retroAnalysis(analyzed, data) };
+                break;
+            case "roi":
+                result = { success: true, roi: AIEngine.calculateROI(data.pastRecs) };
+                break;
+            case "health": {
+                const sorted = [...analyzed].sort((a, b) => a.healthScore - b.healthScore);
+                result = {
+                    success: true,
+                    products: sorted.map(p => ({
+                        name: p.name, barcode: p.barcode, category: p.category,
+                        healthScore: p.healthScore, profitMargin: p.profitMargin,
+                        stock: p.stock, daysOfStock: p.daysOfStock,
+                        totalSold: p.totalSold, avgDailySales: p.avgDailySales,
+                        daysSinceLastSale: p.daysSinceLastSale, returnRate: p.returnRate,
+                    })),
+                    segments: {
+                        critical: sorted.filter(p => p.healthScore < 30).length,
+                        warning: sorted.filter(p => p.healthScore >= 30 && p.healthScore < 50).length,
+                        healthy: sorted.filter(p => p.healthScore >= 50 && p.healthScore < 75).length,
+                        excellent: sorted.filter(p => p.healthScore >= 75).length,
+                    },
+                    avgHealthScore: Math.round(analyzed.reduce((s, p) => s + p.healthScore, 0) / (analyzed.length || 1)),
+                };
+                break;
+            }
+            case "learning":
+                result = { success: true, learning: AIEngine.analyzeUserPreferences(data.pastRecs) };
+                break;
+            default:
+                result = { success: false, message: "Bilinmeyen bölüm" };
+        }
+
+        result._fromCache = false;
+        res.json(result);
+    } catch (err) {
+        logger.error(`[AI Brain] getBrainSection(${req.params.name}) error: ${err.message}`);
+        res.status(500).json({ success: false, message: `${req.params.name} yüklenemedi`, error: err.message });
     }
 };
 
@@ -482,14 +609,19 @@ exports.getFullDashboard = async (req, res) => {
         const recs = AIEngine.generateRecommendations(analyzed, data, strategyMode);
         AIEngine.saveRecommendations(userId, recs, strategyMode).catch(e => logger.error(`[AI] bg save error: ${e.message}`));
 
-        // Get pending recommendations from DB
-        const pendingRecs = await Recommendation.find({ userId, status: "pending" })
+        // Get ALL recommendations from DB (pending, approved, executed, rejected)
+        const allRecs = await Recommendation.find({ userId, status: { $in: ["pending", "approved", "executed", "rejected"] } })
             .sort({ createdAt: -1 })
-            .limit(30)
+            .limit(50)
             .lean();
 
         const priorityOrder = { critical: 0, high: 1, medium: 2, low: 3 };
-        pendingRecs.sort((a, b) => (priorityOrder[a.priority] || 3) - (priorityOrder[b.priority] || 3));
+        allRecs.sort((a, b) => {
+            const statusOrder = { pending: 0, approved: 1, executed: 2, rejected: 3 };
+            const sd = (statusOrder[a.status] || 4) - (statusOrder[b.status] || 4);
+            if (sd !== 0) return sd;
+            return (priorityOrder[a.priority] || 3) - (priorityOrder[b.priority] || 3);
+        });
 
         const [pendingCount, executedCount, approvedCount, rejectedCount] = await Promise.all([
             Recommendation.countDocuments({ userId, status: "pending" }),
@@ -550,7 +682,7 @@ exports.getFullDashboard = async (req, res) => {
             retro,
             learning,
             goals,
-            recommendations: pendingRecs,
+            recommendations: allRecs,
             recSummary: { pending: pendingCount, executed: executedCount, approved: approvedCount, rejected: rejectedCount },
             productHealth: {
                 segments,
@@ -1169,5 +1301,95 @@ exports.getNotifications = async (req, res) => {
     } catch (err) {
         logger.error(`[AI] getNotifications error: ${err.message}`);
         res.status(500).json({ success: false, message: "Bildirimler yüklenemedi", error: err.message });
+    }
+};
+
+// ═════════════════════════════════════════════════════════════════════════════
+// AI PRODUCT ADVISOR — LysiaBrain Endpoints
+// ═════════════════════════════════════════════════════════════════════════════
+
+// GET /advisor/products — Tüm ürünlerin danışman analizi
+exports.getAdvisorProducts = async (req, res) => {
+    try {
+        const userId = uid(req);
+        const { status, limit = 50, search } = req.query;
+
+        const AIOperator = require("../services/aiOperatorEngine");
+        const observation = await AIOperator.observe(userId);
+        const { products: advisorResults, summary } = AIAdvisor.analyzeAllProducts(observation.analyzedProducts, observation);
+
+        let filtered = advisorResults;
+        if (status && status !== "all") {
+            filtered = filtered.filter(p => p.status === status);
+        }
+        if (search) {
+            const q = search.toLowerCase();
+            filtered = filtered.filter(p => p.name.toLowerCase().includes(q) || p.barcode.includes(q));
+        }
+
+        res.json({
+            success: true,
+            products: filtered.slice(0, parseInt(limit)),
+            summary,
+            total: filtered.length,
+        });
+    } catch (err) {
+        logger.error(`[AI Advisor] getAdvisorProducts error: ${err.message}`);
+        res.status(500).json({ success: false, message: "Ürün danışmanı yüklenemedi", error: err.message });
+    }
+};
+
+// GET /advisor/product/:barcode — Tek ürün detaylı analiz
+exports.getAdvisorProduct = async (req, res) => {
+    try {
+        const userId = uid(req);
+        const { barcode } = req.params;
+
+        const AIOperator = require("../services/aiOperatorEngine");
+        const observation = await AIOperator.observe(userId);
+        const product = observation.analyzedProducts.find(p => p.barcode === barcode);
+
+        if (!product) {
+            return res.status(404).json({ success: false, message: "Ürün bulunamadı" });
+        }
+
+        const diagnosis = AIAdvisor.analyzeProduct(product, observation.analyzedProducts, observation);
+
+        res.json({ success: true, diagnosis });
+    } catch (err) {
+        logger.error(`[AI Advisor] getAdvisorProduct error: ${err.message}`);
+        res.status(500).json({ success: false, message: "Ürün analizi yüklenemedi", error: err.message });
+    }
+};
+
+// GET /advisor/mistakes — Kullanıcı hata tespiti
+exports.getAdvisorMistakes = async (req, res) => {
+    try {
+        const userId = uid(req);
+
+        const AIOperator = require("../services/aiOperatorEngine");
+        const observation = await AIOperator.observe(userId);
+        const mistakes = AIAdvisor.detectMistakes(observation.analyzedProducts, observation);
+
+        res.json({ success: true, mistakes });
+    } catch (err) {
+        logger.error(`[AI Advisor] getAdvisorMistakes error: ${err.message}`);
+        res.status(500).json({ success: false, message: "Hata tespiti yüklenemedi", error: err.message });
+    }
+};
+
+// GET /advisor/platforms — Platform karşılaştırma
+exports.getAdvisorPlatforms = async (req, res) => {
+    try {
+        const userId = uid(req);
+
+        const AIOperator = require("../services/aiOperatorEngine");
+        const observation = await AIOperator.observe(userId);
+        const platformAnalysis = AIAdvisor.analyzePlatforms(observation.analyzedProducts, observation);
+
+        res.json({ success: true, ...platformAnalysis });
+    } catch (err) {
+        logger.error(`[AI Advisor] getAdvisorPlatforms error: ${err.message}`);
+        res.status(500).json({ success: false, message: "Platform analizi yüklenemedi", error: err.message });
     }
 };

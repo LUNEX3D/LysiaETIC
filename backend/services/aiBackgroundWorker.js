@@ -804,8 +804,20 @@ async function getCachedAnalysis(userId) {
     if (!cache || !cache.brainData) return null;
 
     const age = Date.now() - new Date(cache.lastAnalyzedAt).getTime();
+    const data = { ...cache.brainData };
+
+    // ✅ Cache'deki eski "pasife al" / "Ölü Ürün" önerilerini filtrele
+    if (Array.isArray(data.recommendations)) {
+        data.recommendations = data.recommendations.filter(r => {
+            if (r.actionPayload?.actionType === "mark_inactive") return false;
+            if (r.title && /Ölü Ürün/i.test(r.title)) return false;
+            if (r.description && /[Pp]asife al/i.test(r.description)) return false;
+            return true;
+        });
+    }
+
     return {
-        ...cache.brainData,
+        ...data,
         _cache: {
             lastAnalyzedAt: cache.lastAnalyzedAt,
             ageMs: age,

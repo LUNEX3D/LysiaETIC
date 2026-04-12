@@ -59,6 +59,7 @@ router.get("/notifications",                 ctrl.getNotifications);
 // AI OPERATIONS BRAIN — Advanced Engines (v3)
 // ══════════════════════════════════════════════════════════════════════════
 router.get("/brain",                         ctrl.getBrainDashboard);
+router.get("/brain/section/:name",           ctrl.getBrainSection);
 router.get("/brain/focus",                   ctrl.getBrainFocus);
 router.get("/brain/losses",                  ctrl.getBrainLosses);
 router.get("/brain/risks",                   ctrl.getBrainRisks);
@@ -81,5 +82,11 @@ router.post("/brain/bulk-update-cost",       ctrl.bulkUpdateProductCost);
 
 // ── AI Background Worker Status ──
 router.get("/worker-status",                 ctrl.getWorkerStatus);
+
+// ── AI Product Advisor (LysiaBrain) ──
+router.get("/advisor/products",              ctrl.getAdvisorProducts);
+router.get("/advisor/product/:barcode",      ctrl.getAdvisorProduct);
+router.get("/advisor/mistakes",              ctrl.getAdvisorMistakes);
+router.get("/advisor/platforms",             ctrl.getAdvisorPlatforms);
 
 module.exports = router;

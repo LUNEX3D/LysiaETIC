@@ -89,7 +89,7 @@ const RecommendationSchema = new mongoose.Schema({
     // ── Strategy Context ──
     strategyMode: {
         type: String,
-        enum: ["balanced", "aggressive_sales", "high_profit", "stock_clearance"],
+        enum: ["balanced", "aggressive_sales", "high_profit", "stock_clearance", "aggressive", "conservative"],
         default: "balanced"
     },
 

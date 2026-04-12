@@ -387,25 +387,39 @@ function generateRecommendations(analyzedProducts, data, strategyMode) {
             });
         }
 
-        // ── DEAD PRODUCT DETECTION ──
+        // ── DEAD PRODUCT RECOVERY — "Pasife al" DEĞİL → "Nasıl satılır?" ──
         if (hasOrderData && p.daysSinceLastSale > 30 && p.stock > 0) {
-            const discountPct = p.daysSinceLastSale > 60 ? 30 : 15;
-            const action = p.daysSinceLastSale > 90 ? "mark_inactive" : "apply_discount";
+            // Kademeli indirim stratejisi: ne kadar uzun süredir satılmıyorsa o kadar agresif indirim
+            const discountPct = p.daysSinceLastSale > 90 ? 40 : p.daysSinceLastSale > 60 ? 30 : 15;
+
+            // Satış stratejisi önerileri oluştur
+            const strategies = [];
+            if (p.daysSinceLastSale > 60) {
+                strategies.push(`%${discountPct} indirimle fiyatı ${Math.round(p.price * (1 - discountPct / 100))}₺ yapın`);
+                strategies.push("Ürünü kampanya/vitrin sayfasına ekleyin");
+                strategies.push("Başka ürünlerle kombin/set oluşturun");
+            } else {
+                strategies.push(`%${discountPct} indirim uygulayın`);
+                strategies.push("Ürün başlığı ve açıklamasını SEO uyumlu güncelleyin");
+            }
+            if (p.stock > 20) strategies.push("Çoklu alıma özel ek indirim tanımlayın");
+            strategies.push("Sosyal medya veya reklam ile görünürlüğü artırın");
+
             recs.push({
                 type: "dead_product",
-                title: `Ölü Ürün: ${p.name.slice(0, 50)}`,
-                description: `${p.daysSinceLastSale} gündür satış yok, ${p.stock} adet stokta bekliyor. ${action === "mark_inactive" ? "Pasife alın" : `%${discountPct} indirim uygulayın`}.`,
+                title: `Satış Bekleyen Ürün: ${p.name.slice(0, 50)}`,
+                description: `${p.daysSinceLastSale} gündür satış yok, ${p.stock} adet stokta. Satış stratejisi: ${strategies[0]}. Ayrıca: ${strategies.slice(1).join(", ")}.`,
                 category: "performance",
                 priority: p.daysSinceLastSale > 60 ? "high" : "medium",
                 confidenceScore: clamp(Math.round(60 + p.daysSinceLastSale * 0.3), 50, 90),
                 impact: {
-                    profitChange: action === "mark_inactive" ? 0 : round2(p.price * 0.7 * p.stock * 0.3),
-                    revenueChange: action === "mark_inactive" ? 0 : round2(p.price * (1 - discountPct / 100) * p.stock * 0.3),
-                    salesChange: action === "mark_inactive" ? 0 : Math.ceil(p.stock * 0.3),
+                    profitChange: round2(p.price * (1 - discountPct / 100) * p.stock * 0.3 * 0.7),
+                    revenueChange: round2(p.price * (1 - discountPct / 100) * p.stock * 0.3),
+                    salesChange: Math.ceil(p.stock * 0.3),
                     riskLevel: "medium"
                 },
                 actionPayload: {
-                    actionType: action,
+                    actionType: "apply_discount",
                     targetId: p.barcode,
                     targetName: p.name,
                     params: { daysSinceLastSale: p.daysSinceLastSale, stock: p.stock, discountPercent: discountPct }
@@ -838,7 +852,7 @@ function generateDailyReport(analyzedProducts, data, aiScore) {
     const lowStockProducts = analyzedProducts.filter(p => p.isLowStock && p.stock > 0);
     if (lowStockProducts.length > 0) problems.push({ icon: "⚠️", text: `${lowStockProducts.length} ürün düşük stokta`, severity: "high" });
     const deadProducts = hasOrderData ? analyzedProducts.filter(p => p.daysSinceLastSale > 30 && p.stock > 0) : [];
-    if (deadProducts.length > 0) problems.push({ icon: "💀", text: `${deadProducts.length} ölü ürün stokta bekliyor`, severity: "high" });
+    if (deadProducts.length > 0) problems.push({ icon: "💀", text: `${deadProducts.length} ürün 30+ gündür satılmıyor — indirim + kampanya ile satışa dönüştürün`, severity: "high" });
     const noCostData = analyzedProducts.filter(p => p.costPrice === 0).length;
     if (noCostData > analyzedProducts.length * 0.5) problems.push({ icon: "📝", text: `${noCostData} üründe maliyet bilgisi eksik`, severity: "medium" });
 
@@ -921,7 +935,7 @@ function detectOptimalStrategy(analyzedProducts, data) {
 
     if (avgStock > 50 && deadRatio > 0.3) {
         recommended = "stock_clearance";
-        reason = `Yüksek stok (ort: ${Math.round(avgStock)}) ve %${Math.round(deadRatio * 100)} ölü ürün — stok eritme modu önerilir`;
+        reason = `Yüksek stok (ort: ${Math.round(avgStock)}) ve %${Math.round(deadRatio * 100)} satış bekleyen ürün — indirim + kampanya ile stok eritme modu önerilir`;
     } else if (salesTrend > 20) {
         recommended = "high_profit";
         reason = `Satışlar yükselişte (+%${Math.round(salesTrend)}) — kâr maksimizasyonu modu önerilir`;
@@ -941,7 +955,7 @@ function detectOptimalStrategy(analyzedProducts, data) {
             { id: "balanced", name: "Dengeli", icon: "⚖️", description: "Satış ve kâr dengesi" },
             { id: "aggressive_sales", name: "Agresif Satış", icon: "🚀", description: "Satış hacmini artır, marjı düşür" },
             { id: "high_profit", name: "Yüksek Kâr", icon: "💰", description: "Kâr marjını maksimize et" },
-            { id: "stock_clearance", name: "Stok Eritme", icon: "📦", description: "Ölü stokları tasfiye et" },
+            { id: "stock_clearance", name: "Stok Eritme", icon: "📦", description: "İndirim + kampanya + set/kombin ile satış bekleyen stokları eritin" },
         ],
         metrics: { avgStock: Math.round(avgStock), avgMargin: round2(avgMargin), deadRatio: round2(deadRatio * 100), salesTrend: round2(salesTrend) }
     };
@@ -1140,13 +1154,22 @@ async function executeRecommendation(recId, userId) {
                 break;
             }
             case "mark_inactive": {
+                // ✅ FIX: "Pasife al" yerine "Nasıl satılır?" felsefesi — artık pasife almıyoruz
+                // Eski öneriler bu action type ile gelebilir, onları indirim olarak yönlendir
                 const pm = await ProductMapping.findOne({ userId, "masterProduct.barcode": targetId });
                 if (pm) {
-                    pm.marketplaceMappings.forEach(m => { m.isActive = false; });
-                    pm.updatedAt = new Date();
-                    pm.addSyncLog("status_update", "AI Engine", "active", "inactive", "success", "AI tarafından pasife alındı");
-                    await pm.save();
-                    result = { success: true, message: `${pm.masterProduct.name} pasife alındı` };
+                    const currentPrice = pm.masterProduct?.price || 0;
+                    const discountPct = 15;
+                    const discountedPrice = Math.round(currentPrice * (1 - discountPct / 100));
+                    if (currentPrice > 0) {
+                        pm.masterProduct.price = discountedPrice;
+                        pm.updatedAt = new Date();
+                        pm.addSyncLog("price_update", "AI Engine", String(currentPrice), String(discountedPrice), "success", `AI satış stratejisi: %${discountPct} indirim uygulandı`);
+                        await pm.save();
+                        result = { success: true, message: `${pm.masterProduct.name} için %${discountPct} indirim uygulandı (${currentPrice}₺ → ${discountedPrice}₺). Satış stratejisi aktif.` };
+                    } else {
+                        result = { success: true, message: `${pm.masterProduct.name} için satış stratejisi notu oluşturuldu. Fiyat bilgisi eksik — manuel kontrol edin.` };
+                    }
                 } else {
                     result = { success: false, message: "Ürün bulunamadı" };
                 }
@@ -1205,10 +1228,19 @@ async function executeRecommendation(recId, userId) {
 // ═════════════════════════════════════════════════════════════════════════════
 
 async function saveRecommendations(userId, recs, strategyMode) {
-    // Expire old pending
+    // Expire old pending (24 saatten eski)
     await Recommendation.updateMany(
         { userId, status: "pending", createdAt: { $lt: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
         { $set: { status: "expired" } }
+    );
+
+    // ✅ Eski "pasife al" / "Ölü Ürün" önerilerini kalıcı olarak SİL — artık bu felsefe kullanılmıyor
+    await Recommendation.deleteMany(
+        { userId, $or: [
+            { "actionPayload.actionType": "mark_inactive" },
+            { description: { $regex: /[Pp]asife al/i } },
+            { title: { $regex: /Ölü Ürün/i } },
+        ]}
     );
 
     // Deduplicate

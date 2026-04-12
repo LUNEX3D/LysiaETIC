@@ -10,8 +10,7 @@ import FinancePage from "../pages/FinancePage";
 import CargoTrackingPage from "../pages/CargoTrackingPage";
 import UserProfilePage from "../pages/UserProfilePage";
 import AdvancedAnalytics from "../pages/AdvancedAnalytics";
-import AICommandCenter from "../pages/AICommandCenter";
-import AIOperatorPanel from "../pages/AIOperatorPanel";
+import LysiaBrain from "../pages/lysiabrain/LysiaBrain";
 import AIChatWidget from "../components/AIChatWidget";
 import ProductManagementCenter from "../pages/ProductManagementCenter";
 import CategoryCenterPage from "../pages/CategoryCenterPage";
@@ -321,6 +320,7 @@ const UserDashboard = () => {
     }, [notifFilter, notifSoundEnabled]);
 
     // ── Dashboard Verileri (gerçek) ──
+    // ✅ v2: Polling 30sn → 90sn + sayfa görünmezken atla (rate limit azaltma)
     useEffect(() => {
         if (!userId) return;
         let intervalId;
@@ -337,15 +337,20 @@ const UserDashboard = () => {
             } finally { setDashboardLoading(false); }
         };
         load();
-        intervalId = setInterval(load, 30000);
+        intervalId = setInterval(() => {
+            if (document.visibilityState === "visible") load();
+        }, 90000);
         return () => clearInterval(intervalId);
     }, [userId, syncOrderNotifications]);
 
-    // ── Bildirim Polling (15 saniye) ──
+    // ── Bildirim Polling ──
+    // ✅ v2: 15sn → 45sn + sayfa görünmezken atla (rate limit azaltma)
     useEffect(() => {
         if (!userId) return;
         loadNotifications(); // İlk yükleme
-        const iv = setInterval(loadNotifications, 15000);
+        const iv = setInterval(() => {
+            if (document.visibilityState === "visible") loadNotifications();
+        }, 45000);
         return () => clearInterval(iv);
     }, [userId, loadNotifications]);
 
@@ -1236,8 +1241,7 @@ const UserDashboard = () => {
 
         { type: "divider", label: t("sidebar.analytics") },
         { id: "advanced-analytics", icon: <FaChartBar />, text: t("sidebar.advancedAnalytics") },
-        { id: "ai-operator", icon: <FaBrain />, text: language === "en" ? "AI Operator" : "AI Operatör" },
-        { id: "advanced-ai", icon: <FaBrain />, text: t("sidebar.aiAssistant") },
+        { id: "lysia-brain", icon: <FaBrain />, text: "LysiaBrain" },
         { id: "roketfy", icon: <FaRocket />, text: t("sidebar.roketfy") },
         { type: "divider", label: t("sidebar.management") },
         { id: "users", icon: <FaUsers />, text: t("sidebar.userMgmt") },
@@ -1309,8 +1313,7 @@ const UserDashboard = () => {
             case "integration": return <MarketplaceIntegration userId={userId} />;
             case "users": return <UserProfilePage userId={userId} marketplaces={marketplaces} />;
             case "advanced-analytics": return <AdvancedAnalytics userId={userId} />;
-            case "ai-operator": return <AIOperatorPanel userId={userId} />;
-            case "advanced-ai": return <AICommandCenter userId={userId} />;
+            case "lysia-brain": return <LysiaBrain userId={userId} />;
             case "pm-center": return <ProductManagementCenter userId={userId} />;
             case "category-center": return <CategoryCenterPage userId={userId} />;
 
@@ -1488,7 +1491,7 @@ const UserDashboard = () => {
             <AnimatePresence mode="wait">
                 <motion.main
                     key={activePanel}
-                    className={`content-area${activePanel === "integration" ? " content-area--galaxy" : ""}`}
+                    className={`content-area${activePanel === "integration" ? " content-area--galaxy" : ""}${activePanel === "lysia-brain" ? " content-area--brain" : ""}`}
                     initial={{ opacity: 0, y: 12 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -8 }}

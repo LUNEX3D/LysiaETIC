@@ -70,6 +70,9 @@ const AdminSubscriptionManager = lazy(() => import("./pages/AdminSubscriptionMan
 // Roketfy — Marketplace Intelligence
 const RoketfyPanel           = lazy(() => import("./pages/RoketfyPanel"));
 
+// LysiaBrain2 — Standalone test page (UserDashboard dışında)
+const LysiaBrain2Page        = lazy(() => import("./pages/LysiaBrain2Page"));
+
 // ✅ WEB APP FIRST: Responsive theme with mobile-first breakpoints
 const theme = createTheme({
     palette: {
@@ -224,6 +227,7 @@ const AppContent = () => {
 
     const location = useLocation();
     const isAdminRoute = location.pathname.startsWith("/admin");
+    const isLysiaBrain2 = location.pathname === "/lysiabrain2";
     const isAuthRoute = ["/" , "/login", "/register", "/verify-email", "/forgot-password", "/payment/success", "/payment/failed", "/subscription"].includes(location.pathname);
 
     const routes = (
@@ -282,13 +286,16 @@ const AppContent = () => {
 
             {/* Admin Abonelik Yönetimi */}
             <Route path="/admin/subscription-manager" element={<ProtectedRoute requiredRoles={["admin","dev"]}><AdminSubscriptionManager /></ProtectedRoute>} />
+
+            {/* LysiaBrain2 — Standalone test (UserDashboard dışında) */}
+            <Route path="/lysiabrain2" element={<ProtectedRoute><LysiaBrain2Page /></ProtectedRoute>} />
         </Routes>
         </Suspense>
     );
 
     // Admin ve Auth sayfaları Container dışında render edilir (tam ekran)
     // ✅ FIX #16: PWA Install Prompt sadece authenticated sayfalarda gösterilir
-    if (isAdminRoute || isAuthRoute) {
+    if (isAdminRoute || isAuthRoute || isLysiaBrain2) {
         return routes;
     }
 
