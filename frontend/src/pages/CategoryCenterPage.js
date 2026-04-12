@@ -189,23 +189,31 @@ const CategorySearchPopup = ({ platform, mappingId, currentId, currentPath, C, i
                             </div>
                             {results.map((item, idx) => {
                                 const isPicked = String(selected?.id) === String(item.id);
+                                // HB kategorilerinde: leaf+available → ürün açılabilir, diğerleri sadece bilgi amaçlı
+                                const isSelectable = item.leaf !== false; // leaf bilgisi yoksa (diğer platformlar) seçilebilir
+                                const isHBLeafAvailable = item.leaf && item.available !== false;
+                                const isHBParent = item.leaf === false || item.hasChildren;
                                 return (
                                     <div
                                         key={`${item.id}-${idx}`}
-                                        onClick={() => setSelected({ id: item.id, name: item.name, path: item.path })}
+                                        onClick={() => {
+                                            if (isSelectable) setSelected({ id: item.id, name: item.name, path: item.path });
+                                        }}
                                         style={{
                                             display: "flex", alignItems: "center", gap: "0.35rem",
-                                            padding: "0.35rem 0.5rem", borderRadius: 6, cursor: "pointer",
+                                            padding: "0.35rem 0.5rem", borderRadius: 6,
+                                            cursor: isSelectable ? "pointer" : "not-allowed",
+                                            opacity: isSelectable ? 1 : 0.5,
                                             background: isPicked ? `${platform.color}15` : "transparent",
                                             borderLeft: isPicked ? `3px solid ${platform.color}` : "3px solid transparent",
                                             transition: "all 0.12s", marginBottom: "0.1rem",
                                         }}
-                                        onMouseEnter={(e) => { if (!isPicked) e.currentTarget.style.background = `${platform.color}08`; }}
-                                        onMouseLeave={(e) => { if (!isPicked) e.currentTarget.style.background = "transparent"; }}
+                                        onMouseEnter={(e) => { if (!isPicked && isSelectable) e.currentTarget.style.background = `${platform.color}08`; }}
+                                        onMouseLeave={(e) => { if (!isPicked) e.currentTarget.style.background = isPicked ? `${platform.color}15` : "transparent"; }}
                                     >
                                         <div style={{ flex: 1, minWidth: 0 }}>
                                             <div style={{
-                                                color: isPicked ? platform.color : C.text,
+                                                color: isPicked ? platform.color : isHBParent ? C.muted : C.text,
                                                 fontSize: "0.76rem", fontWeight: isPicked ? 700 : 500,
                                                 overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                                             }}>
@@ -220,13 +228,34 @@ const CategorySearchPopup = ({ platform, mappingId, currentId, currentPath, C, i
                                                 </div>
                                             )}
                                         </div>
-                                        {item.leaf && (
+                                        {/* Leaf + Available badge (ürün açılabilir) */}
+                                        {isHBLeafAvailable && (
                                             <span style={{
                                                 background: `${C.green}18`, color: C.green,
                                                 fontSize: "0.5rem", fontWeight: 700, padding: "0.08rem 0.25rem",
                                                 borderRadius: 3, flexShrink: 0, letterSpacing: "0.03em",
                                             }}>
+                                                ✓ LEAF
+                                            </span>
+                                        )}
+                                        {/* Sadece leaf ama available değil */}
+                                        {item.leaf && item.available === false && (
+                                            <span style={{
+                                                background: `${C.yellow || "#f59e0b"}18`, color: C.yellow || "#f59e0b",
+                                                fontSize: "0.5rem", fontWeight: 700, padding: "0.08rem 0.25rem",
+                                                borderRadius: 3, flexShrink: 0, letterSpacing: "0.03em",
+                                            }}>
                                                 LEAF
+                                            </span>
+                                        )}
+                                        {/* Parent kategori badge */}
+                                        {isHBParent && (
+                                            <span style={{
+                                                background: `${C.dim}15`, color: C.dim,
+                                                fontSize: "0.48rem", fontWeight: 600, padding: "0.08rem 0.25rem",
+                                                borderRadius: 3, flexShrink: 0, letterSpacing: "0.03em",
+                                            }}>
+                                                ÜST
                                             </span>
                                         )}
                                         <span style={{

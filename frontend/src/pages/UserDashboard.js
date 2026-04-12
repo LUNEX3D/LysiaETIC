@@ -20,12 +20,13 @@ import AdminPanelPage from "../pages/AdminPanelPage";
 import BillingPage from "../pages/BillingPage";
 import SubscriptionPage from "../pages/SubscriptionPage";
 import RoketfyPanel from "../pages/RoketfyPanel";
+import RadarProPage from "../pages/RadarProPage";
 import {
     FaBars, FaTimes, FaClipboardList, FaCog,
     FaChartLine, FaBoxOpen, FaMoneyBillWave,
     FaTruck, FaUsers, FaFileInvoice, FaPlug,
     FaChevronDown, FaBox, FaCrown,
-    FaBrain, FaChartBar, FaBell, FaRocket,
+    FaBrain, FaChartBar, FaBell, FaRocket, FaCrosshairs,
     FaCubes, FaSitemap, FaSignOutAlt, FaUserShield,
     FaExclamationTriangle
 } from "react-icons/fa";
@@ -1243,6 +1244,7 @@ const UserDashboard = () => {
         { id: "advanced-analytics", icon: <FaChartBar />, text: t("sidebar.advancedAnalytics") },
         { id: "lysia-brain", icon: <FaBrain />, text: "LysiaBrain" },
         { id: "roketfy", icon: <FaRocket />, text: t("sidebar.roketfy") },
+        { id: "radar-pro", icon: <FaCrosshairs />, text: t("sidebar.radarPro") },
         { type: "divider", label: t("sidebar.management") },
         { id: "users", icon: <FaUsers />, text: t("sidebar.userMgmt") },
         { id: "billing", icon: <FaFileInvoice />, text: t("sidebar.billing") },
@@ -1321,6 +1323,7 @@ const UserDashboard = () => {
             case "billing": return <BillingPage userId={userId} />;
             case "subscription": return <SubscriptionPage />;
             case "roketfy": return <RoketfyPanel />;
+            case "radar-pro": return <RadarProPage userId={userId} />;
             case "admin-panel": return isAdmin ? <AdminPanelPage userId={userId} /> : null;
             case "dashboard": return renderDashboard();
             default: return null;

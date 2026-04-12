@@ -110,7 +110,7 @@ const fetchCiceksepetiCategoryTree = async (credentials) => {
 };
 
 // ═══════════════════════════════════════════════════════════════
-// 🔧 YARDIMCI: Hepsiburada Kategori Çekme (Sayfalı)
+// 🔧 YARDIMCI: Hepsiburada Kategori Çekme (Sayfalı + Detaylı)
 // ═══════════════════════════════════════════════════════════════
 /**
  * HB Kategori API'sinden kategorileri çeker.
@@ -121,11 +121,25 @@ const fetchCiceksepetiCategoryTree = async (credentials) => {
  *
  * HB Resmi Dokümantasyon:
  *   GET https://mpop.hepsiburada.com/product/api/categories/get-all-categories
- *   Params: leaf (true/false/''), status (ACTIVE), available (true/false/''), version (1), page, size
+ *   Params:
+ *     - leaf    : true/false/'' (boş=tümü)
+ *     - status  : ACTIVE / INACTIVE / ARCHIVED
+ *     - available: true/false/'' (boş=tümü)
+ *     - type    : HB (Hepsiburada) / HX (HepsiExpress) / HC (HepsiGlobal) — GÖNDERİLMEZSE SADECE VARSAYILAN TİP GELİR
+ *     - version : 1
+ *     - page    : 0'dan başlar
+ *     - size    : max 2000
  *   Auth: Basic base64(merchantId:secretKey) + User-Agent header
+ *
+ * ÖNEMLİ DÜZELTMELER (v2):
+ *   1. `type` parametresi eklendi — HB, HX, HC tipleri ayrı ayrı çekilip birleştiriliyor
+ *   2. Ağaç görünümü için `available` filtresi kaldırıldı — üst kategoriler available=false olur,
+ *      filtre olunca parent'lar eksik kalıyor ve alt kategoriler (ör: "Kolye Ucu") ağaçta görünmüyor
+ *   3. `size` 1000'den 2000'e çıkarıldı — HB API max 2000 destekliyor, daha az sayfa isteği = daha hızlı
+ *   4. `leaf` parametresi: onlyLeaf=false iken "false" yerine parametre hiç gönderilmiyor (tümünü getir)
  */
 const fetchHepsiburadaCategoryTree = async (credentials, options = {}) => {
-    const { normalizeCredentials, getHeaders, getEndpoints, validateCredentials } = require("../services/hepsiburadaService");
+    const { normalizeCredentials, getHeaders, HB_ENDPOINTS, HB_SIT_ENDPOINTS, getEndpoints, validateCredentials } = require("../services/hepsiburadaService");
     const hbCreds = normalizeCredentials(credentials);
 
     const validation = validateCredentials(hbCreds, "kategori ağacı çekme");
@@ -135,101 +149,216 @@ const fetchHepsiburadaCategoryTree = async (credentials, options = {}) => {
 
     const { merchantId, secretKey, userAgent } = hbCreds;
     const headers = getHeaders(merchantId, secretKey, userAgent);
-    const ep = getEndpoints(hbCreds);
     const onlyLeaf = options.onlyLeaf === true;
 
-    // ── Tüm kategorileri sayfalı olarak çek (MPOP endpoint) ──
-    const allCategories = [];
-    let page = 0;
-    let hasMore = true;
-    const size = 1000;
+    // ═══════════════════════════════════════════════════════════════
+    // ÖNEMLİ: Kategori API'si için HER ZAMAN Production endpoint'leri kullan!
+    // Neden: SIT (test) ortamında kategori verisi YOKTUR — boş döner.
+    // Kategoriler tüm satıcılar için aynıdır, SIT/Production farkı yoktur.
+    // Kullanıcı SIT hesabıyla bile çalışsa, kategoriler production'dan gelmelidir.
+    // ═══════════════════════════════════════════════════════════════
+    const userEp = getEndpoints(hbCreds); // Kullanıcının ortamı (SIT veya Production)
+    const prodEp = HB_ENDPOINTS;          // Her zaman production
+    const sitEp  = HB_SIT_ENDPOINTS;      // SIT (fallback)
+    const isSitUser = (userEp.MPOP === sitEp.MPOP);
 
-    // leaf parametresi: true → sadece leaf, boş string → tümü
-    const leafParam = onlyLeaf ? "true" : "";
-
-    // Denenecek URL pattern'leri (sırayla)
-    const baseUrls = [
+    // Denenecek URL pattern'leri — Production ÖNCE, SIT sonra (fallback)
+    // Production endpoint'leri her zaman öncelikli çünkü SIT'te kategori yok
+    const buildBaseUrls = (ep) => [
         `${ep.MPOP}/product/api/categories/get-all-categories`,
-        `${ep.CATEGORY}/product/api/categories/get-all-categories`,
-        `${ep.MPOP}/categories/get-all-categories`,
-        `${ep.CATEGORY}/categories/get-all-categories`
+        `${ep.CATEGORY}/product/api/categories/get-all-categories`
     ];
 
-    let workingBaseUrl = null;
+    // Önce production, sonra SIT (eğer kullanıcı SIT'teyse zaten production denenecek)
+    const allBaseUrls = [
+        ...buildBaseUrls(prodEp),
+        ...(isSitUser ? buildBaseUrls(sitEp) : []) // SIT kullanıcısıysa SIT'i de fallback olarak ekle
+    ];
+    // Duplikasyon temizle (production ve SIT aynı olabilir)
+    const baseUrls = [...new Set(allBaseUrls)];
 
-    while (hasMore) {
-        // İlk sayfada çalışan URL'yi bul, sonraki sayfalarda aynısını kullan
-        const urlsToTry = workingBaseUrl ? [workingBaseUrl] : baseUrls;
+    logger.info(`[HB CATEGORIES] Ortam: ${isSitUser ? "SIT (production öncelikli)" : "Production"}, onlyLeaf=${onlyLeaf}, ${baseUrls.length} URL denenecek`);
 
-        let pageSuccess = false;
-        for (const baseUrl of urlsToTry) {
-            const params = new URLSearchParams({
-                status: "ACTIVE",
-                available: "true",
-                version: "1",
-                page: String(page),
-                size: String(size)
-            });
-            if (leafParam) params.set("leaf", leafParam);
+    /**
+     * Tek bir parametre seti ile sayfalı kategori çekme
+     * @param {object} queryOpts - { leaf, available, type } gibi ek parametreler
+     * @param {string} label - Log etiketi
+     * @returns {Array} Çekilen kategoriler
+     */
+    const fetchPaginated = async (queryOpts = {}, label = "") => {
+        const categories = [];
+        let page = 0;
+        let hasMore = true;
+        const size = 2000; // HB API max 2000 destekliyor
+        let workingBaseUrl = null;
 
-            const url = `${baseUrl}?${params.toString()}`;
+        while (hasMore) {
+            const urlsToTry = workingBaseUrl ? [workingBaseUrl] : baseUrls;
 
-            try {
-                logger.info(`[HB CATEGORIES] Deneniyor: ${url}`);
-                const response = await axios.get(url, { headers, timeout: 30000 });
-                const data = response.data;
+            let pageSuccess = false;
+            for (const baseUrl of urlsToTry) {
+                // Temel parametreler
+                const params = new URLSearchParams({
+                    status: "ACTIVE",
+                    version: "1",
+                    page: String(page),
+                    size: String(size)
+                });
 
-                // Response yapısını logla (ilk sayfada)
-                if (page === 0) {
-                    const dataType = Array.isArray(data) ? "array" : typeof data;
-                    const keys = data && typeof data === "object" && !Array.isArray(data) ? Object.keys(data).join(", ") : "-";
-                    logger.info(`[HB CATEGORIES] Response tipi: ${dataType}, keys: ${keys}, status: ${response.status}`);
+                // Opsiyonel parametreler — sadece değer varsa ekle
+                if (queryOpts.leaf === true || queryOpts.leaf === "true") {
+                    params.set("leaf", "true");
+                } else if (queryOpts.leaf === false || queryOpts.leaf === "false") {
+                    params.set("leaf", "false");
+                }
+                // leaf belirtilmemişse parametre eklenmez → API tüm kategorileri döner
+
+                if (queryOpts.available === true || queryOpts.available === "true") {
+                    params.set("available", "true");
+                }
+                // available belirtilmemişse parametre eklenmez → tüm available durumları gelir
+
+                if (queryOpts.type) {
+                    params.set("type", queryOpts.type);
                 }
 
-                const cats = Array.isArray(data) ? data : (data?.data || data?.content || data?.categories || []);
+                const url = `${baseUrl}?${params.toString()}`;
 
-                if (cats.length > 0) {
-                    allCategories.push(...cats);
-                    workingBaseUrl = baseUrl; // Bu URL çalışıyor, devam et
-                    page++;
-                    pageSuccess = true;
-                    if (cats.length < size) hasMore = false;
-
-                    // İlk sayfada örnek kategori logla
-                    if (page === 1 && cats[0]) {
-                        logger.info(`[HB CATEGORIES] Örnek kategori: ${JSON.stringify(cats[0]).substring(0, 300)}`);
+                try {
+                    if (page === 0) {
+                        logger.info(`[HB CATEGORIES${label}] Deneniyor: ${url}`);
                     }
-                    break;
-                } else {
-                    // Boş sonuç — bu URL çalışıyor ama veri yok
-                    if (workingBaseUrl === baseUrl) {
-                        hasMore = false;
+                    const response = await axios.get(url, { headers, timeout: 45000 });
+                    const data = response.data;
+
+                    // Response yapısını logla (ilk sayfada)
+                    if (page === 0) {
+                        const dataType = Array.isArray(data) ? "array" : typeof data;
+                        const keys = data && typeof data === "object" && !Array.isArray(data) ? Object.keys(data).join(", ") : "-";
+                        logger.info(`[HB CATEGORIES${label}] Response tipi: ${dataType}, keys: ${keys}, status: ${response.status}`);
+                    }
+
+                    // data alanını çıkar — null/undefined/boş obje kontrolü
+                    let cats = [];
+                    if (Array.isArray(data)) {
+                        cats = data;
+                    } else if (data && typeof data === "object") {
+                        const inner = data.data || data.content || data.categories;
+                        if (Array.isArray(inner)) {
+                            cats = inner;
+                        } else if (inner && typeof inner === "object" && !Array.isArray(inner)) {
+                            // data.data obje ama array değil → boş kabul et
+                            cats = [];
+                        }
+                    }
+
+                    if (cats.length > 0) {
+                        categories.push(...cats);
+                        workingBaseUrl = baseUrl;
+                        page++;
                         pageSuccess = true;
+                        if (cats.length < size) hasMore = false;
+
+                        // İlk sayfada örnek kategori logla
+                        if (page === 1 && cats[0]) {
+                            logger.info(`[HB CATEGORIES${label}] ✅ ${cats.length} kategori bulundu. Örnek: ${JSON.stringify(cats[0]).substring(0, 200)}`);
+                        }
                         break;
+                    } else {
+                        if (workingBaseUrl === baseUrl) {
+                            hasMore = false;
+                            pageSuccess = true;
+                            break;
+                        }
+                        logger.warn(`[HB CATEGORIES${label}] ${baseUrl} boş sonuç, sonraki URL deneniyor...`);
                     }
-                    logger.warn(`[HB CATEGORIES] ${baseUrl} boş sonuç döndü, sonraki URL deneniyor...`);
+                } catch (err) {
+                    const errDetail = err.response
+                        ? `HTTP ${err.response.status}: ${JSON.stringify(err.response.data || "").substring(0, 200)}`
+                        : err.message;
+                    logger.warn(`[HB CATEGORIES${label}] ${baseUrl} başarısız: ${errDetail}`);
                 }
-            } catch (err) {
-                const errDetail = err.response
-                    ? `HTTP ${err.response.status}: ${JSON.stringify(err.response.data || "").substring(0, 200)}`
-                    : err.message;
-                logger.warn(`[HB CATEGORIES] ${baseUrl} başarısız: ${errDetail}`);
+            }
+
+            if (!pageSuccess) {
+                logger.error(`[HB CATEGORIES${label}] Hiçbir endpoint çalışmadı (sayfa ${page})`);
+                hasMore = false;
             }
         }
 
-        if (!pageSuccess) {
-            logger.error(`[HB CATEGORIES] Hiçbir endpoint çalışmadı (sayfa ${page})`);
-            hasMore = false;
+        if (categories.length > 0) {
+            logger.info(`[HB CATEGORIES${label}] ✅ Toplam ${categories.length} kategori çekildi`);
+        } else {
+            logger.warn(`[HB CATEGORIES${label}] ⚠ 0 kategori çekildi`);
+        }
+        return categories;
+    };
+
+    // ═══════════════════════════════════════════════════════════════
+    // ANA ÇEKME STRATEJİSİ (v3 — Optimize)
+    // ═══════════════════════════════════════════════════════════════
+    // Strateji: Önce type'sız dene (en hızlı, tek istek).
+    // Boş dönerse type'lı dene (HB, HX, HC ayrı ayrı).
+    // Bu sayede gereksiz 3x istek yapılmaz.
+    // ═══════════════════════════════════════════════════════════════
+    let allCategories = [];
+
+    if (onlyLeaf) {
+        // ── Sadece leaf kategoriler (arama/ürün ekleme için) ──
+        // Önce type'sız dene (çoğu durumda tüm leaf'ler gelir)
+        allCategories = await fetchPaginated({ leaf: true, available: true }, " leaf");
+
+        // Boş döndüyse type'lı dene
+        if (allCategories.length === 0) {
+            logger.info("[HB CATEGORIES] Type'sız boş döndü, type parametreli deneniyor (HB, HX, HC)...");
+            for (const type of ["HB", "HX", "HC"]) {
+                try {
+                    const cats = await fetchPaginated({ leaf: true, available: true, type }, ` ${type}-leaf`);
+                    if (cats.length > 0) allCategories.push(...cats);
+                } catch (e) { logger.warn(`[HB CATEGORIES] ${type} leaf hatası: ${e.message}`); }
+            }
+        }
+    } else {
+        // ── Tüm kategoriler (ağaç görünümü + export için) ──
+        // Önce type'sız dene
+        allCategories = await fetchPaginated({}, " all");
+
+        // Boş döndüyse type'lı dene
+        if (allCategories.length === 0) {
+            logger.info("[HB CATEGORIES] Type'sız boş döndü, type parametreli deneniyor (HB, HX, HC)...");
+            for (const type of ["HB", "HX", "HC"]) {
+                try {
+                    const cats = await fetchPaginated({ type }, ` ${type}-all`);
+                    if (cats.length > 0) allCategories.push(...cats);
+                } catch (e) { logger.warn(`[HB CATEGORIES] ${type} all hatası: ${e.message}`); }
+            }
+        }
+
+        // Hâlâ boşsa, available=true ile dene
+        if (allCategories.length === 0) {
+            logger.warn("[HB CATEGORIES] Hâlâ boş, available=true ile deneniyor...");
+            allCategories = await fetchPaginated({ available: true }, " fallback-available");
         }
     }
 
-    logger.info(`[HB CATEGORIES] Toplam ${allCategories.length} kategori çekildi (onlyLeaf=${onlyLeaf})`);
+    // ── Duplikasyon temizliği (farklı type'lardan aynı categoryId gelebilir) ──
+    const seenIds = new Set();
+    const uniqueCategories = [];
+    for (const cat of allCategories) {
+        const id = String(cat.categoryId || cat.id || "");
+        if (id && !seenIds.has(id)) {
+            seenIds.add(id);
+            uniqueCategories.push(cat);
+        }
+    }
 
-    if (allCategories.length === 0) {
+    logger.info(`[HB CATEGORIES] Toplam ${uniqueCategories.length} benzersiz kategori (ham: ${allCategories.length}, onlyLeaf=${onlyLeaf})`);
+
+    if (uniqueCategories.length === 0) {
         throw new Error("Hepsiburada kategori API'sinden veri alınamadı. Lütfen entegrasyon bilgilerinizi kontrol edin.");
     }
 
-    return allCategories;
+    return uniqueCategories;
 };
 
 // ═══════════════════════════════════════════════════════════════
@@ -887,6 +1016,12 @@ exports.exportHepsiburadaCategoriesExcel = async (req, res) => {
  *
  * Hepsiburada flat liste döndürdüğü için özel işlem:
  *   flat → parentCategoryId ile path hesapla → arama yap
+ *
+ * v2 Düzeltmeler:
+ *   - HB için onlyLeaf:false ile TÜM kategoriler çekiliyor (parent'lar dahil)
+ *     böylece path hesaplaması doğru yapılıyor (ör: Takı > Kolye > Kolye Ucu)
+ *   - Arama sonuçlarında sadece leaf + available kategoriler gösteriliyor
+ *     (ürün açılabilir olanlar) ama path hesaplaması parent'lardan yapılıyor
  */
 exports.searchCategories = async (req, res) => {
     try {
@@ -925,7 +1060,9 @@ exports.searchCategories = async (req, res) => {
                 categories = await fetchCiceksepetiCategoryTree(credentials);
                 break;
             case normalizedName.includes("hepsiburada"):
-                categories = await fetchHepsiburadaCategoryTree(credentials, { onlyLeaf: true });
+                // v2: TÜM kategorileri çek (parent'lar dahil) — path hesaplaması için şart
+                // Eski: onlyLeaf:true → parent'lar gelmiyordu → path bozuktu → alt kategoriler bulunamıyordu
+                categories = await fetchHepsiburadaCategoryTree(credentials, { onlyLeaf: false });
                 isHepsiburada = true;
                 break;
             case normalizedName.includes("amazon"):
@@ -953,16 +1090,30 @@ exports.searchCategories = async (req, res) => {
                 });
             }
 
+            // Hangi ID'lerin child'ı var tespit et
+            const hasChildrenSet = new Set();
+            for (const [, node] of catMap) {
+                if (node.parentCategoryId && catMap.has(node.parentCategoryId)) {
+                    hasChildrenSet.add(node.parentCategoryId);
+                }
+            }
+
             // Path hesapla (recursive, circular referans korumalı)
+            const pathCache = new Map();
             const getPath = (id, visited = new Set()) => {
+                if (pathCache.has(id)) return pathCache.get(id);
                 if (visited.has(id)) return [];
                 visited.add(id);
                 const node = catMap.get(id);
                 if (!node) return [];
                 if (!node.parentCategoryId || !catMap.has(node.parentCategoryId)) {
-                    return [node.name];
+                    const result = [node.name];
+                    pathCache.set(id, result);
+                    return result;
                 }
-                return [...getPath(node.parentCategoryId, visited), node.name];
+                const result = [...getPath(node.parentCategoryId, visited), node.name];
+                pathCache.set(id, result);
+                return result;
             };
 
             // Tüm kategorilerde arama yap
@@ -979,15 +1130,17 @@ exports.searchCategories = async (req, res) => {
                         name: node.name,
                         path: pathStr,
                         leaf: node.leaf,
-                        hasChildren: false // flat listede children bilgisi yok
+                        available: node.available,
+                        hasChildren: hasChildrenSet.has(id)
                     });
                 }
             }
 
-            // Leaf kategorileri önce göster, sonra isme göre sırala
+            // Sıralama: leaf+available önce (ürün açılabilir), sonra leaf, sonra diğerleri
             searchResults.sort((a, b) => {
-                if (a.leaf && !b.leaf) return -1;
-                if (!a.leaf && b.leaf) return 1;
+                const aScore = (a.leaf && a.available) ? 0 : a.leaf ? 1 : 2;
+                const bScore = (b.leaf && b.available) ? 0 : b.leaf ? 1 : 2;
+                if (aScore !== bScore) return aScore - bScore;
                 return (a.path || "").localeCompare(b.path || "", "tr");
             });
         } else {

@@ -152,25 +152,68 @@ const fetchHepsiburadaProducts = async (merchantId, secretKey, userAgent) => {
         const ep = getEndpoints({ useSit: false });
 
         // ── Adım 0: Kategori API'den categoryId → categoryName map'i oluştur ──
+        // v3: HER ZAMAN production endpoint kullan (SIT'te kategori yok)
         const categoryMap = new Map();
         try {
-            let catPage = 0;
-            let catHasMore = true;
-            while (catHasMore) {
-                const catUrl = `${ep.MPOP}/product/api/categories/get-all-categories` +
-                    `?leaf=true&status=ACTIVE&available=true&version=1&page=${catPage}&size=2000`;
-                const catResp = await axios.get(catUrl, { headers, timeout: 30000 });
-                const catData = catResp.data;
-                const cats = Array.isArray(catData) ? catData : (catData?.data || catData?.content || []);
-                for (const cat of cats) {
-                    const cid = cat.categoryId || cat.id;
-                    const cname = cat.name || cat.categoryName || "";
-                    if (cid && cname) categoryMap.set(String(cid), cname);
+            const prodEp = HB_ENDPOINTS; // Kategori için her zaman production
+            const catBaseUrls = [
+                `${prodEp.MPOP}/product/api/categories/get-all-categories`,
+                `${prodEp.CATEGORY}/product/api/categories/get-all-categories`
+            ];
+            // Tüm type'ları dene (HB ana, HX express, HC global)
+            for (const type of ["HB", "HX", "HC"]) {
+                let catPage = 0;
+                let catHasMore = true;
+                let catWorkingUrl = null;
+                while (catHasMore) {
+                    const urlsToTry = catWorkingUrl ? [catWorkingUrl] : catBaseUrls;
+                    let catPageSuccess = false;
+                    for (const baseUrl of urlsToTry) {
+                        const catUrl = `${baseUrl}?leaf=true&status=ACTIVE&available=true&type=${type}&version=1&page=${catPage}&size=2000`;
+                        try {
+                            const catResp = await axios.get(catUrl, { headers, timeout: 30000 });
+                            const catData = catResp.data;
+                            const cats = Array.isArray(catData) ? catData : (catData?.data || catData?.content || []);
+                            if (cats.length > 0) {
+                                for (const cat of cats) {
+                                    const cid = cat.categoryId || cat.id;
+                                    const cname = cat.name || cat.categoryName || "";
+                                    if (cid && cname) categoryMap.set(String(cid), cname);
+                                }
+                                catWorkingUrl = baseUrl;
+                                catPage++;
+                                catPageSuccess = true;
+                                if (cats.length < 2000) catHasMore = false;
+                                break;
+                            } else {
+                                if (catWorkingUrl === baseUrl) { catHasMore = false; catPageSuccess = true; break; }
+                            }
+                        } catch (e) { /* sonraki URL'yi dene */ }
+                    }
+                    if (!catPageSuccess) catHasMore = false;
                 }
-                catHasMore = cats.length >= 2000;
-                catPage++;
             }
-            logger.info(`[Hepsiburada CAT] ${categoryMap.size} kategori çekildi`);
+            // Type'lı çağrılar boş döndüyse type'sız dene (geriye dönük uyumluluk)
+            if (categoryMap.size === 0) {
+                let catPage = 0;
+                let catHasMore = true;
+                while (catHasMore) {
+                    const catUrl = `${catBaseUrls[0]}?leaf=true&status=ACTIVE&available=true&version=1&page=${catPage}&size=2000`;
+                    try {
+                        const catResp = await axios.get(catUrl, { headers, timeout: 30000 });
+                        const catData = catResp.data;
+                        const cats = Array.isArray(catData) ? catData : (catData?.data || catData?.content || []);
+                        for (const cat of cats) {
+                            const cid = cat.categoryId || cat.id;
+                            const cname = cat.name || cat.categoryName || "";
+                            if (cid && cname) categoryMap.set(String(cid), cname);
+                        }
+                        catHasMore = cats.length >= 2000;
+                        catPage++;
+                    } catch (e) { catHasMore = false; }
+                }
+            }
+            logger.info(`[Hepsiburada CAT] ${categoryMap.size} kategori çekildi (ürün eşleştirme için)`);
         } catch (catErr) {
             logger.warn(`[Hepsiburada CAT] Kategori çekme hatası: ${catErr.message}`);
         }
@@ -361,39 +404,140 @@ const updateHepsiburadaPrice = async (merchantId, secretKey, sku, price, userAge
 // ═══════════════════════════════════════════════════════════════════════
 
 /**
- * Hepsiburada Kategorileri Çek
- * Endpoint: GET /categories/get-all-categories?page={page}&size={size}
- * Leaf=true, status=active, available=true olan kategoriler ürün açılabilir
+ * Hepsiburada Kategorileri Çek (v2 — Detaylı)
+ * Endpoint: GET /product/api/categories/get-all-categories
+ * Params: leaf, status, available, type (HB/HX/HC), version, page, size (max 2000)
  * İstek Limiti: 200 istek/1 dakika (IP başına)
+ *
+ * v2 Düzeltmeler:
+ *   - type parametresi eklendi (HB, HX, HC ayrı ayrı çekilip birleştiriliyor)
+ *   - size 1000→2000 (HB API max 2000 destekliyor)
+ *   - available filtresi opsiyonel hale getirildi (parent kategoriler de gelsin)
+ *   - Birden fazla endpoint URL pattern'i deneniyor (MPOP + CATEGORY)
+ *
  * @param {string} merchantId - Mağaza ID
  * @param {string} secretKey - Servis Anahtarı
  * @param {string} userAgent - Developer Username
+ * @param {object} [opts] - { onlyLeaf: bool, includeAllTypes: bool }
  */
-const fetchHepsiburadaCategories = async (merchantId, secretKey, userAgent) => {
+const fetchHepsiburadaCategories = async (merchantId, secretKey, userAgent, opts = {}) => {
     try {
         const headers = getHeaders(merchantId, secretKey, userAgent);
-        const allCategories = [];
-        let page = 0;
-        let hasMore = true;
-        const size = 1000;
+        const onlyLeaf = opts.onlyLeaf !== false; // varsayılan true (geriye dönük uyumluluk)
+        const includeAllTypes = opts.includeAllTypes === true;
 
-        while (hasMore) {
-            const ep = getEndpoints({ useSit: false });
-            const url = `${ep.CATEGORY}/categories/get-all-categories?page=${page}&size=${size}`;
-            const response = await axios.get(url, { headers, timeout: 30000 });
+        // ═══════════════════════════════════════════════════════════════
+        // ÖNEMLİ: Kategori API'si için HER ZAMAN Production endpoint'leri kullan!
+        // SIT (test) ortamında kategori verisi YOKTUR — boş döner.
+        // Kategoriler tüm satıcılar için aynıdır.
+        // ═══════════════════════════════════════════════════════════════
+        const prodEp = HB_ENDPOINTS;
 
-            const data = response.data?.data || response.data || [];
-            if (Array.isArray(data) && data.length > 0) {
-                allCategories.push(...data);
-                page++;
-                if (data.length < size) hasMore = false;
+        // Denenecek URL pattern'leri (production)
+        const baseUrls = [
+            `${prodEp.MPOP}/product/api/categories/get-all-categories`,
+            `${prodEp.CATEGORY}/product/api/categories/get-all-categories`
+        ];
+
+        /**
+         * Tek bir parametre seti ile sayfalı çekme
+         */
+        const fetchPaginated = async (queryOpts = {}, label = "") => {
+            const categories = [];
+            let page = 0;
+            let hasMore = true;
+            const size = 2000;
+            let workingUrl = null;
+
+            while (hasMore) {
+                const urlsToTry = workingUrl ? [workingUrl] : baseUrls;
+                let pageSuccess = false;
+
+                for (const baseUrl of urlsToTry) {
+                    const params = new URLSearchParams({
+                        status: "ACTIVE",
+                        version: "1",
+                        page: String(page),
+                        size: String(size)
+                    });
+
+                    if (queryOpts.leaf === true) params.set("leaf", "true");
+                    if (queryOpts.available === true) params.set("available", "true");
+                    if (queryOpts.type) params.set("type", queryOpts.type);
+
+                    const url = `${baseUrl}?${params.toString()}`;
+
+                    try {
+                        const response = await axios.get(url, { headers, timeout: 45000 });
+                        const data = response.data;
+
+                        // data alanını çıkar — null/undefined/boş obje kontrolü
+                        let cats = [];
+                        if (Array.isArray(data)) {
+                            cats = data;
+                        } else if (data && typeof data === "object") {
+                            const inner = data.data || data.content || data.categories;
+                            if (Array.isArray(inner)) cats = inner;
+                        }
+
+                        if (cats.length > 0) {
+                            categories.push(...cats);
+                            workingUrl = baseUrl;
+                            page++;
+                            pageSuccess = true;
+                            if (cats.length < size) hasMore = false;
+                            break;
+                        } else {
+                            if (workingUrl === baseUrl) { hasMore = false; pageSuccess = true; break; }
+                        }
+                    } catch (err) {
+                        logger.warn(`[Hepsiburada CAT${label}] ${baseUrl} hata: ${err.response?.status || err.message}`);
+                    }
+                }
+
+                if (!pageSuccess) { hasMore = false; }
+            }
+
+            if (categories.length > 0) {
+                logger.info(`[Hepsiburada CAT${label}] ${categories.length} kategori çekildi`);
+            }
+            return categories;
+        };
+
+        // ── Strateji: Önce type'sız (en hızlı), sonra type'lı ──
+        let allCategories = [];
+        const leafOpt = onlyLeaf ? true : undefined;
+        const availOpt = onlyLeaf ? true : undefined;
+
+        // Önce type'sız dene (çoğu durumda tüm kategoriler gelir)
+        allCategories = await fetchPaginated({ leaf: leafOpt, available: availOpt }, " default");
+
+        // Boş döndüyse veya includeAllTypes istendiyse type'lı dene
+        if (allCategories.length === 0 || includeAllTypes) {
+            const typeCats = [];
+            for (const type of ["HB", "HX", "HC"]) {
+                try {
+                    const cats = await fetchPaginated({ leaf: leafOpt, available: availOpt, type }, ` ${type}`);
+                    typeCats.push(...cats);
+                } catch (e) { logger.warn(`[Hepsiburada CAT] ${type} hatası: ${e.message}`); }
+            }
+            if (allCategories.length === 0) {
+                allCategories = typeCats;
             } else {
-                hasMore = false;
+                allCategories.push(...typeCats);
             }
         }
 
-        logger.info(`[Hepsiburada] ${allCategories.length} kategori çekildi`);
-        return allCategories;
+        // Duplikasyon temizliği
+        const seenIds = new Set();
+        const unique = [];
+        for (const cat of allCategories) {
+            const id = String(cat.categoryId || cat.id || "");
+            if (id && !seenIds.has(id)) { seenIds.add(id); unique.push(cat); }
+        }
+
+        logger.info(`[Hepsiburada] ${unique.length} benzersiz kategori çekildi (ham: ${allCategories.length})`);
+        return unique;
     } catch (error) {
         logger.error("Hepsiburada kategori çekme hatası:", {
             error: error.message,
@@ -415,7 +559,8 @@ const fetchHepsiburadaCategories = async (merchantId, secretKey, userAgent) => {
 const fetchHepsiburadaCategoryAttributes = async (merchantId, secretKey, categoryId, userAgent) => {
     try {
         const headers = getHeaders(merchantId, secretKey, userAgent);
-        const ep = getEndpoints({ useSit: false });
+        // Kategori özellikleri için her zaman production endpoint kullan
+        const ep = HB_ENDPOINTS;
         const url = `${ep.CATEGORY}/categories/${categoryId}/attributes`;
         const response = await axios.get(url, { headers, timeout: 15000 });
         return response.data?.data || response.data || [];

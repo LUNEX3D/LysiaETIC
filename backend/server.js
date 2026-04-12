@@ -58,6 +58,7 @@ const roketfyRoutes           = require("./routes/roketfyRoutes");
 const notificationRoutes      = require("./routes/notificationRoutes");
 const autoInvoiceRoutes       = require("./routes/autoInvoiceRoutes");
 const categoryCenterRoutes    = require("./routes/categoryCenterRoutes");
+const radarRoutes             = require("./routes/radarRoutes");
 // ✅ FIX #3: Webhook route'ları — pazaryeri anlık bildirim endpoint'leri
 const webhookRoutes           = require("./routes/webhookRoutes");
 
@@ -246,6 +247,7 @@ app.use("/api/roketfy",        roketfyRoutes);
 app.use("/api/notifications",  notificationRoutes);
 app.use("/api/auto-invoice",   autoInvoiceRoutes);
 app.use("/api/category-center", categoryCenterRoutes);
+app.use("/api/radar",          radarRoutes);
 // ✅ FIX #3: Webhook endpoint'leri — auth gerektirmez, pazaryerlerinden gelir
 app.use("/api/webhooks",       webhookRoutes);
 
@@ -366,6 +368,15 @@ const startServer = async () => {
             logger.info("🧠 AI Background Worker başlatıldı ✅");
         } catch (err) {
             logger.warn(`AI Worker başlatılamadı: ${err.message}`);
+        }
+
+        // ─── LysiaRadar PRO Worker — Fırsat tarama motoru ──
+        try {
+            const { startRadarWorker } = require("./services/radar/radarWorker");
+            startRadarWorker();
+            logger.info("🔭 LysiaRadar PRO Worker başlatıldı ✅");
+        } catch (err) {
+            logger.warn(`Radar Worker başlatılamadı: ${err.message}`);
         }
 
         // ─── Startup Cleanup: Eski "pasife al" / "Ölü Ürün" önerilerini sil + cache invalidate ──

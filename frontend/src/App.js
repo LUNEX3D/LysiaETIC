@@ -70,6 +70,9 @@ const AdminSubscriptionManager = lazy(() => import("./pages/AdminSubscriptionMan
 // Roketfy — Marketplace Intelligence
 const RoketfyPanel           = lazy(() => import("./pages/RoketfyPanel"));
 
+// LysiaRadar PRO — AI Product Opportunity Engine
+const RadarProPage           = lazy(() => import("./pages/RadarProPage"));
+
 // LysiaBrain2 — Standalone test page (UserDashboard dışında)
 const LysiaBrain2Page        = lazy(() => import("./pages/LysiaBrain2Page"));
 
@@ -278,6 +281,9 @@ const AppContent = () => {
 
             {/* Roketfy — Marketplace Intelligence */}
             <Route path="/roketfy" element={<ProtectedRoute><RoketfyPanel /></ProtectedRoute>} />
+
+            {/* LysiaRadar PRO — AI Product Opportunity Engine */}
+            <Route path="/radar-pro" element={<ProtectedRoute><RadarProPage /></ProtectedRoute>} />
 
             {/* Abonelik & Ödeme */}
             <Route path="/subscription" element={<ProtectedRoute><SubscriptionPage /></ProtectedRoute>} />
