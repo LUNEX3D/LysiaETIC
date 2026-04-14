@@ -51,3 +51,16 @@ test_scraper*
 
 # Log text dosyaları
 *_log*.txt
+
+# Dahili geliştirme notları (root MD dosyaları)
+/*.md
+!README.md
+ai/*.md
+
+# N11 API dosyaları
+n11apirest
+n11restapi_genel_dokumantasyon.docx
+
+# Root package files (proje root'unda olmamalı)
+/package.json
+/package-lock.json
