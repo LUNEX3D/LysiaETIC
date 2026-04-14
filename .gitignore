@@ -1,6 +1,7 @@
-# Dependencies
+# Dependencies — ASLA commit edilmemeli!
 node_modules/
 */node_modules/
+**/node_modules/
 
 # Environment variables — ASLA commit edilmemeli!
 .env
@@ -29,12 +30,24 @@ backend/logs/*.log
 .DS_Store
 Thumbs.db
 
-# Build outputs
+# Build outputs — ASLA commit edilmemeli!
 dist/
 build/
+**/build/
+frontend/build/
 *.tsbuildinfo
 
 # Temporary files
 tmp/
 temp/
 *.tmp
+
+# Test credential dosyaları
+test-*-credentials*
+test_scraper*
+
+# Zip dosyaları
+*.zip
+
+# Log text dosyaları
+*_log*.txt

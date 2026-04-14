@@ -1,6 +1,11 @@
 const mongoose = require("mongoose");
+require("dotenv").config({ path: require("path").resolve(__dirname, "../.env") });
 
-const MONGO_URI = "mongodb+srv://***REDACTED***:***REDACTED***@cluster0.2wdra.mongodb.net/ecommerce?retryWrites=true&w=majority&appName=Cluster0";
+const MONGO_URI = process.env.MONGO_URI;
+if (!MONGO_URI) {
+    console.error("❌ MONGO_URI bulunamadı! backend/.env dosyasını kontrol edin.");
+    process.exit(1);
+}
 
 async function main() {
     await mongoose.connect(MONGO_URI);
@@ -18,7 +23,13 @@ async function main() {
 
         // bcrypt ile şifre hash'le
         const bcrypt = require("bcryptjs");
-        const hashedPassword = await bcrypt.hash("***REDACTED***", 10);
+        // ⚠️ Şifreyi çalıştırırken argüman olarak verin: node restoreUser.js <şifre>
+        const adminPassword = process.argv[2];
+        if (!adminPassword) {
+            console.error("❌ Kullanım: node restoreUser.js <yeni_şifre>");
+            process.exit(1);
+        }
+        const hashedPassword = await bcrypt.hash(adminPassword, 10);
 
         const newUser = {
             name: "emrullah",
