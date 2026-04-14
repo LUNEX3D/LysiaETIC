@@ -45,6 +45,8 @@ temp/
 # Test credential dosyaları
 test-*-credentials*
 test_scraper*
+backend/test-*.js
+backend/run-*.js
 
 # Zip dosyaları
 *.zip

@@ -78,9 +78,9 @@ const ERP_CODE = process.env.QNB_ERP_CODE || "ESC31309";
 // e-Fatura: erpefaturatest1 → VKN / şifre
 // e-Arşiv:  connectortest   → VKN.portaltest / şifre
 const TEST_ACCOUNTS = {
-    test1: { vkn: "7610650466", userCode: "7610650466", password: process.env.QNB_EFATURA_PASSWORD || "***REDACTED***" },
-    test2: { vkn: "7610650467", userCode: "7610650467", password: process.env.QNB_EFATURA2_PASSWORD || "***REDACTED***" },
-    earsiv: { vkn: "7610650466", userCode: process.env.QNB_EARSIV_USERNAME || "7610650466.portaltest2", password: process.env.QNB_EARSIV_PASSWORD || "***REDACTED***" }
+    test1: { vkn: "7610650466", userCode: "7610650466", password: process.env.QNB_EFATURA_PASSWORD || "" },
+    test2: { vkn: "7610650467", userCode: "7610650467", password: process.env.QNB_EFATURA2_PASSWORD || "" },
+    earsiv: { vkn: "7610650466", userCode: process.env.QNB_EARSIV_USERNAME || "", password: process.env.QNB_EARSIV_PASSWORD || "" }
 };
 
 // ─── Session Yönetimi ───────────────────────────────────────────────────────
