@@ -3,7 +3,7 @@ const dns = require("dns");
 const Order = require("../models/Order");
 const User = require("../models/User");
 const Marketplace = require("../models/Marketplace");
-require("dotenv").config();
+require("dotenv").config({ path: require("path").resolve(__dirname, "../.env") });
 
 // Force public DNS servers to avoid SRV lookup failures
 dns.setServers(["1.1.1.1", "8.8.8.8"]);
@@ -30,7 +30,11 @@ const orderStatuses = ["Created", "Processing", "Shipped", "Delivered", "Cancell
 async function seedOrders() {
     try {
         // Connect to MongoDB (try local first, then cloud)
-        const mongoUri = process.env.MONGO_URI_LOCAL || process.env.MONGO_URI || "mongodb://localhost:27017/ecommerce";
+        const mongoUri = process.env.MONGO_URI;
+        if (!mongoUri) {
+            console.error("❌ MONGO_URI bulunamadı! backend/.env dosyasını kontrol edin.");
+            process.exit(1);
+        }
         await mongoose.connect(mongoUri);
         console.log("✅ MongoDB bağlantısı başarılı");
 

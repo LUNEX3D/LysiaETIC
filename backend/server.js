@@ -27,6 +27,7 @@ const os             = require("os");
 const logger         = require("./config/logger");
 const { apiLimiter }        = require("./middlewares/rateLimiter");
 const { sanitizeBody }      = require("./middlewares/sanitize");
+const { additionalSecurityHeaders } = require("./middlewares/securityHeaders");
 const swaggerUi              = require("swagger-ui-express");
 const swaggerSpec            = require("./config/swagger");
 
@@ -78,11 +79,12 @@ const stats = {
     routes   : {},  // endpoint bazlı sayaç
 };
 
-// ─── 6. GÜVENLİK — Helmet.js ─────────────────────────────────────────────────
+// ─── 6. GÜVENLİK — Helmet.js + Ek Güvenlik Header'ları ────────────────────────
 app.use(helmet({
     crossOriginResourcePolicy: { policy: "cross-origin" },
     contentSecurityPolicy: false  // Frontend SPA ile uyumluluk
 }));
+app.use(additionalSecurityHeaders);
 
 // ─── 7. CORS — Whitelist bazlı ───────────────────────────────────────────────
 const allowedOrigins = [
@@ -203,21 +205,27 @@ app.use((req, res, next) => {
 
 // ─── 8.2 Swagger API Dokümantasyonu ───────────────────────────────────────────
 // ✅ P1-3: /api-docs adresinden erişilebilir interaktif API dokümantasyonu
-app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
-    customCss: ".swagger-ui .topbar { display: none }",
-    customSiteTitle: "LysiaETIC API Docs",
-    swaggerOptions: {
-        persistAuthorization: true,
-        docExpansion: "none",
-        filter: true,
-        tagsSorter: "alpha",
-    },
-}));
-// Swagger JSON endpoint (programatik erişim için)
-app.get("/api-docs.json", (req, res) => {
-    res.setHeader("Content-Type", "application/json");
-    res.send(swaggerSpec);
-});
+// ✅ SEC: Production'da Swagger erişimi kapalı — sadece development'ta açık
+if (process.env.NODE_ENV !== "production") {
+    app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
+        customCss: ".swagger-ui .topbar { display: none }",
+        customSiteTitle: "LysiaETIC API Docs",
+        swaggerOptions: {
+            persistAuthorization: true,
+            docExpansion: "none",
+            filter: true,
+            tagsSorter: "alpha",
+        },
+    }));
+    // Swagger JSON endpoint (programatik erişim için)
+    app.get("/api-docs.json", (req, res) => {
+        res.setHeader("Content-Type", "application/json");
+        res.send(swaggerSpec);
+    });
+} else {
+    app.use("/api-docs", (req, res) => res.status(404).json({ message: "Not found" }));
+    app.get("/api-docs.json", (req, res) => res.status(404).json({ message: "Not found" }));
+}
 
 // ─── 9. Route'ları bağla ──────────────────────────────────────────────────────
 app.use("/api/orders",             orderRoutes);
@@ -262,38 +270,51 @@ app.use("/api/variants",       variantRoutes);
 app.use("/api/upload",         uploadRoutes);
 
 // ─── 10. SUNUCU DURUM ENDPOINTİ (/api/status) ────────────────────────────────
+// ✅ SEC: Public endpoint — sadece temel durum bilgisi döner
+// Detaylı bilgiler (DB host, PID, memory, routes) sadece admin'e açık
 app.get("/api/status", (req, res) => {
     const uptimeSec  = Math.floor((Date.now() - SERVER_START) / 1000);
     const uptimeMin  = Math.floor(uptimeSec / 60);
     const uptimeHour = Math.floor(uptimeMin / 60);
-    const memMB      = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(1);
-    const totalMemMB = (process.memoryUsage().heapTotal / 1024 / 1024).toFixed(1);
-    const dbState    = ["Bağlantı Yok", "Bağlı ✅", "Bağlanıyor...", "Bağlantı Kesiliyor..."];
+    const dbState    = ["disconnected", "connected", "connecting", "disconnecting"];
 
-    res.json({
+    // Public: sadece temel sağlık bilgisi
+    const publicInfo = {
         status   : "online",
         uptime   : `${uptimeHour}s ${uptimeMin % 60}dk ${uptimeSec % 60}sn`,
-        database : {
-            state  : dbState[mongoose.connection.readyState] || "Bilinmiyor",
-            host   : mongoose.connection.host   || "-",
-            name   : mongoose.connection.name   || "-",
-        },
-        memory   : { used: `${memMB} MB`, total: `${totalMemMB} MB` },
-        node     : process.version,
-        platform : process.platform,
-        requests : {
-            total    : stats.total,
-            success  : stats.success,
-            clientErr: stats.clientErr,
-            serverErr: stats.serverErr,
-        },
-        topRoutes: Object.entries(stats.routes)
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, 10)
-            .map(([route, count]) => ({ route, count })),
+        database : dbState[mongoose.connection.readyState] || "unknown",
         env      : process.env.NODE_ENV || "development",
-        pid      : process.pid,
-    });
+    };
+
+    // Admin kontrolü — token varsa detaylı bilgi ver
+    try {
+        const token = req.headers.authorization?.split(" ")[1];
+        if (token) {
+            const jwt = require("jsonwebtoken");
+            const decoded = jwt.verify(token, process.env.JWT_SECRET);
+            if (decoded && ["admin", "dev"].includes(decoded.role)) {
+                const memMB      = (process.memoryUsage().heapUsed / 1024 / 1024).toFixed(1);
+                const totalMemMB = (process.memoryUsage().heapTotal / 1024 / 1024).toFixed(1);
+                return res.json({
+                    ...publicInfo,
+                    memory   : { used: `${memMB} MB`, total: `${totalMemMB} MB` },
+                    node     : process.version,
+                    requests : {
+                        total    : stats.total,
+                        success  : stats.success,
+                        clientErr: stats.clientErr,
+                        serverErr: stats.serverErr,
+                    },
+                    topRoutes: Object.entries(stats.routes)
+                        .sort((a, b) => b[1] - a[1])
+                        .slice(0, 10)
+                        .map(([route, count]) => ({ route, count })),
+                });
+            }
+        }
+    } catch { /* Token yoksa veya geçersizse public bilgi döner */ }
+
+    res.json(publicInfo);
 });
 
 // ─── 11. 404 — Bilinmeyen route ───────────────────────────────────────────────
@@ -303,8 +324,15 @@ app.use((req, res) => {
 });
 
 // ─── 12. Global hata yakalayıcı (Express) ────────────────────────────────────
+// ✅ SEC: Production'da hata detayları gizlenir, CORS hataları özel mesaj döner
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
+    // CORS hatası özel mesaj
+    if (err.message && err.message.includes("CORS")) {
+        logger.warn(`CORS hatası: ${req.headers.origin} → ${req.originalUrl}`);
+        return res.status(403).json({ success: false, message: "Erişim engellendi." });
+    }
+
     logger.error(`Global hata: ${err.message}`, { stack: err.stack, url: req.originalUrl });
     res.status(err.status || 500).json({
         success: false,

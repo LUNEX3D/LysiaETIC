@@ -6,7 +6,7 @@ exports.getAllProducts = async (req, res) => {
         const products = await Product.find();
         res.json(products);
     } catch (error) {
-        res.status(500).json({ message: "Sunucu hatası", error });
+        res.status(500).json({ message: "Sunucu hatası" });
     }
 };
 
@@ -19,7 +19,7 @@ exports.getProductById = async (req, res) => {
         }
         res.json(product);
     } catch (error) {
-        res.status(500).json({ message: "Sunucu hatası", error });
+        res.status(500).json({ message: "Sunucu hatası" });
     }
 };
 
@@ -33,7 +33,7 @@ exports.updateProduct = async (req, res) => {
         }
         res.json({ message: "Ürün bilgileri güncellendi", product });
     } catch (error) {
-        res.status(500).json({ message: "Sunucu hatası", error });
+        res.status(500).json({ message: "Sunucu hatası" });
     }
 };
 
@@ -46,6 +46,6 @@ exports.deleteProduct = async (req, res) => {
         }
         res.json({ message: "Ürün başarıyla silindi." });
     } catch (error) {
-        res.status(500).json({ message: "Sunucu hatası", error });
+        res.status(500).json({ message: "Sunucu hatası" });
     }
 };

@@ -8,7 +8,7 @@ exports.getAllUsers = async (req, res) => {
         res.json(users);
     } catch (error) {
         logger.error("Hata: Kullanıcıları getirirken hata oluştu!", error);
-        res.status(500).json({ message: "Sunucu hatası", error });
+        res.status(500).json({ message: "Sunucu hatası" });
     }
 };
 
@@ -22,7 +22,7 @@ exports.getUserById = async (req, res) => {
         res.json(user);
     } catch (error) {
         logger.error("Hata: Kullanıcı bulunamadı!", error);
-        res.status(500).json({ message: "Sunucu hatası", error });
+        res.status(500).json({ message: "Sunucu hatası" });
     }
 };
 
@@ -41,7 +41,7 @@ exports.updateUser = async (req, res) => {
         res.json({ message: "Kullanıcı bilgileri güncellendi!", user });
     } catch (error) {
         logger.error("Hata: Kullanıcı güncellenirken hata oluştu!", error);
-        res.status(500).json({ message: "Sunucu hatası", error });
+        res.status(500).json({ message: "Sunucu hatası" });
     }
 };
 
@@ -66,7 +66,7 @@ exports.updateUserRole = async (req, res) => {
         res.json({ message: "Kullanıcı rolü güncellendi!", user });
     } catch (error) {
         logger.error("Hata: Kullanıcı rolü güncellenirken hata oluştu!", error);
-        res.status(500).json({ message: "Sunucu hatası", error });
+        res.status(500).json({ message: "Sunucu hatası" });
     }
 };
 
@@ -80,6 +80,6 @@ exports.deleteUser = async (req, res) => {
         res.json({ message: "Kullanıcı başarıyla silindi." });
     } catch (error) {
         logger.error("Hata: Kullanıcı silinirken hata oluştu!", error);
-        res.status(500).json({ message: "Sunucu hatası", error });
+        res.status(500).json({ message: "Sunucu hatası" });
     }
 };

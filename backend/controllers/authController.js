@@ -65,9 +65,18 @@ exports.register = async (req, res) => {
             return badRequest(res, "Geçerli bir e-posta adresi girin.");
         }
 
-        // Şifre uzunluk kontrolü
-        if (password.length < 6) {
-            return badRequest(res, "Şifre en az 6 karakter olmalıdır.");
+        // Şifre güçlülük kontrolü (✅ SEC: güçlü şifre politikası)
+        if (password.length < 8) {
+            return badRequest(res, "Şifre en az 8 karakter olmalıdır.");
+        }
+        if (!/[A-Z]/.test(password)) {
+            return badRequest(res, "Şifre en az bir büyük harf içermelidir.");
+        }
+        if (!/[a-z]/.test(password)) {
+            return badRequest(res, "Şifre en az bir küçük harf içermelidir.");
+        }
+        if (!/[0-9]/.test(password)) {
+            return badRequest(res, "Şifre en az bir rakam içermelidir.");
         }
 
         // Aynı e-posta ile kayıt var mı?
@@ -394,8 +403,8 @@ exports.forgotPassword = async (req, res) => {
             return badRequest(res, "Bu hesap Google ile oluşturulmuş. Şifre sıfırlama yapılamaz.");
         }
 
-        // 6 haneli kod oluştur
-        const resetCode = Math.floor(100000 + Math.random() * 900000).toString();
+        // 6 haneli kod oluştur (✅ SEC: kriptografik güvenli random)
+        const resetCode = crypto.randomInt(100000, 999999).toString();
         user.resetPasswordCode = resetCode;
         user.resetPasswordExpires = new Date(Date.now() + 15 * 60 * 1000); // 15 dakika
         await user.save();
@@ -450,8 +459,11 @@ exports.resetPassword = async (req, res) => {
             return badRequest(res, "Tüm alanlar zorunludur.");
         }
 
-        if (newPassword.length < 6) {
-            return badRequest(res, "Şifre en az 6 karakter olmalıdır.");
+        if (newPassword.length < 8) {
+            return badRequest(res, "Şifre en az 8 karakter olmalıdır.");
+        }
+        if (!/[A-Z]/.test(newPassword) || !/[a-z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
+            return badRequest(res, "Şifre en az bir büyük harf, bir küçük harf ve bir rakam içermelidir.");
         }
 
         const user = await User.findOne({

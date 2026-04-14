@@ -34,7 +34,7 @@ router.get("/marketplace/user-marketplaces/:userId", authMiddleware, adminMiddle
         const marketplaces = await Marketplace.find({ userId: req.params.userId });
         res.status(200).json(marketplaces || []);
     } catch (error) {
-        res.status(500).json({ message: "Sunucu hatası", error: error.message });
+        res.status(500).json({ message: "Sunucu hatası" });
     }
 });
 
@@ -61,7 +61,7 @@ router.get("/fix-user-roles", authMiddleware, async (req, res) => {
 
         res.json({ success: true, message: `${fixedCount} kullanıcının rolü düzeltildi`, fixed: fixedCount, users: fixedUsers });
     } catch (error) {
-        res.status(500).json({ success: false, message: "Role düzeltme hatası", error: error.message });
+        res.status(500).json({ success: false, message: "Role düzeltme hatası" });
     }
 });
 

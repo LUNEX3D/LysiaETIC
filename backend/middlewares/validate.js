@@ -41,7 +41,10 @@ const validateRegister = [
         .normalizeEmail(),
     body("password")
         .notEmpty().withMessage("Şifre zorunludur")
-        .isLength({ min: 6 }).withMessage("Şifre en az 6 karakter olmalıdır"),
+        .isLength({ min: 8 }).withMessage("Şifre en az 8 karakter olmalıdır")
+        .matches(/[A-Z]/).withMessage("Şifre en az bir büyük harf içermelidir")
+        .matches(/[a-z]/).withMessage("Şifre en az bir küçük harf içermelidir")
+        .matches(/[0-9]/).withMessage("Şifre en az bir rakam içermelidir"),
     handleValidation
 ];
 
@@ -76,7 +79,10 @@ const validateResetPassword = [
         .isLength({ min: 6, max: 6 }).withMessage("Kod 6 haneli olmalıdır"),
     body("newPassword")
         .notEmpty().withMessage("Yeni şifre zorunludur")
-        .isLength({ min: 6 }).withMessage("Şifre en az 6 karakter olmalıdır"),
+        .isLength({ min: 8 }).withMessage("Şifre en az 8 karakter olmalıdır")
+        .matches(/[A-Z]/).withMessage("Şifre en az bir büyük harf içermelidir")
+        .matches(/[a-z]/).withMessage("Şifre en az bir küçük harf içermelidir")
+        .matches(/[0-9]/).withMessage("Şifre en az bir rakam içermelidir"),
     handleValidation
 ];
 
@@ -116,7 +122,10 @@ const validateChangePassword = [
         .notEmpty().withMessage("Mevcut şifre zorunludur"),
     body("newPassword")
         .notEmpty().withMessage("Yeni şifre zorunludur")
-        .isLength({ min: 6 }).withMessage("Yeni şifre en az 6 karakter olmalıdır"),
+        .isLength({ min: 8 }).withMessage("Yeni şifre en az 8 karakter olmalıdır")
+        .matches(/[A-Z]/).withMessage("Şifre en az bir büyük harf içermelidir")
+        .matches(/[a-z]/).withMessage("Şifre en az bir küçük harf içermelidir")
+        .matches(/[0-9]/).withMessage("Şifre en az bir rakam içermelidir"),
     handleValidation
 ];
 

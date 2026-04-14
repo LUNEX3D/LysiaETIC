@@ -104,7 +104,7 @@ exports.getSystemStatus = async (req, res) => {
         });
     } catch (error) {
         logger.error(`Sistem durumu hatası: ${error.message}`);
-        res.status(500).json({ success: false, message: "Sistem durumu alınamadı", error: error.message });
+        res.status(500).json({ success: false, message: "Sistem durumu alınamadı" });
     }
 };
 

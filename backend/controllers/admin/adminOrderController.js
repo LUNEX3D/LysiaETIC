@@ -6,7 +6,7 @@ exports.getAllOrders = async (req, res) => {
         const orders = await Order.find();
         res.json(orders);
     } catch (error) {
-        res.status(500).json({ message: "Sunucu hatası", error });
+        res.status(500).json({ message: "Sunucu hatası" });
     }
 };
 
@@ -19,7 +19,7 @@ exports.getOrderById = async (req, res) => {
         }
         res.json(order);
     } catch (error) {
-        res.status(500).json({ message: "Sunucu hatası", error });
+        res.status(500).json({ message: "Sunucu hatası" });
     }
 };
 
@@ -33,6 +33,6 @@ exports.updateOrderStatus = async (req, res) => {
         }
         res.json({ message: "Sipariş durumu güncellendi", order });
     } catch (error) {
-        res.status(500).json({ message: "Sunucu hatası", error });
+        res.status(500).json({ message: "Sunucu hatası" });
     }
 };

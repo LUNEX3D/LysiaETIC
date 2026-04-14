@@ -197,7 +197,7 @@ exports.getDashboardMetrics = async (req, res) => {
         });
     } catch (error) {
         logger.error(`SaaS Dashboard hatası: ${error.message}`);
-        res.status(500).json({ success: false, message: "Dashboard verileri alınamadı", error: error.message });
+        res.status(500).json({ success: false, message: "Dashboard verileri alınamadı" });
     }
 };
 
