@@ -34,7 +34,7 @@ const AdminLogin = () => {
                 const controller = new AbortController();
                 const timeout = setTimeout(() => controller.abort(), 5000);
                 await fetch(
-                    (process.env.REACT_APP_API_URL || "http://localhost:5000") + "/api/status",
+                    (process.env.REACT_APP_API_URL ?? "http://localhost:5000") + "/api/status",
                     { signal: controller.signal }
                 );
                 clearTimeout(timeout);

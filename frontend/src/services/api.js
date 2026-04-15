@@ -8,7 +8,10 @@
  */
 import axios from "axios";
 
-const BASE_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
+// ✅ Production'da REACT_APP_API_URL boş string = Nginx reverse proxy (/api)
+// Development'ta REACT_APP_API_URL=http://localhost:5000
+// ?? operatörü: sadece null/undefined'da fallback kullanır, boş string "" geçerli kalır
+const BASE_URL = process.env.REACT_APP_API_URL ?? "http://localhost:5000";
 
 // ─── 429 Rate Limit Event — UI bildirim sistemi ────────────────────────────────
 // Herhangi bir component dinleyebilir: window.addEventListener("api:rate-limited", handler)
