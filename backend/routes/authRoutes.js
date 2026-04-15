@@ -16,7 +16,8 @@ const {
     forgotPassword,
     verifyResetCode,
     resetPassword,
-    refreshToken
+    refreshToken,
+    acceptLegal
 } = require("../controllers/authController");
 const { authMiddleware } = require("../middlewares/authMiddleware");
 const { authLimiter } = require("../middlewares/rateLimiter");
@@ -44,6 +45,9 @@ router.post("/refresh-token", refreshToken);
 
 // 🛡️ SEC #2: Logout — refresh token'ı revoke et
 router.post("/logout", authMiddleware, logout);
+
+// ✅ LEGAL: Yasal belge onayı (KVKK/GDPR uyumlu)
+router.post("/accept-legal", authMiddleware, acceptLegal);
 
 // ✅ P2-3: İki Faktörlü Kimlik Doğrulama (2FA)
 const twoFactor = require("../controllers/twoFactorController");

@@ -25,6 +25,8 @@ const API = axios.create({
 });
 
 // ─── Oturum temizleme helper'ı ─────────────────────────────────────────────────
+// ✅ FIX: legalAccepted, legalAcceptedAt, themeMode gibi tüm oturum verileri temizleniyor
+// KVKK/GDPR uyumluluğu — farklı kullanıcı aynı tarayıcıda giriş yaparsa eski onay geçerli sayılmaz
 const clearSession = () => {
     localStorage.removeItem("token");
     localStorage.removeItem("refreshToken");
@@ -35,6 +37,8 @@ const clearSession = () => {
     localStorage.removeItem("userName");
     localStorage.removeItem("userRole");
     localStorage.removeItem("adminLoginTime");
+    localStorage.removeItem("legalAccepted");
+    localStorage.removeItem("legalAcceptedAt");
 };
 
 // ✅ FIX H7: rememberMe — hem localStorage hem sessionStorage'dan token oku

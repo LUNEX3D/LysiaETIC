@@ -38,7 +38,7 @@ exports.getDashboardMetrics = async (req, res) => {
 
         // Durum bazlı kullanıcılar
         const suspendedUsers = await User.countDocuments({ "subscription.status": "cancelled" });
-        const trialUsers = await User.countDocuments({ "subscription.plan": "free" });
+        const trialUsers = await User.countDocuments({ "subscription.plan": "trial" });
 
         // Plan dağılımı
         const planDistribution = await User.aggregate([
@@ -887,13 +887,8 @@ exports.getSystemConfig = async (req, res) => {
         const fs = require("fs");
         const path = require("path");
 
-        // Paket tanımları
-        const planDefinitions = {
-            trial: { name: "Trial", price: 0, duration: 14, limits: { maxProducts: 50, maxOrders: 100, maxMarketplaces: 1, maxApiCalls: 5000, maxUsers: 1 } },
-            basic: { name: "Basic", price: 299, duration: 30, limits: { maxProducts: 500, maxOrders: 5000, maxMarketplaces: 3, maxApiCalls: 50000, maxUsers: 3 } },
-            pro: { name: "Pro", price: 799, duration: 30, limits: { maxProducts: 5000, maxOrders: 50000, maxMarketplaces: 10, maxApiCalls: 500000, maxUsers: 10 } },
-            enterprise: { name: "Enterprise", price: 1999, duration: 30, limits: { maxProducts: 999999, maxOrders: 999999, maxMarketplaces: 999, maxApiCalls: 9999999, maxUsers: 999 } },
-        };
+        // Paket tanımları — DB'den oku (yoksa default)
+        const planDefinitions = await getPlanDefinitions();
 
         // Sistem bilgileri
         const systemInfo = {
@@ -934,7 +929,276 @@ exports.getSystemConfig = async (req, res) => {
 };
 
 /* ═══════════════════════════════════════════════════════════
-   12. ADMIN RESET PASSWORD
+   12. PAKET TANIMLARI GÜNCELLEME (Plan Definitions)
+   ═══════════════════════════════════════════════════════════ */
+
+/**
+ * Paket tanımlarını güncelle — fiyat, limit, süre vb.
+ * Body: { planDefinitions: { trial: {...}, basic: {...}, pro: {...}, enterprise: {...} } }
+ *
+ * Paket tanımları MongoDB'de SystemConfig koleksiyonunda saklanır.
+ * Yoksa default değerler kullanılır ve ilk güncelleme ile oluşturulur.
+ */
+const SystemConfig = require("../../models/SystemConfig");
+const { invalidatePlansCache } = require("../paytrController");
+
+const DEFAULT_PLAN_DEFINITIONS = {
+    trial: {
+        name: "Deneme",
+        description: "Platformu keşfetmek için ücretsiz deneme paketi",
+        badge: "",
+        price: 0,
+        monthlyPrice: 0,
+        yearlyPrice: 0,
+        duration: 14,
+        limits: { maxProducts: 50, maxOrders: 100, maxMarketplaces: 1, maxApiCalls: 5000, maxUsers: 1 },
+        features: ["Dashboard erişimi", "50 ürün yönetimi", "100 sipariş/ay", "1 pazaryeri entegrasyonu", "Temel raporlama"],
+    },
+    basic: {
+        name: "Basic",
+        description: "Küçük işletmeler için temel e-ticaret yönetimi",
+        badge: "",
+        price: 299,
+        monthlyPrice: 299,
+        yearlyPrice: 2990,
+        duration: 30,
+        limits: { maxProducts: 500, maxOrders: 5000, maxMarketplaces: 3, maxApiCalls: 50000, maxUsers: 3 },
+        features: ["Dashboard erişimi", "500 ürün yönetimi", "5.000 sipariş/ay", "3 pazaryeri entegrasyonu", "Gelişmiş raporlama", "Kargo takibi", "E-posta desteği"],
+    },
+    pro: {
+        name: "Pro",
+        description: "Büyüyen işletmeler için gelişmiş özellikler ve AI desteği",
+        badge: "EN POPÜLER",
+        price: 799,
+        monthlyPrice: 799,
+        yearlyPrice: 7990,
+        duration: 30,
+        limits: { maxProducts: 5000, maxOrders: 50000, maxMarketplaces: 10, maxApiCalls: 500000, maxUsers: 10 },
+        features: ["Tüm Basic özellikleri", "5.000 ürün yönetimi", "50.000 sipariş/ay", "10 pazaryeri entegrasyonu", "AI Asistan & Radar", "Otomatik sipariş", "E-fatura entegrasyonu", "Öncelikli destek", "Gelişmiş analitik"],
+    },
+    enterprise: {
+        name: "Enterprise",
+        description: "Büyük ölçekli operasyonlar için sınırsız erişim ve özel destek",
+        badge: "ÖZEL",
+        price: 1999,
+        monthlyPrice: 1999,
+        yearlyPrice: 19990,
+        duration: 30,
+        limits: { maxProducts: 999999, maxOrders: 999999, maxMarketplaces: 999, maxApiCalls: 9999999, maxUsers: 999 },
+        features: ["Tüm Pro özellikleri", "Sınırsız ürün", "Sınırsız sipariş", "Sınırsız pazaryeri", "Sınırsız kullanıcı", "Özel API erişimi", "Dedicated destek", "SLA garantisi", "Özel entegrasyonlar", "White-label seçeneği"],
+    },
+};
+
+// Paket tanımlarını DB'den oku (yoksa default)
+const getPlanDefinitions = async () => {
+    try {
+        const doc = await SystemConfig.findOne({ key: "planDefinitions" }).lean();
+        return doc?.value || DEFAULT_PLAN_DEFINITIONS;
+    } catch {
+        return DEFAULT_PLAN_DEFINITIONS;
+    }
+};
+
+exports.updatePlanDefinitions = async (req, res) => {
+    try {
+        const { planDefinitions } = req.body;
+        if (!planDefinitions || typeof planDefinitions !== "object") {
+            return res.status(400).json({ success: false, message: "planDefinitions objesi gerekli" });
+        }
+
+        // Validasyon — her plan için gerekli alanlar
+        for (const [key, plan] of Object.entries(planDefinitions)) {
+            if (!plan.name) return res.status(400).json({ success: false, message: `${key}: name gerekli` });
+            if (plan.price === undefined || plan.price === null) return res.status(400).json({ success: false, message: `${key}: price gerekli` });
+            if (!plan.limits) return res.status(400).json({ success: false, message: `${key}: limits gerekli` });
+
+            // monthlyPrice yoksa price'tan türet, yearlyPrice yoksa monthlyPrice * 10
+            if (!plan.monthlyPrice && plan.monthlyPrice !== 0) plan.monthlyPrice = plan.price;
+            if (!plan.yearlyPrice && plan.yearlyPrice !== 0) plan.yearlyPrice = Math.round(plan.monthlyPrice * 10);
+            if (!plan.description) plan.description = "";
+            if (!plan.badge) plan.badge = "";
+            if (!Array.isArray(plan.features)) plan.features = [];
+        }
+
+        await SystemConfig.findOneAndUpdate(
+            { key: "planDefinitions" },
+            { value: planDefinitions, updatedBy: req.user._id, updatedAt: new Date() },
+            { upsert: true, new: true }
+        );
+
+        // PayTR controller'daki plan cache'ini temizle — değişiklikler anında yansısın
+        invalidatePlansCache();
+
+        await AuditLog.create({
+            adminId: req.user._id,
+            action: "plan_definitions_updated",
+            category: "system",
+            severity: "warning",
+            description: `Paket tanımları güncellendi: ${Object.keys(planDefinitions).join(", ")}`,
+            metadata: planDefinitions,
+            ipAddress: req.ip,
+        });
+
+        res.json({ success: true, message: "Paket tanımları güncellendi", planDefinitions });
+    } catch (error) {
+        logger.error(`Paket tanımları güncelleme hatası: ${error.message}`);
+        res.status(500).json({ success: false, message: "Paket tanımları güncellenemedi" });
+    }
+};
+
+/* ═══════════════════════════════════════════════════════════
+   13. PUBLIC PAKET BİLGİLERİ (Auth gerektirmez — HomePage & SubscriptionPage)
+   ═══════════════════════════════════════════════════════════ */
+exports.getPublicPlans = async (req, res) => {
+    try {
+        const plans = await getPlanDefinitions();
+        // Public'e sadece gerekli bilgileri gönder (admin-only alanları hariç)
+        const publicPlans = {};
+        for (const [key, plan] of Object.entries(plans)) {
+            publicPlans[key] = {
+                name: plan.name,
+                description: plan.description || "",
+                badge: plan.badge || "",
+                price: plan.price || 0,
+                monthlyPrice: plan.monthlyPrice || plan.price || 0,
+                yearlyPrice: plan.yearlyPrice || Math.round((plan.monthlyPrice || plan.price || 0) * 10),
+                duration: plan.duration || (key === "trial" ? 14 : 30),
+                limits: plan.limits || {},
+                features: plan.features || [],
+            };
+        }
+        res.json({ success: true, plans: publicPlans });
+    } catch (error) {
+        logger.error(`Public plan bilgileri hatası: ${error.message}`);
+        res.status(500).json({ success: false, message: "Paket bilgileri alınamadı" });
+    }
+};
+
+/* ═══════════════════════════════════════════════════════════
+   13. KULLANICI ROL DEĞİŞTİRME
+   ═══════════════════════════════════════════════════════════ */
+exports.updateUserRole = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { role } = req.body;
+        const validRoles = ["user", "seller", "moderator", "dev", "admin"];
+
+        if (!role || !validRoles.includes(role)) {
+            return res.status(400).json({ success: false, message: `Geçersiz rol. Geçerli roller: ${validRoles.join(", ")}` });
+        }
+
+        const user = await User.findById(id);
+        if (!user) return res.status(404).json({ success: false, message: "Kullanıcı bulunamadı" });
+
+        const oldRole = user.role;
+        user.role = role;
+        await user.save();
+
+        await AuditLog.create({
+            userId: id,
+            adminId: req.user._id,
+            action: "user_role_changed",
+            category: "user",
+            severity: role === "admin" ? "critical" : "warning",
+            description: `Kullanıcı rolü değiştirildi: ${user.name} (${user.email}) — ${oldRole} → ${role}`,
+            metadata: { oldRole, newRole: role },
+            ipAddress: req.ip,
+        });
+
+        res.json({ success: true, message: `Rol güncellendi: ${oldRole} → ${role}`, user: { _id: user._id, name: user.name, email: user.email, role: user.role } });
+    } catch (error) {
+        logger.error(`Rol değiştirme hatası: ${error.message}`);
+        res.status(500).json({ success: false, message: "Rol değiştirilemedi" });
+    }
+};
+
+/* ═══════════════════════════════════════════════════════════
+   14. KULLANICI SİLME
+   ═══════════════════════════════════════════════════════════ */
+exports.deleteTenant = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const user = await User.findById(id);
+        if (!user) return res.status(404).json({ success: false, message: "Kullanıcı bulunamadı" });
+
+        // Admin kendini silemez
+        if (id === req.user._id.toString()) {
+            return res.status(400).json({ success: false, message: "Kendi hesabınızı silemezsiniz" });
+        }
+
+        // İlişkili verileri temizle
+        const [delSubs, delMps, delOrders, delProducts] = await Promise.all([
+            Subscription.deleteMany({ userId: id }),
+            Marketplace.deleteMany({ userId: id }),
+            Order.deleteMany({ user: id }),
+            ProductMapping.deleteMany({ userId: id }),
+        ]);
+
+        await User.findByIdAndDelete(id);
+
+        await AuditLog.create({
+            adminId: req.user._id,
+            action: "tenant_deleted",
+            category: "security",
+            severity: "critical",
+            description: `Kullanıcı silindi: ${user.name} (${user.email}). Silinen: ${delSubs.deletedCount} abonelik, ${delMps.deletedCount} entegrasyon, ${delOrders.deletedCount} sipariş, ${delProducts.deletedCount} ürün`,
+            ipAddress: req.ip,
+        });
+
+        res.json({
+            success: true,
+            message: `${user.name} ve tüm verileri silindi`,
+            deleted: { subscriptions: delSubs.deletedCount, marketplaces: delMps.deletedCount, orders: delOrders.deletedCount, products: delProducts.deletedCount }
+        });
+    } catch (error) {
+        logger.error(`Kullanıcı silme hatası: ${error.message}`);
+        res.status(500).json({ success: false, message: "Kullanıcı silinemedi" });
+    }
+};
+
+/* ═══════════════════════════════════════════════════════════
+   15. KULLANICI PROFİL GÜNCELLEME (Admin tarafından)
+   ═══════════════════════════════════════════════════════════ */
+exports.updateTenantProfile = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { name, email, phone, company } = req.body;
+
+        const user = await User.findById(id);
+        if (!user) return res.status(404).json({ success: false, message: "Kullanıcı bulunamadı" });
+
+        if (name) user.name = name;
+        if (email) {
+            // Email benzersizlik kontrolü
+            const existing = await User.findOne({ email, _id: { $ne: id } });
+            if (existing) return res.status(400).json({ success: false, message: "Bu email zaten kullanılıyor" });
+            user.email = email;
+        }
+        if (!user.profile) user.profile = {};
+        if (phone !== undefined) user.profile.phone = phone;
+        if (company !== undefined) user.profile.company = company;
+        user.markModified("profile");
+        await user.save();
+
+        await AuditLog.create({
+            userId: id,
+            adminId: req.user._id,
+            action: "tenant_profile_updated",
+            category: "user",
+            severity: "info",
+            description: `Kullanıcı profili güncellendi: ${user.name} (${user.email})`,
+            ipAddress: req.ip,
+        });
+
+        res.json({ success: true, message: "Profil güncellendi", user: { _id: user._id, name: user.name, email: user.email, role: user.role, profile: user.profile } });
+    } catch (error) {
+        logger.error(`Profil güncelleme hatası: ${error.message}`);
+        res.status(500).json({ success: false, message: "Profil güncellenemedi" });
+    }
+};
+
+/* ═══════════════════════════════════════════════════════════
+   16. ADMIN RESET PASSWORD
    ═══════════════════════════════════════════════════════════ */
 exports.adminResetPassword = async (req, res) => {
     try {
@@ -946,7 +1210,14 @@ exports.adminResetPassword = async (req, res) => {
         if (!user) return res.status(404).json({ success: false, message: "Kullanıcı bulunamadı" });
 
         const salt = await bcrypt.genSalt(10);
-        user.password = await bcrypt.hash(newPassword || "LysiaETIC2024!", salt);
+        // ✅ SEC: Hardcoded fallback şifre kaldırıldı — şifre zorunlu
+        if (!newPassword || newPassword.length < 8) {
+            return res.status(400).json({ success: false, message: "Yeni şifre en az 8 karakter olmalıdır" });
+        }
+        if (!/[A-Z]/.test(newPassword) || !/[a-z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
+            return res.status(400).json({ success: false, message: "Şifre en az bir büyük harf, bir küçük harf ve bir rakam içermelidir" });
+        }
+        user.password = await bcrypt.hash(newPassword, salt);
         if (!user.security) user.security = {};
         user.security.lastPasswordChange = new Date();
         await user.save();

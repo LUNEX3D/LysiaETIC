@@ -5,12 +5,15 @@
  * Sekmeler: Ana Sayfa | Özellikler | Fiyatlandırma
  * Login formu sağda sabit kalır, bu bileşen sol paneli doldurur.
  */
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import axios from "../services/api";
 
 /* ═══════════════════════════════════════════════════════════
    DATA
    ═══════════════════════════════════════════════════════════ */
-const PLANS = [
+
+// Fallback plan verileri (API'den yüklenemezse kullanılır)
+const FALLBACK_PLANS = [
     {
         id: "trial", name: "Demo", price: "Ücretsiz", period: "14 gün",
         desc: "Platformu keşfedin", color: "#22d3ee",
@@ -36,6 +39,49 @@ const PLANS = [
         cta: "İletişime Geç", popular: false
     }
 ];
+
+const PLAN_COLORS = { trial: "#22d3ee", basic: "#60a5fa", pro: "#a78bfa", enterprise: "#f59e0b" };
+const PLAN_DESCS = { trial: "Platformu keşfedin", basic: "Küçük işletmeler için", pro: "Büyüyen işletmeler için", enterprise: "Kurumsal çözümler" };
+const PLAN_CTAS = { trial: "Hemen Başla", basic: "Paketi Seç", pro: "Paketi Seç", enterprise: "İletişime Geç" };
+
+// API'den gelen plan verisini LandingSection formatına dönüştür
+const transformApiPlans = (apiPlans) => {
+    if (!apiPlans || !Array.isArray(apiPlans) || apiPlans.length === 0) return null;
+    const result = [{
+        id: "trial", name: "Demo", price: "Ücretsiz", period: "14 gün",
+        desc: "Platformu keşfedin", color: "#22d3ee", monthlyPrice: 0, yearlyPrice: 0,
+        features: ["100 ürün limiti", "1.000 sipariş/ay", "2 pazaryeri", "Temel raporlama", "E-posta desteği"],
+        cta: "Hemen Başla", popular: false
+    }];
+    apiPlans.forEach(p => {
+        const lim = p.limits || {};
+        const mp = p.monthlyPrice || p.price || 0;
+        const yp = p.yearlyPrice || Math.round(mp * 10);
+        const fmtPrice = mp >= 1000 ? `₺${mp.toLocaleString("tr-TR")}` : `₺${mp}`;
+        const features = [];
+        if (lim.maxProducts) features.push(lim.maxProducts === -1 ? "Sınırsız ürün" : `${lim.maxProducts.toLocaleString("tr-TR")} ürün limiti`);
+        if (lim.maxOrders) features.push(lim.maxOrders === -1 ? "Sınırsız sipariş" : `${lim.maxOrders.toLocaleString("tr-TR")} sipariş/ay`);
+        if (lim.maxMarketplaces) features.push(lim.maxMarketplaces === -1 ? "Sınırsız entegrasyon" : `${lim.maxMarketplaces} pazaryeri`);
+        if (lim.maxUsers) features.push(lim.maxUsers === -1 ? "Sınırsız kullanıcı" : `${lim.maxUsers} kullanıcı`);
+        if (p.id === "enterprise") { features.push("Özel API erişimi"); features.push("Dedicated yönetici"); features.push("SLA garantisi"); }
+        else if (p.id === "pro") { features.push("AI destekli analiz"); features.push("7/24 destek"); }
+        else { features.push("Gelişmiş raporlama"); features.push("Öncelikli destek"); }
+        result.push({
+            id: p.id,
+            name: p.name || p.id,
+            price: fmtPrice,
+            period: "/ay",
+            desc: PLAN_DESCS[p.id] || "",
+            color: PLAN_COLORS[p.id] || "#6366f1",
+            monthlyPrice: mp,
+            yearlyPrice: yp,
+            features,
+            cta: PLAN_CTAS[p.id] || "Paketi Seç",
+            popular: p.id === "pro",
+        });
+    });
+    return result;
+};
 
 const FEATURES = [
     { icon: "🔗", title: "Çoklu Pazaryeri", desc: "Trendyol, Hepsiburada, Amazon, N11, ÇiçekSepeti — tek panelden.", color: "#f27a1a" },
@@ -631,10 +677,19 @@ const FeaturesTab = () => {
     );
 };
 
-const PricingTab = ({ onGoToLogin }) => {
+const PricingTab = ({ onGoToLogin, plans }) => {
     const [hoveredPlan, setHoveredPlan] = useState(null);
     const [billingPeriod, setBillingPeriod] = useState("monthly");
-    const yearlyPrices = { trial: "Ücretsiz", basic: "₺249", pro: "₺499", enterprise: "₺1.083" };
+
+    const displayPlans = plans && plans.length > 0 ? plans : FALLBACK_PLANS;
+
+    // Yıllık fiyatları hesapla (API'den gelen yearlyPrice / 12 = aylık)
+    const getYearlyDisplay = (p) => {
+        if (p.id === "trial") return "Ücretsiz";
+        const yp = p.yearlyPrice || (p.monthlyPrice ? Math.round(p.monthlyPrice * 10) : 0);
+        const monthlyFromYearly = Math.round(yp / 12);
+        return monthlyFromYearly >= 1000 ? `₺${monthlyFromYearly.toLocaleString("tr-TR")}` : `₺${monthlyFromYearly}`;
+    };
 
     return (
         <div style={S.tabContent}>
@@ -677,7 +732,7 @@ const PricingTab = ({ onGoToLogin }) => {
                     </button>
                 </div>
                 <div style={S.pricingGrid}>
-                    {PLANS.map((p, i) => (
+                    {displayPlans.map((p, i) => (
                         <div
                             key={p.id}
                             style={{
@@ -693,7 +748,7 @@ const PricingTab = ({ onGoToLogin }) => {
                             <div style={S.priceDesc}>{p.desc}</div>
                             <div style={{ marginBottom: "4px" }}>
                                 <span style={S.priceAmount}>
-                                    {billingPeriod === "yearly" ? yearlyPrices[p.id] : p.price}
+                                    {billingPeriod === "yearly" ? getYearlyDisplay(p) : p.price}
                                 </span>
                                 <span style={S.pricePeriod}>
                                     {p.id === "trial" ? " / 14 gün" : billingPeriod === "yearly" ? " /ay (yıllık)" : p.period}
@@ -744,6 +799,23 @@ const PricingTab = ({ onGoToLogin }) => {
    ═══════════════════════════════════════════════════════════ */
 const LandingSection = ({ onScrollToLogin }) => {
     const [activeTab, setActiveTab] = useState("home");
+    const [apiPlans, setApiPlans] = useState(null);
+
+    // API'den güncel plan bilgilerini çek
+    useEffect(() => {
+        const fetchPlans = async () => {
+            try {
+                const res = await axios.get("/paytr/plans");
+                if (res.data.success && res.data.plans) {
+                    const transformed = transformApiPlans(res.data.plans);
+                    if (transformed) setApiPlans(transformed);
+                }
+            } catch (err) {
+                console.warn("Plan bilgileri yüklenemedi, fallback kullanılıyor", err.message);
+            }
+        };
+        fetchPlans();
+    }, []);
 
     const handleGoToLogin = () => {
         if (onScrollToLogin) onScrollToLogin();
@@ -785,11 +857,21 @@ const LandingSection = ({ onScrollToLogin }) => {
             <div style={S.contentArea}>
                 {activeTab === "home" && <HomeTab onGoToLogin={handleGoToLogin} />}
                 {activeTab === "features" && <FeaturesTab />}
-                {activeTab === "pricing" && <PricingTab onGoToLogin={handleGoToLogin} />}
+                {activeTab === "pricing" && <PricingTab onGoToLogin={handleGoToLogin} plans={apiPlans} />}
             </div>
 
             {/* Footer */}
-            <div style={S.footer}>© 2024 Lunexetic. Tüm hakları saklıdır.</div>
+            <div style={S.footer}>
+                <span>© {new Date().getFullYear()} Lunexetic. Tüm hakları saklıdır.</span>
+                <span style={{ margin: "0 8px", opacity: 0.3 }}>•</span>
+                <a href="/privacy" target="_blank" rel="noopener noreferrer" style={{ color: "#64748b", textDecoration: "none", transition: "color 0.2s" }}>Gizlilik Politikası</a>
+                <span style={{ margin: "0 8px", opacity: 0.3 }}>•</span>
+                <a href="/terms" target="_blank" rel="noopener noreferrer" style={{ color: "#64748b", textDecoration: "none", transition: "color 0.2s" }}>Kullanım Şartları</a>
+                <span style={{ margin: "0 8px", opacity: 0.3 }}>•</span>
+                <a href="/cookies" target="_blank" rel="noopener noreferrer" style={{ color: "#64748b", textDecoration: "none", transition: "color 0.2s" }}>Çerez Politikası</a>
+                <span style={{ margin: "0 8px", opacity: 0.3 }}>•</span>
+                <a href="/distance-sales" target="_blank" rel="noopener noreferrer" style={{ color: "#64748b", textDecoration: "none", transition: "color 0.2s" }}>Mesafeli Satış Sözleşmesi</a>
+            </div>
         </div>
     );
 };

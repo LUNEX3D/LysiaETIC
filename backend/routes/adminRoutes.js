@@ -22,11 +22,15 @@ router.delete("/delete-product/:id", authMiddleware, adminMiddleware, adminDataC
 router.get("/orders", authMiddleware, adminMiddleware, adminDataController.getAllOrdersAdmin);
 
 // ─── Sistem & Sunucu Yönetimi ───────────────────────────────────────────────
-router.get("/system/status", authMiddleware, adminMiddleware, adminSystemController.getSystemStatus);
-router.get("/system/servers", authMiddleware, adminMiddleware, adminSystemController.getServers);
-router.get("/system/logs", authMiddleware, adminMiddleware, adminSystemController.getSystemLogs);
-router.get("/system/settings", authMiddleware, adminMiddleware, adminSystemController.getSystemSettings);
-router.post("/system/impersonate/:userId", authMiddleware, adminMiddleware, adminSystemController.impersonateUser);
+router.get("/system/status",                authMiddleware, adminMiddleware, adminSystemController.getSystemStatus);
+router.get("/system/servers",               authMiddleware, adminMiddleware, adminSystemController.getServers);
+router.get("/system/logs",                  authMiddleware, adminMiddleware, adminSystemController.getSystemLogs);
+router.get("/system/settings",              authMiddleware, adminMiddleware, adminSystemController.getSystemSettings);
+router.post("/system/impersonate/:userId",  authMiddleware, adminMiddleware, adminSystemController.impersonateUser);
+router.get("/system/audit-logs",            authMiddleware, adminMiddleware, adminSystemController.getAuditLogs);
+router.get("/system/db-health",             authMiddleware, adminMiddleware, adminSystemController.getDbHealth);
+router.post("/system/clear-logs",           authMiddleware, adminMiddleware, adminSystemController.clearLogs);
+router.get("/system/workers",               authMiddleware, adminMiddleware, adminSystemController.getWorkerStatuses);
 
 // ─── Pazaryeri (Admin — başka kullanıcının entegrasyonlarını görüntüleme) ───
 router.get("/marketplace/user-marketplaces/:userId", authMiddleware, adminMiddleware, async (req, res) => {
@@ -39,11 +43,9 @@ router.get("/marketplace/user-marketplaces/:userId", authMiddleware, adminMiddle
 });
 
 // ─── Rol Düzeltme (Legacy) ──────────────────────────────────────────────────
-router.get("/fix-user-roles", authMiddleware, async (req, res) => {
+// ✅ SEC: adminMiddleware eklendi — tutarlı yetki kontrolü
+router.get("/fix-user-roles", authMiddleware, adminMiddleware, async (req, res) => {
     try {
-        if (req.user.role !== "admin") {
-            return res.status(403).json({ success: false, message: "Bu işlem için admin yetkisi gereklidir" });
-        }
 
         const usersWithInvalidRole = await User.find({ role: "users" });
         if (usersWithInvalidRole.length === 0) {

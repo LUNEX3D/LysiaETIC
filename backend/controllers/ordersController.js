@@ -434,7 +434,9 @@ exports.getDbOrders = async (req, res) => {
         }
 
         if (req.query.status) {
-            filter.status = { $regex: req.query.status, $options: "i" };
+            // SEC: Kullanıcı girdisini escape et — ReDoS koruması
+            const escapedStatus = req.query.status.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            filter.status = { $regex: escapedStatus, $options: "i" };
         }
 
         if (req.query.invoiceFilter === "invoiced") {

@@ -2,6 +2,8 @@ const mongoose = require("mongoose");
 
 const UserSchema = new mongoose.Schema({
     name: { type: String, required: true },
+    surname: { type: String, default: "" },
+    phone: { type: String, default: "" },
     email: { type: String, required: true, unique: true },
     password: { type: String },
     role: {
@@ -133,6 +135,18 @@ const UserSchema = new mongoose.Schema({
         grantedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" }, // admin tarafından verildi mi
         grantedAt: Date,
         grantNote: String
+    },
+
+    // ✅ LEGAL: Yasal belge onay kaydı — KVKK/GDPR uyumlu
+    legalAcceptance: {
+        accepted: { type: Boolean, default: false },
+        privacyPolicy: { type: Boolean, default: false },
+        termsOfService: { type: Boolean, default: false },
+        cookiePolicy: { type: Boolean, default: false },
+        acceptedAt: { type: Date },
+        acceptedVersion: { type: String, default: "1.0" },
+        ipAddress: { type: String },
+        userAgent: { type: String }
     },
 
     // ✅ SEC #2: Refresh token DB'de saklanıyor — revoke desteği

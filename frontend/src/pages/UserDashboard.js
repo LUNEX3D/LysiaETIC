@@ -13,9 +13,10 @@ import AdvancedAnalytics from "../pages/AdvancedAnalytics";
 import LysiaBrain from "../pages/lysiabrain/LysiaBrain";
 import AIChatWidget from "../components/AIChatWidget";
 import ProductManagementCenter from "../pages/ProductManagementCenter";
+import ProductUploadWizard from "../pages/ProductUploadWizard";
 import CategoryCenterPage from "../pages/CategoryCenterPage";
-
 import SettingsPage from "../pages/SettingsPage";
+import SupportTicketsPage from "../pages/SupportTicketsPage";
 import AdminPanelPage from "../pages/AdminPanelPage";
 import BillingPage from "../pages/BillingPage";
 import SubscriptionPage from "../pages/SubscriptionPage";
@@ -28,7 +29,7 @@ import {
     FaChevronDown, FaBox, FaCrown,
     FaBrain, FaChartBar, FaBell, FaRocket, FaCrosshairs,
     FaCubes, FaSitemap, FaSignOutAlt, FaUserShield,
-    FaExclamationTriangle
+    FaExclamationTriangle, FaCloudUploadAlt, FaHeadset
 } from "react-icons/fa";
 import { motion, AnimatePresence } from "framer-motion";
 import Particles from "react-tsparticles";
@@ -1238,6 +1239,7 @@ const UserDashboard = () => {
         { id: "finance", icon: <FaMoneyBillWave />, text: t("sidebar.finance"), hasSubmenu: true },
         { type: "divider", label: t("sidebar.productMgmt") },
         { id: "pm-center", icon: <FaCubes />, text: t("sidebar.productCenter") },
+        { id: "product-upload", icon: <FaCloudUploadAlt />, text: t("sidebar.productUpload") },
         { id: "category-center", icon: <FaSitemap />, text: t("sidebar.categoryCenter") },
 
         { type: "divider", label: t("sidebar.analytics") },
@@ -1249,6 +1251,7 @@ const UserDashboard = () => {
         { id: "users", icon: <FaUsers />, text: t("sidebar.userMgmt") },
         { id: "billing", icon: <FaFileInvoice />, text: t("sidebar.billing") },
         { id: "subscription", icon: <FaCrown />, text: language === "en" ? "Subscription & Plans" : "Abonelik & Paket" },
+        { id: "support", icon: <FaHeadset />, text: t("sidebar.support") },
         { id: "settings", icon: <FaCog />, text: t("sidebar.settings") },
         ...(isAdmin ? [
             { type: "divider", label: "Admin" },
@@ -1317,11 +1320,12 @@ const UserDashboard = () => {
             case "advanced-analytics": return <AdvancedAnalytics userId={userId} />;
             case "lysia-brain": return <LysiaBrain userId={userId} />;
             case "pm-center": return <ProductManagementCenter userId={userId} />;
+            case "product-upload": return <ProductUploadWizard userId={userId} />;
             case "category-center": return <CategoryCenterPage userId={userId} />;
-
             case "settings": return <SettingsPage userId={userId} />;
             case "billing": return <BillingPage userId={userId} />;
             case "subscription": return <SubscriptionPage />;
+            case "support": return <SupportTicketsPage />;
             case "roketfy": return <RoketfyPanel />;
             case "radar-pro": return <RadarProPage userId={userId} />;
             case "admin-panel": return isAdmin ? <AdminPanelPage userId={userId} /> : null;

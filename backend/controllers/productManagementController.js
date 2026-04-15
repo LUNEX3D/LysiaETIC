@@ -161,16 +161,20 @@ exports.getProducts = async (req, res) => {
 
         // Arama filtresi
         if (search) {
+            // SEC: Kullanıcı girdisini escape et — ReDoS koruması
+            const escapedSearch = search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
             filter.$or = [
-                { "masterProduct.name": { $regex: search, $options: "i" } },
-                { "masterProduct.barcode": { $regex: search, $options: "i" } },
-                { "masterProduct.sku": { $regex: search, $options: "i" } }
+                { "masterProduct.name": { $regex: escapedSearch, $options: "i" } },
+                { "masterProduct.barcode": { $regex: escapedSearch, $options: "i" } },
+                { "masterProduct.sku": { $regex: escapedSearch, $options: "i" } }
             ];
         }
 
         // Kategori filtresi
         if (category) {
-            filter["masterProduct.category"] = { $regex: category, $options: "i" };
+            // SEC: Kullanıcı girdisini escape et — ReDoS koruması
+            const escapedCategory = category.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            filter["masterProduct.category"] = { $regex: escapedCategory, $options: "i" };
         }
 
         // Pazaryeri filtresi (case-insensitive — DB'de "n11" veya "N11" olabilir)
@@ -1039,7 +1043,7 @@ exports.n11CreateProduct = async (req, res) => {
 
     } catch (error) {
         logger.error("[N11 CREATE PRODUCT] Hata:", error.message);
-        return res.status(error.statusCode || 500).json({ error: error.message });
+        return res.status(error.statusCode || 500).json({ success: false, message: "N11 ürün oluşturma hatası" });
     }
 };
 
@@ -1095,7 +1099,7 @@ exports.n11UpdateStock = async (req, res) => {
 
     } catch (error) {
         logger.error("[N11 STOCK UPDATE] Hata:", error.message);
-        return res.status(error.statusCode || 500).json({ error: error.message });
+        return res.status(error.statusCode || 500).json({ success: false, message: "N11 stok güncelleme hatası" });
     }
 };
 
@@ -1129,7 +1133,7 @@ exports.n11GetTaskDetails = async (req, res) => {
 
     } catch (error) {
         logger.error("[N11 TASK DETAILS] Hata:", error.message);
-        return res.status(error.statusCode || 500).json({ error: error.message });
+        return res.status(error.statusCode || 500).json({ success: false, message: "N11 task detay hatası" });
     }
 };
 
@@ -1165,7 +1169,7 @@ exports.n11GetProducts = async (req, res) => {
 
     } catch (error) {
         logger.error("[N11 GET PRODUCTS] Hata:", error.message);
-        return res.status(error.statusCode || 500).json({ error: error.message });
+        return res.status(error.statusCode || 500).json({ success: false, message: "N11 ürün listesi hatası" });
     }
 };
 
@@ -1195,7 +1199,7 @@ exports.n11GetCategories = async (req, res) => {
 
     } catch (error) {
         logger.error("[N11 GET CATEGORIES] Hata:", error.message);
-        return res.status(error.statusCode || 500).json({ error: error.message });
+        return res.status(error.statusCode || 500).json({ success: false, message: "N11 kategori listesi hatası" });
     }
 };
 
@@ -1232,7 +1236,7 @@ exports.n11GetCategoryAttributes = async (req, res) => {
 
     } catch (error) {
         logger.error("[N11 CATEGORY ATTRIBUTES] Hata:", error.message);
-        return res.status(error.statusCode || 500).json({ error: error.message });
+        return res.status(error.statusCode || 500).json({ success: false, message: "N11 kategori özellikleri hatası" });
     }
 };
 
@@ -1267,7 +1271,7 @@ exports.n11GetOrders = async (req, res) => {
 
     } catch (error) {
         logger.error("[N11 GET ORDERS] Hata:", error.message);
-        return res.status(error.statusCode || 500).json({ error: error.message });
+        return res.status(error.statusCode || 500).json({ success: false, message: "N11 sipariş listesi hatası" });
     }
 };
 
@@ -1307,7 +1311,7 @@ exports.n11UpdateOrder = async (req, res) => {
 
     } catch (error) {
         logger.error("[N11 UPDATE ORDER] Hata:", error.message);
-        return res.status(error.statusCode || 500).json({ error: error.message });
+        return res.status(error.statusCode || 500).json({ success: false, message: "N11 sipariş güncelleme hatası" });
     }
 };
 
@@ -1343,7 +1347,7 @@ exports.n11SplitPackage = async (req, res) => {
 
     } catch (error) {
         logger.error("[N11 SPLIT PACKAGE] Hata:", error.message);
-        return res.status(error.statusCode || 500).json({ error: error.message });
+        return res.status(error.statusCode || 500).json({ success: false, message: "N11 paket bölme hatası" });
     }
 };
 
@@ -1382,7 +1386,7 @@ exports.n11SplitPackageByQuantity = async (req, res) => {
 
     } catch (error) {
         logger.error("[N11 SPLIT BY QUANTITY] Hata:", error.message);
-        return res.status(error.statusCode || 500).json({ error: error.message });
+        return res.status(error.statusCode || 500).json({ success: false, message: "N11 miktar bazlı bölme hatası" });
     }
 };
 
@@ -1432,7 +1436,7 @@ exports.n11AddLaborCost = async (req, res) => {
 
     } catch (error) {
         logger.error("[N11 LABOR COST] Hata:", error.message);
-        return res.status(error.statusCode || 500).json({ error: error.message });
+        return res.status(error.statusCode || 500).json({ success: false, message: "N11 işçilik bedeli hatası" });
     }
 };
 
@@ -1528,7 +1532,7 @@ exports.n11DebugRawProducts = async (req, res) => {
 
     } catch (error) {
         logger.error("[N11 DEBUG] Hata:", error.message);
-        return res.status(500).json({ error: error.message });
+        return res.status(500).json({ success: false, message: "N11 debug hatası" });
     }
 };
 
@@ -1602,7 +1606,7 @@ exports.debugPlatformCheck = async (req, res) => {
             first5Products: first5
         });
     } catch (error) {
-        return res.status(500).json({ error: error.message });
+        return res.status(500).json({ success: false, message: "Platform kontrol hatası" });
     }
 };
 
@@ -3466,10 +3470,11 @@ exports.suggestBarcodeAndSku = async (req, res) => {
         const brandPrefix = brand ? toAscii(brand.trim()).slice(0, 3).toUpperCase() : "";
         const catPrefix = category ? toAscii(category.split(">").pop().trim()).slice(0, 3).toUpperCase() : "";
 
-        // Benzersiz sayı üret (timestamp son 6 hane + random 4 hane)
+        // Benzersiz sayı üret (timestamp son 6 hane + random 4 hane) — ✅ SEC: crypto.randomInt kullanımı
+        const crypto = require("crypto");
         const ts = Date.now().toString().slice(-6);
-        const rnd = Math.floor(1000 + Math.random() * 9000).toString();
-        const rnd2 = Math.floor(100 + Math.random() * 900).toString();
+        const rnd = crypto.randomInt(1000, 10000).toString();
+        const rnd2 = crypto.randomInt(100, 1000).toString();
 
         // Mevcut barkod sayısını al (sıralı numara için)
         const existingCount = await ProductMapping.countDocuments({ userId });
@@ -3515,7 +3520,7 @@ exports.suggestBarcodeAndSku = async (req, res) => {
         return res.status(200).json({ success: true, suggestions });
     } catch (error) {
         logger.error("[SUGGEST CODES] Hata:", error.message);
-        return res.status(500).json({ error: error.message });
+        return res.status(500).json({ success: false, message: "Kod önerisi hatası" });
     }
 };
 
@@ -3662,7 +3667,7 @@ exports.generateAIDescription = async (req, res) => {
         });
     } catch (error) {
         logger.error("[AI DESCRIPTION] Hata:", error.message);
-        return res.status(500).json({ error: error.message });
+        return res.status(500).json({ success: false, message: "AI açıklama üretme hatası" });
     }
 };
 

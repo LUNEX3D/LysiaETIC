@@ -57,7 +57,7 @@ exports.getOrders = async (req, res) => {
 
     } catch (error) {
         logger.error("[ÇiçekSepeti Controller] Sipariş listesi hatası", { error: error.message });
-        return res.status(500).json({ success: false, error: error.message });
+        return res.status(500).json({ success: false, message: "Sipariş listesi alınamadı" });
     }
 };
 
@@ -85,7 +85,7 @@ exports.getCanceledOrders = async (req, res) => {
 
     } catch (error) {
         logger.error("[ÇiçekSepeti Controller] İade siparişleri hatası", { error: error.message });
-        return res.status(500).json({ success: false, error: error.message });
+        return res.status(500).json({ success: false, message: "İade siparişleri alınamadı" });
     }
 };
 
@@ -117,7 +117,7 @@ exports.getCargoCode = async (req, res) => {
 
     } catch (error) {
         logger.error("[ÇiçekSepeti Controller] Kargo kodu alma hatası", { error: error.message });
-        return res.status(500).json({ success: false, error: error.message });
+        return res.status(500).json({ success: false, message: "Kargo kodu alınamadı" });
     }
 };
 
@@ -145,7 +145,7 @@ exports.updateOrderStatus = async (req, res) => {
 
     } catch (error) {
         logger.error("[ÇiçekSepeti Controller] Sipariş durumu güncelleme hatası", { error: error.message });
-        return res.status(500).json({ success: false, error: error.message });
+        return res.status(500).json({ success: false, message: "Sipariş durumu güncellenemedi" });
     }
 };
 
@@ -178,7 +178,7 @@ exports.getProducts = async (req, res) => {
 
     } catch (error) {
         logger.error("[ÇiçekSepeti Controller] Ürün listesi hatası", { error: error.message });
-        return res.status(500).json({ success: false, error: error.message });
+        return res.status(500).json({ success: false, message: "Ürün listesi alınamadı" });
     }
 };
 
@@ -206,7 +206,7 @@ exports.createProducts = async (req, res) => {
 
     } catch (error) {
         logger.error("[ÇiçekSepeti Controller] Ürün yükleme hatası", { error: error.message });
-        return res.status(500).json({ success: false, error: error.message });
+        return res.status(500).json({ success: false, message: "Ürün yükleme başarısız" });
     }
 };
 
@@ -234,7 +234,7 @@ exports.updateProducts = async (req, res) => {
 
     } catch (error) {
         logger.error("[ÇiçekSepeti Controller] Ürün güncelleme hatası", { error: error.message });
-        return res.status(500).json({ success: false, error: error.message });
+        return res.status(500).json({ success: false, message: "Ürün güncelleme başarısız" });
     }
 };
 
@@ -262,7 +262,7 @@ exports.updatePriceAndStock = async (req, res) => {
 
     } catch (error) {
         logger.error("[ÇiçekSepeti Controller] Stok/fiyat güncelleme hatası", { error: error.message });
-        return res.status(500).json({ success: false, error: error.message });
+        return res.status(500).json({ success: false, message: "Stok/fiyat güncelleme başarısız" });
     }
 };
 
@@ -290,7 +290,7 @@ exports.getBatchStatus = async (req, res) => {
 
     } catch (error) {
         logger.error("[ÇiçekSepeti Controller] Batch status hatası", { error: error.message });
-        return res.status(500).json({ success: false, error: error.message });
+        return res.status(500).json({ success: false, message: "Batch durumu alınamadı" });
     }
 };
 
@@ -317,7 +317,7 @@ exports.getCategories = async (req, res) => {
 
     } catch (error) {
         logger.error("[ÇiçekSepeti Controller] Kategori listesi hatası", { error: error.message });
-        return res.status(500).json({ success: false, error: error.message });
+        return res.status(500).json({ success: false, message: "Kategori listesi alınamadı" });
     }
 };
 
@@ -345,7 +345,7 @@ exports.getCategoryAttributes = async (req, res) => {
 
     } catch (error) {
         logger.error("[ÇiçekSepeti Controller] Kategori özellikleri hatası", { error: error.message });
-        return res.status(500).json({ success: false, error: error.message });
+        return res.status(500).json({ success: false, message: "Kategori özellikleri alınamadı" });
     }
 };
 
@@ -372,7 +372,7 @@ exports.getSellerQuestions = async (req, res) => {
 
     } catch (error) {
         logger.error("[ÇiçekSepeti Controller] Ürün soruları hatası", { error: error.message });
-        return res.status(500).json({ success: false, error: error.message });
+        return res.status(500).json({ success: false, message: "Ürün soruları alınamadı" });
     }
 };
 
@@ -396,7 +396,7 @@ exports.answerSellerQuestion = async (req, res) => {
 
     } catch (error) {
         logger.error("[ÇiçekSepeti Controller] Soru cevaplama hatası", { error: error.message });
-        return res.status(500).json({ success: false, error: error.message });
+        return res.status(500).json({ success: false, message: "Soru cevaplama başarısız" });
     }
 };
 
@@ -428,7 +428,7 @@ exports.sendInvoice = async (req, res) => {
 
     } catch (error) {
         logger.error("[ÇiçekSepeti Controller] Fatura gönderimi hatası", { error: error.message });
-        return res.status(500).json({ success: false, error: error.message });
+        return res.status(500).json({ success: false, message: "Fatura gönderimi başarısız" });
     }
 };
 
@@ -460,7 +460,7 @@ exports.startRefundProcess = async (req, res) => {
 
     } catch (error) {
         logger.error("[ÇiçekSepeti Controller] İade süreci başlatma hatası", { error: error.message });
-        return res.status(500).json({ success: false, error: error.message });
+        return res.status(500).json({ success: false, message: "İade süreci başlatılamadı" });
     }
 };
 
@@ -488,7 +488,7 @@ exports.evaluateCancellation = async (req, res) => {
 
     } catch (error) {
         logger.error("[ÇiçekSepeti Controller] İade değerlendirme hatası", { error: error.message });
-        return res.status(500).json({ success: false, error: error.message });
+        return res.status(500).json({ success: false, message: "İade değerlendirme başarısız" });
     }
 };
 
@@ -541,8 +541,7 @@ exports.testCredentials = async (req, res) => {
         logger.error("[ÇiçekSepeti Controller] Credential test hatası", { error: error.message });
         return res.status(500).json({
             success: false,
-            message: "❌ Sunucu hatası!",
-            error: error.message
+            message: "❌ Sunucu hatası!"
         });
     }
 };

@@ -1,27 +1,27 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
- * OPPORTUNITY ENGINE — LysiaRadar PRO (Ana Sistem)
+ * OPPORTUNITY ENGINE — LysiaRadar PRO v2 (REVISED)
  * ═══════════════════════════════════════════════════════════════════════════════
  *
  * Tüm servisleri orkestra eden ana motor.
  *
  * AKIŞ:
- *   1. Keyword çıkar (keywordService)
- *   2. Her keyword için:
- *      a. Trend verisi çek (trendService)
- *      b. Pazar verisi çek (marketplaceDataService)
- *      c. Skorla (scoringService)
- *      d. AI açıklama üret (explanationService)
+ *   1. Keyword çıkar (keywordService) — Google Trends + Amazon + kullanıcı
+ *   2. Her keyword için paralel:
+ *      a. Trend verisi çek (trendService) — Google + Sosyal + Amazon + Trendyol
+ *      b. Pazar verisi çek (marketplaceDataService) — Trendyol + Amazon çapraz
+ *      c. Skorla (scoringService) — 7 boyutlu skor
+ *      d. AI açıklama üret (explanationService) — zenginleştirilmiş
  *   3. Kullanıcıya göre filtrele ve sırala
  *   4. DB'ye kaydet (OpportunityResult)
  *   5. Cache'le
  *
  * OPTİMİZASYON:
- *   - Max 15 keyword analiz edilir (rate limit)
- *   - Her keyword arası 3s bekleme (Trendyol rate limit)
+ *   - Max 20 keyword analiz edilir (artırıldı)
+ *   - Her keyword arası 2s bekleme (paralel veri toplama sayesinde azaltıldı)
  *   - Sonuçlar 6 saat cache'lenir
  *   - Düşük kaliteli veriler filtrelenir
- *   - Max 10 fırsat kullanıcıya sunulur
+ *   - Max 15 fırsat kullanıcıya sunulur (artırıldı)
  *
  * ═══════════════════════════════════════════════════════════════════════════════
  */
@@ -34,11 +34,11 @@ const scoringService = require("./scoringService");
 const explanationService = require("./explanationService");
 
 // ── Konfigürasyon ──
-const MAX_KEYWORDS = 15;           // Analiz edilecek max keyword
-const KEYWORD_DELAY_MS = 3000;     // Keyword'ler arası bekleme (ms)
+const MAX_KEYWORDS = 20;           // Analiz edilecek max keyword (artırıldı)
+const KEYWORD_DELAY_MS = 2000;     // Keyword'ler arası bekleme (azaltıldı — paralel toplama)
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 saat cache
 const MIN_SCORE_THRESHOLD = 25;    // Bu skorun altındaki fırsatlar filtrelenir
-const MAX_OPPORTUNITIES = 10;      // Kullanıcıya sunulacak max fırsat
+const MAX_OPPORTUNITIES = 15;      // Kullanıcıya sunulacak max fırsat (artırıldı)
 const EXPIRY_DAYS = 3;             // Fırsat kaç gün sonra expire olur
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
@@ -69,8 +69,11 @@ async function analyzeOpportunities(userId, opts = {}) {
         // ── 2. Kullanıcı verisi çek ──
         const userData = await marketplaceDataService.getUserSalesData(userId);
 
-        // ── 3. Keyword'leri çıkar ──
-        const keywordData = await keywordService.extractKeywords(userId);
+        // ── 3. Keyword'leri çıkar (Google Trends + Amazon + kullanıcı) ──
+        const keywordData = await keywordService.extractKeywords(userId, {
+            includeGoogleTrends: true,
+            includeAmazon: true,
+        });
         const keywords = keywordData.allKeywords.slice(0, maxKeywords);
 
         if (keywords.length === 0) {
@@ -90,22 +93,29 @@ async function analyzeOpportunities(userId, opts = {}) {
 
         for (const keyword of keywords) {
             try {
-                // 4a. Trend verisi
-                const trendData = await trendService.getKeywordTrend(keyword);
+                // 4a. Trend verisi (Google + Sosyal + Amazon + Trendyol — paralel)
+                const trendData = await trendService.getKeywordTrend(keyword, {
+                    userId,
+                    skipSocial: false,
+                    skipAmazon: false,
+                    skipGoogle: false,
+                });
 
-                // Rate limit bekleme
+                // Rate limit bekleme (azaltıldı — paralel toplama sayesinde)
                 await sleep(KEYWORD_DELAY_MS);
 
-                // 4b. Pazar verisi
-                const marketData = await marketplaceDataService.getMarketplaceData(keyword);
+                // 4b. Pazar verisi (Trendyol + Amazon çapraz analiz)
+                const marketData = await marketplaceDataService.getMarketplaceData(keyword, {
+                    includeAmazon: true,
+                });
 
-                // 4c. Boş veri kontrolü — pazar verisi yoksa atla
+                // 4c. Boş veri kontrolü
                 if (marketData.totalProducts === 0 && trendData.trendScore === 0) {
                     logger.debug(`[OpportunityEngine] Boş veri, atlanıyor: "${keyword}"`);
                     continue;
                 }
 
-                // 4d. Skorla
+                // 4d. Skorla (7 boyutlu)
                 const category = detectCategory(keyword, keywordData.userCategories);
                 const { scores, totalScore, profitAnalysis } = scoringService.calculateScores({
                     trendData,
@@ -124,7 +134,7 @@ async function analyzeOpportunities(userId, opts = {}) {
                 // 4f. Genişleme tipi belirle
                 const expansionType = determineExpansionType(keyword, category, keywordData, trendData);
 
-                // 4g. AI açıklama üret
+                // 4g. AI açıklama üret (zenginleştirilmiş)
                 const explanation = explanationService.generateExplanation({
                     keyword, category, scores, totalScore,
                     trendData, marketData, profitAnalysis, userData, expansionType,
@@ -134,7 +144,19 @@ async function analyzeOpportunities(userId, opts = {}) {
                     keyword,
                     category,
                     source: determineSource(keyword, keywordData, trendData),
-                    marketData,
+                    marketData: {
+                        avgPrice: marketData.avgPrice,
+                        minPrice: marketData.minPrice,
+                        maxPrice: marketData.maxPrice,
+                        sellerCount: marketData.sellerCount,
+                        totalProducts: marketData.totalProducts,
+                        avgRating: marketData.avgRating,
+                        avgReviewCount: marketData.avgReviewCount,
+                        topBrands: marketData.topBrands,
+                        estimatedMonthlySales: marketData.estimatedMonthlySales,
+                        estimatedMonthlyRevenue: marketData.estimatedMonthlyRevenue,
+                        sampleProducts: (marketData.sampleProducts || []).slice(0, 5),
+                    },
                     trendData: {
                         trendScore: trendData.trendScore,
                         trendDirection: trendData.trendDirection,
@@ -144,6 +166,12 @@ async function analyzeOpportunities(userId, opts = {}) {
                         seasonality: trendData.seasonality,
                         relatedKeywords: (trendData.relatedKeywords || []).slice(0, 10),
                     },
+                    // YENİ: Çoklu kaynak verileri
+                    socialData: trendData.socialMedia || null,
+                    googleTrendsData: trendData.googleTrends || null,
+                    amazonData: marketData.amazonData || null,
+                    crossMarketAnalysis: marketData.crossMarketAnalysis || null,
+                    dataSourceCount: trendData.dataSourceCount || 0,
                     scores,
                     totalScore,
                     profitAnalysis,
@@ -157,7 +185,10 @@ async function analyzeOpportunities(userId, opts = {}) {
                 });
 
                 analyzedCount++;
-                logger.debug(`[OpportunityEngine] ✅ "${keyword}" — skor: ${totalScore}`);
+                logger.debug(
+                    `[OpportunityEngine] ✅ "${keyword}" — skor: ${totalScore} ` +
+                    `(${trendData.dataSourceCount || 0} kaynak)`
+                );
 
                 // Rate limit bekleme
                 if (keywords.indexOf(keyword) < keywords.length - 1) {
@@ -216,11 +247,18 @@ async function analyzeOpportunities(userId, opts = {}) {
             total: sorted.length,
             durationMs,
             keywordsTotal: keywords.length,
+            dataSources: {
+                googleTrends: sorted.filter(o => o.googleTrendsData).length,
+                socialMedia: sorted.filter(o => o.socialData).length,
+                amazon: sorted.filter(o => o.amazonData).length,
+                trendyol: sorted.length, // Her zaman var
+            },
         };
 
         logger.info(
             `[OpportunityEngine] ✅ Fırsat analizi tamamlandı — user ${String(userId).slice(-6)} — ` +
-            `${stats.total} fırsat, ${stats.analyzed} analiz, ${(durationMs / 1000).toFixed(1)}s`
+            `${stats.total} fırsat, ${stats.analyzed} analiz, ${(durationMs / 1000).toFixed(1)}s ` +
+            `(Google: ${stats.dataSources.googleTrends}, Social: ${stats.dataSources.socialMedia}, Amazon: ${stats.dataSources.amazon})`
         );
 
         return {
@@ -230,7 +268,6 @@ async function analyzeOpportunities(userId, opts = {}) {
         };
     } catch (err) {
         logger.error(`[OpportunityEngine] Genel hata (${userId}): ${err.message}`);
-        // Hata durumunda cache'den dön
         const cached = await getCachedOpportunities(userId, true);
         if (cached) return { ...cached, fromCache: true, error: err.message };
         return {
@@ -275,9 +312,6 @@ async function getCachedOpportunities(userId, ignoreAge = false) {
 
 /**
  * Kullanıcının fırsatlarını getir (API endpoint için)
- * @param {string} userId
- * @param {object} [filters] - { category, minScore, sortBy, expansionType }
- * @returns {Promise<object>}
  */
 async function getOpportunities(userId, filters = {}) {
     const query = { userId, status: "active" };
@@ -291,11 +325,15 @@ async function getOpportunities(userId, filters = {}) {
     if (filters.expansionType) {
         query.expansionType = filters.expansionType;
     }
+    if (filters.source) {
+        query.source = filters.source;
+    }
 
-    let sortField = { totalScore: -1 }; // default: en yüksek skor
+    let sortField = { totalScore: -1 };
     if (filters.sortBy === "trend") sortField = { "scores.trend": -1 };
     else if (filters.sortBy === "profit") sortField = { "scores.profit": -1 };
     else if (filters.sortBy === "competition") sortField = { "scores.competition": -1 };
+    else if (filters.sortBy === "social") sortField = { "scores.social": -1 };
     else if (filters.sortBy === "newest") sortField = { createdAt: -1 };
 
     const opportunities = await OpportunityResult.find(query)
@@ -307,7 +345,7 @@ async function getOpportunities(userId, filters = {}) {
 }
 
 /**
- * Fırsat aksiyonu kaydet (görüntüleme, simülasyon, ekleme, reddetme)
+ * Fırsat aksiyonu kaydet
  */
 async function recordAction(userId, opportunityId, action) {
     const validActions = ["viewed", "simulated", "added_to_store", "dismissed"];
@@ -338,7 +376,6 @@ async function recordAction(userId, opportunityId, action) {
 function detectCategory(keyword, userCategories) {
     const kwLower = keyword.toLowerCase();
 
-    // Kullanıcının kategorilerinden eşleşme ara
     for (const cat of userCategories) {
         const catLower = cat.toLowerCase();
         const catWords = catLower.split(/[\s>/]+/).filter(w => w.length > 2);
@@ -347,7 +384,6 @@ function detectCategory(keyword, userCategories) {
         }
     }
 
-    // Genel kategori tespiti
     const categoryMap = {
         "elektronik": ["telefon", "kulaklık", "tablet", "laptop", "powerbank", "saat", "hoparlör", "kamera"],
         "giyim": ["elbise", "tişört", "pantolon", "ceket", "mont", "kazak", "gömlek", "etek"],
@@ -369,12 +405,10 @@ function determineExpansionType(keyword, category, keywordData, trendData) {
     const userCats = (keywordData.userCategories || []).map(c => c.toLowerCase());
     const catLower = (category || "").toLowerCase();
 
-    // Aynı kategori mi?
     if (userCats.some(c => c === catLower || c.includes(catLower) || catLower.includes(c))) {
         return "same_category";
     }
 
-    // Yakın kategori mi?
     const catWords = catLower.split(/[\s>/]+/).filter(w => w.length > 2);
     const hasOverlap = userCats.some(c => {
         const words = c.split(/[\s>/]+/).filter(w => w.length > 2);
@@ -382,14 +416,19 @@ function determineExpansionType(keyword, category, keywordData, trendData) {
     });
     if (hasOverlap) return "adjacent_category";
 
-    // Trend mi?
     if (trendData && trendData.trendScore >= 70) return "trending";
 
     return "new_category";
 }
 
 function determineSource(keyword, keywordData, trendData) {
+    // YENİ: Sosyal medya kaynağı
+    if (trendData?.socialMedia?.tiktok?.isViral) return "social";
+    if (trendData?.socialMedia?.socialScore >= 70) return "social";
+
     if (keywordData.userKeywords?.includes(keyword)) return "user_data";
+    if (keywordData.googleTrendKeywords?.includes(keyword)) return "trend";
+    if (keywordData.amazonKeywords?.includes(keyword)) return "marketplace";
     if (keywordData.trendKeywords?.includes(keyword)) return "trend";
     if (keywordData.evergreenKeywords?.includes(keyword)) return "ai_discovery";
     if (trendData?.trendScore >= 70) return "trend";

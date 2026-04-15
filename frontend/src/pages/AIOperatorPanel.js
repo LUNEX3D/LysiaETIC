@@ -328,7 +328,19 @@ const AIOperatorPanel = () => {
     const healthScore = operatorStatus?.businessHealth?.score || 0;
     const criticalAlerts = alerts.filter(a => a.severity === "critical" || a.severity === "high");
     const lastSuggestions = chatMessages.length > 0 ? ([...chatMessages].reverse().find(m => m.role === "ai")?.suggestions || []) : [];
-    const renderContent = (text) => text ? text.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>").replace(/\n/g, "<br/>") : "";
+    // SEC: Önce HTML entity escape — XSS koruması, sonra güvenli markdown dönüşümleri
+    const renderContent = (text) => {
+        if (!text) return "";
+        const escaped = text
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+        return escaped
+            .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
+            .replace(/\n/g, "<br/>");
+    };
 
     const TABS = [
         { id: "overview", label: "Genel Bakış", icon: "🌐", color: C.accent },

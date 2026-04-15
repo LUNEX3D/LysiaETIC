@@ -53,10 +53,18 @@ const generateTokenPair = async (user, device = "unknown") => {
 // ─── REGISTER ──────────────────────────────────────────────────────────────────
 exports.register = async (req, res) => {
     try {
-        const { name, email, password } = req.body;
+        const { name, surname, phone, email, password } = req.body;
 
-        if (!name || !email || !password) {
-            return badRequest(res, "Tüm alanlar zorunludur.");
+        if (!name || !surname || !email || !password) {
+            return badRequest(res, "Ad, soyad, e-posta ve şifre zorunludur.");
+        }
+
+        // Telefon numarası format kontrolü (opsiyonel ama girilmişse doğrula)
+        if (phone) {
+            const phoneClean = phone.replace(/[\s\-\(\)]/g, "");
+            if (!/^\+?[0-9]{10,15}$/.test(phoneClean)) {
+                return badRequest(res, "Geçerli bir telefon numarası girin.");
+            }
         }
 
         // E-posta format kontrolü
@@ -98,6 +106,8 @@ exports.register = async (req, res) => {
 
         const newUser = new User({
             name : name.trim(),
+            surname: (surname || "").trim(),
+            phone: (phone || "").replace(/[\s\-\(\)]/g, "").trim(),
             email: email.toLowerCase().trim(),
             password: hashedPassword,
             emailVerified: false,
@@ -593,7 +603,8 @@ exports.logout = async (req, res) => {
 exports.getProfile = async (req, res) => {
     try {
         // req.user authMiddleware tarafından set ediliyor (-password zaten seçili)
-        const user = await User.findById(req.user._id).select("-password");
+        // ✅ SEC: refreshTokens ve security.twoFactorSecret da gizleniyor
+        const user = await User.findById(req.user._id).select("-password -refreshTokens -security.twoFactorSecret");
 
         if (!user) {
             return notFound(res, "Kullanıcı bulunamadı.");
@@ -603,6 +614,49 @@ exports.getProfile = async (req, res) => {
         return res.status(200).json(user);
     } catch (error) {
         logger.error(`Profil alma hatası: ${error.message}`);
+        return serverError(res, error);
+    }
+};
+
+// ─── ACCEPT LEGAL — Yasal belge onayı (KVKK/GDPR uyumlu) ──────────────────────
+exports.acceptLegal = async (req, res) => {
+    try {
+        const { privacyPolicy, termsOfService, cookiePolicy } = req.body;
+
+        if (!privacyPolicy || !termsOfService || !cookiePolicy) {
+            return badRequest(res, "Tüm yasal belgelerin onaylanması zorunludur.");
+        }
+
+        const user = await User.findById(req.user._id);
+        if (!user) {
+            return notFound(res, "Kullanıcı bulunamadı.");
+        }
+
+        // IP adresi al (proxy arkasında da çalışır)
+        const ipAddress = req.headers["x-forwarded-for"]?.split(",")[0]?.trim()
+            || req.connection?.remoteAddress
+            || req.ip
+            || "unknown";
+
+        user.legalAcceptance = {
+            accepted: true,
+            privacyPolicy: true,
+            termsOfService: true,
+            cookiePolicy: true,
+            acceptedAt: new Date(),
+            acceptedVersion: "1.0",
+            ipAddress,
+            userAgent: req.headers["user-agent"] || "unknown"
+        };
+
+        await user.save();
+
+        logger.info(`Yasal belgeler onaylandı: ${user.email} (IP: ${ipAddress})`);
+        return ok(res, "Yasal belgeler başarıyla onaylandı.", {
+            legalAcceptance: user.legalAcceptance
+        });
+    } catch (error) {
+        logger.error(`Yasal onay hatası: ${error.message}`);
         return serverError(res, error);
     }
 };

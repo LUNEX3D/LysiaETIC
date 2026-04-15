@@ -28,8 +28,12 @@ export const AuthFooter = () => (
     <div className="auth-footer">
         <span>© {new Date().getFullYear()} Lunexetic. Tüm hakları saklıdır.</span>
         <span className="auth-footer-dot" />
-        <a href="/privacy">Gizlilik Politikası</a>
+        <a href="/privacy" target="_blank" rel="noopener noreferrer">Gizlilik Politikası</a>
         <span className="auth-footer-dot" />
-        <a href="/terms">Kullanım Şartları</a>
+        <a href="/terms" target="_blank" rel="noopener noreferrer">Kullanım Şartları</a>
+        <span className="auth-footer-dot" />
+        <a href="/cookies" target="_blank" rel="noopener noreferrer">Çerez Politikası</a>
+        <span className="auth-footer-dot" />
+        <a href="/distance-sales" target="_blank" rel="noopener noreferrer">Mesafeli Satış Sözleşmesi</a>
     </div>
 );

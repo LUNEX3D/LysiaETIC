@@ -38,20 +38,22 @@ const AdminLayout = ({ title, subtitle, actions, children }) => {
             items: [
                 { to: "/admin", label: "Dashboard", icon: <FaChartPie />, end: true },
                 { to: "/admin/tenants", label: "Firma Yönetimi", icon: <FaBuilding /> },
-                { to: "/admin/users", label: "Kullanıcılar", icon: <FaUsers /> },
+                { to: "/admin/user-access", label: "Kullanıcı Erişimi", icon: <FaUserShield /> },
             ]
         },
         {
             label: "Finans & Abonelik",
             items: [
-                { to: "/admin/subscription-manager", label: "Abonelik Yönetimi", icon: <FaCrown /> },
-                { to: "/admin/subscriptions", label: "Paket & Abonelik", icon: <FaCrown /> },
+                { to: "/admin/plan-manager", label: "Paket Yönetimi", icon: <FaCrown /> },
+                { to: "/admin/subscriptions", label: "Abonelik Yönetimi", icon: <FaUsers /> },
                 { to: "/admin/payments", label: "Ödeme & Fatura", icon: <FaCreditCard /> },
             ]
         },
         {
             label: "Operasyon",
             items: [
+                { to: "/admin/products", label: "Ürünler", icon: <FaBoxOpen /> },
+                { to: "/admin/orders", label: "Siparişler", icon: <FaClipboardList /> },
                 { to: "/admin/integrations", label: "Entegrasyonlar", icon: <FaPlug /> },
                 { to: "/admin/usage", label: "Kullanım & Limitler", icon: <FaTachometerAlt /> },
                 { to: "/admin/reports", label: "Global Raporlar", icon: <FaChartBar /> },
@@ -67,6 +69,7 @@ const AdminLayout = ({ title, subtitle, actions, children }) => {
         {
             label: "Sistem & Güvenlik",
             items: [
+                { to: "/admin/servers", label: "Sunucu İzleme", icon: <FaServer /> },
                 { to: "/admin/audit-logs", label: "İşlem Logları", icon: <FaHistory /> },
                 { to: "/admin/system-config", label: "Sistem Ayarları", icon: <FaCog /> },
             ]
@@ -136,7 +139,7 @@ const AdminLayout = ({ title, subtitle, actions, children }) => {
 
                         <div className="ap-nav-label">Diğer</div>
                         <a
-                            href="/"
+                            href="/home"
                             className="ap-nav-item"
                             target="_blank"
                             rel="noopener noreferrer"

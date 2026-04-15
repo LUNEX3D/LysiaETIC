@@ -1,30 +1,28 @@
 /**
- * PayTR iFrame API Service
+ * PayTR Direkt API Service
  *
- * PayTR ödeme entegrasyonu için servis.
- * iFrame API kullanarak token oluşturma ve callback işlemleri.
+ * PayTR Direkt API ödeme entegrasyonu için servis.
+ * Kart bilgileri doğrudan PayTR'a POST edilir (3D Secure).
  *
- * Dokümantasyon: https://dev.paytr.com/iframe-api
+ * Dokümantasyon: https://dev.paytr.com/direkt-api/direkt-api-1-adim
  *
- * ✅ FIX: Credentials her çağrıda .env'den okunuyor (lazy read)
- * ✅ FIX: merchant_notify_url eklendi (callback URL)
- * ✅ FIX: Detaylı hata loglaması
- * ✅ FIX: crypto.timingSafeEqual ile hash doğrulama (timing attack koruması)
- * ✅ FIX: Fiyat-plan doğrulama (amount manipulation koruması)
+ * ✅ Direkt API — iFrame API yetkisi gerekmez
+ * ✅ Credentials her çağrıda .env'den okunuyor (lazy read)
+ * ✅ crypto.timingSafeEqual ile hash doğrulama (timing attack koruması)
+ * ✅ Fiyat-plan doğrulama (amount manipulation koruması)
  */
 
 const crypto = require("crypto");
-const axios = require("axios");
 const logger = require("../config/logger");
 
 class PayTRService {
     constructor() {
-        this.apiUrl = "https://www.paytr.com/odeme/api/get-token";
+        // Direkt API — form doğrudan PayTR'a POST edilir
+        this.paymentUrl = "https://www.paytr.com/odeme";
     }
 
     /**
      * Credentials'ları her çağrıda .env'den oku
-     * (Module cache nedeniyle constructor'da okumak güvenilir değil)
      */
     getCredentials() {
         return {
@@ -34,7 +32,6 @@ class PayTRService {
             testMode: process.env.PAYTR_TEST_MODE || (process.env.NODE_ENV === "production" ? "0" : "1"),
             merchantOkUrl: process.env.PAYTR_OK_URL || "http://localhost:3000/payment/success",
             merchantFailUrl: process.env.PAYTR_FAIL_URL || "http://localhost:3000/payment/failed",
-            merchantNotifyUrl: process.env.PAYTR_NOTIFY_URL || `${process.env.PAYTR_BACKEND_URL || ("http://localhost:" + (process.env.PORT || 5000))}/api/paytr/callback`
         };
     }
 
@@ -47,43 +44,153 @@ class PayTRService {
     }
 
     /**
-     * PayTR token hash'i oluştur
+     * Direkt API token hash'i oluştur
+     *
+     * Hash formülü (PayTR Direkt API dokümantasyonuna göre):
+     *   hash = base64( hmac_sha256( merchantKey, hashStr + merchantSalt ) )
+     *   hashStr = merchant_id + user_ip + merchant_oid + email + payment_amount + payment_type + installment_count + currency + test_mode + non_3d
+     *
      * @param {Object} params - Token parametreleri
-     * @param {string} merchantKey - Merchant key
-     * @param {string} merchantSalt - Merchant salt
      * @returns {String} Base64 encoded hash
      */
-    generateToken(params, merchantKey, merchantSalt) {
+    generateDirectToken(params) {
+        const creds = this.getCredentials();
         const {
             merchantId,
             userIp,
             merchantOid,
             email,
-            paymentAmount,
-            userBasket,
-            noInstallment,
-            maxInstallment,
-            currency,
-            testMode
+            paymentAmount, // Ondalıklı TL string (örn: "299.00" veya "100.99")
+            paymentType,   // "card"
+            installmentCount, // "0"
+            currency,      // "TL"
+            testMode,
+            non3d          // "0" (3D Secure aktif)
         } = params;
 
-        // Hash string oluştur (PayTR dokümantasyonuna göre sıralama)
-        const hashStr = `${merchantId}${userIp}${merchantOid}${email}${paymentAmount}${userBasket}${noInstallment}${maxInstallment}${currency}${testMode}`;
+        // Hash string oluştur (PayTR Direkt API dokümantasyonuna göre sıralama)
+        const hashStr = `${merchantId}${userIp}${merchantOid}${email}${paymentAmount}${paymentType}${installmentCount}${currency}${testMode}${non3d}`;
 
         // HMAC-SHA256 ile hash oluştur
         const hash = crypto
-            .createHmac("sha256", merchantKey)
-            .update(hashStr + merchantSalt)
+            .createHmac("sha256", creds.merchantKey)
+            .update(hashStr + creds.merchantSalt)
             .digest("base64");
 
         return hash;
     }
 
     /**
+     * Direkt API için form verilerini hazırla
+     * Bu veriler frontend'e gönderilir, frontend bunları hidden form ile PayTR'a POST eder
+     *
+     * @param {Object} paymentData - Ödeme bilgileri
+     * @returns {Object} Form verileri
+     */
+    prepareDirectFormData(paymentData) {
+        try {
+            const creds = this.getCredentials();
+
+            // Credentials kontrolü
+            if (!creds.merchantId || !creds.merchantKey || !creds.merchantSalt) {
+                logger.error("PayTR credentials eksik!", {
+                    hasMerchantId: !!creds.merchantId,
+                    hasMerchantKey: !!creds.merchantKey,
+                    hasMerchantSalt: !!creds.merchantSalt
+                });
+                return {
+                    success: false,
+                    error: "PayTR credentials yapılandırılmamış"
+                };
+            }
+
+            const {
+                userEmail,
+                userName,
+                userPhone,
+                userAddress,
+                userIp,
+                amount,    // TL cinsinden (örn: 299 veya 1299)
+                orderId,
+                plan,
+                currency = "TL"
+            } = paymentData;
+
+            // Direkt API'de payment_amount ondalıklı TL string olmalı (örn: "299.00")
+            // PayTR dokümantasyonu: "payment_amount (double), decimal (.) and two digits after the point"
+            // Örnek: 100.99 veya 150 veya 1500.35
+            const paymentAmount = Number(amount).toFixed(2);
+
+            // Sepet içeriği — JSON string
+            // PayTR Direkt API Node.js örneğinde user_basket düz JSON string olarak gönderilir
+            const userBasket = JSON.stringify([
+                [`LysiaETIC ${plan.toUpperCase()} Paketi`, paymentAmount, 1]
+            ]);
+
+            // Token parametreleri
+            const tokenParams = {
+                merchantId: creds.merchantId,
+                userIp: userIp || "85.34.78.112",
+                merchantOid: orderId,
+                email: userEmail,
+                paymentAmount,
+                paymentType: "card",
+                installmentCount: "0",
+                currency,
+                testMode: creds.testMode,
+                non3d: "0" // 3D Secure aktif
+            };
+
+            // Token hash'i oluştur
+            const paytrToken = this.generateDirectToken(tokenParams);
+
+            logger.info(`PayTR Direkt API form hazırlanıyor: ${orderId} - ${amount} TL — ${userEmail}`);
+
+            // Frontend'e gönderilecek form verileri
+            // Frontend bu verileri hidden form ile https://www.paytr.com/odeme'ye POST edecek
+            return {
+                success: true,
+                paymentUrl: this.paymentUrl,
+                formData: {
+                    merchant_id: creds.merchantId,
+                    user_ip: tokenParams.userIp,
+                    merchant_oid: orderId,
+                    email: userEmail,
+                    payment_amount: paymentAmount,
+                    payment_type: "card",
+                    installment_count: "0",
+                    currency,
+                    test_mode: creds.testMode,
+                    non_3d: "0",
+                    merchant_ok_url: creds.merchantOkUrl,
+                    merchant_fail_url: creds.merchantFailUrl,
+                    user_name: userName || "Müşteri",
+                    user_address: userAddress || "Türkiye",
+                    user_phone: userPhone || "05000000000",
+                    user_basket: userBasket,
+                    debug_on: creds.testMode === "1" ? "1" : "0",
+                    client_lang: "tr",
+                    paytr_token: paytrToken,
+                    non3d_test_failed: "0",
+                    card_type: ""
+                }
+            };
+        } catch (error) {
+            logger.error(`PayTR Direkt API form hazırlama hatası: ${error.message}`, {
+                stack: error.stack?.substring(0, 500)
+            });
+            return {
+                success: false,
+                error: error.message
+            };
+        }
+    }
+
+    /**
      * Callback hash'i doğrula
      * ✅ crypto.timingSafeEqual kullanılıyor (timing attack koruması)
      *
-     * PayTR hash formülü:
+     * PayTR hash formülü (Direkt API Step 2 — iFrame ile aynı):
      *   hash = base64( hmac_sha256( merchantKey, merchant_oid + merchantSalt + status + total_amount ) )
      *
      * @param {Object} callbackData - PayTR'dan gelen callback verisi
@@ -104,7 +211,6 @@ class PayTRService {
         }
 
         // Hash string oluştur (PayTR dokümantasyonuna göre)
-        // Formül: merchant_oid + merchant_salt + status + total_amount
         const hashStr = `${merchant_oid}${creds.merchantSalt}${status}${total_amount}`;
 
         // HMAC-SHA256 ile hash oluştur
@@ -113,13 +219,11 @@ class PayTRService {
             .update(hashStr)
             .digest("base64");
 
-        // ✅ Timing-safe karşılaştırma (timing attack koruması)
-        // String === karşılaştırma yerine sabit zamanlı karşılaştırma kullan
+        // ✅ Timing-safe karşılaştırma
         try {
             const hashBuffer = Buffer.from(hash, "utf8");
             const calculatedBuffer = Buffer.from(calculatedHash, "utf8");
 
-            // Uzunluklar farklıysa zaten geçersiz
             if (hashBuffer.length !== calculatedBuffer.length) {
                 logger.error("PayTR callback: Hash uzunluk uyumsuzluğu", {
                     expected: calculatedBuffer.length,
@@ -149,133 +253,6 @@ class PayTRService {
     }
 
     /**
-     * iFrame token al
-     * @param {Object} paymentData - Ödeme bilgileri
-     * @returns {Promise<Object>} Token response
-     */
-    async getIframeToken(paymentData) {
-        try {
-            const creds = this.getCredentials();
-
-            // Credentials kontrolü
-            if (!creds.merchantId || !creds.merchantKey || !creds.merchantSalt) {
-                logger.error("PayTR credentials eksik!", {
-                    hasMerchantId: !!creds.merchantId,
-                    hasMerchantKey: !!creds.merchantKey,
-                    hasMerchantSalt: !!creds.merchantSalt
-                });
-                return {
-                    success: false,
-                    error: "PayTR credentials yapılandırılmamış"
-                };
-            }
-
-            const {
-                userId,
-                userEmail,
-                userName,
-                userPhone,
-                userAddress,
-                userIp,
-                amount, // TL cinsinden (örn: 299)
-                orderId, // Benzersiz sipariş ID
-                plan, // basic, pro, enterprise
-                currency = "TL"
-            } = paymentData;
-
-            // Ödeme tutarını kuruşa çevir (100 ile çarp)
-            const paymentAmount = Math.round(amount * 100);
-
-            // Sepet içeriği oluştur (base64 encoded JSON array)
-            const userBasket = Buffer.from(JSON.stringify([
-                [`LysiaETIC ${plan.toUpperCase()} Paketi`, amount.toFixed(2), 1]
-            ])).toString("base64");
-
-            // Token parametreleri
-            const tokenParams = {
-                merchantId: creds.merchantId,
-                userIp: userIp || "85.34.78.112",
-                merchantOid: orderId,
-                email: userEmail,
-                paymentAmount: paymentAmount.toString(),
-                userBasket,
-                noInstallment: "0",
-                maxInstallment: "0",
-                currency,
-                testMode: creds.testMode
-            };
-
-            // Token hash'i oluştur
-            const paytrToken = this.generateToken(tokenParams, creds.merchantKey, creds.merchantSalt);
-
-            // PayTR API'ye POST isteği
-            const formData = new URLSearchParams({
-                merchant_id: creds.merchantId,
-                user_ip: tokenParams.userIp,
-                merchant_oid: orderId,
-                email: userEmail,
-                payment_amount: paymentAmount.toString(),
-                paytr_token: paytrToken,
-                user_basket: userBasket,
-                debug_on: creds.testMode === "1" ? "1" : "0",
-                no_installment: "0",
-                max_installment: "0",
-                user_name: userName || "Müşteri",
-                user_address: userAddress || "Türkiye",
-                user_phone: userPhone || "05000000000",
-                merchant_ok_url: creds.merchantOkUrl,
-                merchant_fail_url: creds.merchantFailUrl,
-                merchant_notify_url: creds.merchantNotifyUrl,
-                timeout_limit: "30",
-                currency,
-                test_mode: creds.testMode,
-                lang: "tr"
-            });
-
-            logger.info(`PayTR token isteği gönderiliyor: ${orderId} - ${amount} TL (notify: ${creds.merchantNotifyUrl})`);
-
-            const response = await axios.post(this.apiUrl, formData.toString(), {
-                headers: {
-                    "Content-Type": "application/x-www-form-urlencoded"
-                },
-                timeout: 30000
-            });
-
-            logger.info(`PayTR API yanıtı: ${JSON.stringify(response.data)}`);
-
-            if (response.data.status === "success") {
-                logger.info(`PayTR token başarıyla alındı: ${orderId} — Token: ${response.data.token?.substring(0, 20)}...`);
-                return {
-                    success: true,
-                    token: response.data.token,
-                    iframeUrl: `https://www.paytr.com/odeme/guvenli/${response.data.token}`
-                };
-            } else {
-                logger.error(`PayTR token hatası: ${response.data.reason}`, {
-                    orderId,
-                    merchantId: creds.merchantId,
-                    amount,
-                    reason: response.data.reason
-                });
-                return {
-                    success: false,
-                    error: response.data.reason || "Token alınamadı"
-                };
-            }
-        } catch (error) {
-            logger.error(`PayTR servis hatası: ${error.message}`, {
-                status: error.response?.status,
-                data: error.response?.data,
-                stack: error.stack?.substring(0, 500)
-            });
-            return {
-                success: false,
-                error: error.response?.data?.reason || error.message
-            };
-        }
-    }
-
-    /**
      * Callback'i işle
      * @param {Object} callbackData - PayTR'dan gelen POST verisi
      * @returns {Object} İşlem sonucu
@@ -294,8 +271,6 @@ class PayTRService {
             }
 
             // ✅ HMAC-SHA256 hash doğrulama (timing-safe)
-            // Formül: hash = base64( hmac_sha256( merchantKey, merchant_oid + merchantSalt + status + total_amount ) )
-            // Bu başarısız olursa → sahte callback, REJECT
             if (!this.verifyCallback(callbackData)) {
                 logger.error("💀 PayTR callback HASH DOĞRULAMA BAŞARISIZ — SAHTE CALLBACK OLABİLİR!", {
                     merchant_oid: callbackData.merchant_oid,

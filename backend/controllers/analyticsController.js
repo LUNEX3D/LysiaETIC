@@ -143,7 +143,7 @@ exports.getAnalyticsOverview = async (req, res) => {
         });
     } catch (error) {
         logger.error("❌ Analytics overview hatası:", error);
-        res.status(500).json({ success: false, message: "Analytics verileri alınamadı", error: error.message });
+        res.status(500).json({ success: false, message: "Analytics verileri alınamadı" });
     }
 };
 
@@ -186,7 +186,7 @@ exports.getSalesTrend = async (req, res) => {
         });
     } catch (error) {
         logger.error("❌ Sales trend hatası:", error);
-        res.status(500).json({ success: false, message: "Satış trendi alınamadı", error: error.message });
+        res.status(500).json({ success: false, message: "Satış trendi alınamadı" });
     }
 };
 
@@ -240,7 +240,7 @@ exports.getMarketplaceDistribution = async (req, res) => {
         res.json({ success: true, data: distribution });
     } catch (error) {
         logger.error("❌ Marketplace distribution hatası:", error);
-        res.status(500).json({ success: false, message: "Pazaryeri dağılımı alınamadı", error: error.message });
+        res.status(500).json({ success: false, message: "Pazaryeri dağılımı alınamadı" });
     }
 };
 
@@ -306,7 +306,7 @@ exports.getTopProducts = async (req, res) => {
         res.json({ success: true, data: productsWithTrend });
     } catch (error) {
         logger.error("❌ Top products hatası:", error);
-        res.status(500).json({ success: false, message: "En çok satan ürünler alınamadı", error: error.message });
+        res.status(500).json({ success: false, message: "En çok satan ürünler alınamadı" });
     }
 };
 
@@ -352,7 +352,7 @@ exports.getCategoryDistribution = async (req, res) => {
         res.json({ success: true, data: formattedData });
     } catch (error) {
         logger.error("❌ Category distribution hatası:", error);
-        res.status(500).json({ success: false, message: "Kategori dağılımı alınamadı", error: error.message });
+        res.status(500).json({ success: false, message: "Kategori dağılımı alınamadı" });
     }
 };
 
@@ -389,7 +389,7 @@ exports.getHourlySales = async (req, res) => {
         res.json({ success: true, data: fullHourlyData });
     } catch (error) {
         logger.error("❌ Hourly sales hatası:", error);
-        res.status(500).json({ success: false, message: "Saatlik satış verileri alınamadı", error: error.message });
+        res.status(500).json({ success: false, message: "Saatlik satış verileri alınamadı" });
     }
 };
 
@@ -472,7 +472,7 @@ exports.getProfitOverview = async (req, res) => {
         });
     } catch (error) {
         logger.error("❌ Profit overview hatası:", error);
-        res.status(500).json({ success: false, message: "Kâr analizi alınamadı", error: error.message });
+        res.status(500).json({ success: false, message: "Kâr analizi alınamadı" });
     }
 };
 
@@ -556,7 +556,7 @@ exports.getProductPerformance = async (req, res) => {
         res.json({ success: true, data: result });
     } catch (error) {
         logger.error("❌ Product performance hatası:", error);
-        res.status(500).json({ success: false, message: "Ürün performansı alınamadı", error: error.message });
+        res.status(500).json({ success: false, message: "Ürün performansı alınamadı" });
     }
 };
 
@@ -633,7 +633,7 @@ exports.getMarketplaceComparison = async (req, res) => {
         res.json({ success: true, data: comparison });
     } catch (error) {
         logger.error("❌ Marketplace comparison hatası:", error);
-        res.status(500).json({ success: false, message: "Pazaryeri karşılaştırması alınamadı", error: error.message });
+        res.status(500).json({ success: false, message: "Pazaryeri karşılaştırması alınamadı" });
     }
 };
 
@@ -715,7 +715,7 @@ exports.getCommissionAnalysis = async (req, res) => {
         });
     } catch (error) {
         logger.error("❌ Commission analysis hatası:", error);
-        res.status(500).json({ success: false, message: "Komisyon analizi alınamadı", error: error.message });
+        res.status(500).json({ success: false, message: "Komisyon analizi alınamadı" });
     }
 };
 
@@ -819,7 +819,7 @@ exports.getStockVelocity = async (req, res) => {
         });
     } catch (error) {
         logger.error("❌ Stock velocity hatası:", error);
-        res.status(500).json({ success: false, message: "Stok devir analizi alınamadı", error: error.message });
+        res.status(500).json({ success: false, message: "Stok devir analizi alınamadı" });
     }
 };
 
@@ -973,7 +973,7 @@ exports.getActions = async (req, res) => {
         res.json({ success: true, data: actions });
     } catch (error) {
         logger.error("❌ Actions hatası:", error);
-        res.status(500).json({ success: false, message: "Aksiyon önerileri alınamadı", error: error.message });
+        res.status(500).json({ success: false, message: "Aksiyon önerileri alınamadı" });
     }
 };
 
@@ -1079,7 +1079,7 @@ exports.getDailySummary = async (req, res) => {
         });
     } catch (error) {
         logger.error("❌ Daily summary hatası:", error);
-        res.status(500).json({ success: false, message: "Günlük özet alınamadı", error: error.message });
+        res.status(500).json({ success: false, message: "Günlük özet alınamadı" });
     }
 };
 

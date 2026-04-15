@@ -1,0 +1,680 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   LEGAL PAGES — Gizlilik Politikası, Kullanım Şartları, Çerez Politikası
+   Koyu tema, LysiaETIC tasarım dili
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.legal-page {
+    font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+    min-height: 100vh;
+    background: #060611;
+    color: #e2e8f0;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* ── Header ── */
+.legal-header {
+    background: rgba(8, 8, 26, 0.95);
+    border-bottom: 1px solid rgba(124, 92, 252, 0.12);
+    backdrop-filter: blur(20px);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+}
+
+.legal-header-inner {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 16px 32px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+}
+
+.legal-back-btn {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    color: #94a3b8;
+    padding: 8px 16px;
+    font-size: 13px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    transition: all 0.25s ease;
+    white-space: nowrap;
+}
+
+.legal-back-btn:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff;
+    border-color: rgba(124, 92, 252, 0.3);
+}
+
+.legal-header-title {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: 1;
+}
+
+.legal-header-icon {
+    font-size: 24px;
+}
+
+.legal-header-title h1 {
+    font-size: 20px;
+    font-weight: 800;
+    color: #fff;
+    margin: 0;
+    letter-spacing: -0.02em;
+}
+
+.legal-header-meta {
+    font-size: 12px;
+    color: #64748b;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+/* ── Navigation Tabs ── */
+.legal-nav {
+    background: rgba(8, 8, 26, 0.8);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    position: sticky;
+    top: 60px;
+    z-index: 99;
+}
+
+.legal-nav-tabs {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 8px 32px;
+    display: flex;
+    gap: 4px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+}
+.legal-nav-tabs::-webkit-scrollbar {
+    display: none;
+}
+
+.legal-nav-tab {
+    padding: 10px 18px;
+    border-radius: 10px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: #64748b;
+    font-size: 13px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    transition: all 0.25s ease;
+    white-space: nowrap;
+}
+
+.legal-nav-tab:hover {
+    color: #94a3b8;
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.legal-nav-tab.active {
+    color: #fff;
+    background: linear-gradient(135deg, rgba(124, 92, 252, 0.15), rgba(168, 85, 247, 0.08));
+    border-color: rgba(124, 92, 252, 0.25);
+}
+
+/* ── Content Layout ── */
+.legal-content {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 32px;
+    display: flex;
+    gap: 32px;
+    align-items: flex-start;
+}
+
+/* ── Sidebar TOC ── */
+.legal-sidebar {
+    width: 240px;
+    flex-shrink: 0;
+    position: sticky;
+    top: 130px;
+    max-height: calc(100vh - 160px);
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(124, 92, 252, 0.2) transparent;
+}
+
+.legal-toc-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    padding: 0 12px 12px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    margin-bottom: 8px;
+}
+
+.legal-toc-item {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 8px 12px;
+    border-radius: 8px;
+    border: none;
+    background: transparent;
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 500;
+    font-family: inherit;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    line-height: 1.4;
+}
+
+.legal-toc-item:hover {
+    color: #94a3b8;
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.legal-toc-item.active {
+    color: #c4b5fd;
+    background: rgba(124, 92, 252, 0.08);
+    font-weight: 600;
+}
+
+/* ── Main Content ── */
+.legal-main {
+    flex: 1;
+    min-width: 0;
+}
+
+.legal-section {
+    margin-bottom: 36px;
+    padding-bottom: 36px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    scroll-margin-top: 140px;
+}
+
+.legal-section:last-of-type {
+    border-bottom: none;
+}
+
+.legal-section-title {
+    font-size: 20px;
+    font-weight: 800;
+    color: #fff;
+    margin: 0 0 16px;
+    letter-spacing: -0.02em;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.legal-section-title::before {
+    content: "";
+    width: 4px;
+    height: 20px;
+    background: linear-gradient(180deg, #7c5cfc, #a855f7);
+    border-radius: 2px;
+    flex-shrink: 0;
+}
+
+.legal-section-content {
+    font-size: 14px;
+    color: #94a3b8;
+    line-height: 1.8;
+}
+
+.legal-section-content p {
+    margin: 0 0 8px;
+}
+
+.legal-section-content p:empty {
+    margin: 0;
+}
+
+.legal-section-content p:last-child {
+    margin-bottom: 0;
+}
+
+/* ── Document Footer ── */
+.legal-doc-footer {
+    margin-top: 48px;
+    padding: 24px;
+    background: rgba(124, 92, 252, 0.04);
+    border: 1px solid rgba(124, 92, 252, 0.1);
+    border-radius: 16px;
+    text-align: center;
+}
+
+.legal-doc-footer p {
+    font-size: 13px;
+    color: #64748b;
+    margin: 0 0 6px;
+    line-height: 1.6;
+}
+
+.legal-doc-footer p:last-child {
+    margin-bottom: 0;
+}
+
+.legal-doc-footer strong {
+    color: #a78bfa;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   LEGAL ACCEPTANCE MODAL — Login sonrası zorunlu onay
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.legal-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.85);
+    backdrop-filter: blur(12px);
+    z-index: 99999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    animation: legalFadeIn 0.3s ease-out;
+}
+
+@keyframes legalFadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.legal-modal {
+    width: 100%;
+    max-width: 680px;
+    max-height: 90vh;
+    background: linear-gradient(145deg, #0f0f2a 0%, #0a0a1e 100%);
+    border: 1px solid rgba(124, 92, 252, 0.2);
+    border-radius: 24px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-shadow:
+        0 40px 100px rgba(0, 0, 0, 0.6),
+        0 0 60px rgba(124, 92, 252, 0.08);
+    animation: legalSlideUp 0.4s ease-out;
+}
+
+@keyframes legalSlideUp {
+    from { opacity: 0; transform: translateY(30px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.legal-modal-header {
+    padding: 28px 32px 20px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    text-align: center;
+}
+
+.legal-modal-header-icon {
+    font-size: 48px;
+    margin-bottom: 12px;
+    display: block;
+}
+
+.legal-modal-header h2 {
+    font-size: 22px;
+    font-weight: 800;
+    color: #fff;
+    margin: 0 0 8px;
+    letter-spacing: -0.02em;
+}
+
+.legal-modal-header p {
+    font-size: 13px;
+    color: #64748b;
+    margin: 0;
+    line-height: 1.6;
+}
+
+.legal-modal-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px 32px;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(124, 92, 252, 0.2) transparent;
+}
+
+.legal-modal-body::-webkit-scrollbar {
+    width: 4px;
+}
+
+.legal-modal-body::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.legal-modal-body::-webkit-scrollbar-thumb {
+    background: rgba(124, 92, 252, 0.2);
+    border-radius: 4px;
+}
+
+/* ── Legal Document Cards in Modal ── */
+.legal-modal-doc {
+    margin-bottom: 20px;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 16px;
+    overflow: hidden;
+    transition: all 0.3s ease;
+}
+
+.legal-modal-doc:hover {
+    border-color: rgba(124, 92, 252, 0.15);
+}
+
+.legal-modal-doc-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.legal-modal-doc-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 14px;
+    font-weight: 700;
+    color: #fff;
+}
+
+.legal-modal-doc-title span {
+    font-size: 20px;
+}
+
+.legal-modal-doc-toggle {
+    font-size: 18px;
+    color: #64748b;
+    transition: transform 0.3s ease;
+}
+
+.legal-modal-doc-toggle.open {
+    transform: rotate(180deg);
+}
+
+.legal-modal-doc-content {
+    padding: 0 20px 16px;
+    font-size: 12px;
+    color: #8a8aa8;
+    line-height: 1.7;
+    max-height: 300px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(124, 92, 252, 0.15) transparent;
+}
+
+.legal-modal-doc-content::-webkit-scrollbar {
+    width: 3px;
+}
+
+.legal-modal-doc-content::-webkit-scrollbar-thumb {
+    background: rgba(124, 92, 252, 0.15);
+    border-radius: 3px;
+}
+
+.legal-modal-doc-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 8px;
+    padding: 4px 10px;
+    background: rgba(124, 92, 252, 0.08);
+    border: 1px solid rgba(124, 92, 252, 0.12);
+    border-radius: 6px;
+    color: #a78bfa;
+    font-size: 11px;
+    font-weight: 600;
+    text-decoration: none;
+    transition: all 0.2s ease;
+}
+
+.legal-modal-doc-link:hover {
+    background: rgba(124, 92, 252, 0.15);
+    color: #c4b5fd;
+}
+
+/* ── Checkboxes ── */
+.legal-modal-footer {
+    padding: 20px 32px 28px;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.legal-modal-checks {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.legal-modal-check {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    cursor: pointer;
+    user-select: none;
+    padding: 10px 14px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: rgba(255, 255, 255, 0.02);
+    transition: all 0.25s ease;
+}
+
+.legal-modal-check:hover {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(124, 92, 252, 0.15);
+}
+
+.legal-modal-check.checked {
+    background: rgba(124, 92, 252, 0.06);
+    border-color: rgba(124, 92, 252, 0.2);
+}
+
+.legal-modal-checkbox {
+    width: 22px;
+    height: 22px;
+    min-width: 22px;
+    border-radius: 7px;
+    border: 2px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.04);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    margin-top: 1px;
+}
+
+.legal-modal-check.checked .legal-modal-checkbox {
+    background: linear-gradient(135deg, #7c5cfc, #a855f7);
+    border-color: #7c5cfc;
+    box-shadow: 0 2px 10px rgba(124, 92, 252, 0.4);
+}
+
+.legal-modal-checkbox svg {
+    width: 12px;
+    height: 12px;
+    color: #fff;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.legal-modal-check.checked .legal-modal-checkbox svg {
+    opacity: 1;
+}
+
+.legal-modal-check-text {
+    font-size: 13px;
+    color: #94a3b8;
+    line-height: 1.5;
+    font-weight: 500;
+}
+
+.legal-modal-check.checked .legal-modal-check-text {
+    color: #c4d0e0;
+}
+
+.legal-modal-check-text a {
+    color: #a78bfa;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.legal-modal-check-text a:hover {
+    color: #c4b5fd;
+}
+
+/* ── Accept Button ── */
+.legal-modal-accept {
+    width: 100%;
+    padding: 16px;
+    border-radius: 14px;
+    border: none;
+    background: linear-gradient(135deg, #7c5cfc, #a855f7);
+    color: #fff;
+    font-size: 15px;
+    font-weight: 700;
+    font-family: inherit;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 8px 32px rgba(124, 92, 252, 0.4);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+.legal-modal-accept:hover:not(:disabled) {
+    background: linear-gradient(135deg, #6a4ce0, #9333ea);
+    transform: translateY(-2px);
+    box-shadow: 0 12px 40px rgba(124, 92, 252, 0.55);
+}
+
+.legal-modal-accept:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+.legal-modal-accept:active:not(:disabled) {
+    transform: translateY(0);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   RESPONSIVE
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+@media (max-width: 860px) {
+    .legal-content {
+        flex-direction: column;
+        padding: 20px 16px;
+    }
+
+    .legal-sidebar {
+        width: 100%;
+        position: static;
+        max-height: none;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        padding-bottom: 16px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+        margin-bottom: 16px;
+    }
+
+    .legal-toc-title {
+        width: 100%;
+        padding: 0 0 8px;
+    }
+
+    .legal-toc-item {
+        width: auto;
+        padding: 6px 10px;
+        font-size: 11px;
+    }
+
+    .legal-header-inner {
+        padding: 12px 16px;
+    }
+
+    .legal-nav-tabs {
+        padding: 6px 16px;
+        overflow-x: auto;
+    }
+
+    .legal-nav-tab {
+        padding: 8px 12px;
+        font-size: 12px;
+    }
+
+    .legal-section-title {
+        font-size: 17px;
+    }
+
+    .legal-section-content {
+        font-size: 13px;
+    }
+
+    /* Modal responsive */
+    .legal-modal {
+        max-width: 100%;
+        max-height: 95vh;
+        border-radius: 20px;
+    }
+
+    .legal-modal-header {
+        padding: 20px 20px 16px;
+    }
+
+    .legal-modal-header h2 {
+        font-size: 18px;
+    }
+
+    .legal-modal-body {
+        padding: 16px 20px;
+    }
+
+    .legal-modal-footer {
+        padding: 16px 20px 24px;
+    }
+
+    .legal-modal-check {
+        padding: 8px 10px;
+    }
+
+    .legal-modal-check-text {
+        font-size: 12px;
+    }
+}
+
+@media (max-width: 480px) {
+    .legal-header-meta {
+        display: none;
+    }
+
+    .legal-header-title h1 {
+        font-size: 16px;
+    }
+
+    .legal-modal-header-icon {
+        font-size: 36px;
+    }
+
+    .legal-modal-header h2 {
+        font-size: 16px;
+    }
+
+    .legal-modal-accept {
+        padding: 14px;
+        font-size: 14px;
+    }
+}

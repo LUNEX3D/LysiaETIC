@@ -5,11 +5,13 @@ const { normalizeCredentials, validateCredentials } = require("../services/hepsi
 const Marketplace = require("../models/Marketplace");
 const logger = require("../config/logger");
 const { authMiddleware } = require("../middlewares/authMiddleware");
+const { subscriptionMiddleware } = require("../middlewares/subscriptionMiddleware");
 const { decryptCredentials } = require("../utils/encryption");
 
 // ✅ FIX H2: IDOR — :userId kaldırıldı, req.user._id kullanılıyor
+// ✅ FIX: subscriptionMiddleware eklendi — aboneliği biten kullanıcılar erişemez
 // 📌 **Siparişleri API'den Çekme Route'u**
-router.post("/orders", authMiddleware, async (req, res) => {
+router.post("/orders", authMiddleware, subscriptionMiddleware, async (req, res) => {
     try {
         const userId = req.user._id;
         const { startDate, endDate } = req.body;

@@ -116,27 +116,13 @@ const fetchCiceksepetiCategoryTree = async (credentials) => {
  * HB Kategori API'sinden kategorileri çeker.
  * @param {object} credentials - DB'den gelen credential objesi
  * @param {object} options - { onlyLeaf: true/false }
- *   onlyLeaf=true  → sadece leaf (ürün eklenebilir) kategoriler (arama popup için)
- *   onlyLeaf=false → tüm kategoriler (ağaç görünümü + export için)
  *
- * HB Resmi Dokümantasyon:
- *   GET https://mpop.hepsiburada.com/product/api/categories/get-all-categories
- *   Params:
- *     - leaf    : true/false/'' (boş=tümü)
- *     - status  : ACTIVE / INACTIVE / ARCHIVED
- *     - available: true/false/'' (boş=tümü)
- *     - type    : HB (Hepsiburada) / HX (HepsiExpress) / HC (HepsiGlobal) — GÖNDERİLMEZSE SADECE VARSAYILAN TİP GELİR
- *     - version : 1
- *     - page    : 0'dan başlar
- *     - size    : max 2000
- *   Auth: Basic base64(merchantId:secretKey) + User-Agent header
- *
- * ÖNEMLİ DÜZELTMELER (v2):
- *   1. `type` parametresi eklendi — HB, HX, HC tipleri ayrı ayrı çekilip birleştiriliyor
- *   2. Ağaç görünümü için `available` filtresi kaldırıldı — üst kategoriler available=false olur,
- *      filtre olunca parent'lar eksik kalıyor ve alt kategoriler (ör: "Kolye Ucu") ağaçta görünmüyor
- *   3. `size` 1000'den 2000'e çıkarıldı — HB API max 2000 destekliyor, daha az sayfa isteği = daha hızlı
- *   4. `leaf` parametresi: onlyLeaf=false iken "false" yerine parametre hiç gönderilmiyor (tümünü getir)
+ * v4 Düzeltmeler:
+ *   1. SIT kullanıcıları için SIT endpoint'leri ÖNCE deneniyor (SIT creds production'da 403 alır)
+ *   2. listing-external endpoint'lerine merchantId query parametresi eklendi
+ *      (bu endpoint "Merchant ID is not specified" hatası veriyordu)
+ *   3. Kullanıcının kendi ortam endpoint'i (getEndpoints) her zaman ilk sırada
+ *   4. Daha az gereksiz istek — ilk başarılı endpoint'te dur
  */
 const fetchHepsiburadaCategoryTree = async (credentials, options = {}) => {
     const { normalizeCredentials, getHeaders, HB_ENDPOINTS, HB_SIT_ENDPOINTS, getEndpoints, validateCredentials } = require("../services/hepsiburadaService");
@@ -152,44 +138,47 @@ const fetchHepsiburadaCategoryTree = async (credentials, options = {}) => {
     const onlyLeaf = options.onlyLeaf === true;
 
     // ═══════════════════════════════════════════════════════════════
-    // ÖNEMLİ: Kategori API'si için HER ZAMAN Production endpoint'leri kullan!
-    // Neden: SIT (test) ortamında kategori verisi YOKTUR — boş döner.
-    // Kategoriler tüm satıcılar için aynıdır, SIT/Production farkı yoktur.
-    // Kullanıcı SIT hesabıyla bile çalışsa, kategoriler production'dan gelmelidir.
+    // ENDPOINT STRATEJİSİ (v4):
+    // 1. Kullanıcının kendi ortamı ÖNCE (SIT user → SIT önce, Prod user → Prod önce)
+    // 2. Diğer ortam SONRA (fallback)
+    // 3. listing-external URL'lerine merchantId ekleniyor
     // ═══════════════════════════════════════════════════════════════
-    const userEp = getEndpoints(hbCreds); // Kullanıcının ortamı (SIT veya Production)
-    const prodEp = HB_ENDPOINTS;          // Her zaman production
-    const sitEp  = HB_SIT_ENDPOINTS;      // SIT (fallback)
+    const userEp = getEndpoints(hbCreds);
+    const prodEp = HB_ENDPOINTS;
+    const sitEp  = HB_SIT_ENDPOINTS;
     const isSitUser = (userEp.MPOP === sitEp.MPOP);
 
-    // Denenecek URL pattern'leri — Production ÖNCE, SIT sonra (fallback)
-    // Production endpoint'leri her zaman öncelikli çünkü SIT'te kategori yok
-    const buildBaseUrls = (ep) => [
-        `${ep.MPOP}/product/api/categories/get-all-categories`,
-        `${ep.CATEGORY}/product/api/categories/get-all-categories`
-    ];
+    // URL oluşturucu — listing-external URL'lerine merchantId ekle
+    const buildBaseUrls = (ep) => {
+        const urls = [];
+        // MPOP endpoint (merchantId auth header'da yeterli)
+        urls.push(`${ep.MPOP}/product/api/categories/get-all-categories`);
+        // CATEGORY (listing-external) endpoint — merchantId query param olarak da gerekli
+        if (ep.CATEGORY !== ep.MPOP) {
+            urls.push(`${ep.CATEGORY}/product/api/categories/get-all-categories`);
+        }
+        return urls;
+    };
 
-    // Önce production, sonra SIT (eğer kullanıcı SIT'teyse zaten production denenecek)
-    const allBaseUrls = [
-        ...buildBaseUrls(prodEp),
-        ...(isSitUser ? buildBaseUrls(sitEp) : []) // SIT kullanıcısıysa SIT'i de fallback olarak ekle
-    ];
-    // Duplikasyon temizle (production ve SIT aynı olabilir)
+    // SIT user → SIT önce, sonra production fallback
+    // Production user → Production önce (SIT eklenmez)
+    const allBaseUrls = isSitUser
+        ? [...buildBaseUrls(sitEp), ...buildBaseUrls(prodEp)]
+        : [...buildBaseUrls(prodEp), ...buildBaseUrls(sitEp)];
+
+    // Duplikasyon temizle
     const baseUrls = [...new Set(allBaseUrls)];
 
-    logger.info(`[HB CATEGORIES] Ortam: ${isSitUser ? "SIT (production öncelikli)" : "Production"}, onlyLeaf=${onlyLeaf}, ${baseUrls.length} URL denenecek`);
+    logger.info(`[HB CATEGORIES] Ortam: ${isSitUser ? "SIT (SIT öncelikli)" : "Production"}, merchantId: ${merchantId ? merchantId.substring(0, 8) + "..." : "YOK"}, onlyLeaf=${onlyLeaf}, ${baseUrls.length} URL denenecek`);
 
     /**
      * Tek bir parametre seti ile sayfalı kategori çekme
-     * @param {object} queryOpts - { leaf, available, type } gibi ek parametreler
-     * @param {string} label - Log etiketi
-     * @returns {Array} Çekilen kategoriler
      */
     const fetchPaginated = async (queryOpts = {}, label = "") => {
         const categories = [];
         let page = 0;
         let hasMore = true;
-        const size = 2000; // HB API max 2000 destekliyor
+        const size = 2000;
         let workingBaseUrl = null;
 
         while (hasMore) {
@@ -197,7 +186,6 @@ const fetchHepsiburadaCategoryTree = async (credentials, options = {}) => {
 
             let pageSuccess = false;
             for (const baseUrl of urlsToTry) {
-                // Temel parametreler
                 const params = new URLSearchParams({
                     status: "ACTIVE",
                     version: "1",
@@ -205,18 +193,20 @@ const fetchHepsiburadaCategoryTree = async (credentials, options = {}) => {
                     size: String(size)
                 });
 
-                // Opsiyonel parametreler — sadece değer varsa ekle
+                // listing-external endpoint'lerine merchantId ekle
+                if (merchantId && baseUrl.includes("listing-external")) {
+                    params.set("merchantId", merchantId);
+                }
+
                 if (queryOpts.leaf === true || queryOpts.leaf === "true") {
                     params.set("leaf", "true");
                 } else if (queryOpts.leaf === false || queryOpts.leaf === "false") {
                     params.set("leaf", "false");
                 }
-                // leaf belirtilmemişse parametre eklenmez → API tüm kategorileri döner
 
                 if (queryOpts.available === true || queryOpts.available === "true") {
                     params.set("available", "true");
                 }
-                // available belirtilmemişse parametre eklenmez → tüm available durumları gelir
 
                 if (queryOpts.type) {
                     params.set("type", queryOpts.type);
@@ -231,14 +221,12 @@ const fetchHepsiburadaCategoryTree = async (credentials, options = {}) => {
                     const response = await axios.get(url, { headers, timeout: 45000 });
                     const data = response.data;
 
-                    // Response yapısını logla (ilk sayfada)
                     if (page === 0) {
                         const dataType = Array.isArray(data) ? "array" : typeof data;
                         const keys = data && typeof data === "object" && !Array.isArray(data) ? Object.keys(data).join(", ") : "-";
                         logger.info(`[HB CATEGORIES${label}] Response tipi: ${dataType}, keys: ${keys}, status: ${response.status}`);
                     }
 
-                    // data alanını çıkar — null/undefined/boş obje kontrolü
                     let cats = [];
                     if (Array.isArray(data)) {
                         cats = data;
@@ -247,7 +235,6 @@ const fetchHepsiburadaCategoryTree = async (credentials, options = {}) => {
                         if (Array.isArray(inner)) {
                             cats = inner;
                         } else if (inner && typeof inner === "object" && !Array.isArray(inner)) {
-                            // data.data obje ama array değil → boş kabul et
                             cats = [];
                         }
                     }
@@ -259,7 +246,6 @@ const fetchHepsiburadaCategoryTree = async (credentials, options = {}) => {
                         pageSuccess = true;
                         if (cats.length < size) hasMore = false;
 
-                        // İlk sayfada örnek kategori logla
                         if (page === 1 && cats[0]) {
                             logger.info(`[HB CATEGORIES${label}] ✅ ${cats.length} kategori bulundu. Örnek: ${JSON.stringify(cats[0]).substring(0, 200)}`);
                         }
@@ -295,20 +281,13 @@ const fetchHepsiburadaCategoryTree = async (credentials, options = {}) => {
     };
 
     // ═══════════════════════════════════════════════════════════════
-    // ANA ÇEKME STRATEJİSİ (v3 — Optimize)
-    // ═══════════════════════════════════════════════════════════════
-    // Strateji: Önce type'sız dene (en hızlı, tek istek).
-    // Boş dönerse type'lı dene (HB, HX, HC ayrı ayrı).
-    // Bu sayede gereksiz 3x istek yapılmaz.
+    // ANA ÇEKME STRATEJİSİ (v4 — Optimize)
     // ═══════════════════════════════════════════════════════════════
     let allCategories = [];
 
     if (onlyLeaf) {
-        // ── Sadece leaf kategoriler (arama/ürün ekleme için) ──
-        // Önce type'sız dene (çoğu durumda tüm leaf'ler gelir)
         allCategories = await fetchPaginated({ leaf: true, available: true }, " leaf");
 
-        // Boş döndüyse type'lı dene
         if (allCategories.length === 0) {
             logger.info("[HB CATEGORIES] Type'sız boş döndü, type parametreli deneniyor (HB, HX, HC)...");
             for (const type of ["HB", "HX", "HC"]) {
@@ -319,11 +298,8 @@ const fetchHepsiburadaCategoryTree = async (credentials, options = {}) => {
             }
         }
     } else {
-        // ── Tüm kategoriler (ağaç görünümü + export için) ──
-        // Önce type'sız dene
         allCategories = await fetchPaginated({}, " all");
 
-        // Boş döndüyse type'lı dene
         if (allCategories.length === 0) {
             logger.info("[HB CATEGORIES] Type'sız boş döndü, type parametreli deneniyor (HB, HX, HC)...");
             for (const type of ["HB", "HX", "HC"]) {
@@ -334,14 +310,13 @@ const fetchHepsiburadaCategoryTree = async (credentials, options = {}) => {
             }
         }
 
-        // Hâlâ boşsa, available=true ile dene
         if (allCategories.length === 0) {
             logger.warn("[HB CATEGORIES] Hâlâ boş, available=true ile deneniyor...");
             allCategories = await fetchPaginated({ available: true }, " fallback-available");
         }
     }
 
-    // ── Duplikasyon temizliği (farklı type'lardan aynı categoryId gelebilir) ──
+    // ── Duplikasyon temizliği ──
     const seenIds = new Set();
     const uniqueCategories = [];
     for (const cat of allCategories) {
@@ -665,6 +640,59 @@ exports.getCategoryTree = async (req, res) => {
                 break;
             default:
                 return badRequest(res, `${marketplaceName} için kategori çekme desteklenmiyor`);
+        }
+
+        // ── Hepsiburada: flat liste → ağaç yapısına dönüştür ──
+        // HB API flat liste döndürür (parentCategoryId ile ilişki).
+        // Frontend TreeNode bileşeni nested children bekler, bu yüzden burada dönüştürüyoruz.
+        if (normalizedName.includes("hepsiburada") && Array.isArray(categories) && categories.length > 0) {
+            const catMap = new Map();
+            for (const cat of categories) {
+                const id = String(cat.categoryId || cat.id || "");
+                if (!id) continue;
+                catMap.set(id, {
+                    id,
+                    categoryId: id,
+                    name: cat.name || cat.categoryName || "",
+                    parentCategoryId: cat.parentCategoryId ? String(cat.parentCategoryId) : null,
+                    leaf: cat.leaf === true || cat.leaf === "true",
+                    available: cat.available === true || cat.available === "true",
+                    status: cat.status || "ACTIVE",
+                    hasChildren: false,
+                    subCategories: []
+                });
+            }
+
+            // Parent-child ilişkilerini kur
+            const roots = [];
+            for (const [id, node] of catMap) {
+                if (node.parentCategoryId && catMap.has(node.parentCategoryId)) {
+                    const parent = catMap.get(node.parentCategoryId);
+                    parent.subCategories.push(node);
+                    parent.hasChildren = true;
+                } else {
+                    roots.push(node);
+                }
+            }
+
+            // İsimlere göre sırala (recursive)
+            const sortTree = (nodes) => {
+                nodes.sort((a, b) => (a.name || "").localeCompare(b.name || "", "tr"));
+                for (const n of nodes) {
+                    if (n.subCategories.length > 0) sortTree(n.subCategories);
+                }
+            };
+            sortTree(roots);
+
+            logger.info(`[CATEGORY CENTER] ${marketplaceName} — ${categories.length} flat → ${roots.length} kök kategori (ağaç)`);
+
+            return ok(res, `${marketplaceName} kategorileri başarıyla çekildi`, {
+                marketplaceName: marketplace.marketplaceName,
+                categories: roots,
+                total: categories.length,
+                treeRootCount: roots.length,
+                fetchedAt: new Date().toISOString()
+            });
         }
 
         logger.info(`[CATEGORY CENTER] ${marketplaceName} — ${Array.isArray(categories) ? categories.length : 0} üst kategori çekildi`);

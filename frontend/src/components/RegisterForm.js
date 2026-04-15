@@ -8,7 +8,8 @@ import {
     FaLock,
     FaEye,
     FaEyeSlash,
-    FaArrowRight
+    FaArrowRight,
+    FaPhone
 } from "react-icons/fa";
 import "../styles/login.css";
 import { useApp } from "../context/AppContext";
@@ -30,7 +31,7 @@ const GOOGLE_CLIENT_ID = process.env.REACT_APP_GOOGLE_CLIENT_ID || "";
    ═══════════════════════════════════════════════════════════════════════════ */
 const RegisterFormInner = () => {
     const { t } = useApp();
-    const [formData, setFormData] = useState({ name: "", email: "", password: "" });
+    const [formData, setFormData] = useState({ name: "", surname: "", phone: "", email: "", password: "" });
     const [confirmPassword, setConfirmPassword] = useState("");
     const [message, setMessage] = useState({ text: "", type: "" });
     const [isLoading, setIsLoading] = useState(false);
@@ -132,19 +133,54 @@ const RegisterFormInner = () => {
                         </div>
 
                         <form onSubmit={handleSubmit} className="auth-form">
-                            {/* Ad Soyad */}
+                            {/* Ad + Soyad yan yana */}
+                            <div style={{ display: "flex", gap: 10 }}>
+                                <div className="auth-field" style={{ flex: 1 }}>
+                                    <div className="auth-input-wrap">
+                                        <FaUser className="auth-input-icon" />
+                                        <input
+                                            className="auth-input"
+                                            type="text"
+                                            name="name"
+                                            placeholder={t("auth.namePlaceholder")}
+                                            value={formData.name}
+                                            onChange={handleChange}
+                                            required
+                                            autoComplete="given-name"
+                                            disabled={isLoading}
+                                        />
+                                    </div>
+                                </div>
+                                <div className="auth-field" style={{ flex: 1 }}>
+                                    <div className="auth-input-wrap">
+                                        <FaUser className="auth-input-icon" />
+                                        <input
+                                            className="auth-input"
+                                            type="text"
+                                            name="surname"
+                                            placeholder={t("auth.surnamePlaceholder")}
+                                            value={formData.surname}
+                                            onChange={handleChange}
+                                            required
+                                            autoComplete="family-name"
+                                            disabled={isLoading}
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Telefon */}
                             <div className="auth-field">
                                 <div className="auth-input-wrap">
-                                    <FaUser className="auth-input-icon" />
+                                    <FaPhone className="auth-input-icon" />
                                     <input
                                         className="auth-input"
-                                        type="text"
-                                        name="name"
-                                        placeholder={t("auth.namePlaceholder")}
-                                        value={formData.name}
+                                        type="tel"
+                                        name="phone"
+                                        placeholder={t("auth.phonePlaceholder")}
+                                        value={formData.phone}
                                         onChange={handleChange}
-                                        required
-                                        autoComplete="name"
+                                        autoComplete="tel"
                                         disabled={isLoading}
                                     />
                                 </div>

@@ -10,7 +10,10 @@ const router = express.Router();
 const { authMiddleware, adminMiddleware } = require("../middlewares/authMiddleware");
 const saas = require("../controllers/admin/saasAdminController");
 
-// Tüm route'lar auth + admin gerektirir
+// ─── 0. Public Endpoint — Auth gerektirmez ────────────────────────────────────
+router.get("/public/plans", saas.getPublicPlans);
+
+// Tüm diğer route'lar auth + admin gerektirir
 router.use(authMiddleware, adminMiddleware);
 
 // ─── 1. Dashboard Metrikleri ──────────────────────────────────────────────────
@@ -19,10 +22,13 @@ router.get("/dashboard", saas.getDashboardMetrics);
 // ─── 2. Firma (Tenant) Yönetimi ──────────────────────────────────────────────
 router.get("/tenants", saas.getTenants);
 router.get("/tenants/:id", saas.getTenantDetail);
+router.put("/tenants/:id/profile", saas.updateTenantProfile);
+router.put("/tenants/:id/role", saas.updateUserRole);
 router.post("/tenants/:id/suspend", saas.suspendTenant);
 router.post("/tenants/:id/activate", saas.activateTenant);
 router.post("/tenants/:id/ban", saas.banTenant);
 router.post("/tenants/:id/reset-password", saas.adminResetPassword);
+router.delete("/tenants/:id", saas.deleteTenant);
 
 // ─── 3. Abonelik Yönetimi ────────────────────────────────────────────────────
 router.get("/subscriptions", saas.getSubscriptions);
@@ -60,5 +66,8 @@ router.put("/tickets/:id/status", saas.updateTicketStatus);
 
 // ─── 11. Sistem Ayarları ─────────────────────────────────────────────────────
 router.get("/system-config", saas.getSystemConfig);
+
+// ─── 12. Paket Tanımları Güncelleme ───────────────────────────────────────────
+router.put("/plan-definitions", saas.updatePlanDefinitions);
 
 module.exports = router;

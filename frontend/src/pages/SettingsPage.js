@@ -11,8 +11,9 @@ import {
     FaPlus, FaTimes, FaClock, FaPercent,
     FaLaptop, FaSignOutAlt, FaMapMarkerAlt,
     FaBuilding, FaIdCard, FaCalendarAlt, FaTable, FaDollarSign,
-    FaInfoCircle
+    FaInfoCircle, FaShippingFast
 } from "react-icons/fa";
+import AutoOrderSettings from "./AutoOrderSettings";
 import {
     updateProductMatchPriority,
     getUserPreferences, updateUserPreferences,
@@ -477,6 +478,7 @@ const SettingsPage = ({ userId }) => {
         { id: "notifications", icon: <FaBell />, label: tr ? "Bildirimler" : "Notifications" },
         { id: "productMatch", icon: <FaBox />, label: tr ? "Ürün Yönetimi" : "Products" },
         { id: "marketplace", icon: <FaStore />, label: tr ? "Pazaryeri" : "Marketplace" },
+        { id: "autoOrder", icon: <FaShippingFast />, label: tr ? "Sipariş İşleme" : "Order Processing" },
         { id: "invoice", icon: <FaFileInvoice />, label: tr ? "Fatura" : "Invoice" },
         { id: "account", icon: <FaUser />, label: tr ? "Hesap" : "Account" },
         { id: "security", icon: <FaShieldAlt />, label: tr ? "Güvenlik" : "Security" },
@@ -838,6 +840,12 @@ const SettingsPage = ({ userId }) => {
 {/* ═══════════════════════════════════════════════════════════════
     TAB 5: FATURA
     ═══════════════════════════════════════════════════════════════ */}
+{activeTab === "autoOrder" && (
+<div style={{ margin: "-0.5rem" }}>
+    <AutoOrderSettings embedded />
+</div>
+)}
+
 {activeTab === "invoice" && (
 <div>
     {!invoiceConfig ? (

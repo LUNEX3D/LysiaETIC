@@ -1,15 +1,23 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
- * OpportunityResult Model — LysiaRadar PRO
+ * OpportunityResult Model — LysiaRadar PRO v2 (REVISED)
  * ═══════════════════════════════════════════════════════════════════════════════
  *
  * AI Ürün Fırsat Motoru sonuçlarını saklar.
  * Her kullanıcı için kişiselleştirilmiş fırsatlar, skorlar ve AI açıklamaları.
  *
+ * YENİ v2:
+ *   - Sosyal medya verileri (Instagram + TikTok)
+ *   - Google Trends verileri
+ *   - Amazon pazar verileri
+ *   - Çapraz pazar analizi (arbitraj)
+ *   - 7 boyutlu skor sistemi (social + amazon eklendi)
+ *   - Veri kaynağı sayısı ve güvenilirlik
+ *
  * Lifecycle:
- *   1. Worker veri toplar (trend, pazar, kullanıcı)
- *   2. Skorlama servisi puanlar
- *   3. AI açıklama üretir
+ *   1. Worker veri toplar (Google + Sosyal + Amazon + Trendyol)
+ *   2. Skorlama servisi 7 boyutlu puanlar
+ *   3. AI açıklama üretir (zenginleştirilmiş)
  *   4. Bu modele kaydeder
  *   5. Frontend buradan okur
  *
@@ -26,27 +34,27 @@ const OpportunityResultSchema = new mongoose.Schema({
     },
 
     // ── Fırsat Kimliği ──
-    keyword: { type: String, required: true },           // Ürün / anahtar kelime
-    category: { type: String, default: "" },              // Kategori adı
-    categoryId: { type: String, default: "" },            // Kategori ID
+    keyword: { type: String, required: true },
+    category: { type: String, default: "" },
+    categoryId: { type: String, default: "" },
     source: {
         type: String,
         enum: ["trend", "marketplace", "user_data", "search_suggest", "social", "ai_discovery"],
         default: "marketplace",
     },
 
-    // ── Pazar Verileri ──
+    // ── Pazar Verileri (Trendyol) ──
     marketData: {
-        avgPrice: { type: Number, default: 0 },          // Ortalama fiyat
-        minPrice: { type: Number, default: 0 },          // Minimum fiyat
-        maxPrice: { type: Number, default: 0 },          // Maksimum fiyat
-        sellerCount: { type: Number, default: 0 },       // Satıcı sayısı
-        totalProducts: { type: Number, default: 0 },     // Toplam ürün sayısı
-        avgRating: { type: Number, default: 0 },         // Ortalama puan
-        avgReviewCount: { type: Number, default: 0 },    // Ortalama yorum sayısı
-        topBrands: [{ type: String }],                    // En popüler markalar
-        estimatedMonthlySales: { type: Number, default: 0 }, // Tahmini aylık satış
-        estimatedMonthlyRevenue: { type: Number, default: 0 }, // Tahmini aylık ciro
+        avgPrice: { type: Number, default: 0 },
+        minPrice: { type: Number, default: 0 },
+        maxPrice: { type: Number, default: 0 },
+        sellerCount: { type: Number, default: 0 },
+        totalProducts: { type: Number, default: 0 },
+        avgRating: { type: Number, default: 0 },
+        avgReviewCount: { type: Number, default: 0 },
+        topBrands: [{ type: String }],
+        estimatedMonthlySales: { type: Number, default: 0 },
+        estimatedMonthlyRevenue: { type: Number, default: 0 },
         sampleProducts: [{
             name: { type: String },
             price: { type: Number },
@@ -58,49 +66,135 @@ const OpportunityResultSchema = new mongoose.Schema({
         }],
     },
 
-    // ── Trend Verileri ──
+    // ── Trend Verileri (Birleşik) ──
     trendData: {
-        trendScore: { type: Number, default: 0 },        // 0-100 trend skoru
+        trendScore: { type: Number, default: 0 },
         trendDirection: {
             type: String,
             enum: ["rising", "stable", "declining", "breakout", "unknown"],
             default: "unknown",
         },
-        searchVolume: { type: Number, default: 0 },       // Arama hacmi (göreceli)
-        weeklyChange: { type: Number, default: 0 },       // Haftalık değişim %
-        monthlyChange: { type: Number, default: 0 },      // Aylık değişim %
-        seasonality: { type: String, default: "" },        // "yaz", "kış", "her_mevsim"
-        relatedKeywords: [{ type: String }],               // İlişkili anahtar kelimeler
+        searchVolume: { type: Number, default: 0 },
+        weeklyChange: { type: Number, default: 0 },
+        monthlyChange: { type: Number, default: 0 },
+        seasonality: { type: String, default: "" },
+        relatedKeywords: [{ type: String }],
     },
 
-    // ── Skorlar ──
+    // ── Google Trends Verileri (YENİ) ──
+    googleTrendsData: {
+        interestOverTime: { type: Number, default: 0 },
+        isBreakout: { type: Boolean, default: false },
+        relatedQueries: [{ type: String }],
+        relatedTopics: [{ type: String }],
+        timelineValues: [{ type: Number }],
+    },
+
+    // ── Sosyal Medya Verileri (YENİ) ──
+    socialData: {
+        instagram: {
+            hashtagPostCount: { type: Number, default: 0 },
+            recentPostCount: { type: Number, default: 0 },
+            avgLikes: { type: Number, default: 0 },
+            avgComments: { type: Number, default: 0 },
+            engagementRate: { type: Number, default: 0 },
+        },
+        tiktok: {
+            videoCount: { type: Number, default: 0 },
+            totalViews: { type: Number, default: 0 },
+            avgViews: { type: Number, default: 0 },
+            avgLikes: { type: Number, default: 0 },
+            avgShares: { type: Number, default: 0 },
+            engagementRate: { type: Number, default: 0 },
+            isViral: { type: Boolean, default: false },
+        },
+        socialScore: { type: Number, default: 0 },
+    },
+
+    // ── Amazon Pazar Verileri (YENİ) ──
+    amazonData: {
+        totalProducts: { type: Number, default: 0 },
+        avgPrice: { type: Number, default: 0 },
+        avgBSR: { type: Number, default: 0 },
+        avgRating: { type: Number, default: 0 },
+        avgReviewCount: { type: Number, default: 0 },
+        topBrands: [{ type: String }],
+        estimatedMonthlySales: { type: Number, default: 0 },
+        estimatedMonthlyRevenue: { type: Number, default: 0 },
+        marketplace: { type: String, default: "TR" },
+        sampleProducts: [{
+            name: { type: String },
+            price: { type: Number },
+            rating: { type: Number },
+            reviewCount: { type: Number },
+            bsr: { type: Number },
+            imageUrl: { type: String },
+            asin: { type: String },
+        }],
+    },
+
+    // ── Çapraz Pazar Analizi (YENİ) ──
+    crossMarketAnalysis: {
+        priceComparison: {
+            trendyolAvg: { type: Number, default: 0 },
+            amazonAvg: { type: Number, default: 0 },
+            diffPercent: { type: Number, default: 0 },
+            cheaperOn: { type: String, default: "" },
+        },
+        arbitrageOpportunity: { type: Boolean, default: false },
+        arbitrageDetails: {
+            direction: { type: String, default: "" },
+            potentialMargin: { type: Number, default: 0 },
+            description: { type: String, default: "" },
+        },
+        competitionComparison: {
+            trendyolSellers: { type: Number, default: 0 },
+            amazonProducts: { type: Number, default: 0 },
+            lessCompetitiveOn: { type: String, default: "" },
+        },
+    },
+
+    // ── Veri Kaynağı Bilgisi (YENİ) ──
+    dataSourceCount: { type: Number, default: 0 },
+
+    // ── Skorlar (7 boyutlu — GELİŞTİRİLDİ) ──
     scores: {
-        trend: { type: Number, default: 0, min: 0, max: 100 },       // Trend skoru
-        demand: { type: Number, default: 0, min: 0, max: 100 },      // Talep skoru
-        competition: { type: Number, default: 0, min: 0, max: 100 }, // Rekabet skoru (düşük = iyi)
-        profit: { type: Number, default: 0, min: 0, max: 100 },      // Kâr potansiyeli
-        userFit: { type: Number, default: 0, min: 0, max: 100 },     // Kullanıcı uyumu
+        trend: { type: Number, default: 0, min: 0, max: 100 },
+        demand: { type: Number, default: 0, min: 0, max: 100 },
+        competition: { type: Number, default: 0, min: 0, max: 100 },
+        profit: { type: Number, default: 0, min: 0, max: 100 },
+        userFit: { type: Number, default: 0, min: 0, max: 100 },
+        social: { type: Number, default: 0, min: 0, max: 100 },   // YENİ
+        amazon: { type: Number, default: 0, min: 0, max: 100 },   // YENİ
     },
-    totalScore: { type: Number, default: 0, min: 0, max: 100 },      // Toplam fırsat skoru
+    totalScore: { type: Number, default: 0, min: 0, max: 100 },
 
-    // ── Kâr Analizi ──
+    // ── Kâr Analizi (GELİŞTİRİLDİ) ──
     profitAnalysis: {
-        estimatedCost: { type: Number, default: 0 },      // Tahmini maliyet
-        suggestedPrice: { type: Number, default: 0 },     // Önerilen satış fiyatı
-        estimatedMargin: { type: Number, default: 0 },    // Tahmini kâr marjı %
-        estimatedMonthlyProfit: { type: Number, default: 0 }, // Tahmini aylık kâr
-        commissionRate: { type: Number, default: 0 },     // Komisyon oranı %
+        estimatedCost: { type: Number, default: 0 },
+        suggestedPrice: { type: Number, default: 0 },
+        estimatedMargin: { type: Number, default: 0 },
+        estimatedMonthlyProfit: { type: Number, default: 0 },
+        commissionRate: { type: Number, default: 0 },
+        amazonComparison: {                                         // YENİ
+            avgPrice: { type: Number, default: 0 },
+            estimatedCost: { type: Number, default: 0 },
+            commissionRate: { type: Number, default: 0 },
+            estimatedMargin: { type: Number, default: 0 },
+            netProfitPerUnit: { type: Number, default: 0 },
+            betterMarginOn: { type: String, default: "" },
+        },
     },
 
     // ── AI Açıklaması ──
-    aiExplanation: { type: String, default: "" },          // AI'ın ürettiği açıklama
-    aiRisks: [{ type: String }],                           // Risk faktörleri
-    aiBenefits: [{ type: String }],                        // Fayda faktörleri
-    aiConfidence: { type: Number, default: 50, min: 0, max: 100 }, // AI güven skoru
+    aiExplanation: { type: String, default: "" },
+    aiRisks: [{ type: String }],
+    aiBenefits: [{ type: String }],
+    aiConfidence: { type: Number, default: 50, min: 0, max: 100 },
 
     // ── Kullanıcı Uyumu ──
-    userFitReason: { type: String, default: "" },          // Neden uygun?
-    relatedUserCategories: [{ type: String }],             // Kullanıcının ilgili kategorileri
+    userFitReason: { type: String, default: "" },
+    relatedUserCategories: [{ type: String }],
     expansionType: {
         type: String,
         enum: ["same_category", "adjacent_category", "new_category", "trending"],
@@ -122,8 +216,8 @@ const OpportunityResultSchema = new mongoose.Schema({
     userActionAt: { type: Date },
 
     // ── Meta ──
-    dataFreshness: { type: Date, default: Date.now },      // Veri ne zaman çekildi
-    expiresAt: { type: Date },                              // TTL — otomatik silinme
+    dataFreshness: { type: Date, default: Date.now },
+    expiresAt: { type: Date },
 
 }, { timestamps: true });
 
@@ -131,6 +225,8 @@ const OpportunityResultSchema = new mongoose.Schema({
 OpportunityResultSchema.index({ userId: 1, status: 1, totalScore: -1 });
 OpportunityResultSchema.index({ userId: 1, keyword: 1 }, { unique: true });
 OpportunityResultSchema.index({ userId: 1, category: 1, totalScore: -1 });
-OpportunityResultSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 }); // TTL
+OpportunityResultSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+OpportunityResultSchema.index({ userId: 1, source: 1, totalScore: -1 });           // YENİ
+OpportunityResultSchema.index({ "crossMarketAnalysis.arbitrageOpportunity": 1 });   // YENİ
 
 module.exports = mongoose.model("OpportunityResult", OpportunityResultSchema);

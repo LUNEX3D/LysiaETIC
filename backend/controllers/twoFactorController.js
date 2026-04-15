@@ -15,9 +15,9 @@ const logger = require("../config/logger");
 const { send2FACodeEmail } = require("../services/emailService");
 const { ok, badRequest, unauthorized, notFound, serverError } = require("../utils/apiResponse");
 
-// ── 6 haneli rastgele kod üret ──────────────────────────────────────────────
+// ── 6 haneli rastgele kod üret (✅ SEC: kriptografik güvenli random) ─────────
 const generate2FACode = () => {
-    return Math.floor(100000 + Math.random() * 900000).toString();
+    return crypto.randomInt(100000, 999999).toString();
 };
 
 // ── 10 adet 8 karakterlik backup kodu üret ──────────────────────────────────

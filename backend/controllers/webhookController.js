@@ -255,7 +255,7 @@ exports.trendyolWebhook = async (req, res) => {
     } catch (error) {
         logger.error(`[WEBHOOK] Trendyol webhook hatası: ${error.message}`);
         // Webhook'larda 500 dönmek retry tetikleyebilir — 200 döndür ama logla
-        return res.status(200).json({ success: false, message: "İşleme hatası", error: error.message });
+        return res.status(200).json({ success: false, message: "İşleme hatası" });
     }
 };
 
@@ -344,7 +344,7 @@ exports.n11Webhook = async (req, res) => {
 
     } catch (error) {
         logger.error(`[WEBHOOK] N11 webhook hatası: ${error.message}`);
-        return res.status(200).json({ success: false, message: "İşleme hatası", error: error.message });
+        return res.status(200).json({ success: false, message: "İşleme hatası" });
     }
 };
 
@@ -423,7 +423,7 @@ exports.hepsiburadaWebhook = async (req, res) => {
 
     } catch (error) {
         logger.error(`[WEBHOOK] Hepsiburada webhook hatası: ${error.message}`);
-        return res.status(200).json({ success: false, message: "İşleme hatası", error: error.message });
+        return res.status(200).json({ success: false, message: "İşleme hatası" });
     }
 };
 
@@ -513,7 +513,7 @@ exports.ciceksepetiWebhook = async (req, res) => {
 
     } catch (error) {
         logger.error(`[WEBHOOK] ÇiçekSepeti webhook hatası: ${error.message}`);
-        return res.status(200).json({ success: false, message: "İşleme hatası", error: error.message });
+        return res.status(200).json({ success: false, message: "İşleme hatası" });
     }
 };
 

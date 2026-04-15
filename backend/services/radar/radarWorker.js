@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
- * RADAR WORKER — LysiaRadar PRO Arka Plan İşçisi
+ * RADAR WORKER — LysiaRadar PRO v2 Arka Plan İşçisi (REVISED)
  * ═══════════════════════════════════════════════════════════════════════════════
  *
  * Belirli aralıklarla tüm aktif kullanıcılar için fırsat analizi çalıştırır.
@@ -9,9 +9,8 @@
  *   1. Her 6 saatte tüm kullanıcılar için fırsat analizi
  *   2. Eski/expire fırsatları temizle
  *   3. Skorları güncelle
- *
- * Entegrasyon:
- *   aiBackgroundWorker.js içinden çağrılır veya bağımsız çalışır.
+ *   4. Google Trends yükselen aramaları topla (YENİ)
+ *   5. TrendSignal zaman serisi verilerini temizle (YENİ)
  *
  * ═══════════════════════════════════════════════════════════════════════════════
  */
@@ -19,13 +18,16 @@ const logger = require("../../config/logger");
 const User = require("../../models/User");
 const ProductMapping = require("../../models/ProductMapping");
 const OpportunityResult = require("../../models/OpportunityResult");
+const TrendSignal = require("../../models/TrendSignal");
 const opportunityEngine = require("./opportunityEngine");
+const googleTrendsService = require("./googleTrendsService");
 
 // ── Konfigürasyon ──
 const RADAR_INTERVAL_MS = 6 * 60 * 60 * 1000;  // 6 saat
 const INITIAL_DELAY_MS = 5 * 60 * 1000;         // 5 dakika (sunucu başlangıcında bekle)
 const USER_DELAY_MS = 10000;                      // 10s — kullanıcılar arası bekleme
 const CLEANUP_DAYS = 7;                           // 7 günden eski expire fırsatları sil
+const SIGNAL_CLEANUP_DAYS = 14;                   // 14 günden eski TrendSignal'ları sil
 
 let radarInterval = null;
 let isRunning = false;
@@ -36,8 +38,15 @@ let workerStats = {
     lastDurationMs: 0,
     usersProcessed: 0,
     opportunitiesGenerated: 0,
+    trendSignalsCollected: 0,
     isActive: false,
     startedAt: null,
+    dataSources: {
+        googleTrends: 0,
+        socialMedia: 0,
+        amazon: 0,
+        trendyol: 0,
+    },
 };
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
@@ -56,8 +65,8 @@ async function getRadarUsers() {
 async function processUser(userId) {
     try {
         const result = await opportunityEngine.analyzeOpportunities(userId, {
-            forceRefresh: false, // Cache varsa kullan
-            maxKeywords: 10,     // Worker'da daha az keyword (kaynak tasarrufu)
+            forceRefresh: false,
+            maxKeywords: 12,     // Worker'da biraz daha az keyword (kaynak tasarrufu)
         });
 
         if (result.fromCache) {
@@ -68,10 +77,67 @@ async function processUser(userId) {
             success: true,
             opportunities: result.stats?.total || 0,
             durationMs: result.stats?.durationMs || 0,
+            dataSources: result.stats?.dataSources || {},
         };
     } catch (err) {
         logger.warn(`[RadarWorker] User ${String(userId).slice(-6)} hatası: ${err.message}`);
         return { success: false, error: err.message };
+    }
+}
+
+/**
+ * Google Trends yükselen aramaları topla (YENİ)
+ * Tüm kullanıcılar için ortak veri — günde 1 kez yeterli
+ */
+async function collectGlobalTrends() {
+    try {
+        logger.info("[RadarWorker] 🌍 Global trend verileri toplanıyor...");
+
+        // Türkiye yükselen aramalar
+        const trendingTR = await googleTrendsService.getTrendingSearches("TR");
+
+        // ABD yükselen aramalar (global e-ticaret sinyali)
+        const trendingUS = await googleTrendsService.getTrendingSearches("US");
+
+        const allTrending = [...new Set([...trendingTR, ...trendingUS])];
+
+        // TrendSignal olarak kaydet
+        let savedCount = 0;
+        for (const keyword of allTrending.slice(0, 30)) {
+            try {
+                await TrendSignal.findOneAndUpdate(
+                    { keyword: keyword.toLowerCase(), source: "google_trends" },
+                    {
+                        $set: {
+                            keyword: keyword.toLowerCase(),
+                            source: "google_trends",
+                            googleTrends: {
+                                interestOverTime: 80, // Trending = yüksek ilgi
+                                interestChange: 50,
+                                isBreakout: true,
+                                geo: trendingTR.includes(keyword) ? "TR" : "US",
+                            },
+                            compositeScore: 75,
+                            trendDirection: "rising",
+                            confidenceLevel: 60,
+                            dataSourceCount: 1,
+                            collectedAt: new Date(),
+                            expiresAt: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000), // 3 gün
+                        },
+                    },
+                    { upsert: true }
+                );
+                savedCount++;
+            } catch (e) {
+                // Duplicate key veya diğer hatalar — atla
+            }
+        }
+
+        logger.info(`[RadarWorker] 🌍 ${savedCount} global trend sinyali kaydedildi`);
+        return savedCount;
+    } catch (err) {
+        logger.warn(`[RadarWorker] Global trend toplama hatası: ${err.message}`);
+        return 0;
     }
 }
 
@@ -90,8 +156,13 @@ async function runRadarCycle() {
     let totalOpps = 0;
     let skipped = 0;
     let failed = 0;
+    let totalDataSources = { googleTrends: 0, socialMedia: 0, amazon: 0, trendyol: 0 };
 
     try {
+        // ── 0. Global trend verileri topla (her döngüde) ──
+        const trendSignals = await collectGlobalTrends();
+
+        // ── 1. Aktif kullanıcıları getir ──
         const userIds = await getRadarUsers();
         if (userIds.length === 0) {
             logger.info("[RadarWorker] Aktif kullanıcı yok, döngü atlanıyor");
@@ -99,8 +170,12 @@ async function runRadarCycle() {
             return;
         }
 
-        logger.info(`🔭 [RadarWorker] Radar döngüsü #${workerStats.totalCycles + 1} başlıyor — ${userIds.length} kullanıcı`);
+        logger.info(
+            `🔭 [RadarWorker] Radar döngüsü #${workerStats.totalCycles + 1} başlıyor — ` +
+            `${userIds.length} kullanıcı, ${trendSignals} global trend`
+        );
 
+        // ── 2. Her kullanıcı için analiz ──
         for (const userId of userIds) {
             try {
                 const result = await processUser(userId);
@@ -110,6 +185,14 @@ async function runRadarCycle() {
                 } else if (result.success) {
                     processed++;
                     totalOpps += result.opportunities || 0;
+
+                    // Veri kaynağı istatistikleri
+                    if (result.dataSources) {
+                        totalDataSources.googleTrends += result.dataSources.googleTrends || 0;
+                        totalDataSources.socialMedia += result.dataSources.socialMedia || 0;
+                        totalDataSources.amazon += result.dataSources.amazon || 0;
+                        totalDataSources.trendyol += result.dataSources.trendyol || 0;
+                    }
                 } else {
                     failed++;
                 }
@@ -124,20 +207,26 @@ async function runRadarCycle() {
             }
         }
 
-        // Eski fırsatları temizle
+        // ── 3. Temizlik ──
         await cleanupExpiredOpportunities();
+        await cleanupOldTrendSignals();
 
+        // ── 4. İstatistikleri güncelle ──
         const duration = Date.now() - cycleStart;
         workerStats.totalCycles++;
         workerStats.lastCycleAt = new Date();
         workerStats.lastDurationMs = duration;
         workerStats.usersProcessed = processed;
         workerStats.opportunitiesGenerated = totalOpps;
+        workerStats.trendSignalsCollected = trendSignals;
+        workerStats.dataSources = totalDataSources;
 
         logger.info(
             `🔭 [RadarWorker] ✅ Radar döngüsü #${workerStats.totalCycles} tamamlandı — ` +
             `${processed} işlendi, ${skipped} atlandı, ${failed} hata, ` +
-            `${totalOpps} fırsat — ${(duration / 1000).toFixed(1)}s`
+            `${totalOpps} fırsat — ${(duration / 1000).toFixed(1)}s ` +
+            `[G:${totalDataSources.googleTrends} S:${totalDataSources.socialMedia} ` +
+            `A:${totalDataSources.amazon} T:${totalDataSources.trendyol}]`
         );
     } catch (err) {
         logger.error(`[RadarWorker] Döngü genel hata: ${err.message}`);
@@ -160,7 +249,24 @@ async function cleanupExpiredOpportunities() {
             logger.info(`[RadarWorker] ${result.deletedCount} eski fırsat temizlendi`);
         }
     } catch (err) {
-        logger.warn(`[RadarWorker] Temizlik hatası: ${err.message}`);
+        logger.warn(`[RadarWorker] Fırsat temizlik hatası: ${err.message}`);
+    }
+}
+
+/**
+ * Eski TrendSignal'ları temizle (YENİ)
+ */
+async function cleanupOldTrendSignals() {
+    try {
+        const cutoff = new Date(Date.now() - SIGNAL_CLEANUP_DAYS * 24 * 60 * 60 * 1000);
+        const result = await TrendSignal.deleteMany({
+            collectedAt: { $lt: cutoff },
+        });
+        if (result.deletedCount > 0) {
+            logger.info(`[RadarWorker] ${result.deletedCount} eski trend sinyali temizlendi`);
+        }
+    } catch (err) {
+        logger.warn(`[RadarWorker] TrendSignal temizlik hatası: ${err.message}`);
     }
 }
 
@@ -179,7 +285,7 @@ function startRadarWorker() {
 
     // İlk çalışma — 5 dakika sonra
     setTimeout(() => {
-        logger.info("🔭 [RadarWorker] LysiaRadar PRO fırsat tarama döngüsü başlatıldı");
+        logger.info("🔭 [RadarWorker] LysiaRadar PRO v2 fırsat tarama döngüsü başlatıldı");
         runRadarCycle();
     }, INITIAL_DELAY_MS);
 
@@ -187,8 +293,9 @@ function startRadarWorker() {
     radarInterval = setInterval(runRadarCycle, RADAR_INTERVAL_MS);
 
     logger.info(
-        `🔭 [RadarWorker] LysiaRadar PRO Worker başlatıldı — ` +
-        `her ${RADAR_INTERVAL_MS / 3600000} saatte bir (ilk çalışma ${INITIAL_DELAY_MS / 1000}s sonra)`
+        `🔭 [RadarWorker] LysiaRadar PRO v2 Worker başlatıldı — ` +
+        `her ${RADAR_INTERVAL_MS / 3600000} saatte bir (ilk çalışma ${INITIAL_DELAY_MS / 1000}s sonra) ` +
+        `[Google Trends + Sosyal Medya + Amazon + Trendyol]`
     );
 }
 
@@ -198,7 +305,7 @@ function stopRadarWorker() {
         radarInterval = null;
     }
     workerStats.isActive = false;
-    logger.info("🔭 [RadarWorker] LysiaRadar PRO Worker durduruldu");
+    logger.info("🔭 [RadarWorker] LysiaRadar PRO v2 Worker durduruldu");
 }
 
 function getRadarWorkerStatus() {

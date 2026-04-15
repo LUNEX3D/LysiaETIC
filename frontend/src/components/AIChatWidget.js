@@ -46,7 +46,15 @@ const formatTime = (ts) => {
 // Simple markdown-like bold: **text** → <strong>text</strong>
 const renderContent = (text) => {
     if (!text) return "";
-    return text
+    // SEC: Önce HTML entity escape — XSS koruması
+    const escaped = text
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    // Sonra güvenli markdown dönüşümleri
+    return escaped
         .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
         .replace(/\n/g, "<br/>");
 };

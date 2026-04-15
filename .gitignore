@@ -12,6 +12,8 @@ node_modules/
 **/.env.*.local
 backend/.env
 frontend/.env
+frontend/.env.production
+frontend/.env.development
 
 # Log files
 *.log

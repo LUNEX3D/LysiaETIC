@@ -21,48 +21,114 @@
 const User = require("../models/User");
 const Payment = require("../models/Payment");
 const Subscription = require("../models/Subscription");
+const SystemConfig = require("../models/SystemConfig");
 const paytrService = require("../services/paytrService");
 const logger = require("../config/logger");
 
-// ─── PAKET TANIMLARI (fiyat-plan mapping dahil) ─────────────────────────────────
-const PLANS = {
+// ─── FALLBACK PAKET TANIMLARI (DB'den okunamazsa kullanılır) ─────────────────────
+// ✅ FIX: saasAdminController.js'deki DEFAULT_PLAN_DEFINITIONS ile senkronize edildi
+const FALLBACK_PLANS = {
     basic: {
         name: "Basic",
+        description: "Küçük işletmeler için temel e-ticaret yönetimi",
+        badge: "",
+        price: 299,
         monthlyPrice: 299,
         yearlyPrice: 2990,
+        duration: 30,
         durationDays: { monthly: 30, yearly: 365 },
-        limits: { maxProducts: 500, maxOrders: 5000, maxMarketplaces: 3, maxApiCalls: 50000, maxUsers: 2 }
+        limits: { maxProducts: 500, maxOrders: 5000, maxMarketplaces: 3, maxApiCalls: 50000, maxUsers: 3 },
+        features: ["Dashboard erişimi", "500 ürün yönetimi", "5.000 sipariş/ay", "3 pazaryeri entegrasyonu", "Gelişmiş raporlama", "Kargo takibi", "E-posta desteği"],
     },
     pro: {
         name: "Pro",
-        monthlyPrice: 599,
-        yearlyPrice: 5990,
+        description: "Büyüyen işletmeler için gelişmiş özellikler ve AI desteği",
+        badge: "EN POPÜLER",
+        price: 799,
+        monthlyPrice: 799,
+        yearlyPrice: 7990,
+        duration: 30,
         durationDays: { monthly: 30, yearly: 365 },
-        limits: { maxProducts: 5000, maxOrders: 50000, maxMarketplaces: 10, maxApiCalls: 500000, maxUsers: 5 }
+        limits: { maxProducts: 5000, maxOrders: 50000, maxMarketplaces: 10, maxApiCalls: 500000, maxUsers: 10 },
+        features: ["Tüm Basic özellikleri", "5.000 ürün yönetimi", "50.000 sipariş/ay", "10 pazaryeri entegrasyonu", "AI Asistan & Radar", "Otomatik sipariş", "E-fatura entegrasyonu", "Öncelikli destek", "Gelişmiş analitik"],
     },
     enterprise: {
         name: "Enterprise",
-        monthlyPrice: 1299,
-        yearlyPrice: 12990,
+        description: "Büyük ölçekli operasyonlar için sınırsız erişim ve özel destek",
+        badge: "ÖZEL",
+        price: 1999,
+        monthlyPrice: 1999,
+        yearlyPrice: 19990,
+        duration: 30,
         durationDays: { monthly: 30, yearly: 365 },
-        limits: { maxProducts: -1, maxOrders: -1, maxMarketplaces: -1, maxApiCalls: -1, maxUsers: -1 }
+        limits: { maxProducts: 999999, maxOrders: 999999, maxMarketplaces: 999, maxApiCalls: 9999999, maxUsers: 999 },
+        features: ["Tüm Pro özellikleri", "Sınırsız ürün", "Sınırsız sipariş", "Sınırsız pazaryeri", "Sınırsız kullanıcı", "Özel API erişimi", "Dedicated destek", "SLA garantisi", "Özel entegrasyonlar", "White-label seçeneği"],
     }
 };
 
-// ─── FİYAT → PLAN REVERSE MAPPING (callback'te doğrulama için) ──────────────────
-// Kuruş cinsinden fiyat → { plan, billingCycle }
-const PRICE_TO_PLAN = {};
-for (const [planId, planInfo] of Object.entries(PLANS)) {
-    PRICE_TO_PLAN[Math.round(planInfo.monthlyPrice * 100)] = { plan: planId, billingCycle: "monthly" };
-    PRICE_TO_PLAN[Math.round(planInfo.yearlyPrice * 100)]  = { plan: planId, billingCycle: "yearly" };
-}
+// ─── DB'DEN DİNAMİK PAKET TANIMLARI OKU ─────────────────────────────────────────
+// Admin panelden güncellenen planDefinitions'ı SystemConfig'den okur.
+// DB'deki format: { trial: { name, price, duration, limits }, basic: {...}, ... }
+// Bu fonksiyon price → monthlyPrice/yearlyPrice dönüşümünü de yapar.
+let _plansCache = null;
+let _plansCacheTime = 0;
+const PLANS_CACHE_TTL = 60 * 1000; // 60 saniye cache
 
-// ─── 1. PAKET BİLGİLERİNİ GETİR ────────────────────────────────────────────────
+const getPlansFromDB = async () => {
+    const now = Date.now();
+    if (_plansCache && (now - _plansCacheTime) < PLANS_CACHE_TTL) {
+        return _plansCache;
+    }
+    try {
+        const doc = await SystemConfig.findOne({ key: "planDefinitions" }).lean();
+        if (doc?.value && typeof doc.value === "object") {
+            const dbPlans = doc.value;
+            const result = {};
+            for (const [key, plan] of Object.entries(dbPlans)) {
+                if (key === "trial") continue; // trial satın alınamaz
+                const monthlyPrice = plan.monthlyPrice || plan.price || 0;
+                const yearlyPrice = plan.yearlyPrice || Math.round(monthlyPrice * 10); // ~%17 indirim
+                const duration = plan.duration || 30;
+                result[key] = {
+                    name: plan.name || key,
+                    description: plan.description || "",
+                    badge: plan.badge || "",
+                    price: monthlyPrice,
+                    monthlyPrice,
+                    yearlyPrice,
+                    duration,
+                    durationDays: plan.durationDays || { monthly: duration, yearly: 365 },
+                    limits: plan.limits || {},
+                    features: plan.features || [],
+                };
+            }
+            if (Object.keys(result).length > 0) {
+                _plansCache = result;
+                _plansCacheTime = now;
+                return result;
+            }
+        }
+    } catch (err) {
+        logger.warn(`Plan tanımları DB'den okunamadı, fallback kullanılıyor: ${err.message}`);
+    }
+    _plansCache = FALLBACK_PLANS;
+    _plansCacheTime = now;
+    return FALLBACK_PLANS;
+};
+
+// ─── CACHE INVALIDATION (admin güncelleme sonrası çağrılır) ───────────────────────
+exports.invalidatePlansCache = () => {
+    _plansCache = null;
+    _plansCacheTime = 0;
+};
+
+// ─── 1. PAKET BİLGİLERİNİ GETİR (DB'den dinamik) ────────────────────────────────
 exports.getPlans = async (req, res) => {
     try {
+        const plans = await getPlansFromDB();
         res.json({
             success: true,
-            plans: Object.entries(PLANS).map(([key, plan]) => ({
+            plans: Object.entries(plans).map(([key, plan]) => ({
                 id: key,
                 ...plan
             }))
@@ -128,6 +194,9 @@ exports.getSubscriptionStatus = async (req, res) => {
             logger.warn(`Ödeme geçmişi alınamadı: ${payErr.message}`);
         }
 
+        // DB'den güncel plan tanımlarını oku
+        const currentPlans = await getPlansFromDB();
+
         res.json({
             success: true,
             subscription: {
@@ -145,7 +214,7 @@ exports.getSubscriptionStatus = async (req, res) => {
                 grantNote: sub.grantNote
             },
             payments,
-            plans: PLANS
+            plans: currentPlans
         });
     } catch (error) {
         logger.error(`Abonelik durumu hatası: ${error.message}`);
@@ -156,11 +225,22 @@ exports.getSubscriptionStatus = async (req, res) => {
 // ─── PLAN SEVİYE SIRASI (yükseltme/düşürme kontrolü için) ────────────────────
 const PLAN_RANK = { trial: 0, free: 0, basic: 1, pro: 2, enterprise: 3 };
 
-// ─── 3. PAYTR İFRAME TOKEN OLUŞTUR ──────────────────────────────────────────────
+// ─── 3. PAYTR DİREKT API — ÖDEME FORMU HAZIRLA ─────────────────────────────────
+/**
+ * Direkt API akışı:
+ * 1. Backend: Token + hidden form data hazırla → Frontend'e gönder
+ * 2. Frontend: Kart bilgileri formu göster → Tüm verileri https://www.paytr.com/odeme'ye POST et
+ * 3. PayTR: 3D Secure doğrulama → Callback → OK/Fail URL redirect
+ *
+ * ⚠️ Kart bilgileri ASLA bizim sunucumuzdan geçmez — doğrudan PayTR'a gider
+ */
 exports.createPayment = async (req, res) => {
     try {
         const { plan, billingCycle = "monthly" } = req.body;
         const user = req.user;
+
+        // DB'den güncel plan tanımlarını oku
+        const PLANS = await getPlansFromDB();
 
         if (!plan || !PLANS[plan]) {
             return res.status(400).json({ success: false, message: "Geçersiz paket seçimi" });
@@ -190,7 +270,6 @@ exports.createPayment = async (req, res) => {
             const currentRank = PLAN_RANK[currentSub.plan] || 0;
             const newRank = PLAN_RANK[plan] || 0;
 
-            // Aynı paketi tekrar satın alamaz
             if (currentSub.plan === plan) {
                 return res.status(400).json({
                     success: false,
@@ -198,11 +277,10 @@ exports.createPayment = async (req, res) => {
                 });
             }
 
-            // Düşük pakete geçemez
             if (newRank <= currentRank) {
                 return res.status(400).json({
                     success: false,
-                    message: `Aktif ${PLANS[currentSub.plan]?.name || currentSub.plan} paketiniz var. Daha düşük veya aynı seviye pakete geçemezsiniz. Mevcut paketinizin süresi dolmasını bekleyin.`
+                    message: `Aktif ${PLANS[currentSub.plan]?.name || currentSub.plan} paketiniz var. Daha düşük veya aynı seviye pakete geçemezsiniz.`
                 });
             }
         }
@@ -230,7 +308,7 @@ exports.createPayment = async (req, res) => {
             || req.socket?.remoteAddress?.replace("::ffff:", "")
             || "85.34.78.112";
 
-        // ✅ Payment kaydı oluştur — expectedPlan, expectedAmount, expectedBillingCycle dahil
+        // ✅ Payment kaydı oluştur
         const payment = new Payment({
             userId: user._id,
             amount,
@@ -254,13 +332,12 @@ exports.createPayment = async (req, res) => {
 
         logger.info(`💳 Ödeme kaydı oluşturuldu: ${orderId} — ${user.email} — ${planInfo.name} ${billingCycle} — ${amount} TL (${amountKurus} kuruş)`);
 
-        // PayTR token al
-        const tokenResult = await paytrService.getIframeToken({
-            userId: user._id.toString(),
+        // ── PayTR Direkt API form verilerini hazırla ─────────────────────────
+        const formResult = paytrService.prepareDirectFormData({
             userEmail: user.email,
             userName: user.name || "Müşteri",
-            userPhone: user.profile?.phone || "",
-            userAddress: user.profile?.address?.city || "Türkiye",
+            userPhone: userDoc.profile?.phone || "",
+            userAddress: userDoc.profile?.address?.city || "Türkiye",
             userIp,
             amount,
             orderId,
@@ -268,28 +345,29 @@ exports.createPayment = async (req, res) => {
             currency: "TL"
         });
 
-        if (!tokenResult.success) {
-            // PayTR token alınamadı — ödeme başlatılamadı
+        if (!formResult.success) {
             payment.status = "failed";
-            payment.failReason = tokenResult.error;
+            payment.failReason = formResult.error;
             payment.failedAt = new Date();
-            payment.metadata.error = tokenResult.error;
+            payment.metadata.error = formResult.error;
             await payment.save();
 
-            logger.error(`PayTR token alınamadı: ${tokenResult.error} — Kullanıcı: ${user.email}, OrderId: ${orderId}`);
+            logger.error(`PayTR form hazırlanamadı: ${formResult.error} — Kullanıcı: ${user.email}, OrderId: ${orderId}`);
 
             return res.status(502).json({
                 success: false,
-                message: `Ödeme sistemi şu anda kullanılamıyor. Hata: ${tokenResult.error}. Lütfen daha sonra tekrar deneyin.`
+                message: `Ödeme sistemi şu anda kullanılamıyor. Lütfen daha sonra tekrar deneyin.`
             });
         }
 
-        logger.info(`PayTR iframe token hazır: ${orderId} — ${user.email}`);
+        logger.info(`✅ PayTR Direkt API form hazır: ${orderId} — ${user.email}`);
 
+        // Frontend'e form verilerini gönder
+        // Frontend bu verileri + kart bilgilerini hidden form ile PayTR'a POST edecek
         res.json({
             success: true,
-            token: tokenResult.token,
-            iframeUrl: tokenResult.iframeUrl,
+            paymentUrl: formResult.paymentUrl,
+            formData: formResult.formData,
             paymentId: payment._id,
             orderId,
             amount,
@@ -442,7 +520,7 @@ exports.paytrCallback = async (req, res) => {
                         lastPaymentDate: now,
                         nextPaymentDate: endDate,
                         paymentMethod: "paytr",
-                        limits: PLANS[plan]?.limits || {}
+                        limits: (await getPlansFromDB())[plan]?.limits || {}
                     },
                     { upsert: true, new: true }
                 );
@@ -537,7 +615,7 @@ exports.adminGrantSubscription = async (req, res) => {
                 endDate,
                 trialEndDate: isPlanTrial ? endDate : undefined,
                 notes: note || `Admin ${adminUser.email} tarafından verildi`,
-                limits: PLANS[plan]?.limits || {}
+                limits: (await getPlansFromDB())[plan]?.limits || {}
             },
             { upsert: true, new: true }
         );

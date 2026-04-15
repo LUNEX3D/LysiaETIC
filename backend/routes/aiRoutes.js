@@ -15,50 +15,54 @@ const {
     getActionStats
 } = require("../controllers/aiController");
 const { authMiddleware } = require("../middlewares/authMiddleware");
+const { subscriptionMiddleware } = require("../middlewares/subscriptionMiddleware");
 
 const router = express.Router();
+
+// ✅ FIX: subscriptionMiddleware eklendi — aboneliği biten kullanıcılar AI özelliklerine erişemez
+router.use(authMiddleware, subscriptionMiddleware);
 
 // ==================== AI DECISION & AUTOMATION SYSTEM ====================
 
 // 🧠 AI Decision Engine - Ana Karar Motoru
-router.get("/decisions", authMiddleware, getAIDecisions);
+router.get("/decisions", getAIDecisions);
 
 // ⚡ Action Executor - Manuel Aksiyon Uygulama
-router.post("/execute-action", authMiddleware, executeAction);
+router.post("/execute-action", executeAction);
 
 // 🚀 Auto Optimizer - Tek Tık Otomatik Optimizasyon
-router.post("/auto-optimize", authMiddleware, autoOptimize);
+router.post("/auto-optimize", autoOptimize);
 
 // 📊 Action Statistics - Aksiyon İstatistikleri
-router.get("/action-stats", authMiddleware, getActionStats);
+router.get("/action-stats", getActionStats);
 
 // ==================== LEGACY AI ENDPOINTS ====================
 
 // ✅ Gelişmiş AI Önerileri (Comprehensive Analysis)
-router.get("/suggestions", authMiddleware, getAISuggestions);
+router.get("/suggestions", getAISuggestions);
 
 // ✅ Satış & Performans Asistanı
-router.get("/performance", authMiddleware, getPerformanceAssistant);
+router.get("/performance", getPerformanceAssistant);
 
 // 🆕 AI Chat Assistant
-router.post("/chat", authMiddleware, aiChat);
+router.post("/chat", aiChat);
 
 // 🆕 Ürün Performans Analizi ve Fiyat Optimizasyonu
-router.get("/products", authMiddleware, getProductAnalysis);
+router.get("/products", getProductAnalysis);
 
 // 🆕 Müşteri Davranış Analizi
-router.get("/customer-behavior", authMiddleware, getCustomerBehavior);
+router.get("/customer-behavior", getCustomerBehavior);
 
 // 🆕 Satış Tahmini (Forecasting)
-router.get("/forecast", authMiddleware, getSalesForecast);
+router.get("/forecast", getSalesForecast);
 
 // 🆕 Anomali Tespiti
-router.get("/anomalies", authMiddleware, getAnomalies);
+router.get("/anomalies", getAnomalies);
 
 // ⚡ Gerçek Zamanlı İçgörüler
-router.get("/realtime-insights", authMiddleware, getRealtimeInsights);
+router.get("/realtime-insights", getRealtimeInsights);
 
 // 🚀 Tek Tık Optimizasyon (Legacy)
-router.post("/optimize", authMiddleware, optimizeStore);
+router.post("/optimize", optimizeStore);
 
 module.exports = router;

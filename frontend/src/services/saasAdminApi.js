@@ -12,10 +12,13 @@ export const getDashboardMetrics = () => API.get(`${BASE}/dashboard`);
 // ─── 2. Firma (Tenant) Yönetimi ──────────────────────────────────────────────
 export const getTenants = () => API.get(`${BASE}/tenants`);
 export const getTenantDetail = (id) => API.get(`${BASE}/tenants/${id}`);
+export const updateTenantProfile = (id, data) => API.put(`${BASE}/tenants/${id}/profile`, data);
+export const updateUserRole = (id, role) => API.put(`${BASE}/tenants/${id}/role`, { role });
 export const suspendTenant = (id, reason) => API.post(`${BASE}/tenants/${id}/suspend`, { reason });
 export const activateTenant = (id) => API.post(`${BASE}/tenants/${id}/activate`);
 export const banTenant = (id, reason) => API.post(`${BASE}/tenants/${id}/ban`, { reason });
 export const adminResetPassword = (id, newPassword) => API.post(`${BASE}/tenants/${id}/reset-password`, { newPassword });
+export const deleteTenant = (id) => API.delete(`${BASE}/tenants/${id}`);
 
 // ─── 3. Abonelik Yönetimi ────────────────────────────────────────────────────
 export const getSubscriptions = () => API.get(`${BASE}/subscriptions`);
@@ -57,3 +60,9 @@ export const updateTicketStatus = (id, status) => API.put(`${BASE}/tickets/${id}
 
 // ─── 11. Sistem Ayarları ─────────────────────────────────────────────────────
 export const getSystemConfig = () => API.get(`${BASE}/system-config`);
+
+// ─── 12. Paket Tanımları Güncelleme ───────────────────────────────────────────
+export const updatePlanDefinitions = (planDefinitions) => API.put(`${BASE}/plan-definitions`, { planDefinitions });
+
+// ─── 13. Public Paket Bilgileri (Auth gerektirmez) ────────────────────────────
+export const getPublicPlans = () => API.get(`${BASE}/public/plans`);

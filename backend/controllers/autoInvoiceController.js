@@ -677,7 +677,7 @@ exports.getQnbInvoices = async (req, res) => {
 
     } catch (error) {
         logger.error("[AutoInvoice Controller] getQnbInvoices hatası: " + error.message);
-        res.status(500).json({ success: false, message: "Fatura listesi hatası: " + error.message });
+        res.status(500).json({ success: false, message: "Fatura listesi alınamadı" });
     }
 };
 
@@ -751,7 +751,7 @@ exports.getQnbInvoicePreview = async (req, res) => {
 
     } catch (error) {
         logger.error("[AutoInvoice Controller] getQnbInvoicePreview hatası: " + error.message);
-        res.status(500).json({ success: false, message: "Fatura önizleme hatası: " + error.message });
+        res.status(500).json({ success: false, message: "Fatura önizleme hatası" });
     }
 };
 
@@ -993,7 +993,7 @@ exports.getInvoicePdf = async (req, res) => {
 
     } catch (error) {
         logger.error("[AutoInvoice Controller] getInvoicePdf hatası: " + error.message);
-        res.status(500).json({ success: false, message: "PDF indirme hatası: " + error.message });
+        res.status(500).json({ success: false, message: "PDF indirme hatası" });
     }
 };
 

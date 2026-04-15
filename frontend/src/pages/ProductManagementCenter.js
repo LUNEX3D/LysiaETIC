@@ -78,6 +78,8 @@ const ProductManagementCenter = ({ userId }) => {
     const [logsLoading, setLogsLoading] = useState(false);
     const [editMap, setEditMap] = useState({});
     const [bulkModal, setBulkModal] = useState(false);
+    const [psSelected, setPsSelected] = useState(new Set());
+    const [psCloseLoading, setPsCloseLoading] = useState(false);
     const searchRef = useRef(null);
     const LIMIT = 20;
 
@@ -851,6 +853,21 @@ const ProductManagementCenter = ({ userId }) => {
     /* ═══════════════════════════════════════════════════════════════
        TAB 3: FİYAT & STOK
        ═══════════════════════════════════════════════════════════════ */
+    const psToggleSel = (id) => setPsSelected(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
+    const psToggleAll = () => psSelected.size === products.length ? setPsSelected(new Set()) : setPsSelected(new Set(products.map(p => p._id)));
+    const handleBulkCloseStock = async () => {
+        if (psSelected.size === 0) { showToast("Önce ürün seçin", "error"); return; }
+        setPsCloseLoading(true);
+        let ok = 0, fail = 0;
+        for (const id of psSelected) {
+            try { await syncStock(id, 0); ok++; } catch { fail++; }
+        }
+        setPsCloseLoading(false);
+        showToast(`${ok} ürünün stoğu kapatıldı${fail ? `, ${fail} hata` : ""}`, fail ? "warning" : "success");
+        setPsSelected(new Set());
+        loadProducts(page);
+    };
+
     const renderPriceStock = () => (
         <div>
             <div className="ud-pm-toolbar">
@@ -862,13 +879,22 @@ const ProductManagementCenter = ({ userId }) => {
                     <option value="">Tüm</option><option value="lowStock">Düşük</option><option value="outOfStock">Yok</option>
                 </select>
                 <div className="ud-pm-spacer" />
+                {psSelected.size > 0 && (
+                    <button className="ud-pm-btn sm" disabled={psCloseLoading}
+                        style={{ background: "var(--ud-pm-red)", color: "#fff", display: "flex", alignItems: "center", gap: 6, fontSize: 11, padding: "6px 14px" }}
+                        onClick={handleBulkCloseStock}>
+                        {psCloseLoading ? <FaSpinner className="spin" /> : <FaTimesCircle />}
+                        <span>Seçili ({psSelected.size}) Stoğu Kapat</span>
+                    </button>
+                )}
                 <Pill color="var(--ud-pm-accent)">{total} ürün</Pill>
             </div>
             <div className="ud-pm-table-wrap">
                 <div className="ud-pm-table-scroll">
-                    <table className="ud-pm-table" style={{ minWidth: 750 }}>
+                    <table className="ud-pm-table ud-pm-ps-table" style={{ minWidth: 850 }}>
                         <thead>
                             <tr>
+                                <th style={{ width: 40 }}><input type="checkbox" className="ud-pm-checkbox" checked={psSelected.size === products.length && products.length > 0} onChange={psToggleAll} /></th>
                                 <th>Ürün</th>
                                 <th className="right">Satış Fiyatı</th>
                                 <th className="center">Stok</th>
@@ -880,18 +906,28 @@ const ProductManagementCenter = ({ userId }) => {
                         </thead>
                         <tbody>
                             {loading ? (
-                                <tr><td colSpan={8 + Math.min(PLATFORMS.length, 3)}><Loading /></td></tr>
+                                <tr><td colSpan={9 + Math.min(PLATFORMS.length, 3)}><Loading /></td></tr>
                             ) : products.length === 0 ? (
-                                <tr><td colSpan={8 + Math.min(PLATFORMS.length, 3)}><Empty icon={FaDollarSign} title="Ürün bulunamadı" /></td></tr>
+                                <tr><td colSpan={9 + Math.min(PLATFORMS.length, 3)}><Empty icon={FaDollarSign} title="Ürün bulunamadı" /></td></tr>
                             ) : products.map(p => {
                                 const mp = p.masterProduct || {};
                                 const st = p.stockTracking || {};
                                 const ed = editMap[p._id] || {};
+                                const isSel = psSelected.has(p._id);
                                 return (
-                                    <tr key={p._id}>
+                                    <tr key={p._id} className={isSel ? "selected" : ""}>
+                                        <td onClick={e => e.stopPropagation()}>
+                                            <input type="checkbox" className="ud-pm-checkbox" checked={isSel} onChange={() => psToggleSel(p._id)} />
+                                        </td>
                                         <td>
-                                            <div className="product-name">{mp.name}</div>
-                                            <div className="mono-dim">{mp.barcode}</div>
+                                            <div className="product-cell">
+                                                {mp.images?.[0] ? <img src={mp.images[0]} alt="" className="product-img" />
+                                                    : <div className="product-img-placeholder"><FaBox /></div>}
+                                                <div style={{ minWidth: 0, flex: 1 }}>
+                                                    <div className="product-name ps-product-name" title={mp.name}>{mp.name || "İsimsiz"}</div>
+                                                    <div className="mono-dim">{mp.barcode}</div>
+                                                </div>
+                                            </div>
                                         </td>
                                         <td className="right">
                                             <input type="number" step="0.01" className="ud-pm-inline-input price-input"
@@ -2097,9 +2133,8 @@ const ProductManagementCenter = ({ userId }) => {
        ═══════════════════════════════════════════════════════════════ */
     const tabs = [
         { id: "products", icon: <FaBox />, label: "Ürünler", count: total },
-        { id: "upload", icon: <FaPlus />, label: "Yükle & Dağıt" },
         { id: "pricestock", icon: <FaDollarSign />, label: "Fiyat & Stok" },
-        { id: "categories", icon: <FaSitemap />, label: "Kategori Eşleştirme" },
+
         { id: "bulk", icon: <FaLayerGroup />, label: "Toplu İşlem", count: bulkSelected.size > 0 ? bulkSelected.size : undefined },
         { id: "sync", icon: <FaSync />, label: "Senkronizasyon" },
     ];
@@ -2130,9 +2165,8 @@ const ProductManagementCenter = ({ userId }) => {
             <AnimatePresence mode="wait">
                 <motion.div key={tab} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: .18 }}>
                     {tab === "products" && renderProducts()}
-                    {tab === "upload" && renderUpload()}
                     {tab === "pricestock" && renderPriceStock()}
-                    {tab === "categories" && renderCategories()}
+
                     {tab === "bulk" && renderBulk()}
                     {tab === "sync" && renderSync()}
                 </motion.div>

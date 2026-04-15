@@ -1,56 +1,61 @@
 const express = require("express");
 const router = express.Router();
 const { authMiddleware } = require("../middlewares/authMiddleware");
+const { subscriptionMiddleware } = require("../middlewares/subscriptionMiddleware");
 const amazonController = require("../controllers/amazonController");
 
 // ═══════════════════════════════════════════════════════════════════════
 // 🛒 AMAZON SP-API ROUTES
 // Tüm route'lar /api/amazon altında çalışır
+// ✅ FIX: subscriptionMiddleware eklendi — aboneliği biten kullanıcılar erişemez
 // ═══════════════════════════════════════════════════════════════════════
 
+// Tüm route'lar auth + subscription gerektirir
+router.use(authMiddleware, subscriptionMiddleware);
+
 // ── Siparişler ──
-router.get("/orders",                     authMiddleware, amazonController.getOrders);
-router.get("/orders/all",                 authMiddleware, amazonController.getAllOrders);
-router.get("/orders/:orderId",            authMiddleware, amazonController.getOrder);
-router.get("/orders/:orderId/items",      authMiddleware, amazonController.getOrderItems);
-router.get("/orders/:orderId/address",    authMiddleware, amazonController.getOrderAddress);
+router.get("/orders",                     amazonController.getOrders);
+router.get("/orders/all",                 amazonController.getAllOrders);
+router.get("/orders/:orderId",            amazonController.getOrder);
+router.get("/orders/:orderId/items",      amazonController.getOrderItems);
+router.get("/orders/:orderId/address",    amazonController.getOrderAddress);
 
 // ── Fiyatlandırma ──
-router.post("/pricing",                   authMiddleware, amazonController.getPricing);
-router.post("/pricing/competitive",       authMiddleware, amazonController.getCompetitivePricing);
+router.post("/pricing",                   amazonController.getPricing);
+router.post("/pricing/competitive",       amazonController.getCompetitivePricing);
 
 // ── Listing Yönetimi ──
-router.get("/listings/:sku",              authMiddleware, amazonController.getListingsItem);
-router.patch("/listings/:sku/price",      authMiddleware, amazonController.updateListingPrice);
-router.patch("/listings/:sku/stock",      authMiddleware, amazonController.updateListingStock);
-router.put("/listings/:sku",              authMiddleware, amazonController.putListingsItem);
-router.delete("/listings/:sku",           authMiddleware, amazonController.deleteListingsItem);
+router.get("/listings/:sku",              amazonController.getListingsItem);
+router.patch("/listings/:sku/price",      amazonController.updateListingPrice);
+router.patch("/listings/:sku/stock",      amazonController.updateListingStock);
+router.put("/listings/:sku",              amazonController.putListingsItem);
+router.delete("/listings/:sku",           amazonController.deleteListingsItem);
 
 // ── Katalog ──
-router.get("/catalog/search",             authMiddleware, amazonController.searchCatalogItems);
-router.get("/catalog/:asin",              authMiddleware, amazonController.getCatalogItem);
+router.get("/catalog/search",             amazonController.searchCatalogItems);
+router.get("/catalog/:asin",              amazonController.getCatalogItem);
 
 // ── Ürün Tipleri ──
-router.get("/product-types/search",       authMiddleware, amazonController.searchProductTypes);
-router.get("/product-types/:productType", authMiddleware, amazonController.getProductTypeDefinition);
+router.get("/product-types/search",       amazonController.searchProductTypes);
+router.get("/product-types/:productType", amazonController.getProductTypeDefinition);
 
 // ── Kargo (Merchant Fulfillment) ──
-router.post("/shipping/eligible-services", authMiddleware, amazonController.getEligibleShipmentServices);
-router.post("/shipping/create",            authMiddleware, amazonController.createShipment);
-router.delete("/shipping/:shipmentId",     authMiddleware, amazonController.cancelShipment);
+router.post("/shipping/eligible-services", amazonController.getEligibleShipmentServices);
+router.post("/shipping/create",            amazonController.createShipment);
+router.delete("/shipping/:shipmentId",     amazonController.cancelShipment);
 
 // ── Envanter ──
-router.get("/inventory",                  authMiddleware, amazonController.getInventorySummaries);
+router.get("/inventory",                  amazonController.getInventorySummaries);
 
 // ── Raporlar ──
-router.post("/reports",                   authMiddleware, amazonController.createReport);
-router.get("/reports/:reportId",          authMiddleware, amazonController.getReport);
-router.get("/reports/:reportId/document", authMiddleware, amazonController.getReportDocument);
+router.post("/reports",                   amazonController.createReport);
+router.get("/reports/:reportId",          amazonController.getReport);
+router.get("/reports/:reportId/document", amazonController.getReportDocument);
 
 // ── Kısıtlamalar ──
-router.get("/restrictions/:asin",         authMiddleware, amazonController.getListingRestrictions);
+router.get("/restrictions/:asin",         amazonController.getListingRestrictions);
 
 // ── Test ──
-router.post("/test-credentials",          authMiddleware, amazonController.testCredentials);
+router.post("/test-credentials",          amazonController.testCredentials);
 
 module.exports = router;

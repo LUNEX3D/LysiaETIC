@@ -9,7 +9,7 @@
  */
 
 import React, { Suspense, lazy } from "react";
-import { BrowserRouter as Router, Route, Routes, useLocation } from "react-router-dom";
+import { BrowserRouter as Router, Route, Routes, Navigate, useLocation } from "react-router-dom";
 import { CssBaseline, Container, ThemeProvider, createTheme } from "@mui/material";
 import { AppProvider } from "./context/AppContext";
 
@@ -28,7 +28,13 @@ import ProtectedRoute from "./components/ProtectedRoute";
 import RegisterForm from "./components/RegisterForm";
 import LoginForm from "./components/LoginForm";
 
+// ─── Legal sayfaları — Public erişim ────────────────────────────────────────────
+import LegalPage from "./pages/LegalPage";
+
 // ─── Lazy-loaded sayfalar — Sadece ziyaret edildiğinde yüklenir ────────────────
+// Public
+const HomePage               = lazy(() => import("./pages/HomePage"));
+
 // Kullanıcı Paneli
 const UserDashboard          = lazy(() => import("./pages/UserDashboard"));
 const VerifyEmail            = lazy(() => import("./pages/VerifyEmail"));
@@ -54,6 +60,7 @@ const SaasAnnouncements      = lazy(() => import("./pages/SaasAnnouncements"));
 const SaasTickets            = lazy(() => import("./pages/SaasTickets"));
 const SaasAuditLogs          = lazy(() => import("./pages/SaasAuditLogs"));
 const SaasSystemConfig       = lazy(() => import("./pages/SaasSystemConfig"));
+const SaasPlanManager        = lazy(() => import("./pages/SaasPlanManager"));
 
 // Pazaryeri & Ürün Yönetimi
 const MarketplaceIntegration = lazy(() => import("./pages/MarketplaceIntegration"));
@@ -65,7 +72,7 @@ const FinancePage            = lazy(() => import("./pages/FinancePage"));
 const BillingPage            = lazy(() => import("./pages/BillingPage"));
 const SubscriptionPage       = lazy(() => import("./pages/SubscriptionPage"));
 const PaymentResult          = lazy(() => import("./pages/PaymentResult"));
-const AdminSubscriptionManager = lazy(() => import("./pages/AdminSubscriptionManager"));
+// AdminSubscriptionManager kaldırıldı — /admin/subscription-manager → /admin/subscriptions redirect ile yönetiliyor
 
 // Roketfy — Marketplace Intelligence
 const RoketfyPanel           = lazy(() => import("./pages/RoketfyPanel"));
@@ -231,39 +238,59 @@ const AppContent = () => {
     const location = useLocation();
     const isAdminRoute = location.pathname.startsWith("/admin");
     const isLysiaBrain2 = location.pathname === "/lysiabrain2";
-    const isAuthRoute = ["/" , "/login", "/register", "/verify-email", "/forgot-password", "/payment/success", "/payment/failed", "/subscription"].includes(location.pathname);
+    const isLegalRoute = ["/privacy", "/terms", "/cookies", "/distance-sales", "/preliminary-info"].includes(location.pathname);
+    const isAuthRoute = ["/" , "/home", "/login", "/register", "/verify-email", "/payment/success", "/payment/failed", "/subscription"].includes(location.pathname) || isLegalRoute;
 
     const routes = (
         <Suspense fallback={<LazyFallback />}>
         <Routes>
+            {/* Ana Sayfa — Public landing page */}
+            <Route path="/home" element={<HomePage />} />
+
             {/* Auth Sayfaları — Direkt login ekranı karşılar */}
             <Route path="/" element={<LoginForm />} />
             <Route path="/register" element={<RegisterForm />} />
             <Route path="/login" element={<LoginForm />} />
             <Route path="/verify-email" element={<VerifyEmail />} />
 
+            {/* Legal Sayfaları — Public erişim, auth gerektirmez */}
+            <Route path="/privacy" element={<LegalPage />} />
+            <Route path="/terms" element={<LegalPage />} />
+            <Route path="/cookies" element={<LegalPage />} />
+            <Route path="/distance-sales" element={<LegalPage />} />
+            <Route path="/preliminary-info" element={<LegalPage />} />
+
             {/* Kullanıcı Paneli — ProtectedRoute ile korunuyor */}
             <Route path="/dashboard" element={<ProtectedRoute><UserDashboard /></ProtectedRoute>} />
 
-            {/* Admin Paneli — Admin/Dev rolü gerekli */}
+            {/* ═══ Admin Paneli — Admin/Dev rolü gerekli ═══ */}
             <Route path="/admin/login" element={<AdminLogin />} />
             <Route path="/admin" element={<ProtectedRoute requiredRoles={["admin","dev"]}><AdminDashboard /></ProtectedRoute>} />
-            <Route path="/admin/servers" element={<ProtectedRoute requiredRoles={["admin","dev"]}><AdminServers /></ProtectedRoute>} />
+
+            {/* Ana Kontrol */}
+            <Route path="/admin/tenants" element={<ProtectedRoute requiredRoles={["admin","dev"]}><SaasTenants /></ProtectedRoute>} />
             <Route path="/admin/user-access" element={<ProtectedRoute requiredRoles={["admin","dev"]}><AdminUserAccess /></ProtectedRoute>} />
             <Route path="/admin/users" element={<ProtectedRoute requiredRoles={["admin","dev"]}><AdminUsers /></ProtectedRoute>} />
-            <Route path="/admin/products" element={<ProtectedRoute requiredRoles={["admin","dev"]}><AdminProducts /></ProtectedRoute>} />
-            <Route path="/admin/orders" element={<ProtectedRoute requiredRoles={["admin","dev"]}><AdminOrders /></ProtectedRoute>} />
-            <Route path="/admin/products/upload" element={<ProtectedRoute requiredRoles={["admin","dev"]}><ProductWizard /></ProtectedRoute>} />
 
-            {/* SaaS Admin Panel — Admin/Dev rolü gerekli */}
-            <Route path="/admin/tenants" element={<ProtectedRoute requiredRoles={["admin","dev"]}><SaasTenants /></ProtectedRoute>} />
+            {/* Finans & Abonelik */}
+            <Route path="/admin/plan-manager" element={<ProtectedRoute requiredRoles={["admin","dev"]}><SaasPlanManager /></ProtectedRoute>} />
             <Route path="/admin/subscriptions" element={<ProtectedRoute requiredRoles={["admin","dev"]}><SaasSubscriptions /></ProtectedRoute>} />
             <Route path="/admin/payments" element={<ProtectedRoute requiredRoles={["admin","dev"]}><SaasPayments /></ProtectedRoute>} />
+
+            {/* Operasyon */}
+            <Route path="/admin/products" element={<ProtectedRoute requiredRoles={["admin","dev"]}><AdminProducts /></ProtectedRoute>} />
+            <Route path="/admin/orders" element={<ProtectedRoute requiredRoles={["admin","dev"]}><AdminOrders /></ProtectedRoute>} />
             <Route path="/admin/integrations" element={<ProtectedRoute requiredRoles={["admin","dev"]}><SaasIntegrations /></ProtectedRoute>} />
             <Route path="/admin/usage" element={<ProtectedRoute requiredRoles={["admin","dev"]}><SaasUsage /></ProtectedRoute>} />
             <Route path="/admin/reports" element={<ProtectedRoute requiredRoles={["admin","dev"]}><SaasReports /></ProtectedRoute>} />
+            <Route path="/admin/products/upload" element={<ProtectedRoute requiredRoles={["admin","dev"]}><ProductWizard /></ProtectedRoute>} />
+
+            {/* İletişim */}
             <Route path="/admin/announcements" element={<ProtectedRoute requiredRoles={["admin","dev"]}><SaasAnnouncements /></ProtectedRoute>} />
             <Route path="/admin/tickets" element={<ProtectedRoute requiredRoles={["admin","dev"]}><SaasTickets /></ProtectedRoute>} />
+
+            {/* Sistem & Güvenlik */}
+            <Route path="/admin/servers" element={<ProtectedRoute requiredRoles={["admin","dev"]}><AdminServers /></ProtectedRoute>} />
             <Route path="/admin/audit-logs" element={<ProtectedRoute requiredRoles={["admin","dev"]}><SaasAuditLogs /></ProtectedRoute>} />
             <Route path="/admin/system-config" element={<ProtectedRoute requiredRoles={["admin","dev"]}><SaasSystemConfig /></ProtectedRoute>} />
 
@@ -290,8 +317,8 @@ const AppContent = () => {
             <Route path="/payment/success" element={<PaymentResult />} />
             <Route path="/payment/failed" element={<PaymentResult />} />
 
-            {/* Admin Abonelik Yönetimi */}
-            <Route path="/admin/subscription-manager" element={<ProtectedRoute requiredRoles={["admin","dev"]}><AdminSubscriptionManager /></ProtectedRoute>} />
+            {/* Admin Abonelik Yönetimi — eski URL yönlendirmesi */}
+            <Route path="/admin/subscription-manager" element={<Navigate to="/admin/subscriptions" replace />} />
 
             {/* LysiaBrain2 — Standalone test (UserDashboard dışında) */}
             <Route path="/lysiabrain2" element={<ProtectedRoute><LysiaBrain2Page /></ProtectedRoute>} />

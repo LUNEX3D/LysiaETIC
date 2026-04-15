@@ -60,8 +60,10 @@ const notificationRoutes      = require("./routes/notificationRoutes");
 const autoInvoiceRoutes       = require("./routes/autoInvoiceRoutes");
 const categoryCenterRoutes    = require("./routes/categoryCenterRoutes");
 const radarRoutes             = require("./routes/radarRoutes");
+const autoOrderRoutes         = require("./routes/autoOrderRoutes");
 // ✅ FIX #3: Webhook route'ları — pazaryeri anlık bildirim endpoint'leri
 const webhookRoutes           = require("./routes/webhookRoutes");
+const ticketRoutes            = require("./routes/ticketRoutes");
 
 // ─── 3. DNS & App ─────────────────────────────────────────────────────────────
 dns.setServers(["1.1.1.1", "8.8.8.8"]);
@@ -256,6 +258,8 @@ app.use("/api/notifications",  notificationRoutes);
 app.use("/api/auto-invoice",   autoInvoiceRoutes);
 app.use("/api/category-center", categoryCenterRoutes);
 app.use("/api/radar",          radarRoutes);
+app.use("/api/auto-order",    autoOrderRoutes);
+app.use("/api/tickets",       ticketRoutes);
 // ✅ FIX #3: Webhook endpoint'leri — auth gerektirmez, pazaryerlerinden gelir
 app.use("/api/webhooks",       webhookRoutes);
 

@@ -1,21 +1,24 @@
 /**
  * ═══════════════════════════════════════════════════════════════════════════════
- * KEYWORD EXTRACTION SERVICE — LysiaRadar PRO
+ * KEYWORD EXTRACTION SERVICE — LysiaRadar PRO v2 (REVISED)
  * ═══════════════════════════════════════════════════════════════════════════════
  *
- * Kullanıcının mevcut ürünlerinden ve kategorilerinden anahtar kelime çıkarır.
- * Bu kelimeler fırsat aramasının temelini oluşturur.
+ * Kullanıcının mevcut ürünlerinden, kategorilerinden ve harici kaynaklardan
+ * anahtar kelime çıkarır. Bu kelimeler fırsat aramasının temelini oluşturur.
  *
  * Kaynaklar:
  *   1. Kullanıcının ürün isimleri → mevcut niş
  *   2. Kullanıcının kategorileri → genişleme alanları
- *   3. Trendyol kategori ağacı → komşu kategoriler
- *   4. Sabit trend havuzu → mevsimsel ve genel trendler
+ *   3. Google Trends yükselen aramalar (YENİ)
+ *   4. Amazon best seller kategorileri (YENİ)
+ *   5. Sabit trend havuzu → mevsimsel ve genel trendler
  *
  * ═══════════════════════════════════════════════════════════════════════════════
  */
 const logger = require("../../config/logger");
 const ProductMapping = require("../../models/ProductMapping");
+const googleTrendsService = require("./googleTrendsService");
+const amazonRadarService = require("./amazonRadarService");
 
 // ── Türkçe stop words ──
 const STOP_WORDS = new Set([
@@ -29,7 +32,6 @@ const STOP_WORDS = new Set([
 
 // ── Mevsimsel trend havuzu ──
 const SEASONAL_TRENDS = {
-    // Ay bazlı (0=Ocak, 11=Aralık)
     0: ["kışlık mont", "polar", "termal içlik", "kar botu", "bere atkı set"],
     1: ["sevgililer günü hediye", "parfüm", "çikolata kutusu", "takı seti"],
     2: ["bahar ceket", "trençkot", "spor ayakkabı", "bahçe malzemeleri"],
@@ -44,7 +46,7 @@ const SEASONAL_TRENDS = {
     11: ["yılbaşı hediye", "noel süsü", "kışlık pijama", "hediye kutusu"],
 };
 
-// ── Evergreen (her zaman trend) kategoriler ──
+// ── Evergreen kategoriler ──
 const EVERGREEN_KEYWORDS = [
     "telefon kılıfı", "kulaklık", "powerbank", "organik şampuan",
     "protein tozu", "yoga matı", "led aydınlatma", "mutfak robotu",
@@ -53,19 +55,20 @@ const EVERGREEN_KEYWORDS = [
 ];
 
 /**
- * Kullanıcının ürünlerinden anahtar kelime çıkar
+ * Kullanıcının ürünlerinden + harici kaynaklardan anahtar kelime çıkar
  * @param {string} userId
- * @returns {Promise<object>} { userKeywords, categoryKeywords, trendKeywords, allKeywords }
+ * @param {object} [opts] - { includeGoogleTrends, includeAmazon }
+ * @returns {Promise<object>}
  */
-async function extractKeywords(userId) {
+async function extractKeywords(userId, opts = {}) {
     try {
-        // 1. Kullanıcının ürünlerini çek
+        // ── 1. Kullanıcının ürünlerini çek ──
         const products = await ProductMapping.find(
             { userId },
             { "masterProduct.name": 1, "masterProduct.category": 1, "masterProduct.brand": 1 }
         ).lean();
 
-        // 2. Ürün isimlerinden kelime çıkar
+        // ── 2. Ürün isimlerinden kelime çıkar ──
         const wordFreq = {};
         const categories = new Set();
         const brands = new Set();
@@ -78,7 +81,6 @@ async function extractKeywords(userId) {
             if (cat) categories.add(cat);
             if (brand && brand.length > 1) brands.add(brand);
 
-            // İsimden anlamlı kelimeler çıkar
             const words = name
                 .replace(/[^\wçğıöşüÇĞİÖŞÜ\s-]/g, " ")
                 .split(/[\s-]+/)
@@ -89,26 +91,25 @@ async function extractKeywords(userId) {
             }
         }
 
-        // En sık geçen kelimelerden keyword'ler oluştur
         const topWords = Object.entries(wordFreq)
             .sort((a, b) => b[1] - a[1])
             .slice(0, 20)
             .map(([w]) => w);
 
-        // 3. Kullanıcı keyword'leri (ürün isimlerinden 2-gram)
+        // ── 3. Kullanıcı keyword'leri (2-gram) ──
         const userKeywords = generateNGrams(products.map(p => p.masterProduct?.name || ""), topWords);
 
-        // 4. Kategori bazlı keyword'ler
+        // ── 4. Kategori bazlı keyword'ler ──
         const categoryKeywords = generateCategoryKeywords([...categories]);
 
-        // 5. Mevsimsel trend keyword'leri
+        // ── 5. Mevsimsel trend keyword'leri ──
         const currentMonth = new Date().getMonth();
         const trendKeywords = [
             ...(SEASONAL_TRENDS[currentMonth] || []),
-            ...(SEASONAL_TRENDS[(currentMonth + 1) % 12] || []).slice(0, 2), // Gelecek ay
+            ...(SEASONAL_TRENDS[(currentMonth + 1) % 12] || []).slice(0, 2),
         ];
 
-        // 6. Evergreen keyword'ler (kullanıcının kategorisine yakın olanlar)
+        // ── 6. Evergreen keyword'ler ──
         const relevantEvergreen = EVERGREEN_KEYWORDS.filter(kw => {
             const kwLower = kw.toLowerCase();
             return [...categories].some(cat =>
@@ -116,20 +117,51 @@ async function extractKeywords(userId) {
             ) || topWords.some(w => kwLower.includes(w));
         });
 
-        // 7. Tüm keyword'leri birleştir ve deduplicate
+        // ── 7. Google Trends yükselen aramalar (YENİ) ──
+        let googleTrendKeywords = [];
+        if (opts.includeGoogleTrends !== false) {
+            try {
+                const trending = await googleTrendsService.getTrendingSearches("TR");
+                // Kullanıcının kategorileriyle ilişkili olanları filtrele
+                googleTrendKeywords = filterRelevantTrends(trending, [...categories], topWords);
+                logger.debug(`[KeywordService] Google Trends: ${googleTrendKeywords.length} ilişkili keyword bulundu`);
+            } catch (e) {
+                logger.debug(`[KeywordService] Google Trends keyword hatası: ${e.message}`);
+            }
+        }
+
+        // ── 8. Amazon best seller keyword'leri (YENİ) ──
+        let amazonKeywords = [];
+        if (opts.includeAmazon !== false) {
+            try {
+                const bestSellers = await amazonRadarService.getAmazonBestSellers("", "TR");
+                amazonKeywords = bestSellers
+                    .map(p => extractKeywordFromProductName(p.name))
+                    .filter(Boolean)
+                    .slice(0, 10);
+                logger.debug(`[KeywordService] Amazon: ${amazonKeywords.length} keyword bulundu`);
+            } catch (e) {
+                logger.debug(`[KeywordService] Amazon keyword hatası: ${e.message}`);
+            }
+        }
+
+        // ── 9. Tüm keyword'leri birleştir ve deduplicate ──
         const allKeywordsSet = new Set([
             ...userKeywords,
             ...categoryKeywords,
             ...trendKeywords,
             ...relevantEvergreen,
+            ...googleTrendKeywords,
+            ...amazonKeywords,
         ]);
 
-        const allKeywords = [...allKeywordsSet].slice(0, 30); // Max 30 keyword
+        const allKeywords = [...allKeywordsSet].slice(0, 40); // Max 40 keyword (artırıldı)
 
         logger.info(
             `[KeywordService] User ${String(userId).slice(-6)} — ` +
             `${userKeywords.length} user, ${categoryKeywords.length} category, ` +
-            `${trendKeywords.length} trend, ${relevantEvergreen.length} evergreen → ` +
+            `${trendKeywords.length} seasonal, ${relevantEvergreen.length} evergreen, ` +
+            `${googleTrendKeywords.length} google, ${amazonKeywords.length} amazon → ` +
             `${allKeywords.length} toplam keyword`
         );
 
@@ -138,6 +170,8 @@ async function extractKeywords(userId) {
             categoryKeywords: categoryKeywords.slice(0, 10),
             trendKeywords: trendKeywords.slice(0, 10),
             evergreenKeywords: relevantEvergreen.slice(0, 5),
+            googleTrendKeywords: googleTrendKeywords.slice(0, 10),
+            amazonKeywords: amazonKeywords.slice(0, 10),
             allKeywords,
             userCategories: [...categories],
             userBrands: [...brands],
@@ -149,6 +183,8 @@ async function extractKeywords(userId) {
             categoryKeywords: [],
             trendKeywords: SEASONAL_TRENDS[new Date().getMonth()] || [],
             evergreenKeywords: EVERGREEN_KEYWORDS.slice(0, 5),
+            googleTrendKeywords: [],
+            amazonKeywords: [],
             allKeywords: [
                 ...(SEASONAL_TRENDS[new Date().getMonth()] || []),
                 ...EVERGREEN_KEYWORDS.slice(0, 5),
@@ -159,9 +195,52 @@ async function extractKeywords(userId) {
     }
 }
 
+// ═════════════════════════════════════════════════════════════════════════════
+// YARDIMCI FONKSİYONLAR
+// ═════════════════════════════════════════════════════════════════════════════
+
 /**
- * Ürün isimlerinden 2-gram keyword'ler oluştur
+ * Google Trends'ten gelen keyword'leri kullanıcının kategorileriyle filtrele
  */
+function filterRelevantTrends(trendingKeywords, userCategories, topWords) {
+    if (!trendingKeywords || trendingKeywords.length === 0) return [];
+
+    const catWords = new Set();
+    for (const cat of userCategories) {
+        cat.toLowerCase().split(/[\s>/]+/).filter(w => w.length > 2).forEach(w => catWords.add(w));
+    }
+    topWords.forEach(w => catWords.add(w));
+
+    // E-ticaret ile ilgili genel keyword'ler (haber/spor/politika hariç)
+    const ecommerceSignals = [
+        "fiyat", "indirim", "kampanya", "ürün", "satış", "hediye",
+        "alışveriş", "moda", "trend", "yeni", "çıktı", "model",
+    ];
+
+    return trendingKeywords.filter(kw => {
+        const kwLower = kw.toLowerCase();
+        // Kullanıcının kategorileriyle eşleşme
+        const catMatch = [...catWords].some(w => kwLower.includes(w));
+        // E-ticaret sinyali
+        const ecomMatch = ecommerceSignals.some(s => kwLower.includes(s));
+        return catMatch || ecomMatch;
+    }).slice(0, 10);
+}
+
+/**
+ * Ürün isminden arama keyword'ü çıkar
+ */
+function extractKeywordFromProductName(name) {
+    if (!name) return "";
+    const words = name.toLowerCase()
+        .replace(/[^\wçğıöşüÇĞİÖŞÜ\s-]/g, " ")
+        .split(/[\s-]+/)
+        .filter(w => w.length > 2 && !STOP_WORDS.has(w));
+
+    // İlk 2-3 anlamlı kelimeyi birleştir
+    return words.slice(0, 3).join(" ").trim();
+}
+
 function generateNGrams(productNames, topWords) {
     const ngrams = {};
 
@@ -171,7 +250,6 @@ function generateNGrams(productNames, topWords) {
             .split(/[\s-]+/)
             .filter(w => w.length > 2 && !STOP_WORDS.has(w));
 
-        // 2-gram
         for (let i = 0; i < words.length - 1; i++) {
             const gram = `${words[i]} ${words[i + 1]}`;
             if (gram.length > 5) {
@@ -181,34 +259,27 @@ function generateNGrams(productNames, topWords) {
     }
 
     return Object.entries(ngrams)
-        .filter(([, count]) => count >= 2) // En az 2 kez geçen
+        .filter(([, count]) => count >= 2)
         .sort((a, b) => b[1] - a[1])
         .slice(0, 15)
         .map(([gram]) => gram);
 }
 
-/**
- * Kategori isimlerinden arama keyword'leri oluştur
- */
 function generateCategoryKeywords(categories) {
     const keywords = [];
 
     for (const cat of categories) {
-        // Kategori yolunu parçala: "Kadın > Elbise > Günlük Elbise" → ["günlük elbise", "elbise"]
         const parts = cat.split(/[>/]+/).map(p => p.trim().toLowerCase()).filter(p => p.length > 2);
 
-        // Son parça (en spesifik)
         if (parts.length > 0) {
             keywords.push(parts[parts.length - 1]);
         }
 
-        // Son iki parçanın kombinasyonu
         if (parts.length >= 2) {
             keywords.push(`${parts[parts.length - 2]} ${parts[parts.length - 1]}`);
         }
     }
 
-    // Deduplicate
     return [...new Set(keywords)];
 }
 

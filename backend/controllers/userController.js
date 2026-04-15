@@ -47,8 +47,7 @@ exports.getUserProfile = async (req, res) => {
         logger.error("❌ Profil getirme hatası:", error);
         res.status(500).json({
             success: false,
-            message: "Sunucu hatası",
-            error: error.message
+            message: "Sunucu hatası"
         });
     }
 };
@@ -132,8 +131,7 @@ exports.updateUserProfile = async (req, res) => {
         logger.error("❌ Profil güncelleme hatası:", error);
         res.status(500).json({
             success: false,
-            message: "Profil güncellenirken bir hata oluştu",
-            error: error.message
+            message: "Profil güncellenirken bir hata oluştu"
         });
     }
 };
@@ -153,10 +151,17 @@ exports.changePassword = async (req, res) => {
             });
         }
 
-        if (newPassword.length < 6) {
+        // ✅ SEC: Güçlü şifre politikası — authController ile tutarlı
+        if (newPassword.length < 8) {
             return res.status(400).json({
                 success: false,
-                message: "Yeni şifre en az 6 karakter olmalıdır"
+                message: "Yeni şifre en az 8 karakter olmalıdır"
+            });
+        }
+        if (!/[A-Z]/.test(newPassword) || !/[a-z]/.test(newPassword) || !/[0-9]/.test(newPassword)) {
+            return res.status(400).json({
+                success: false,
+                message: "Şifre en az bir büyük harf, bir küçük harf ve bir rakam içermelidir"
             });
         }
 
@@ -200,8 +205,7 @@ exports.changePassword = async (req, res) => {
         logger.error("❌ Şifre değiştirme hatası:", error);
         res.status(500).json({
             success: false,
-            message: "Şifre değiştirilirken bir hata oluştu",
-            error: error.message
+            message: "Şifre değiştirilirken bir hata oluştu"
         });
     }
 };
@@ -248,8 +252,7 @@ exports.updateNotificationSettings = async (req, res) => {
         logger.error("❌ Bildirim güncelleme hatası:", error);
         res.status(500).json({
             success: false,
-            message: "Bildirim tercihleri güncellenirken bir hata oluştu",
-            error: error.message
+            message: "Bildirim tercihleri güncellenirken bir hata oluştu"
         });
     }
 };
@@ -280,7 +283,7 @@ exports.getProductMatchPriority = async (req, res) => {
         res.json({ success: true, productMatchPriority: priority });
     } catch (error) {
         logger.error("❌ Ürün eşleştirme ayarı getirme hatası:", error);
-        res.status(500).json({ success: false, message: "Ayar getirilemedi", error: error.message });
+        res.status(500).json({ success: false, message: "Ayar getirilemedi" });
     }
 };
 
@@ -338,7 +341,7 @@ exports.updateProductMatchPriority = async (req, res) => {
         });
     } catch (error) {
         logger.error("❌ Ürün eşleştirme ayarı güncelleme hatası:", error);
-        res.status(500).json({ success: false, message: "Ayar kaydedilemedi", error: error.message });
+        res.status(500).json({ success: false, message: "Ayar kaydedilemedi" });
     }
 };
 
@@ -388,7 +391,7 @@ exports.getPreferences = async (req, res) => {
         });
     } catch (error) {
         logger.error("❌ Tercihler getirme hatası:", error);
-        res.status(500).json({ success: false, message: "Tercihler getirilemedi", error: error.message });
+        res.status(500).json({ success: false, message: "Tercihler getirilemedi" });
     }
 };
 
@@ -477,7 +480,7 @@ exports.updatePreferences = async (req, res) => {
         });
     } catch (error) {
         logger.error("❌ Tercihler güncelleme hatası:", error);
-        res.status(500).json({ success: false, message: "Tercihler kaydedilemedi", error: error.message });
+        res.status(500).json({ success: false, message: "Tercihler kaydedilemedi" });
     }
 };
 
@@ -524,7 +527,7 @@ exports.getActiveSessions = async (req, res) => {
         });
     } catch (error) {
         logger.error("❌ Oturum bilgisi getirme hatası:", error);
-        res.status(500).json({ success: false, message: "Oturum bilgileri getirilemedi", error: error.message });
+        res.status(500).json({ success: false, message: "Oturum bilgileri getirilemedi" });
     }
 };
 
@@ -556,7 +559,7 @@ exports.revokeSession = async (req, res) => {
         res.json({ success: true, message: "Oturum sonlandırıldı" });
     } catch (error) {
         logger.error("❌ Oturum sonlandırma hatası:", error);
-        res.status(500).json({ success: false, message: "Oturum sonlandırılamadı", error: error.message });
+        res.status(500).json({ success: false, message: "Oturum sonlandırılamadı" });
     }
 };
 
@@ -583,7 +586,7 @@ exports.revokeAllSessions = async (req, res) => {
         res.json({ success: true, message: `${count} oturum sonlandırıldı`, count });
     } catch (error) {
         logger.error("❌ Toplu oturum sonlandırma hatası:", error);
-        res.status(500).json({ success: false, message: "Oturumlar sonlandırılamadı", error: error.message });
+        res.status(500).json({ success: false, message: "Oturumlar sonlandırılamadı" });
     }
 };
 
@@ -639,8 +642,7 @@ exports.generateApiKey = async (req, res) => {
         logger.error("❌ API anahtarı oluşturma hatası:", error);
         res.status(500).json({
             success: false,
-            message: "API anahtarı oluşturulurken bir hata oluştu",
-            error: error.message
+            message: "API anahtarı oluşturulurken bir hata oluştu"
         });
     }
 };
@@ -692,8 +694,7 @@ exports.revokeApiKey = async (req, res) => {
         logger.error("❌ API anahtarı iptal hatası:", error);
         res.status(500).json({
             success: false,
-            message: "API anahtarı iptal edilirken bir hata oluştu",
-            error: error.message
+            message: "API anahtarı iptal edilirken bir hata oluştu"
         });
     }
 };
@@ -744,8 +745,7 @@ exports.verifyPassword = async (req, res) => {
         logger.error("❌ Şifre doğrulama hatası:", error);
         res.status(500).json({
             success: false,
-            message: "Şifre doğrulanırken bir hata oluştu",
-            error: error.message
+            message: "Şifre doğrulanırken bir hata oluştu"
         });
     }
 };
@@ -801,8 +801,7 @@ exports.deleteAccount = async (req, res) => {
         logger.error("❌ Hesap silme hatası:", error);
         res.status(500).json({
             success: false,
-            message: "Hesap silinirken bir hata oluştu",
-            error: error.message
+            message: "Hesap silinirken bir hata oluştu"
         });
     }
 };
@@ -857,7 +856,6 @@ exports.getUserStats = async (req, res) => {
         res.status(500).json({
             success: false,
             message: "İstatistikler getirilirken bir hata oluştu",
-            error: error.message,
             totalOrders: 0,
             totalRevenue: 0,
             activeProducts: 0,

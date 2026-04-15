@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import axios from "../services/api";
 import { useNavigate } from "react-router-dom";
 import { useGoogleLogin, GoogleOAuthProvider } from "@react-oauth/google";
@@ -33,6 +33,41 @@ const GOOGLE_CLIENT_ID = process.env.REACT_APP_GOOGLE_CLIENT_ID || "";
 const LoginFormInner = () => {
     const { t } = useApp();
     const [formData, setFormData] = useState({ email: "", password: "" });
+
+    // Dinamik fiyatlar — API'den çekilir, fallback hardcoded
+    const [prices, setPrices] = useState({
+        basic: { monthly: "₺299", yearly: "₺249", yearlyTotal: "₺2.990" },
+        pro: { monthly: "₺599", yearly: "₺499", yearlyTotal: "₺5.990", oldMonthly: "₺799" },
+        enterprise: { monthly: "₺1.499", yearly: "₺1.199", yearlyTotal: "₺14.390" },
+    });
+
+    useEffect(() => {
+        const fetchPrices = async () => {
+            try {
+                const res = await axios.get("/paytr/plans");
+                if (res.data.success && res.data.plans) {
+                    const p = {};
+                    res.data.plans.forEach(plan => {
+                        const mp = plan.monthlyPrice || plan.price || 0;
+                        const yp = plan.yearlyPrice || Math.round(mp * 10);
+                        const monthlyFromYearly = Math.round(yp / 12);
+                        const fmtMp = mp >= 1000 ? `₺${mp.toLocaleString("tr-TR")}` : `₺${mp}`;
+                        const fmtYm = monthlyFromYearly >= 1000 ? `₺${monthlyFromYearly.toLocaleString("tr-TR")}` : `₺${monthlyFromYearly}`;
+                        const fmtYt = yp >= 1000 ? `₺${yp.toLocaleString("tr-TR")}` : `₺${yp}`;
+                        p[plan.id] = { monthly: fmtMp, yearly: fmtYm, yearlyTotal: fmtYt };
+                    });
+                    setPrices(prev => ({
+                        basic: p.basic || prev.basic,
+                        pro: { ...(p.pro || prev.pro), oldMonthly: p.pro ? undefined : prev.pro.oldMonthly },
+                        enterprise: p.enterprise || prev.enterprise,
+                    }));
+                }
+            } catch (err) {
+                console.warn("LoginForm: Plan fiyatları yüklenemedi, fallback kullanılıyor");
+            }
+        };
+        fetchPrices();
+    }, []);
     const [message, setMessage] = useState({ text: "", type: "" });
     const [isLoading, setIsLoading] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
@@ -756,7 +791,7 @@ const LoginFormInner = () => {
                                             <span className="pr-price-amount">Ücretsiz</span>
                                             <span className="pr-price-period">14 gün deneme</span>
                                         </div>
-                                        <div className="pr-card-after">Sonrasında <strong>₺299/ay</strong></div>
+                                        <div className="pr-card-after">Sonrasında <strong>{prices.basic.monthly}/ay</strong></div>
                                     </div>
                                     <div className="pr-card-body">
                                         <div className="pr-section-label">Pazaryeri & Ürün</div>
@@ -801,11 +836,11 @@ const LoginFormInner = () => {
                                         <h3 className="pr-card-name">Pro</h3>
                                         <p className="pr-card-desc">Büyüyen işletmeler için tam donanımlı profesyonel paket</p>
                                         <div className="pr-card-price">
-                                            <span className="pr-price-old">₺799</span>
-                                            <span className="pr-price-amount">₺599</span>
+                                            {prices.pro.oldMonthly && <span className="pr-price-old">{prices.pro.oldMonthly}</span>}
+                                            <span className="pr-price-amount">{prices.pro.monthly}</span>
                                             <span className="pr-price-period">/ ay</span>
                                         </div>
-                                        <div className="pr-card-save">Yıllık ödemede ₺499/ay — %37 tasarruf</div>
+                                        <div className="pr-card-save">Yıllık ödemede {prices.pro.yearly}/ay — tasarruf edin</div>
                                     </div>
                                     <div className="pr-card-body">
                                         <div className="pr-section-label">Pazaryeri & Ürün</div>
@@ -851,10 +886,10 @@ const LoginFormInner = () => {
                                         <h3 className="pr-card-name">Enterprise</h3>
                                         <p className="pr-card-desc">Yüksek hacimli satıcılar ve kurumsal firmalar için sınırsız paket</p>
                                         <div className="pr-card-price">
-                                            <span className="pr-price-amount">₺1.499</span>
+                                            <span className="pr-price-amount">{prices.enterprise.monthly}</span>
                                             <span className="pr-price-period">/ ay</span>
                                         </div>
-                                        <div className="pr-card-save">Yıllık ödemede ₺1.199/ay — %20 tasarruf</div>
+                                        <div className="pr-card-save">Yıllık ödemede {prices.enterprise.yearly}/ay — tasarruf edin</div>
                                     </div>
                                     <div className="pr-card-body">
                                         <div className="pr-section-label">Pazaryeri & Ürün</div>
