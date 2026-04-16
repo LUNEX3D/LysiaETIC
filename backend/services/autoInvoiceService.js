@@ -266,9 +266,9 @@ const processAutoInvoice = async (userId, marketplaceName, newOrderIds) => {
         const env = config.qnbCredentials.env || "test";
 
         if (config.provider === "qnb") {
-            // e-Arşiv credentials — SADECE earsiv-specific alanlardan al, eski username'i KULLANMA!
-            const earsivUsername = config.qnbCredentials.earsivUsername || process.env.QNB_EARSIV_USERNAME;
-            const earsivPassword = config.qnbCredentials.earsivPassword || process.env.QNB_EARSIV_PASSWORD;
+            // e-Arşiv credentials — earsiv-specific alanlardan al, yoksa eski username/password'e fallback yap
+            const earsivUsername = config.qnbCredentials.earsivUsername || config.qnbCredentials.username || process.env.QNB_EARSIV_USERNAME;
+            const earsivPassword = config.qnbCredentials.earsivPassword || config.qnbCredentials.password || process.env.QNB_EARSIV_PASSWORD;
 
             // e-Fatura credentials — eski username alanı e-Fatura'ya ait
             const efaturaUsername = config.qnbCredentials.efaturaUsername || config.qnbCredentials.username || config.supplier.vkn || process.env.QNB_EFATURA_USERNAME;

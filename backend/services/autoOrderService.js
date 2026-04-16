@@ -309,7 +309,10 @@ const processHepsiburadaOrders = async (credentials, cargoId, cargoName) => {
             } catch (err) {
                 if (err.response?.status === 404 || err.response?.status === 401) hasMore = false;
                 else {
-                    logger.warn(`[AutoOrder] Hepsiburada sipariş çekme hatası: ${err.response?.status || err.message}`);
+                    logger.warn(`[AutoOrder] Hepsiburada sipariş çekme hatası: ${err.response?.status || err.message}`, {
+                        url: `${ep.OMS}/orders/merchantid/${merchantId}?begindate=...&enddate=...&offset=${offset}&limit=${limit}`,
+                        responseBody: JSON.stringify(err.response?.data || '').substring(0, 500)
+                    });
                     hasMore = false;
                 }
             }
@@ -329,13 +332,13 @@ const processHepsiburadaOrders = async (credentials, cargoId, cargoName) => {
         let pkgHasMore = true;
         while (pkgHasMore) {
             try {
-                const pkgUrl = `${ep.OMS}/packages/merchantid/${merchantId}?timespan=168&offset=${pkgOffset}&limit=50`;
+                const pkgUrl = `${ep.OMS}/packages/merchantid/${merchantId}?timespan=168&offset=${pkgOffset}&limit=10`;
                 const pkgResp = await axios.get(pkgUrl, { headers, timeout: 30000 });
                 const pkgs = pkgResp.data?.items || pkgResp.data || [];
                 const arr = Array.isArray(pkgs) ? pkgs : [];
                 if (arr.length === 0) { pkgHasMore = false; break; }
                 allPackages.push(...arr);
-                if (arr.length < 50) pkgHasMore = false;
+                if (arr.length < 10) pkgHasMore = false;
                 else pkgOffset += arr.length;
                 await new Promise(r => setTimeout(r, 300));
             } catch (err) {

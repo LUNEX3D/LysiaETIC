@@ -4,6 +4,10 @@
  * Excel'den import edilen master kategori eşleştirme tablosu.
  * Trendyol (master) → N11, ÇiçekSepeti, Hepsiburada, Amazon eşleştirmeleri.
  *
+ * ✅ FIX: Her masterId için TEK satır — duplike satırlar artık oluşmaz
+ * ✅ FIX: Text index'e hepsiburadaPath ve amazonPath eklendi
+ * ✅ FIX: Unique index masterId bazlı (1 master = 1 satır)
+ *
  * Kaynak: master_kategori_eslestirme.xlsx
  */
 
@@ -13,6 +17,7 @@ const MasterCategoryMappingSchema = new mongoose.Schema({
     masterId: {
         type: Number,
         required: true,
+        unique: true,   // ✅ FIX: Her masterId TEK satır
         index: true
     },
     masterName: {
@@ -68,19 +73,15 @@ const MasterCategoryMappingSchema = new mongoose.Schema({
     collection: "mastercategorymappings"
 });
 
-// Arama için text index
+// ✅ FIX: Arama için text index — tüm path alanları dahil
 MasterCategoryMappingSchema.index({
     masterName: "text",
     masterPath: "text",
     trendyolPath: "text",
     n11Path: "text",
-    ciceksepetiPath: "text"
+    ciceksepetiPath: "text",
+    hepsiburadaPath: "text",
+    amazonPath: "text"
 });
-
-// Composite index — aynı satırın tekrar eklenmesini önle
-MasterCategoryMappingSchema.index(
-    { masterId: 1, trendyolId: 1, n11Id: 1, ciceksepetiId: 1 },
-    { unique: true }
-);
 
 module.exports = mongoose.model("MasterCategoryMapping", MasterCategoryMappingSchema);

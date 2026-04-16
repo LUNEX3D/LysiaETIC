@@ -4,6 +4,17 @@
   "description": "React Frontend for LysiaETIC",
   "private": true,
   "dependencies": {
+    "@capacitor/android": "^8.3.1",
+    "@capacitor/app": "^8.1.0",
+    "@capacitor/camera": "^8.1.0",
+    "@capacitor/cli": "^8.3.1",
+    "@capacitor/core": "^8.3.1",
+    "@capacitor/filesystem": "^8.1.2",
+    "@capacitor/ios": "^8.3.1",
+    "@capacitor/network": "^8.0.1",
+    "@capacitor/push-notifications": "^8.0.3",
+    "@capacitor/splash-screen": "^8.0.1",
+    "@capacitor/status-bar": "^8.0.2",
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.0",
     "@mui/icons-material": "^7.1.0",
@@ -35,7 +46,17 @@
     "build": "react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
-    "lint": "eslint . --fix"
+    "lint": "eslint . --fix",
+    "mobile:build:android": "node scripts/build-mobile.js android",
+    "mobile:build:ios": "node scripts/build-mobile.js ios",
+    "mobile:build:all": "node scripts/build-mobile.js all",
+    "mobile:open:android": "npx cap open android",
+    "mobile:open:ios": "npx cap open ios",
+    "mobile:sync": "npx cap sync",
+    "mobile:run:android": "npx cap run android",
+    "mobile:run:ios": "npx cap run ios",
+    "mobile:dev:android": "node scripts/build-mobile.js android --open",
+    "mobile:dev:ios": "node scripts/build-mobile.js ios --open"
   },
   "eslintConfig": {
     "extends": [

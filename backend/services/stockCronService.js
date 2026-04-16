@@ -358,10 +358,11 @@ const checkHepsiburadaOrders = async (userId, credentials) => {
         // ✅ FIX #6: Hepsiburada siparişlerinde zaman filtresi eklendi
         // ESKİ: Tüm paketler çekiliyordu → performans sorunu
         // YENİ: Son 2 saatteki paketler filtreleniyor
-        const hbStartDate = moment().subtract(2, "hours").toISOString();
-        const hbEndDate = moment().toISOString();
+        // ✅ FIX #7: HB Docs uyumu — packages limit max 10, parametre adları begindate/enddate
+        //    timespan tek başına max 24h, timespan+limit+offset ile >24h olabilir
+        //    2 saat = timespan ile daha temiz: timespan=2 (saat cinsinden)
         const response = await axios.get(
-            `${ep.OMS}/packages/merchantid/${merchantId}?limit=50&offset=0&startDate=${encodeURIComponent(hbStartDate)}&endDate=${encodeURIComponent(hbEndDate)}`,
+            `${ep.OMS}/packages/merchantid/${merchantId}?timespan=2&limit=10&offset=0`,
             {
                 headers,
                 timeout: 15000

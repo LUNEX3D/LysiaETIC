@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- LysiaETIC Brand Colors -->
+    <color name="colorPrimary">#0f766e</color>
+    <color name="colorPrimaryDark">#0a0e1a</color>
+    <color name="colorAccent">#0ea5e9</color>
+
+    <!-- Splash Screen -->
+    <color name="splashBackground">#0a0e1a</color>
+
+    <!-- Status Bar -->
+    <color name="statusBarColor">#0a0e1a</color>
+
+    <!-- Navigation Bar -->
+    <color name="navigationBarColor">#0a0e1a</color>
+</resources>

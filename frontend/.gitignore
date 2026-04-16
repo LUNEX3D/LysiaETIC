@@ -1,0 +1,46 @@
+# Dependencies
+/node_modules
+
+# Production build
+/build
+
+# Environment
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# ═══════════════════════════════════════════════════════════
+# Capacitor — Native Platforms
+# ═══════════════════════════════════════════════════════════
+# Android build artifacts (keep source, ignore build output)
+android/app/build/
+android/.gradle/
+android/build/
+android/capacitor-cordova-android-plugins/build/
+android/local.properties
+android/*.iml
+android/app/*.iml
+
+# iOS build artifacts
+ios/App/Pods/
+ios/App/build/
+ios/App/App.xcworkspace/xcuserdata/
+ios/App/App.xcodeproj/xcuserdata/
+ios/DerivedData/

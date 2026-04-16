@@ -298,6 +298,10 @@ const useAutoInvoice = () => {
             qnbCredentials: {
                 username: cfg.qnbCredentials?.username || "",
                 password: cfg.qnbCredentials?.password || "",
+                earsivUsername: cfg.qnbCredentials?.earsivUsername || cfg.qnbCredentials?.username || "",
+                earsivPassword: cfg.qnbCredentials?.earsivPassword || cfg.qnbCredentials?.password || "",
+                efaturaUsername: cfg.qnbCredentials?.efaturaUsername || "",
+                efaturaPassword: cfg.qnbCredentials?.efaturaPassword || "",
                 env: cfg.qnbCredentials?.env || "test",
             },
         };

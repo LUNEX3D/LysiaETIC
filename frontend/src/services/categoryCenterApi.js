@@ -122,6 +122,49 @@ export const exportHepsiburadaCategoriesExcel = async (query = "") => {
     window.URL.revokeObjectURL(url);
 };
 
+// ── Akıllı Otomatik Eşleştirme ──
+
+/**
+ * Eşleştirme önerilerini hazırla (tek tek onay için)
+ * @param {string[]} platforms - ["n11", "ciceksepeti", "hepsiburada"]
+ */
+export const autoMatchPrepare = async (platforms = []) => {
+    const res = await API.post(`${BASE}/auto-match/prepare`, { platforms });
+    return res.data;
+};
+
+/**
+ * Tek bir eşleştirme önerisini onayla
+ * @param {string} mappingId - MongoDB _id
+ * @param {string} platform - "n11" | "ciceksepeti" | "hepsiburada"
+ * @param {string|number} categoryId - Hedef kategori ID
+ * @param {string} categoryPath - Hedef kategori yolu
+ */
+export const autoMatchApprove = async (mappingId, platform, categoryId, categoryPath) => {
+    const res = await API.post(`${BASE}/auto-match/approve`, {
+        mappingId, platform, categoryId, categoryPath
+    });
+    return res.data;
+};
+
+/**
+ * Otomatik eşleştirme başlat — toplu (boş olanları doldurur)
+ * @param {string[]} platforms - ["n11", "ciceksepeti", "hepsiburada"]
+ */
+export const autoMatch = async (platforms = []) => {
+    const res = await API.post(`${BASE}/auto-match`, { platforms });
+    return res.data;
+};
+
+/**
+ * Eşleştirmeleri sıfırla ve yeniden eşleştir
+ * @param {string[]} platforms - ["n11", "ciceksepeti", "hepsiburada"]
+ */
+export const autoMatchReset = async (platforms) => {
+    const res = await API.post(`${BASE}/auto-match/reset`, { platforms });
+    return res.data;
+};
+
 // ── Pazaryeri & Canlı Ağaç ──
 
 /**

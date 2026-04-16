@@ -1,14 +1,16 @@
 /* ═══════════════════════════════════════════════════════════
-   LysiaETIC - Service Worker (PWA) — WEB APP FIRST
+   LysiaETIC - Service Worker (PWA) — ENHANCED v3
    ✅ SPA-uyumlu: Navigation istekleri her zaman /index.html'e düşer
    ✅ Cache-first for static assets (JS, CSS, images, fonts)
    ✅ Network-first for API calls
    ✅ Stale-while-revalidate for fonts (Google Fonts)
    ✅ Cache size limits to prevent storage bloat
-   ✅ Background sync ready
+   ✅ Push Notifications support
+   ✅ Background Sync support
+   ✅ Periodic Background Sync (order/stock check)
    ═══════════════════════════════════════════════════════════ */
 
-const CACHE_VERSION = '20250702-v2';
+const CACHE_VERSION = '20250702-v3';
 const STATIC_CACHE = `lysiaetic-static-${CACHE_VERSION}`;
 const DYNAMIC_CACHE = `lysiaetic-dynamic-${CACHE_VERSION}`;
 const FONT_CACHE = `lysiaetic-fonts-${CACHE_VERSION}`;
@@ -119,6 +121,222 @@ self.addEventListener('fetch', (event) => {
 });
 
 // ═══════════════════════════════════════════════════════════
+// PUSH NOTIFICATIONS
+// ═══════════════════════════════════════════════════════════
+self.addEventListener('push', (event) => {
+  let data = {
+    title: 'LysiaETIC',
+    body: 'Yeni bir bildiriminiz var',
+    icon: '/icons/icon-192x192.png',
+    badge: '/icons/icon-72x72.png',
+    tag: 'lysiaetic-notification',
+    data: { url: '/dashboard' }
+  };
+
+  try {
+    if (event.data) {
+      const payload = event.data.json();
+      data = { ...data, ...payload };
+    }
+  } catch (e) {
+    // If not JSON, use text
+    if (event.data) {
+      data.body = event.data.text();
+    }
+  }
+
+  const options = {
+    body: data.body,
+    icon: data.icon || '/icons/icon-192x192.png',
+    badge: data.badge || '/icons/icon-72x72.png',
+    tag: data.tag || 'lysiaetic-notification',
+    vibrate: [100, 50, 100, 50, 200],
+    data: data.data || { url: '/dashboard' },
+    actions: data.actions || [
+      { action: 'open', title: '📂 Aç' },
+      { action: 'dismiss', title: '❌ Kapat' }
+    ],
+    requireInteraction: data.requireInteraction || false,
+    renotify: true,
+    silent: false
+  };
+
+  event.waitUntil(
+    self.registration.showNotification(data.title, options)
+  );
+});
+
+// ── Notification Click Handler ──
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+
+  const action = event.action;
+  const notificationData = event.notification.data || {};
+  const targetUrl = notificationData.url || '/dashboard';
+
+  if (action === 'dismiss') return;
+
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true })
+      .then((clientList) => {
+        // If app is already open, focus it and navigate
+        for (const client of clientList) {
+          if (client.url.includes(self.location.origin)) {
+            client.focus();
+            client.postMessage({
+              type: 'NOTIFICATION_CLICK',
+              url: targetUrl,
+              data: notificationData
+            });
+            return;
+          }
+        }
+        // Otherwise open a new window
+        return clients.openWindow(targetUrl);
+      })
+  );
+});
+
+// ── Notification Close Handler ──
+self.addEventListener('notificationclose', (event) => {
+  // Analytics: track dismissed notifications
+  console.log('[SW] Notification dismissed:', event.notification.tag);
+});
+
+// ═══════════════════════════════════════════════════════════
+// BACKGROUND SYNC — Retry failed API calls when back online
+// ═══════════════════════════════════════════════════════════
+self.addEventListener('sync', (event) => {
+  console.log('[SW] Background sync triggered:', event.tag);
+
+  if (event.tag === 'sync-orders') {
+    event.waitUntil(syncPendingOrders());
+  }
+
+  if (event.tag === 'sync-stock-updates') {
+    event.waitUntil(syncPendingStockUpdates());
+  }
+
+  if (event.tag === 'sync-offline-actions') {
+    event.waitUntil(syncOfflineActions());
+  }
+});
+
+// ── Sync pending orders that failed while offline ──
+async function syncPendingOrders() {
+  try {
+    const cache = await caches.open('lysiaetic-sync-queue');
+    const requests = await cache.keys();
+    const orderRequests = requests.filter(r => r.url.includes('/api/orders'));
+
+    for (const request of orderRequests) {
+      try {
+        const cachedResponse = await cache.match(request);
+        if (cachedResponse) {
+          const body = await cachedResponse.json();
+          await fetch(request.url, {
+            method: request.method || 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+          });
+          await cache.delete(request);
+          console.log('[SW] Synced order:', request.url);
+        }
+      } catch (err) {
+        console.warn('[SW] Order sync failed, will retry:', err.message);
+      }
+    }
+  } catch (err) {
+    console.error('[SW] syncPendingOrders error:', err);
+  }
+}
+
+// ── Sync pending stock updates ──
+async function syncPendingStockUpdates() {
+  try {
+    const cache = await caches.open('lysiaetic-sync-queue');
+    const requests = await cache.keys();
+    const stockRequests = requests.filter(r => r.url.includes('/api/stock'));
+
+    for (const request of stockRequests) {
+      try {
+        const cachedResponse = await cache.match(request);
+        if (cachedResponse) {
+          const body = await cachedResponse.json();
+          await fetch(request.url, {
+            method: request.method || 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+          });
+          await cache.delete(request);
+          console.log('[SW] Synced stock update:', request.url);
+        }
+      } catch (err) {
+        console.warn('[SW] Stock sync failed, will retry:', err.message);
+      }
+    }
+  } catch (err) {
+    console.error('[SW] syncPendingStockUpdates error:', err);
+  }
+}
+
+// ── Sync any offline actions ──
+async function syncOfflineActions() {
+  try {
+    const cache = await caches.open('lysiaetic-sync-queue');
+    const requests = await cache.keys();
+
+    for (const request of requests) {
+      try {
+        const cachedResponse = await cache.match(request);
+        if (cachedResponse) {
+          const body = await cachedResponse.json();
+          await fetch(request.url, {
+            method: body._method || 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+          });
+          await cache.delete(request);
+        }
+      } catch (err) {
+        console.warn('[SW] Offline action sync failed:', err.message);
+      }
+    }
+  } catch (err) {
+    console.error('[SW] syncOfflineActions error:', err);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// PERIODIC BACKGROUND SYNC — Check for new orders/updates
+// ═══════════════════════════════════════════════════════════
+self.addEventListener('periodicsync', (event) => {
+  if (event.tag === 'check-new-orders') {
+    event.waitUntil(checkForNewOrders());
+  }
+});
+
+async function checkForNewOrders() {
+  try {
+    const response = await fetch('/api/notifications/unread-count');
+    if (response.ok) {
+      const data = await response.json();
+      if (data.count > 0) {
+        await self.registration.showNotification('LysiaETIC', {
+          body: `${data.count} yeni bildiriminiz var`,
+          icon: '/icons/icon-192x192.png',
+          badge: '/icons/icon-72x72.png',
+          tag: 'new-orders',
+          data: { url: '/dashboard' }
+        });
+      }
+    }
+  } catch (err) {
+    // Silently fail — periodic sync is best-effort
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
 // CACHING STRATEGIES
 // ═══════════════════════════════════════════════════════════
 
@@ -222,5 +440,22 @@ function isImageAsset(url) {
 self.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'SKIP_WAITING') {
     self.skipWaiting();
+  }
+
+  // App can request to queue an action for background sync
+  if (event.data && event.data.type === 'QUEUE_SYNC') {
+    const { url, method, body, tag } = event.data;
+    caches.open('lysiaetic-sync-queue').then((cache) => {
+      const request = new Request(url, { method });
+      const response = new Response(JSON.stringify({ ...body, _method: method }));
+      cache.put(request, response);
+    }).then(() => {
+      // Register for background sync
+      if (self.registration.sync) {
+        return self.registration.sync.register(tag || 'sync-offline-actions');
+      }
+    }).catch((err) => {
+      console.warn('[SW] Failed to queue sync:', err);
+    });
   }
 });

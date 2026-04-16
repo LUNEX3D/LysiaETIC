@@ -404,27 +404,27 @@ const updateHepsiburadaPrice = async (merchantId, secretKey, sku, price, userAge
 // ═══════════════════════════════════════════════════════════════════════
 
 /**
- * Hepsiburada Kategorileri Çek (v2 — Detaylı)
+ * Hepsiburada Kategorileri Çek (v3 — Tam Kapsamlı)
  * Endpoint: GET /product/api/categories/get-all-categories
  * Params: leaf, status, available, type (HB/HX/HC), version, page, size (max 2000)
  * İstek Limiti: 200 istek/1 dakika (IP başına)
  *
- * v2 Düzeltmeler:
- *   - type parametresi eklendi (HB, HX, HC ayrı ayrı çekilip birleştiriliyor)
- *   - size 1000→2000 (HB API max 2000 destekliyor)
- *   - available filtresi opsiyonel hale getirildi (parent kategoriler de gelsin)
+ * v3 Düzeltmeler:
+ *   - HER ZAMAN 3 type (HB, HX, HC) ayrı ayrı çekilip birleştiriliyor
+ *   - Type'sız çağrı sadece HB (~6.500) döndürür, HC (~48.000) eksik kalır
+ *   - includeAllTypes parametresi kaldırıldı — artık her zaman tüm type'lar çekilir
+ *   - size 2000 (HB API max)
  *   - Birden fazla endpoint URL pattern'i deneniyor (MPOP + CATEGORY)
  *
  * @param {string} merchantId - Mağaza ID
  * @param {string} secretKey - Servis Anahtarı
  * @param {string} userAgent - Developer Username
- * @param {object} [opts] - { onlyLeaf: bool, includeAllTypes: bool }
+ * @param {object} [opts] - { onlyLeaf: bool }
  */
 const fetchHepsiburadaCategories = async (merchantId, secretKey, userAgent, opts = {}) => {
     try {
         const headers = getHeaders(merchantId, secretKey, userAgent);
         const onlyLeaf = opts.onlyLeaf !== false; // varsayılan true (geriye dönük uyumluluk)
-        const includeAllTypes = opts.includeAllTypes === true;
 
         // ═══════════════════════════════════════════════════════════════
         // ÖNEMLİ: Kategori API'si için HER ZAMAN Production endpoint'leri kullan!
@@ -504,27 +504,47 @@ const fetchHepsiburadaCategories = async (merchantId, secretKey, userAgent, opts
             return categories;
         };
 
-        // ── Strateji: Önce type'sız (en hızlı), sonra type'lı ──
+        // ═══════════════════════════════════════════════════════════════
+        // v3: HER ZAMAN 3 type'ı ayrı ayrı çek
+        //
+        // HB API Dokümantasyonu (developers.hepsiburada.com):
+        //   - Type'sız çağrı sadece HB (~6.500) döndürür
+        //   - HC (HepsiGlobal) ~48.000 kategori — ayrı çekilmeli
+        //   - HX (HepsiExpress) ~400 kategori — ayrı çekilmeli
+        //   - ⚠️ leaf varsayılanı TRUE — göndermezsen sadece yaprak gelir
+        //   - ⚠️ available varsayılanı TRUE — göndermezsen sadece aktif gelir
+        //   - Parent kategorileri almak için leaf=false AÇIKÇA gönderilmeli
+        // ═══════════════════════════════════════════════════════════════
         let allCategories = [];
-        const leafOpt = onlyLeaf ? true : undefined;
-        const availOpt = onlyLeaf ? true : undefined;
+        const TYPES = ["HB", "HX", "HC"];
 
-        // Önce type'sız dene (çoğu durumda tüm kategoriler gelir)
-        allCategories = await fetchPaginated({ leaf: leafOpt, available: availOpt }, " default");
-
-        // Boş döndüyse veya includeAllTypes istendiyse type'lı dene
-        if (allCategories.length === 0 || includeAllTypes) {
-            const typeCats = [];
-            for (const type of ["HB", "HX", "HC"]) {
+        if (onlyLeaf) {
+            // Sadece yaprak — leaf=true & available=true
+            for (const type of TYPES) {
                 try {
-                    const cats = await fetchPaginated({ leaf: leafOpt, available: availOpt, type }, ` ${type}`);
-                    typeCats.push(...cats);
+                    const cats = await fetchPaginated({ leaf: true, available: true, type }, ` ${type}`);
+                    if (cats.length > 0) allCategories.push(...cats);
                 } catch (e) { logger.warn(`[Hepsiburada CAT] ${type} hatası: ${e.message}`); }
             }
+            // Fallback
             if (allCategories.length === 0) {
-                allCategories = typeCats;
-            } else {
-                allCategories.push(...typeCats);
+                allCategories = await fetchPaginated({ leaf: true, available: true }, " fallback");
+            }
+        } else {
+            // Tüm kategoriler — leaf=true + leaf=false ayrı ayrı
+            for (const type of TYPES) {
+                try {
+                    const leafCats = await fetchPaginated({ leaf: true, type }, ` ${type}-leaf`);
+                    if (leafCats.length > 0) allCategories.push(...leafCats);
+                    const parentCats = await fetchPaginated({ leaf: false, type }, ` ${type}-parent`);
+                    if (parentCats.length > 0) allCategories.push(...parentCats);
+                } catch (e) { logger.warn(`[Hepsiburada CAT] ${type} hatası: ${e.message}`); }
+            }
+            // Fallback
+            if (allCategories.length === 0) {
+                allCategories = await fetchPaginated({ leaf: true }, " leaf-fallback");
+                const parentFallback = await fetchPaginated({ leaf: false }, " parent-fallback");
+                if (parentFallback.length > 0) allCategories.push(...parentFallback);
             }
         }
 
@@ -536,7 +556,7 @@ const fetchHepsiburadaCategories = async (merchantId, secretKey, userAgent, opts
             if (id && !seenIds.has(id)) { seenIds.add(id); unique.push(cat); }
         }
 
-        logger.info(`[Hepsiburada] ${unique.length} benzersiz kategori çekildi (ham: ${allCategories.length})`);
+        logger.info(`[Hepsiburada] ${unique.length} benzersiz kategori çekildi (ham: ${allCategories.length}, types: ${TYPES.join("+")})`);
         return unique;
     } catch (error) {
         logger.error("Hepsiburada kategori çekme hatası:", {

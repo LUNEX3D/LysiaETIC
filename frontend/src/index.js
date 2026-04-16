@@ -5,6 +5,9 @@ import App from "./App";
 import { LocalizationProvider } from "@mui/x-date-pickers";
 import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFns";
 
+// ✅ Enhanced SW registration with Push + Background Sync
+import { register as registerSW } from "./utils/serviceWorkerRegistration";
+
 const root = ReactDOM.createRoot(document.getElementById("root"));
 root.render(
     <LocalizationProvider dateAdapter={AdapterDateFns}>
@@ -13,36 +16,23 @@ root.render(
 );
 
 // ═══════════════════════════════════════════════════════════
-// PWA — Service Worker Registration
-// ⚠️ Local geliştirmede devre dışı, sadece production'da aktif
+// PWA — Service Worker Registration (Enhanced v3)
+// ✅ Push Notifications
+// ✅ Background Sync
+// ✅ Periodic Sync
+// ✅ Update detection
+// ✅ Capacitor-aware (skips SW in native app)
 // ═══════════════════════════════════════════════════════════
-if ("serviceWorker" in navigator && process.env.NODE_ENV === "production") {
-    window.addEventListener("load", () => {
-        navigator.serviceWorker
-            .register("/service-worker.js")
-            .then((registration) => {
-                console.log("[PWA] Service Worker registered:", registration.scope);
-            })
-            .catch((error) => {
-                console.log("[PWA] Service Worker registration failed:", error);
-            });
-    });
-} else if ("serviceWorker" in navigator && process.env.NODE_ENV !== "production") {
-    // ⚠️ Development modunda: Eski service worker'ları ve TÜM cache'leri temizle
-    // Bu, service worker'ın SPA routing'i bozmasını engeller.
-    navigator.serviceWorker.getRegistrations().then((registrations) => {
-        registrations.forEach((registration) => {
-            registration.unregister();
-            console.log("[PWA] Service Worker unregistered (dev mode)");
-        });
-    });
-    // Eski cache'leri de temizle
-    if ("caches" in window) {
-        caches.keys().then((cacheNames) => {
-            cacheNames.forEach((cacheName) => {
-                caches.delete(cacheName);
-                console.log("[PWA] Cache deleted (dev mode):", cacheName);
-            });
-        });
+registerSW({
+    onUpdate: (registration) => {
+        // New version available — show update prompt
+        console.log("[PWA] Yeni sürüm mevcut — güncelleme için sayfayı yenileyin");
+        // Dispatch event for UpdatePrompt component
+        window.dispatchEvent(new CustomEvent("sw-update-available", {
+            detail: { registration }
+        }));
+    },
+    onSuccess: (registration) => {
+        console.log("[PWA] İçerik çevrimdışı kullanım için önbelleğe alındı");
     }
-}
+});

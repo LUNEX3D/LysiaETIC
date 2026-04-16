@@ -9,7 +9,7 @@
  */
 
 import React, { Suspense, lazy } from "react";
-import { BrowserRouter as Router, Route, Routes, Navigate, useLocation } from "react-router-dom";
+import { BrowserRouter as Router, Route, Routes, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { CssBaseline, Container, ThemeProvider, createTheme } from "@mui/material";
 import { AppProvider } from "./context/AppContext";
 
@@ -18,8 +18,14 @@ import PWAInstallPrompt from "./components/PWAInstallPrompt";
 import useViewportHeight from "./utils/useViewportHeight";
 import "./styles/responsive.css";
 
+// ✅ Capacitor Native Bridge — iOS/Android native features
+import useCapacitorInit from "./utils/useCapacitorInit";
+
 // ✅ P1-2: Global Error Boundary
 import ErrorBoundary from "./components/ErrorBoundary";
+
+// ✅ PWA Update Prompt — shows when new version available
+import UpdatePrompt from "./components/UpdatePrompt";
 
 // ✅ FIX #19: Protected Route — Auth guard (eager — her route'ta kullanılır)
 import ProtectedRoute from "./components/ProtectedRoute";
@@ -235,6 +241,10 @@ const AppContent = () => {
     // ✅ WEB APP FIRST: Fix mobile browser viewport height (address bar issue)
     useViewportHeight();
 
+    // ✅ Capacitor: Initialize native features (status bar, push, back button)
+    const navigate = useNavigate();
+    useCapacitorInit(navigate);
+
     const location = useLocation();
     const isAdminRoute = location.pathname.startsWith("/admin");
     const isLysiaBrain2 = location.pathname === "/lysiabrain2";
@@ -358,6 +368,7 @@ const App = () => {
                     <Router>
                         <AppContent />
                     </Router>
+                    <UpdatePrompt />
                 </ThemeProvider>
             </AppProvider>
         </ErrorBoundary>

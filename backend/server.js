@@ -393,6 +393,15 @@ const startServer = async () => {
             logger.warn(`Fatura cron başlatılamadı: ${err.message}`);
         }
 
+        // ─── Otomatik Sipariş İşleme Cron'unu Başlat ─────────────────────
+        try {
+            const { startAutoOrderCron } = require("./services/autoOrderCronService");
+            startAutoOrderCron();
+            logger.info("📦 Otomatik sipariş işleme cron'u başlatıldı ✅");
+        } catch (err) {
+            logger.warn(`Sipariş işleme cron başlatılamadı: ${err.message}`);
+        }
+
         // ─── AI Background Worker — Tüm kullanıcıları arka planda analiz eder ──
         try {
             const { startAIWorker } = require("./services/aiBackgroundWorker");

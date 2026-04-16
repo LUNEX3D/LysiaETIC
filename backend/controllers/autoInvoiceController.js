@@ -95,7 +95,13 @@ exports.saveConfig = async (req, res) => {
         if (sendingType) config.sendingType = sendingType;
         if (supplier) config.supplier = { ...config.supplier.toObject?.() || config.supplier, ...supplier };
         if (defaultCustomer) config.defaultCustomer = { ...config.defaultCustomer.toObject?.() || config.defaultCustomer, ...defaultCustomer };
-        if (qnbCredentials) config.qnbCredentials = { ...config.qnbCredentials.toObject?.() || config.qnbCredentials, ...qnbCredentials };
+        if (qnbCredentials) {
+            const merged = { ...config.qnbCredentials.toObject?.() || config.qnbCredentials, ...qnbCredentials };
+            // Kullanıcı sadece username/password girdiyse, earsiv alanlarına da kopyala (boşsa)
+            if (merged.username && !merged.earsivUsername) merged.earsivUsername = merged.username;
+            if (merged.password && !merged.earsivPassword) merged.earsivPassword = merged.password;
+            config.qnbCredentials = merged;
+        }
         if (defaultVatRate !== undefined) config.defaultVatRate = defaultVatRate;
         if (pricesIncludeVat !== undefined) config.pricesIncludeVat = pricesIncludeVat;
         if (defaultNote !== undefined) config.defaultNote = defaultNote;

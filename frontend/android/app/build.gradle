@@ -1,0 +1,96 @@
+apply plugin: 'com.android.application'
+
+android {
+    namespace = "com.lysiaetic.app"
+    compileSdk = rootProject.ext.compileSdkVersion
+    defaultConfig {
+        applicationId "com.lysiaetic.app"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode 1
+        versionName "1.0.0"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // Release Signing — Play Store yüklemesi için gerekli
+    // ═══════════════════════════════════════════════════════════
+    // Keystore oluşturma:
+    //   keytool -genkeypair -v -storetype PKCS12 -keystore lysiaetic-release.keystore -alias lysiaetic -keyalg RSA -keysize 2048 -validity 10000
+    //
+    // Kullanım: keystore dosyasını android/ klasörüne koy, sonra:
+    //   Yöntem 1: local.properties dosyasına ekle (git'e ekleme!)
+    //     LYSIAETIC_RELEASE_STORE_FILE=../lysiaetic-release.keystore
+    //     LYSIAETIC_RELEASE_STORE_PASSWORD=şifren
+    //     LYSIAETIC_RELEASE_KEY_ALIAS=lysiaetic
+    //     LYSIAETIC_RELEASE_KEY_PASSWORD=şifren
+    //
+    //   Yöntem 2: Android Studio → Build → Generate Signed Bundle/APK
+    // ═══════════════════════════════════════════════════════════
+    signingConfigs {
+        release {
+            def props = new Properties()
+            def propsFile = rootProject.file('local.properties')
+            if (propsFile.exists()) {
+                props.load(new FileInputStream(propsFile))
+            }
+            if (props['LYSIAETIC_RELEASE_STORE_FILE']) {
+                storeFile file(props['LYSIAETIC_RELEASE_STORE_FILE'])
+                storePassword props['LYSIAETIC_RELEASE_STORE_PASSWORD']
+                keyAlias props['LYSIAETIC_RELEASE_KEY_ALIAS']
+                keyPassword props['LYSIAETIC_RELEASE_KEY_PASSWORD']
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            // Eğer signing config varsa kullan
+            def props = new Properties()
+            def propsFile = rootProject.file('local.properties')
+            if (propsFile.exists()) {
+                props.load(new FileInputStream(propsFile))
+            }
+            if (props['LYSIAETIC_RELEASE_STORE_FILE']) {
+                signingConfig signingConfigs.release
+            }
+        }
+    }
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+apply from: 'capacitor.build.gradle'
+
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text) {
+        apply plugin: 'com.google.gms.google-services'
+    }
+} catch(Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}

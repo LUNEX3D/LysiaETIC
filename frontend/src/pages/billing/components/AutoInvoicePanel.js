@@ -139,8 +139,8 @@ const AutoInvoicePanel = ({ autoInvoice }) => {
                     {/* QNB Bağlantı */}
                     <h4 style={{ ...sectionTitleStyle, marginTop: "1.5rem" }}><FaLink style={{ color: colors.purple }} /> QNB eSolutions Bağlantısı</h4>
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.75rem" }}>
-                        <div><label style={labelStyle}>Kullanıcı Adı *</label><input style={inputStyle} value={fd.qnbCredentials.username} onChange={(e) => updateField("qnbCredentials.username", e.target.value)} placeholder="VKN.portaltest" /></div>
-                        <div><label style={labelStyle}>Şifre *</label><input style={inputStyle} type="password" value={fd.qnbCredentials.password} onChange={(e) => updateField("qnbCredentials.password", e.target.value)} placeholder="••••••" /></div>
+                        <div><label style={labelStyle}>e-Arşiv Kullanıcı Adı *</label><input style={inputStyle} value={fd.qnbCredentials.earsivUsername} onChange={(e) => { updateField("qnbCredentials.earsivUsername", e.target.value); updateField("qnbCredentials.username", e.target.value); }} placeholder="VKN.portaltest" /></div>
+                        <div><label style={labelStyle}>e-Arşiv Şifre *</label><input style={inputStyle} type="password" value={fd.qnbCredentials.earsivPassword} onChange={(e) => { updateField("qnbCredentials.earsivPassword", e.target.value); updateField("qnbCredentials.password", e.target.value); }} placeholder="••••••" /></div>
                         <div>
                             <label style={labelStyle}>Ortam</label>
                             <select style={{ ...inputStyle, cursor: "pointer" }} value={fd.qnbCredentials.env} onChange={(e) => updateField("qnbCredentials.env", e.target.value)}>
@@ -148,7 +148,12 @@ const AutoInvoicePanel = ({ autoInvoice }) => {
                                 <option value="production">Canlı Ortam</option>
                             </select>
                         </div>
+                        <div><label style={labelStyle}>e-Fatura Kullanıcı Adı</label><input style={inputStyle} value={fd.qnbCredentials.efaturaUsername} onChange={(e) => updateField("qnbCredentials.efaturaUsername", e.target.value)} placeholder="VKN (opsiyonel — B2B için)" /></div>
+                        <div><label style={labelStyle}>e-Fatura Şifre</label><input style={inputStyle} type="password" value={fd.qnbCredentials.efaturaPassword} onChange={(e) => updateField("qnbCredentials.efaturaPassword", e.target.value)} placeholder="••••••" /></div>
                     </div>
+                    <p style={{ fontSize: "0.72rem", color: colors.textMuted, marginTop: "0.4rem", lineHeight: 1.5 }}>
+                        💡 e-Arşiv: Bireysel müşterilere fatura kesmek için (zorunlu). e-Fatura: Kurumsal (B2B) müşteriler için (opsiyonel).
+                    </p>
 
                     {/* Fatura Ayarları */}
                     <h4 style={{ ...sectionTitleStyle, marginTop: "1.5rem" }}><FaFileInvoice style={{ color: colors.green }} /> Fatura Ayarları</h4>

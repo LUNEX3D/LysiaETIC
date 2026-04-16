@@ -328,13 +328,13 @@ const fetchHepsiburadaOrders = async (merchantId, serviceKey, startDate, endDate
 
         // ═══════════════════════════════════════════════════════════════
         // 2) Paketlenmiş Siparişler (Packages) — timespan=720 (30 gün saat)
-        //    veya begindate/enddate ile max 24 saat aralık
-        //    timespan + limit + offset birlikte kullanılabilir
+        //    HB Docs: Packages limit max 10, timespan tek başına max 24h
+        //    timespan + limit + offset birlikte kullanımda timespan > 24h olabilir
         // ═══════════════════════════════════════════════════════════════
         logger.info(`🔍 [Hepsiburada] Adım 2: Paketlenmiş siparişler çekiliyor...`);
         try {
             let offset = 0;
-            const limit = 50;
+            const limit = 10;
             let hasMore = true;
             while (hasMore) {
                 const url = `${BASE_URL}/packages/merchantid/${merchantId}?timespan=720&offset=${offset}&limit=${limit}`;
@@ -345,7 +345,7 @@ const fetchHepsiburadaOrders = async (merchantId, serviceKey, startDate, endDate
                     if (arr.length === 0) { hasMore = false; break; }
                     logger.info(`✅ [Hepsiburada Packages] ${arr.length} paket (offset=${offset})`);
                     addItemsToMap(arr, 'Packaged');
-                    if (arr.length < limit) { hasMore = false; } else { offset += arr.length; }
+                    if (arr.length < 10) { hasMore = false; } else { offset += arr.length; }
                     await new Promise(r => setTimeout(r, 300));
                 } catch (err) {
                     if (err.response?.status === 404 || err.response?.status === 401) { hasMore = false; }

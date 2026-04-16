@@ -24,6 +24,12 @@ router.put("/mappings/:id", controller.updateMapping);
 // ── Pazaryeri Listesi ──
 router.get("/marketplaces", controller.getMarketplaces);
 
+// ── Akıllı Otomatik Eşleştirme ──
+router.post("/auto-match/prepare", controller.autoMatchPrepare);
+router.post("/auto-match/approve", controller.autoMatchApprove);
+router.post("/auto-match/reset", controller.autoMatchReset);
+router.post("/auto-match", controller.autoMatch);
+
 // ── Hepsiburada Kategori Ağacı (Tree) ──
 router.get("/hepsiburada/categories/export", controller.exportHepsiburadaCategoriesExcel);
 router.get("/hepsiburada/categories", controller.getHepsiburadaCategoryTree);

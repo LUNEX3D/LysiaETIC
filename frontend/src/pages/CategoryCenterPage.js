@@ -11,14 +11,16 @@ import { useApp } from "../context/AppContext";
 import {
     getMappings, getMappingStats, updateMapping, exportMappingsExcel,
     getMarketplaces, searchCategories,
-    getHepsiburadaCategoryTree, exportHepsiburadaCategoriesExcel
+    getHepsiburadaCategoryTree, exportHepsiburadaCategoriesExcel,
+    autoMatch, autoMatchReset, autoMatchPrepare, autoMatchApprove
 } from "../services/categoryCenterApi";
 import { motion, AnimatePresence } from "framer-motion";
 import {
     FaSitemap, FaSearch, FaTimes, FaCheck, FaSpinner,
     FaExclamationTriangle, FaSave, FaChevronLeft, FaChevronRight,
     FaEdit, FaTable, FaChartBar, FaFileExcel, FaDownload,
-    FaChevronDown, FaChevronRight as FaChevronRightIcon, FaFolder, FaFolderOpen, FaLeaf
+    FaChevronDown, FaChevronRight as FaChevronRightIcon, FaFolder, FaFolderOpen, FaLeaf,
+    FaMagic
 } from "react-icons/fa";
 
 // ═══════════════════════════════════════════════════════════════
@@ -189,8 +191,9 @@ const CategorySearchPopup = ({ platform, mappingId, currentId, currentPath, C, i
                             </div>
                             {results.map((item, idx) => {
                                 const isPicked = String(selected?.id) === String(item.id);
-                                // HB kategorilerinde: leaf+available → ürün açılabilir, diğerleri sadece bilgi amaçlı
-                                const isSelectable = item.leaf !== false; // leaf bilgisi yoksa (diğer platformlar) seçilebilir
+                                // HB kategorilerinde: leaf+available → ürün açılabilir
+                                // leaf===undefined (diğer platformlar) → seçilebilir, leaf===false (parent) → seçilemez
+                                const isSelectable = item.leaf === true || item.leaf === undefined || item.leaf === null;
                                 const isHBLeafAvailable = item.leaf && item.available !== false;
                                 const isHBParent = item.leaf === false || item.hasChildren;
                                 return (
@@ -520,6 +523,30 @@ const CategoryCenterPage = ({ userId }) => {
     const [expandedAll, setExpandedAll] = useState(undefined); // undefined = kullanıcı henüz tıklamadı
     const hbSearchTimerRef = useRef(null);
 
+    // Auto-Match Wizard State
+    const [wizardOpen, setWizardOpen] = useState(false);
+    const [wizardLoading, setWizardLoading] = useState(false);
+    const [wizardSuggestions, setWizardSuggestions] = useState([]);
+    const [wizardIndex, setWizardIndex] = useState(0);
+    const [wizardPaused, setWizardPaused] = useState(false);
+    const [wizardSaving, setWizardSaving] = useState(false);
+    const [wizardStats, setWizardStats] = useState({ approved: 0, skipped: 0, manual: 0 });
+    const [wizardManualMode, setWizardManualMode] = useState(false);
+    const [wizardSearchQuery, setWizardSearchQuery] = useState("");
+    const [wizardSearchResults, setWizardSearchResults] = useState([]);
+    const [wizardSearchLoading, setWizardSearchLoading] = useState(false);
+    const [wizardSelectedAlt, setWizardSelectedAlt] = useState(null);
+    const wizardSearchTimer = useRef(null);
+    const [showAutoMatchMenu, setShowAutoMatchMenu] = useState(false);
+
+    // Auto-match dropdown dışına tıklayınca kapat
+    useEffect(() => {
+        if (!showAutoMatchMenu) return;
+        const handleClickOutside = () => setShowAutoMatchMenu(false);
+        const timer = setTimeout(() => document.addEventListener("click", handleClickOutside), 10);
+        return () => { clearTimeout(timer); document.removeEventListener("click", handleClickOutside); };
+    }, [showAutoMatchMenu]);
+
     // Platformları yükle (entegrasyon durumu)
     useEffect(() => {
         const load = async () => {
@@ -581,11 +608,12 @@ const CategoryCenterPage = ({ userId }) => {
     const platformIntegrated = useMemo(() => {
         const map = {};
         for (const p of platforms) {
-            const key = p.name.toLowerCase().replace(/[çö\s]/g, (m) =>
-                m === "ç" ? "c" : m === "ö" ? "o" : ""
-            );
+            // ✅ FIX: Tüm Türkçe karakterleri normalize et (tutarlı eşleşme)
+            const key = p.name.toLowerCase().replace(/[çöüğışÇÖÜĞİŞ\s]/g, (m) => {
+                const map2 = { "ç": "c", "ö": "o", "ü": "u", "ğ": "g", "ı": "i", "ş": "s", " ": "" };
+                return map2[m.toLowerCase()] || "";
+            });
             map[key] = p.integrated;
-            // Ayrıca tam isimle de ekle
             map[p.name.toLowerCase().replace(/\s+/g, "")] = p.integrated;
         }
         return map;
@@ -621,11 +649,13 @@ const CategoryCenterPage = ({ userId }) => {
     }, [t]);
 
     // HB kategorileri tab'a geçince yükle
+    // ✅ FIX: hbError koşulu kaldırıldı — hata sonrası tekrar tıklayınca yeniden yüklenebilsin
     useEffect(() => {
-        if (activeTab === "hb-categories" && hbTree.length === 0 && !hbLoading && !hbError) {
+        if (activeTab === "hb-categories" && hbTree.length === 0 && !hbLoading) {
+            setHbError(""); // Önceki hatayı temizle
             loadHBCategories(hbSearchQuery);
         }
-    }, [activeTab, hbTree.length, hbLoading, hbError, hbSearchQuery, loadHBCategories]);
+    }, [activeTab, hbTree.length, hbLoading, hbSearchQuery, loadHBCategories]);
 
     // HB arama (debounced)
     const handleHBSearchInput = useCallback((val) => {
@@ -649,6 +679,97 @@ const CategoryCenterPage = ({ userId }) => {
         } catch { /* ignore */ }
         return res;
     }, []);
+
+    // ── Wizard: Başlat ──
+    const startWizard = useCallback(async (selectedPlatforms = []) => {
+        setShowAutoMatchMenu(false);
+        setWizardOpen(true);
+        setWizardLoading(true);
+        setWizardIndex(0);
+        setWizardPaused(false);
+        setWizardStats({ approved: 0, skipped: 0, manual: 0 });
+        setWizardManualMode(false);
+        setWizardSelectedAlt(null);
+        setWizardSearchQuery("");
+        setWizardSearchResults([]);
+        try {
+            const res = await autoMatchPrepare(selectedPlatforms);
+            const suggestions = res?.data?.suggestions || [];
+            setWizardSuggestions(suggestions);
+            if (suggestions.length === 0) {
+                setWizardPaused(true);
+            }
+        } catch (err) {
+            console.error("Wizard prepare hatası:", err);
+            setWizardSuggestions([]);
+        } finally {
+            setWizardLoading(false);
+        }
+    }, []);
+
+    // ── Wizard: Onayla ──
+    const wizardApprove = useCallback(async (categoryId, categoryPath) => {
+        const current = wizardSuggestions[wizardIndex];
+        if (!current) return;
+        setWizardSaving(true);
+        try {
+            await autoMatchApprove(current.mappingId, current.platform, categoryId, categoryPath);
+            setWizardStats(prev => ({ ...prev, approved: prev.approved + 1 }));
+            setWizardManualMode(false);
+            setWizardSelectedAlt(null);
+            setWizardSearchQuery("");
+            setWizardSearchResults([]);
+            setWizardIndex(prev => prev + 1);
+        } catch (err) {
+            console.error("Wizard approve hatası:", err);
+        } finally {
+            setWizardSaving(false);
+        }
+    }, [wizardSuggestions, wizardIndex]);
+
+    // ── Wizard: Atla ──
+    const wizardSkip = useCallback(() => {
+        setWizardStats(prev => ({ ...prev, skipped: prev.skipped + 1 }));
+        setWizardManualMode(false);
+        setWizardSelectedAlt(null);
+        setWizardSearchQuery("");
+        setWizardSearchResults([]);
+        setWizardIndex(prev => prev + 1);
+    }, []);
+
+    // ── Wizard: Manuel Arama ──
+    const wizardSearch = useCallback((val) => {
+        setWizardSearchQuery(val);
+        if (wizardSearchTimer.current) clearTimeout(wizardSearchTimer.current);
+        if (!val || val.trim().length < 2) { setWizardSearchResults([]); return; }
+        wizardSearchTimer.current = setTimeout(async () => {
+            const current = wizardSuggestions[wizardIndex];
+            if (!current) return;
+            setWizardSearchLoading(true);
+            try {
+                const platformLabel = current.platform === "ciceksepeti" ? "ÇiçekSepeti"
+                    : current.platform === "n11" ? "N11"
+                    : current.platform === "hepsiburada" ? "Hepsiburada" : current.platform;
+                const res = await searchCategories(platformLabel, val.trim());
+                setWizardSearchResults(res?.data?.results || []);
+            } catch { setWizardSearchResults([]); }
+            finally { setWizardSearchLoading(false); }
+        }, 400);
+    }, [wizardSuggestions, wizardIndex]);
+
+    // ── Wizard: Kapat ──
+    const closeWizard = useCallback(() => {
+        setWizardOpen(false);
+        setWizardSuggestions([]);
+        setWizardIndex(0);
+        setWizardManualMode(false);
+        setWizardSelectedAlt(null);
+        setWizardSearchQuery("");
+        setWizardSearchResults([]);
+        // Tabloyu ve stats'ı yenile
+        loadMappings(page, searchQuery);
+        getMappingStats().then(r => setStats(r?.data || null)).catch(() => {});
+    }, [page, searchQuery, loadMappings]);
 
     // Hücre render
     const renderCell = (mapping, platform) => {
@@ -824,6 +945,68 @@ const CategoryCenterPage = ({ userId }) => {
                         )}
                         {t("categoryCenter.exportExcel")}
                     </motion.button>
+
+                    {/* 🤖 Otomatik Eşleştirme Butonu */}
+                    <div style={{ position: "relative", flexShrink: 0 }}>
+                        <motion.button
+                            whileHover={{ scale: 1.04 }}
+                            whileTap={{ scale: 0.96 }}
+                            onClick={() => setShowAutoMatchMenu(!showAutoMatchMenu)}
+                            disabled={wizardOpen}
+                            style={{
+                                background: "linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)",
+                                border: "none", borderRadius: 8,
+                                padding: "0.4rem 0.75rem", cursor: wizardOpen ? "not-allowed" : "pointer",
+                                color: "#fff", fontSize: "0.75rem", fontWeight: 700,
+                                display: "flex", alignItems: "center", gap: "0.3rem",
+                                whiteSpace: "nowrap",
+                                opacity: wizardOpen ? 0.6 : 1,
+                                boxShadow: "0 2px 8px rgba(99,102,241,0.3)",
+                            }}
+                        >
+                            <FaMagic />
+                            Otomatik Eşleştir
+                        </motion.button>
+
+                        {/* Dropdown Menü */}
+                        {showAutoMatchMenu && !wizardOpen && (
+                            <div style={{
+                                position: "absolute", top: "calc(100% + 4px)", right: 0,
+                                background: isDark ? C.card : "#fff",
+                                border: `1px solid ${C.border}`,
+                                borderRadius: 10, padding: "0.4rem",
+                                boxShadow: "0 8px 30px rgba(0,0,0,0.2)",
+                                zIndex: 100, minWidth: 240,
+                            }}>
+                                <div style={{ padding: "0.3rem 0.5rem", color: C.dim, fontSize: "0.62rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                                    Tek Tek Onayla (Sihirbaz)
+                                </div>
+                                <button onClick={() => startWizard([])} style={{
+                                    width: "100%", textAlign: "left", background: "transparent", border: "none",
+                                    padding: "0.4rem 0.5rem", borderRadius: 6, cursor: "pointer",
+                                    color: C.text, fontSize: "0.76rem", fontWeight: 500,
+                                    display: "flex", alignItems: "center", gap: "0.35rem",
+                                }}>
+                                    <FaMagic style={{ color: "#6366f1", fontSize: "0.7rem" }} />
+                                    Tüm Platformlar
+                                </button>
+                                {["n11", "ciceksepeti", "hepsiburada"].map(pk => {
+                                    const pf = PLATFORMS.find(p => p.key === pk);
+                                    return (
+                                        <button key={pk} onClick={() => startWizard([pk])} style={{
+                                            width: "100%", textAlign: "left", background: "transparent", border: "none",
+                                            padding: "0.4rem 0.5rem", borderRadius: 6, cursor: "pointer",
+                                            color: C.text, fontSize: "0.76rem", fontWeight: 500,
+                                            display: "flex", alignItems: "center", gap: "0.35rem",
+                                        }}>
+                                            <span style={{ fontSize: "0.8rem" }}>{pf?.icon}</span>
+                                            Sadece {pf?.label}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
                     </div>
                 </div>
 
@@ -1333,6 +1516,429 @@ const CategoryCenterPage = ({ userId }) => {
                         onClose={() => setPopup(null)}
                     />
                 )}
+            </AnimatePresence>
+
+            {/* ═══════════════════════════════════════════════════════
+                🤖 EŞLEŞTİRME SİHİRBAZI (WIZARD MODAL)
+               ═══════════════════════════════════════════════════════ */}
+            <AnimatePresence>
+                {wizardOpen && (() => {
+                    const current = wizardSuggestions[wizardIndex];
+                    const isFinished = !wizardLoading && wizardIndex >= wizardSuggestions.length;
+                    const platformInfo = current ? PLATFORMS.find(p => p.key === current.platform) : null;
+                    const progress = wizardSuggestions.length > 0 ? ((wizardIndex) / wizardSuggestions.length) * 100 : 0;
+
+                    return (
+                        <motion.div
+                            key="wizard-overlay"
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            style={{
+                                position: "fixed", inset: 0, zIndex: 10000,
+                                background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)",
+                                display: "flex", alignItems: "center", justifyContent: "center",
+                                padding: "1rem",
+                            }}
+                        >
+                            <motion.div
+                                initial={{ opacity: 0, scale: 0.92, y: 20 }}
+                                animate={{ opacity: 1, scale: 1, y: 0 }}
+                                exit={{ opacity: 0, scale: 0.92 }}
+                                style={{
+                                    background: isDark ? C.card : "#fff",
+                                    border: `1px solid ${C.border}`,
+                                    borderTop: "3px solid #6366f1",
+                                    borderRadius: 14, width: "100%", maxWidth: 680,
+                                    maxHeight: "90vh", display: "flex", flexDirection: "column",
+                                    boxShadow: "0 25px 80px rgba(0,0,0,0.35)",
+                                }}
+                            >
+                                {/* ── Wizard Header ── */}
+                                <div style={{
+                                    padding: "0.75rem 1rem", borderBottom: `1px solid ${C.border}`,
+                                    display: "flex", alignItems: "center", justifyContent: "space-between",
+                                }}>
+                                    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                                        <FaMagic style={{ color: "#6366f1", fontSize: "1rem" }} />
+                                        <span style={{ color: C.text, fontWeight: 800, fontSize: "0.95rem" }}>
+                                            Eşleştirme Sihirbazı
+                                        </span>
+                                        {wizardSuggestions.length > 0 && !isFinished && (
+                                            <span style={{
+                                                background: `${C.accent}15`, color: C.accent,
+                                                fontSize: "0.65rem", fontWeight: 700, padding: "0.15rem 0.4rem",
+                                                borderRadius: 6,
+                                            }}>
+                                                {wizardIndex + 1} / {wizardSuggestions.length}
+                                            </span>
+                                        )}
+                                    </div>
+                                    <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                                        {/* İstatistikler */}
+                                        <span style={{ fontSize: "0.6rem", color: "#22c55e", fontWeight: 700 }}>
+                                            ✓ {wizardStats.approved}
+                                        </span>
+                                        <span style={{ fontSize: "0.6rem", color: "#f59e0b", fontWeight: 700 }}>
+                                            ⏭ {wizardStats.skipped}
+                                        </span>
+                                        <span style={{ fontSize: "0.6rem", color: "#6366f1", fontWeight: 700 }}>
+                                            ✎ {wizardStats.manual}
+                                        </span>
+                                        <div style={{ width: 1, height: 16, background: C.border, margin: "0 0.2rem" }} />
+                                        <FaTimes
+                                            onClick={closeWizard}
+                                            style={{ color: C.dim, cursor: "pointer", fontSize: "0.9rem" }}
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* ── Progress Bar ── */}
+                                <div style={{ height: 3, background: `${C.border}`, flexShrink: 0 }}>
+                                    <div style={{
+                                        height: "100%", width: `${progress}%`,
+                                        background: "linear-gradient(90deg, #6366f1, #22c55e)",
+                                        transition: "width 0.3s ease",
+                                    }} />
+                                </div>
+
+                                {/* ── İçerik ── */}
+                                <div style={{ flex: 1, overflowY: "auto", padding: "1rem" }}>
+
+                                    {/* Loading */}
+                                    {wizardLoading && (
+                                        <div style={{ padding: "3rem", textAlign: "center", color: C.dim }}>
+                                            <FaSpinner style={{ fontSize: "2rem", animation: "cc-spin 1s linear infinite", color: "#6366f1", marginBottom: "0.5rem" }} />
+                                            <p style={{ fontSize: "0.85rem", fontWeight: 600, margin: "0.5rem 0 0" }}>
+                                                Eşleştirme önerileri hazırlanıyor...
+                                            </p>
+                                            <p style={{ fontSize: "0.7rem", margin: "0.2rem 0 0", color: C.dim }}>
+                                                Canlı API'lerden kategoriler çekiliyor
+                                            </p>
+                                        </div>
+                                    )}
+
+                                    {/* Hiç öneri yok */}
+                                    {!wizardLoading && wizardSuggestions.length === 0 && (
+                                        <div style={{ padding: "3rem", textAlign: "center", color: C.dim }}>
+                                            <FaCheck style={{ fontSize: "2.5rem", color: "#22c55e", marginBottom: "0.5rem" }} />
+                                            <p style={{ fontSize: "0.95rem", fontWeight: 700, color: C.text, margin: "0.5rem 0 0" }}>
+                                                Tüm kategoriler zaten eşleştirilmiş!
+                                            </p>
+                                            <p style={{ fontSize: "0.72rem", margin: "0.3rem 0 0" }}>
+                                                Boş eşleştirme bulunamadı.
+                                            </p>
+                                        </div>
+                                    )}
+
+                                    {/* Tamamlandı */}
+                                    {isFinished && wizardSuggestions.length > 0 && (
+                                        <div style={{ padding: "2rem", textAlign: "center" }}>
+                                            <div style={{ fontSize: "3rem", marginBottom: "0.5rem" }}>🎉</div>
+                                            <p style={{ fontSize: "1.1rem", fontWeight: 800, color: C.text, margin: "0 0 0.5rem" }}>
+                                                Eşleştirme Tamamlandı!
+                                            </p>
+                                            <div style={{
+                                                display: "flex", justifyContent: "center", gap: "1.5rem",
+                                                margin: "1rem 0",
+                                            }}>
+                                                <div style={{ textAlign: "center" }}>
+                                                    <div style={{ fontSize: "1.5rem", fontWeight: 800, color: "#22c55e" }}>{wizardStats.approved}</div>
+                                                    <div style={{ fontSize: "0.68rem", color: C.dim, fontWeight: 600 }}>Onaylanan</div>
+                                                </div>
+                                                <div style={{ textAlign: "center" }}>
+                                                    <div style={{ fontSize: "1.5rem", fontWeight: 800, color: "#f59e0b" }}>{wizardStats.skipped}</div>
+                                                    <div style={{ fontSize: "0.68rem", color: C.dim, fontWeight: 600 }}>Atlanan</div>
+                                                </div>
+                                                <div style={{ textAlign: "center" }}>
+                                                    <div style={{ fontSize: "1.5rem", fontWeight: 800, color: "#6366f1" }}>{wizardStats.manual}</div>
+                                                    <div style={{ fontSize: "0.68rem", color: C.dim, fontWeight: 600 }}>Manuel</div>
+                                                </div>
+                                            </div>
+                                            <button onClick={closeWizard} style={{
+                                                background: "linear-gradient(135deg, #6366f1, #8b5cf6)",
+                                                border: "none", borderRadius: 10, padding: "0.6rem 2rem",
+                                                color: "#fff", fontSize: "0.85rem", fontWeight: 700, cursor: "pointer",
+                                                boxShadow: "0 4px 15px rgba(99,102,241,0.3)",
+                                            }}>
+                                                Kapat
+                                            </button>
+                                        </div>
+                                    )}
+
+                                    {/* ── Aktif Öneri Kartı ── */}
+                                    {!wizardLoading && current && !isFinished && (
+                                        <div>
+                                            {/* Master Kategori */}
+                                            <div style={{
+                                                background: isDark ? "rgba(243,132,26,0.08)" : "rgba(243,132,26,0.05)",
+                                                border: "1px solid rgba(243,132,26,0.2)",
+                                                borderRadius: 10, padding: "0.7rem 0.85rem", marginBottom: "0.75rem",
+                                            }}>
+                                                <div style={{ display: "flex", alignItems: "center", gap: "0.3rem", marginBottom: "0.3rem" }}>
+                                                    <span style={{ fontSize: "0.85rem" }}>🟠</span>
+                                                    <span style={{ color: "#F27A1A", fontSize: "0.65rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                                                        Trendyol (Master)
+                                                    </span>
+                                                    <span style={{ color: C.dim, fontSize: "0.58rem", fontFamily: "monospace", marginLeft: "auto" }}>
+                                                        ID: {current.masterId}
+                                                    </span>
+                                                </div>
+                                                <div style={{ color: C.text, fontSize: "0.88rem", fontWeight: 700 }}>
+                                                    {current.masterPath}
+                                                </div>
+                                            </div>
+
+                                            {/* Hedef Platform */}
+                                            <div style={{
+                                                display: "flex", alignItems: "center", gap: "0.3rem",
+                                                marginBottom: "0.5rem",
+                                            }}>
+                                                <span style={{ color: C.dim, fontSize: "0.7rem" }}>→</span>
+                                                <span style={{ fontSize: "0.85rem" }}>{platformInfo?.icon}</span>
+                                                <span style={{ color: platformInfo?.color, fontSize: "0.75rem", fontWeight: 700 }}>
+                                                    {platformInfo?.label}
+                                                </span>
+                                                <span style={{ color: C.dim, fontSize: "0.65rem" }}>eşleştirmesi:</span>
+                                            </div>
+
+                                            {/* Manuel mod değilse: Öneri + Alternatifler */}
+                                            {!wizardManualMode ? (
+                                                <div>
+                                                    {/* Ana Öneri */}
+                                                    <div
+                                                        onClick={() => setWizardSelectedAlt(null)}
+                                                        style={{
+                                                            background: wizardSelectedAlt === null
+                                                                ? `${platformInfo?.color}12`
+                                                                : isDark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)",
+                                                            border: `2px solid ${wizardSelectedAlt === null ? platformInfo?.color : C.border}`,
+                                                            borderRadius: 10, padding: "0.65rem 0.8rem", marginBottom: "0.4rem",
+                                                            cursor: "pointer", transition: "all 0.15s",
+                                                        }}
+                                                    >
+                                                        <div style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
+                                                            {wizardSelectedAlt === null && <FaCheck style={{ color: platformInfo?.color, fontSize: "0.65rem", flexShrink: 0 }} />}
+                                                            <span style={{
+                                                                background: `${platformInfo?.color}18`, color: platformInfo?.color,
+                                                                fontSize: "0.55rem", fontWeight: 700, padding: "0.1rem 0.35rem",
+                                                                borderRadius: 4, flexShrink: 0,
+                                                            }}>
+                                                                ÖNERİ — Skor: {current.suggestion.score}
+                                                            </span>
+                                                            <span style={{ color: C.dim, fontSize: "0.55rem", fontFamily: "monospace", marginLeft: "auto" }}>
+                                                                ID: {current.suggestion.id}
+                                                            </span>
+                                                        </div>
+                                                        <div style={{ color: C.text, fontSize: "0.82rem", fontWeight: 600, marginTop: "0.25rem" }}>
+                                                            {current.suggestion.path}
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Alternatifler */}
+                                                    {current.alternatives && current.alternatives.length > 0 && (
+                                                        <>
+                                                            <div style={{ color: C.dim, fontSize: "0.6rem", fontWeight: 600, margin: "0.5rem 0 0.3rem", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                                                                Alternatifler
+                                                            </div>
+                                                            {current.alternatives.map((alt, ai) => (
+                                                                <div
+                                                                    key={ai}
+                                                                    onClick={() => setWizardSelectedAlt(alt)}
+                                                                    style={{
+                                                                        background: wizardSelectedAlt?.id === alt.id
+                                                                            ? `${platformInfo?.color}12`
+                                                                            : "transparent",
+                                                                        border: `1px solid ${wizardSelectedAlt?.id === alt.id ? platformInfo?.color : C.border}`,
+                                                                        borderRadius: 8, padding: "0.45rem 0.7rem", marginBottom: "0.25rem",
+                                                                        cursor: "pointer", transition: "all 0.12s",
+                                                                    }}
+                                                                >
+                                                                    <div style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
+                                                                        {wizardSelectedAlt?.id === alt.id && <FaCheck style={{ color: platformInfo?.color, fontSize: "0.55rem", flexShrink: 0 }} />}
+                                                                        <span style={{ color: C.dim, fontSize: "0.52rem", fontWeight: 600 }}>
+                                                                            Skor: {alt.score}
+                                                                        </span>
+                                                                        <span style={{ color: C.dim, fontSize: "0.52rem", fontFamily: "monospace", marginLeft: "auto" }}>
+                                                                            ID: {alt.id}
+                                                                        </span>
+                                                                    </div>
+                                                                    <div style={{ color: C.text, fontSize: "0.75rem", fontWeight: 500, marginTop: "0.15rem" }}>
+                                                                        {alt.path}
+                                                                    </div>
+                                                                </div>
+                                                            ))}
+                                                        </>
+                                                    )}
+                                                </div>
+                                            ) : (
+                                                /* ── Manuel Arama Modu ── */
+                                                <div>
+                                                    <div style={{
+                                                        display: "flex", alignItems: "center", gap: "0.4rem",
+                                                        background: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.03)",
+                                                        border: `1px solid ${C.border}`, borderRadius: 8,
+                                                        padding: "0.4rem 0.6rem", marginBottom: "0.5rem",
+                                                    }}>
+                                                        {wizardSearchLoading ? (
+                                                            <FaSpinner style={{ color: platformInfo?.color, fontSize: "0.75rem", animation: "cc-spin 1s linear infinite", flexShrink: 0 }} />
+                                                        ) : (
+                                                            <FaSearch style={{ color: C.dim, fontSize: "0.75rem", flexShrink: 0 }} />
+                                                        )}
+                                                        <input
+                                                            autoFocus
+                                                            type="text" value={wizardSearchQuery}
+                                                            onChange={(e) => wizardSearch(e.target.value)}
+                                                            placeholder={`${platformInfo?.label} kategorisi ara...`}
+                                                            style={{
+                                                                flex: 1, background: "transparent", border: "none", outline: "none",
+                                                                color: C.text, fontSize: "0.82rem", fontFamily: "inherit",
+                                                            }}
+                                                        />
+                                                        {wizardSearchQuery && (
+                                                            <FaTimes
+                                                                style={{ color: C.dim, fontSize: "0.65rem", cursor: "pointer", flexShrink: 0 }}
+                                                                onClick={() => { setWizardSearchQuery(""); setWizardSearchResults([]); }}
+                                                            />
+                                                        )}
+                                                    </div>
+
+                                                    {/* Arama Sonuçları */}
+                                                    <div style={{ maxHeight: 250, overflowY: "auto" }}>
+                                                        {wizardSearchResults.map((item, idx) => {
+                                                            const isPicked = wizardSelectedAlt?.id === String(item.id);
+                                                            const isSelectable = item.leaf === true || item.leaf === undefined || item.leaf === null;
+                                                            return (
+                                                                <div
+                                                                    key={`${item.id}-${idx}`}
+                                                                    onClick={() => {
+                                                                        if (isSelectable) setWizardSelectedAlt({ id: String(item.id), path: item.path || item.name, name: item.name });
+                                                                    }}
+                                                                    style={{
+                                                                        padding: "0.4rem 0.6rem", borderRadius: 6,
+                                                                        cursor: isSelectable ? "pointer" : "not-allowed",
+                                                                        opacity: isSelectable ? 1 : 0.5,
+                                                                        background: isPicked ? `${platformInfo?.color}12` : "transparent",
+                                                                        borderLeft: isPicked ? `3px solid ${platformInfo?.color}` : "3px solid transparent",
+                                                                        marginBottom: "0.15rem", transition: "all 0.1s",
+                                                                    }}
+                                                                >
+                                                                    <div style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}>
+                                                                        {isPicked && <FaCheck style={{ color: platformInfo?.color, fontSize: "0.55rem", flexShrink: 0 }} />}
+                                                                        <span style={{ color: C.text, fontSize: "0.76rem", fontWeight: isPicked ? 700 : 500, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                                                            {item.name}
+                                                                        </span>
+                                                                        {item.leaf && (
+                                                                            <span style={{ background: `${C.green}18`, color: C.green, fontSize: "0.48rem", fontWeight: 700, padding: "0.08rem 0.2rem", borderRadius: 3, flexShrink: 0 }}>
+                                                                                LEAF
+                                                                            </span>
+                                                                        )}
+                                                                        <span style={{ color: C.dim, fontSize: "0.52rem", fontFamily: "monospace", flexShrink: 0 }}>
+                                                                            {item.id}
+                                                                        </span>
+                                                                    </div>
+                                                                    {item.path && (
+                                                                        <div style={{ color: C.dim, fontSize: "0.6rem", marginTop: "0.1rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                                                            {item.path}
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            );
+                                                        })}
+                                                        {wizardSearchQuery.length >= 2 && wizardSearchResults.length === 0 && !wizardSearchLoading && (
+                                                            <div style={{ padding: "1.5rem", textAlign: "center", color: C.dim, fontSize: "0.75rem" }}>
+                                                                🔍 "{wizardSearchQuery}" için sonuç bulunamadı
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* ── Wizard Footer ── */}
+                                {!wizardLoading && !isFinished && current && (
+                                    <div style={{
+                                        padding: "0.65rem 1rem", borderTop: `1px solid ${C.border}`,
+                                        display: "flex", alignItems: "center", gap: "0.4rem",
+                                        flexWrap: "wrap",
+                                    }}>
+                                        {/* Sol: Manuel / Öneriler toggle */}
+                                        <button
+                                            onClick={() => {
+                                                setWizardManualMode(!wizardManualMode);
+                                                setWizardSelectedAlt(null);
+                                                setWizardSearchQuery("");
+                                                setWizardSearchResults([]);
+                                            }}
+                                            style={{
+                                                background: wizardManualMode ? `${C.accent}12` : "transparent",
+                                                border: `1px solid ${wizardManualMode ? C.accent : C.border}`,
+                                                borderRadius: 8, padding: "0.4rem 0.7rem", cursor: "pointer",
+                                                color: wizardManualMode ? C.accent : C.text, fontSize: "0.72rem", fontWeight: 600,
+                                                display: "flex", alignItems: "center", gap: "0.25rem",
+                                                fontFamily: "inherit",
+                                            }}
+                                        >
+                                            {wizardManualMode ? (
+                                                <><FaChevronLeft style={{ fontSize: "0.55rem" }} /> Önerilere Dön</>
+                                            ) : (
+                                                <><FaSearch style={{ fontSize: "0.55rem" }} /> Manuel Ara</>
+                                            )}
+                                        </button>
+
+                                        <div style={{ flex: 1 }} />
+
+                                        {/* Atla */}
+                                        <button
+                                            onClick={wizardSkip}
+                                            style={{
+                                                background: "transparent", border: `1px solid ${C.border}`,
+                                                borderRadius: 8, padding: "0.4rem 0.8rem", cursor: "pointer",
+                                                color: "#f59e0b", fontSize: "0.75rem", fontWeight: 600,
+                                                display: "flex", alignItems: "center", gap: "0.25rem",
+                                                fontFamily: "inherit",
+                                            }}
+                                        >
+                                            Atla ⏭
+                                        </button>
+
+                                        {/* Onayla */}
+                                        <button
+                                            onClick={() => {
+                                                const chosen = wizardSelectedAlt || current.suggestion;
+                                                if (chosen) {
+                                                    if (wizardManualMode) {
+                                                        setWizardStats(prev => ({ ...prev, manual: prev.manual + 1 }));
+                                                    }
+                                                    wizardApprove(chosen.id, chosen.path || chosen.name);
+                                                }
+                                            }}
+                                            disabled={wizardSaving || (wizardManualMode && !wizardSelectedAlt)}
+                                            style={{
+                                                background: (wizardManualMode && !wizardSelectedAlt)
+                                                    ? `${C.muted}30`
+                                                    : "linear-gradient(135deg, #22c55e, #16a34a)",
+                                                border: "none", borderRadius: 8,
+                                                padding: "0.4rem 1.2rem", cursor: (wizardSaving || (wizardManualMode && !wizardSelectedAlt)) ? "not-allowed" : "pointer",
+                                                color: (wizardManualMode && !wizardSelectedAlt) ? C.dim : "#fff",
+                                                fontSize: "0.78rem", fontWeight: 700,
+                                                display: "flex", alignItems: "center", gap: "0.3rem",
+                                                opacity: wizardSaving ? 0.6 : 1,
+                                                boxShadow: (wizardManualMode && !wizardSelectedAlt) ? "none" : "0 3px 12px rgba(34,197,94,0.3)",
+                                                fontFamily: "inherit",
+                                            }}
+                                        >
+                                            {wizardSaving ? <FaSpinner style={{ animation: "cc-spin 1s linear infinite" }} /> : <FaCheck />}
+                                            Onayla ✓
+                                        </button>
+                                    </div>
+                                )}
+                            </motion.div>
+                        </motion.div>
+                    );
+                })()}
             </AnimatePresence>
 
             <style>{`@keyframes cc-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>

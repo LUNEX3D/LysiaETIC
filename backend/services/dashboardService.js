@@ -259,10 +259,10 @@ const fetchHepsiburadaOrders = async (credentials, start, end) => {
         "Open", 100
     );
 
-    // 2) Paketlenmiş — timespan=720 (30 gün), limit max 50 (offset ile)
+    // 2) Paketlenmiş — timespan=720 (30 gün), HB Docs: packages limit max 10
     await fetchFromEndpoint(
         `${ep.OMS}/packages/merchantid/${merchantId}?timespan=720`,
-        "Packaged", 50
+        "Packaged", 10
     );
 
     // 3) Kargoya verilmiş — son 30 gün, limit max 50
