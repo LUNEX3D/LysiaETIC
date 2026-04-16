@@ -12,7 +12,19 @@
 const { Resend } = require("resend");
 const logger = require("../config/logger");
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+// ✅ FIX: Resend'i lazy init ile oluştur — modül yüklenirken env henüz hazır olmayabilir
+let _resend = null;
+const getResend = () => {
+    if (!_resend) {
+        const apiKey = process.env.RESEND_API_KEY;
+        if (!apiKey) {
+            logger.error("RESEND_API_KEY tanımlı değil! E-posta gönderilemeyecek.");
+            return null;
+        }
+        _resend = new Resend(apiKey);
+    }
+    return _resend;
+};
 
 const FROM_EMAIL = process.env.FROM_EMAIL || "LysiaETİC <onboarding@resend.dev>";
 const APP_URL = process.env.APP_URL || "http://localhost:3000";
@@ -126,6 +138,9 @@ Eğer bu hesabı siz oluşturmadıysanız, bu e-postayı görmezden gelebilirsin
 © ${new Date().getFullYear()} LysiaETİC`;
 
     try {
+        const resend = getResend();
+        if (!resend) return { success: false, error: "RESEND_API_KEY tanımlı değil" };
+
         const { data, error } = await resend.emails.send({
             from: FROM_EMAIL,
             to: [user.email],
@@ -234,6 +249,9 @@ Eğer bu giriş denemesini siz yapmadıysanız, şifrenizi hemen değiştirin.
 © ${new Date().getFullYear()} LysiaETİC`;
 
     try {
+        const resend = getResend();
+        if (!resend) return { success: false, error: "RESEND_API_KEY tanımlı değil" };
+
         const { data, error } = await resend.emails.send({
             from: FROM_EMAIL,
             to: [user.email],
@@ -341,6 +359,9 @@ Eğer bu işlemi siz yapmadıysanız, bu e-postayı görmezden gelebilirsiniz.
 © ${new Date().getFullYear()} LysiaETİC`;
 
     try {
+        const resend = getResend();
+        if (!resend) return { success: false, error: "RESEND_API_KEY tanımlı değil" };
+
         const { data, error } = await resend.emails.send({
             from: FROM_EMAIL,
             to: [user.email],

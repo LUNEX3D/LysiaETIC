@@ -16,6 +16,7 @@ const getRefreshSecret = () => {
 };
 
 // ✅ SEC #2: Access + Refresh token çifti oluştur ve refresh token'ı DB'ye kaydet
+// ✅ FIX: Atomik güncelleme ile Mongoose version conflict önlendi
 const generateTokenPair = async (user, device = "unknown") => {
     const accessToken = jwt.sign(
         { id: user._id, role: user.role },
@@ -29,23 +30,40 @@ const generateTokenPair = async (user, device = "unknown") => {
         { expiresIn: "7d" }
     );
 
-    // Süresi dolmuş token'ları temizle
-    user.cleanExpiredTokens();
+    const now = new Date();
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 gün
 
-    // Maksimum 5 aktif oturum — en eski oturumu sil
-    if ((user.refreshTokens || []).length >= 5) {
-        user.refreshTokens.shift();
-    }
-
-    // Yeni refresh token'ı DB'ye kaydet
-    user.refreshTokens.push({
+    const newTokenEntry = {
         token: refreshToken,
         device,
-        createdAt: new Date(),
-        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 gün
-    });
+        createdAt: now,
+        expiresAt
+    };
 
-    await user.save();
+    // Atomik güncelleme: süresi dolmuş token'ları sil + yeni token ekle
+    // Bu sayede concurrent save() çakışması (version conflict) olmaz
+    await User.updateOne(
+        { _id: user._id },
+        [
+            {
+                $set: {
+                    refreshTokens: {
+                        $concatArrays: [
+                            // Süresi dolmamış token'ları tut, max 4 tane (yenisi eklenince 5 olacak)
+                            { $slice: [
+                                { $filter: {
+                                    input: { $ifNull: ["$refreshTokens", []] },
+                                    cond: { $gt: ["$$this.expiresAt", now] }
+                                }},
+                                -4
+                            ]},
+                            [newTokenEntry]
+                        ]
+                    }
+                }
+            }
+        ]
+    );
 
     return { accessToken, refreshToken };
 };
@@ -245,16 +263,16 @@ exports.login = async (req, res) => {
             return forbidden(res, "E-posta adresiniz henüz doğrulanmamış. Lütfen gelen kutunuzu kontrol edin.");
         }
 
-        // Abonelik durumu kontrolü — süresi dolmuşsa güncelle
+        // Abonelik durumu kontrolü — süresi dolmuşsa atomik güncelle (version conflict önlenir)
         if (user.subscription) {
             const now = new Date();
             const sub = user.subscription;
-            if (sub.status === "trial" && sub.trialEndDate && new Date(sub.trialEndDate) < now) {
+            if (
+                (sub.status === "trial" && sub.trialEndDate && new Date(sub.trialEndDate) < now) ||
+                (sub.status === "active" && sub.endDate && new Date(sub.endDate) < now)
+            ) {
+                await User.updateOne({ _id: user._id }, { $set: { "subscription.status": "expired" } });
                 user.subscription.status = "expired";
-                await user.save();
-            } else if (sub.status === "active" && sub.endDate && new Date(sub.endDate) < now) {
-                user.subscription.status = "expired";
-                await user.save();
             }
         }
 
@@ -533,17 +551,13 @@ exports.refreshToken = async (req, res) => {
         const tokenExists = (user.refreshTokens || []).some(rt => rt.token === refreshToken);
         if (!tokenExists) {
             // Token DB'de yok — muhtemelen çalınmış ve revoke edilmiş
-            // Güvenlik: Tüm oturumları kapat
+            // Güvenlik: Tüm oturumları kapat (atomik)
             logger.warn(`Revoke edilmiş refresh token kullanım girişimi: ${user.email}`);
-            user.revokeAllRefreshTokens();
-            await user.save();
+            await User.updateOne({ _id: user._id }, { $set: { refreshTokens: [] } });
             return unauthorized(res, "Geçersiz refresh token! Tüm oturumlar kapatıldı.");
         }
 
-        // 5. Eski refresh token'ı sil (token rotation)
-        user.revokeRefreshToken(refreshToken);
-
-        // 6. Yeni access + refresh token çifti oluştur
+        // 5-6. Eski token'ı sil + yeni token çifti oluştur (atomik — version conflict önlenir)
         const device = req.headers["user-agent"] || "unknown";
         const newAccessToken = jwt.sign(
             { id: user._id, role: user.role },
@@ -556,17 +570,25 @@ exports.refreshToken = async (req, res) => {
             { expiresIn: "7d" }
         );
 
-        // Süresi dolmuş token'ları temizle
-        user.cleanExpiredTokens();
-
-        // Yeni refresh token'ı DB'ye kaydet
-        user.refreshTokens.push({
+        const now = new Date();
+        const newTokenEntry = {
             token: newRefreshToken,
             device,
-            createdAt: new Date(),
+            createdAt: now,
             expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
-        });
-        await user.save();
+        };
+
+        // Atomik: eski token'ı sil + süresi dolmuşları temizle + yeni token ekle
+        await User.updateOne(
+            { _id: user._id },
+            {
+                $pull: { refreshTokens: { $or: [{ token: refreshToken }, { expiresAt: { $lte: now } }] } }
+            }
+        );
+        await User.updateOne(
+            { _id: user._id },
+            { $push: { refreshTokens: newTokenEntry } }
+        );
 
         logger.info(`Token yenilendi (rotation): ${user.email}`);
         return res.status(200).json({ success: true, message: "Token yenilendi.", token: newAccessToken, refreshToken: newRefreshToken });
@@ -584,11 +606,8 @@ exports.logout = async (req, res) => {
         const user = req.user;
 
         if (user && refreshToken) {
-            const userDoc = await User.findById(user._id);
-            if (userDoc) {
-                userDoc.revokeRefreshToken(refreshToken);
-                await userDoc.save();
-            }
+            // Atomik: sadece ilgili token'ı sil (version conflict önlenir)
+            await User.updateOne({ _id: user._id }, { $pull: { refreshTokens: { token: refreshToken } } });
         }
 
         logger.info(`Kullanıcı çıkış yaptı: ${user?.email || "unknown"}`);
