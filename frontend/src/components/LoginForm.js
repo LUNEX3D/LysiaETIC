@@ -15,30 +15,30 @@ import {
 import "../styles/login.css";
 import { useApp } from "../context/AppContext";
 
-// ✅ FIX E6: Shared auth components
+//  FIX E6: Shared auth components
 import AuthNavbar from "./auth/AuthNavbar";
 import DashboardMockup from "./auth/DashboardMockup";
 import { PlantDecoration, GoogleIcon, AuthFooter } from "./auth/AuthShared";
 
 const GOOGLE_CLIENT_ID = process.env.REACT_APP_GOOGLE_CLIENT_ID || "";
 
-/* ═══════════════════════════════════════════════════════════════════════════
-   ✅ FIX E6: AuthNavbar, DashboardMockup, PlantDecoration, GoogleIcon
-   artık ./auth/ klasöründen import ediliyor (duplicate kod kaldırıldı)
-   ═══════════════════════════════════════════════════════════════════════════ */
+/* 
+    FIX E6: AuthNavbar, DashboardMockup, PlantDecoration, GoogleIcon
+   artk ./auth/ klasrnden import ediliyor (duplicate kod kaldrld)
+    */
 
-/* ═══════════════════════════════════════════════════════════════════════════
+/* 
    LOGIN FORM INNER
-   ═══════════════════════════════════════════════════════════════════════════ */
+    */
 const LoginFormInner = () => {
     const { t } = useApp();
     const [formData, setFormData] = useState({ email: "", password: "" });
 
-    // Dinamik fiyatlar — API'den çekilir, fallback hardcoded
+    // Dinamik fiyatlar  API'den ekilir, fallback hardcoded
     const [prices, setPrices] = useState({
-        basic: { monthly: "₺299", yearly: "₺249", yearlyTotal: "₺2.990" },
-        pro: { monthly: "₺599", yearly: "₺499", yearlyTotal: "₺5.990", oldMonthly: "₺799" },
-        enterprise: { monthly: "₺1.499", yearly: "₺1.199", yearlyTotal: "₺14.390" },
+        basic: { monthly: "299", yearly: "249", yearlyTotal: "2.990" },
+        pro: { monthly: "599", yearly: "499", yearlyTotal: "5.990", oldMonthly: "799" },
+        enterprise: { monthly: "1.499", yearly: "1.199", yearlyTotal: "14.390" },
     });
 
     useEffect(() => {
@@ -51,9 +51,9 @@ const LoginFormInner = () => {
                         const mp = plan.monthlyPrice || plan.price || 0;
                         const yp = plan.yearlyPrice || Math.round(mp * 10);
                         const monthlyFromYearly = Math.round(yp / 12);
-                        const fmtMp = mp >= 1000 ? `₺${mp.toLocaleString("tr-TR")}` : `₺${mp}`;
-                        const fmtYm = monthlyFromYearly >= 1000 ? `₺${monthlyFromYearly.toLocaleString("tr-TR")}` : `₺${monthlyFromYearly}`;
-                        const fmtYt = yp >= 1000 ? `₺${yp.toLocaleString("tr-TR")}` : `₺${yp}`;
+                        const fmtMp = mp >= 1000 ? `${mp.toLocaleString("tr-TR")}` : `${mp}`;
+                        const fmtYm = monthlyFromYearly >= 1000 ? `${monthlyFromYearly.toLocaleString("tr-TR")}` : `${monthlyFromYearly}`;
+                        const fmtYt = yp >= 1000 ? `${yp.toLocaleString("tr-TR")}` : `${yp}`;
                         p[plan.id] = { monthly: fmtMp, yearly: fmtYm, yearlyTotal: fmtYt };
                     });
                     setPrices(prev => ({
@@ -63,7 +63,7 @@ const LoginFormInner = () => {
                     }));
                 }
             } catch (err) {
-                console.warn("LoginForm: Plan fiyatları yüklenemedi, fallback kullanılıyor");
+                console.warn("LoginForm: Plan fiyatlar yklenemedi, fallback kullanlyor");
             }
         };
         fetchPrices();
@@ -77,7 +77,7 @@ const LoginFormInner = () => {
     const [needsVerification, setNeedsVerification] = useState(false);
     const [resendLoading, setResendLoading] = useState(false);
 
-    // Şifremi unuttum
+    // ifremi unuttum
     const [forgotMode, setForgotMode] = useState(false);
     const [forgotEmail, setForgotEmail] = useState("");
     const [resetCode, setResetCode] = useState("");
@@ -92,7 +92,7 @@ const LoginFormInner = () => {
         setMessage({ text: "", type: "" });
     };
 
-    // ─── Normal Login ───
+    //  Normal Login 
     const handleSubmit = async (e) => {
         e.preventDefault();
         setIsLoading(true);
@@ -101,9 +101,9 @@ const LoginFormInner = () => {
         try {
             const response = await axios.post("/auth/login", formData);
 
-            // ✅ FIX: Yeni token'ı ÖNCE kaydet — axios interceptor localStorage'dan okuyor
-            // ESKİ: Eski/bozuk token localStorage'da kalıyordu → interceptor eski token'ı
-            //   profile isteğine ekliyordu → "invalid signature" hatası
+            //  FIX: Yeni token' NCE kaydet  axios interceptor localStorage'dan okuyor
+            // ESK: Eski/bozuk token localStorage'da kalyordu  interceptor eski token'
+            //   profile isteine ekliyordu  "invalid signature" hatas
             localStorage.setItem("token", response.data.token);
             sessionStorage.setItem("token", response.data.token);
 
@@ -114,8 +114,8 @@ const LoginFormInner = () => {
                 return;
             }
 
-            // ✅ FIX H7: rememberMe — localStorage vs sessionStorage doğru kullanımı
-            // 🛡️ FIX #12: refreshToken'ı da kaydet
+            //  FIX H7: rememberMe  localStorage vs sessionStorage doru kullanm
+            //  FIX #12: refreshToken' da kaydet
             if (rememberMe) {
                 localStorage.setItem("token", response.data.token);
                 if (response.data.refreshToken) localStorage.setItem("refreshToken", response.data.refreshToken);
@@ -149,14 +149,14 @@ const LoginFormInner = () => {
                 setNeedsVerification(true);
                 setMessage({ text: data.message, type: "warning" });
             } else {
-                setMessage({ text: data?.message || "Bir hata oluştu.", type: "error" });
+                setMessage({ text: data?.message || "Bir hata olutu.", type: "error" });
             }
         } finally {
             setIsLoading(false);
         }
     };
 
-    // ─── Google Login ───
+    //  Google Login 
     const handleGoogleSuccess = async (tokenResponse) => {
         setIsLoading(true);
         setMessage({ text: "", type: "" });
@@ -167,7 +167,7 @@ const LoginFormInner = () => {
             });
 
             localStorage.setItem("token", response.data.token);
-            // 🛡️ FIX #12: refreshToken'ı da kaydet
+            //  FIX #12: refreshToken' da kaydet
             if (response.data.refreshToken) localStorage.setItem("refreshToken", response.data.refreshToken);
 
             const user = response.data.user;
@@ -187,7 +187,7 @@ const LoginFormInner = () => {
             }, 1500);
         } catch (error) {
             setMessage({
-                text: error.response?.data?.message || "Google ile giriş yapılamadı.",
+                text: error.response?.data?.message || "Google ile giri yaplamad.",
                 type: "error"
             });
         } finally {
@@ -197,11 +197,11 @@ const LoginFormInner = () => {
 
     const googleLogin = useGoogleLogin({
         onSuccess: handleGoogleSuccess,
-        onError: () => setMessage({ text: "Google ile giriş başarısız.", type: "error" }),
+        onError: () => setMessage({ text: "Google ile giri baarsz.", type: "error" }),
         flow: "implicit",
     });
 
-    // ─── Forgot Password — Step 1 ───
+    //  Forgot Password  Step 1 
     const handleForgotSubmit = async (e) => {
         e.preventDefault();
         setIsLoading(true);
@@ -213,7 +213,7 @@ const LoginFormInner = () => {
             setForgotMode("code");
         } catch (error) {
             setMessage({
-                text: error.response?.data?.message || "Bir hata oluştu.",
+                text: error.response?.data?.message || "Bir hata olutu.",
                 type: "error"
             });
         } finally {
@@ -221,7 +221,7 @@ const LoginFormInner = () => {
         }
     };
 
-    // ─── Forgot Password — Step 2 ───
+    //  Forgot Password  Step 2 
     const handleCodeSubmit = async (e) => {
         e.preventDefault();
         setIsLoading(true);
@@ -233,7 +233,7 @@ const LoginFormInner = () => {
             setForgotMode("reset");
         } catch (error) {
             setMessage({
-                text: error.response?.data?.message || "Geçersiz veya süresi dolmuş kod.",
+                text: error.response?.data?.message || "Geersiz veya sresi dolmu kod.",
                 type: "error"
             });
         } finally {
@@ -241,7 +241,7 @@ const LoginFormInner = () => {
         }
     };
 
-    // ─── Forgot Password — Step 3 ───
+    //  Forgot Password  Step 3 
     const handleResetSubmit = async (e) => {
         e.preventDefault();
         setIsLoading(true);
@@ -276,7 +276,7 @@ const LoginFormInner = () => {
             }, 2000);
         } catch (error) {
             setMessage({
-                text: error.response?.data?.message || "Şifre sıfırlama başarısız.",
+                text: error.response?.data?.message || "ifre sfrlama baarsz.",
                 type: "error"
             });
         } finally {
@@ -293,7 +293,7 @@ const LoginFormInner = () => {
         setMessage({ text: "", type: "" });
     };
 
-    // ─── Forgot Password Forms ───
+    //  Forgot Password Forms 
     const renderForgotForm = () => {
         if (forgotMode === "email") {
             return (
@@ -374,7 +374,7 @@ const LoginFormInner = () => {
         return null;
     };
 
-    // ─── Main Login Form ───
+    //  Main Login Form 
     const renderLoginForm = () => (
         <div className="auth-form-card auth-fade-in">
             <div className="auth-form-header">
@@ -446,7 +446,7 @@ const LoginFormInner = () => {
                 <div className="auth-divider-line" />
             </div>
 
-            {/* Google Button — full width (görseldeki gibi) */}
+            {/* Google Button  full width (grseldeki gibi) */}
             <button className="auth-google-btn" type="button" onClick={() => googleLogin()} disabled={isLoading}>
                 <GoogleIcon />
                 {t("auth.googleContinue")}
@@ -456,23 +456,23 @@ const LoginFormInner = () => {
             <div className="auth-switch">
                 {t("auth.noAccount")}
                 <button type="button" className="auth-switch-link" onClick={() => navigate("/register")}>
-                    {t("auth.registerLink")} <span className="auth-switch-arrow">→</span>
+                    {t("auth.registerLink")} <span className="auth-switch-arrow"></span>
                 </button>
             </div>
         </div>
     );
 
-    // ═══════════════════════════════════════════════════════════════════════
+    // 
     // TAB SYSTEM STATE
-    // ═══════════════════════════════════════════════════════════════════════
+    // 
     const [activeTab, setActiveTab] = useState("home");
 
-    // ═══════════════════════════════════════════════════════════════════════
+    // 
     // RENDER
-    // ═══════════════════════════════════════════════════════════════════════
+    // 
     return (
         <div className="auth-page">
-            {/* Glow lines — görseldeki üst kısımdaki ışık çizgileri */}
+            {/* Glow lines  grseldeki st ksmdaki k izgileri */}
             <div className="auth-glow-lines" />
 
             {/* Navbar with Tab System */}
@@ -480,7 +480,7 @@ const LoginFormInner = () => {
 
             {/* Main Content */}
             <div className={`auth-main${activeTab === "features" || activeTab === "pricing" || activeTab === "about" ? " auth-main--fullpage" : ""}`}>
-                {/* Sol — Tab Content */}
+                {/* Sol  Tab Content */}
                 <div className={`auth-hero auth-fade-in${activeTab === "features" || activeTab === "pricing" || activeTab === "about" ? " auth-hero--fullpage" : ""}`}>
                     {activeTab === "home" && (
                         <>
@@ -498,54 +498,54 @@ const LoginFormInner = () => {
 
                     {activeTab === "features" && (
                         <div className="auth-tab-content auth-tab-fullpage">
-                            {/* ── HERO SECTION ── */}
+                            {/*  HERO SECTION  */}
                             <div className="ft-hero">
-                                <span className="ft-hero-badge">🚀 Türkiye'nin En Kapsamlı E-Ticaret Platformu</span>
+                                <span className="ft-hero-badge"> Trkiye'nin En Kapsaml E-Ticaret Platformu</span>
                                 <h2 className="ft-hero-title">
-                                    Tüm E-Ticaret Operasyonlarınız<br />
+                                    Tm E-Ticaret Operasyonlarnz<br />
                                     <span className="ft-gradient-text">Tek Bir Platformda</span>
                                 </h2>
                                 <p className="ft-hero-desc">
-                                    Pazaryeri entegrasyonundan yapay zeka destekli analize, stok yönetiminden kargo takibine kadar
-                                    ihtiyacınız olan her şey LysiaETIC'de. Artık 10 farklı araç kullanmanıza gerek yok.
+                                    Pazaryeri entegrasyonundan yapay zeka destekli analize, stok ynetiminden kargo takibine kadar
+                                    ihtiyacnz olan her ey Pazarynetim'de. Artk 10 farkl ara kullanmanza gerek yok.
                                 </p>
                             </div>
 
-                            {/* ── ANA ÖZELLİKLER — 3'lü Grid ── */}
+                            {/*  ANA ZELLKLER  3'l Grid  */}
                             <div className="ft-section">
-                                <div className="ft-section-label">⚡ ANA ÖZELLİKLER</div>
-                                <h3 className="ft-section-title">İşinizi Büyüten Güçlü Araçlar</h3>
+                                <div className="ft-section-label"> ANA ZELLKLER</div>
+                                <h3 className="ft-section-title">inizi Byten Gl Aralar</h3>
                             </div>
 
                             <div className="ft-main-grid">
                                 <div className="ft-main-card ft-main-card--highlight">
-                                    <div className="ft-main-icon" style={{ background: "linear-gradient(135deg, #7c5cfc, #a855f7)" }}>🔗</div>
-                                    <h4>Çoklu Pazaryeri Entegrasyonu</h4>
-                                    <p>Trendyol, Hepsiburada, Amazon, N11, Çiçeksepeti ve daha fazlası — tüm pazaryerlerini tek panelden yönetin. Ürün listeleme, fiyat güncelleme, sipariş takibi hepsi tek ekranda.</p>
+                                    <div className="ft-main-icon" style={{ background: "linear-gradient(135deg, #7c5cfc, #a855f7)" }}></div>
+                                    <h4>oklu Pazaryeri Entegrasyonu</h4>
+                                    <p>Trendyol, Hepsiburada, Amazon, N11, ieksepeti ve daha fazlas  tm pazaryerlerini tek panelden ynetin. rn listeleme, fiyat gncelleme, sipari takibi hepsi tek ekranda.</p>
                                     <div className="ft-main-tags">
                                         <span className="ft-tag" style={{ color: "#f27a1a" }}>Trendyol</span>
                                         <span className="ft-tag" style={{ color: "#ff6000" }}>Hepsiburada</span>
                                         <span className="ft-tag" style={{ color: "#ff9900" }}>Amazon</span>
                                         <span className="ft-tag" style={{ color: "#7c5cfc" }}>N11</span>
-                                        <span className="ft-tag" style={{ color: "#e91e8c" }}>Çiçeksepeti</span>
+                                        <span className="ft-tag" style={{ color: "#e91e8c" }}>ieksepeti</span>
                                     </div>
                                 </div>
 
                                 <div className="ft-main-card">
-                                    <div className="ft-main-icon" style={{ background: "linear-gradient(135deg, #22c55e, #16a34a)" }}>📦</div>
-                                    <h4>Akıllı Stok & Ürün Yönetimi</h4>
-                                    <p>Tüm pazaryerlerinde stok senkronizasyonu, toplu ürün yükleme, varyant yönetimi ve otomatik fiyat güncelleme. Bir yerde satılan ürün anında diğer pazaryerlerinde güncellenir.</p>
+                                    <div className="ft-main-icon" style={{ background: "linear-gradient(135deg, #22c55e, #16a34a)" }}></div>
+                                    <h4>Akll Stok & rn Ynetimi</h4>
+                                    <p>Tm pazaryerlerinde stok senkronizasyonu, toplu rn ykleme, varyant ynetimi ve otomatik fiyat gncelleme. Bir yerde satlan rn annda dier pazaryerlerinde gncellenir.</p>
                                     <div className="ft-main-tags">
                                         <span className="ft-tag" style={{ color: "#22c55e" }}>Otomatik Senkron</span>
-                                        <span className="ft-tag" style={{ color: "#16a34a" }}>Toplu Yükleme</span>
+                                        <span className="ft-tag" style={{ color: "#16a34a" }}>Toplu Ykleme</span>
                                         <span className="ft-tag" style={{ color: "#10b981" }}>Varyant</span>
                                     </div>
                                 </div>
 
                                 <div className="ft-main-card">
-                                    <div className="ft-main-icon" style={{ background: "linear-gradient(135deg, #6366f1, #8b5cf6)" }}>🧠</div>
-                                    <h4>LysiaBrain — Yapay Zeka Asistanı</h4>
-                                    <p>GPT-4 destekli AI asistanınız. Ürün açıklaması yazma, SEO optimizasyonu, fiyat önerisi, rakip analizi ve satış stratejisi — hepsini yapay zeka ile yapın.</p>
+                                    <div className="ft-main-icon" style={{ background: "linear-gradient(135deg, #6366f1, #8b5cf6)" }}></div>
+                                    <h4>LysiaBrain  Yapay Zeka Asistan</h4>
+                                    <p>GPT-4 destekli AI asistannz. rn aklamas yazma, SEO optimizasyonu, fiyat nerisi, rakip analizi ve sat stratejisi  hepsini yapay zeka ile yapn.</p>
                                     <div className="ft-main-tags">
                                         <span className="ft-tag" style={{ color: "#8b5cf6" }}>GPT-4</span>
                                         <span className="ft-tag" style={{ color: "#a78bfa" }}>SEO</span>
@@ -554,178 +554,178 @@ const LoginFormInner = () => {
                                 </div>
                             </div>
 
-                            {/* ── DETAYLI ÖZELLİKLER — 2'li Grid ── */}
+                            {/*  DETAYLI ZELLKLER  2'li Grid  */}
                             <div className="ft-section" style={{ marginTop: "48px" }}>
-                                <div className="ft-section-label">🎯 DETAYLI ÖZELLİKLER</div>
-                                <h3 className="ft-section-title">Her İhtiyacınız İçin Bir Çözüm</h3>
+                                <div className="ft-section-label"> DETAYLI ZELLKLER</div>
+                                <h3 className="ft-section-title">Her htiyacnz in Bir zm</h3>
                             </div>
 
                             <div className="ft-detail-grid">
                                 <div className="ft-detail-card">
-                                    <div className="ft-detail-icon">📊</div>
+                                    <div className="ft-detail-icon"></div>
                                     <div className="ft-detail-body">
-                                        <h4>Gelişmiş Analitik & Raporlama</h4>
-                                        <p>Satış trendleri, gelir analizi, ürün performansı, pazaryeri karşılaştırması — tüm verilerinizi görselleştirin. Gerçek zamanlı dashboard ile anlık kararlar alın.</p>
+                                        <h4>Gelimi Analitik & Raporlama</h4>
+                                        <p>Sat trendleri, gelir analizi, rn performans, pazaryeri karlatrmas  tm verilerinizi grselletirin. Gerek zamanl dashboard ile anlk kararlar aln.</p>
                                         <ul className="ft-detail-list">
-                                            <li>Gerçek zamanlı satış dashboard'u</li>
-                                            <li>Pazaryeri bazlı performans karşılaştırması</li>
-                                            <li>Ürün bazlı kârlılık analizi</li>
-                                            <li>Özelleştirilebilir raporlar & Excel export</li>
+                                            <li>Gerek zamanl sat dashboard'u</li>
+                                            <li>Pazaryeri bazl performans karlatrmas</li>
+                                            <li>rn bazl krllk analizi</li>
+                                            <li>zelletirilebilir raporlar & Excel export</li>
                                         </ul>
                                     </div>
                                 </div>
 
                                 <div className="ft-detail-card">
-                                    <div className="ft-detail-icon">🎯</div>
+                                    <div className="ft-detail-icon"></div>
                                     <div className="ft-detail-body">
-                                        <h4>LysiaRadar PRO — Fırsat Motoru</h4>
-                                        <p>Yapay zeka ile pazaryerlerini tarayarak yüksek kâr potansiyelli ürünleri keşfedin. Rakip analizi, talep tahmini ve fiyat optimizasyonu tek tuşla.</p>
+                                        <h4>LysiaRadar PRO  Frsat Motoru</h4>
+                                        <p>Yapay zeka ile pazaryerlerini tarayarak yksek kr potansiyelli rnleri kefedin. Rakip analizi, talep tahmini ve fiyat optimizasyonu tek tula.</p>
                                         <ul className="ft-detail-list">
-                                            <li>AI destekli ürün fırsat keşfi</li>
-                                            <li>Kategori bazlı pazar analizi</li>
-                                            <li>Kârlılık skoru & talep tahmini</li>
-                                            <li>Rakip fiyat takibi & uyarılar</li>
+                                            <li>AI destekli rn frsat kefi</li>
+                                            <li>Kategori bazl pazar analizi</li>
+                                            <li>Krllk skoru & talep tahmini</li>
+                                            <li>Rakip fiyat takibi & uyarlar</li>
                                         </ul>
                                     </div>
                                 </div>
 
                                 <div className="ft-detail-card">
-                                    <div className="ft-detail-icon">💰</div>
+                                    <div className="ft-detail-icon"></div>
                                     <div className="ft-detail-body">
-                                        <h4>Finans & Muhasebe Yönetimi</h4>
-                                        <p>Gelir-gider takibi, komisyon hesaplama, kâr-zarar analizi ve e-fatura entegrasyonu. Finansal durumunuzu her an kontrol altında tutun.</p>
+                                        <h4>Finans & Muhasebe Ynetimi</h4>
+                                        <p>Gelir-gider takibi, komisyon hesaplama, kr-zarar analizi ve e-fatura entegrasyonu. Finansal durumunuzu her an kontrol altnda tutun.</p>
                                         <ul className="ft-detail-list">
                                             <li>Otomatik komisyon hesaplama</li>
-                                            <li>Gelir-gider & kâr-zarar raporları</li>
-                                            <li>E-fatura entegrasyonu (QNB, Sovos, Paraşüt)</li>
+                                            <li>Gelir-gider & kr-zarar raporlar</li>
+                                            <li>E-fatura entegrasyonu (QNB, Sovos, Parat)</li>
                                             <li>Vergi hesaplama & KDV takibi</li>
                                         </ul>
                                     </div>
                                 </div>
 
                                 <div className="ft-detail-card">
-                                    <div className="ft-detail-icon">🚚</div>
+                                    <div className="ft-detail-icon"></div>
                                     <div className="ft-detail-body">
-                                        <h4>Sipariş & Kargo Takibi</h4>
-                                        <p>Tüm pazaryerlerinden gelen siparişleri tek ekranda yönetin. Kargo firmalarıyla entegrasyon, otomatik etiket basımı ve teslimat takibi.</p>
+                                        <h4>Sipari & Kargo Takibi</h4>
+                                        <p>Tm pazaryerlerinden gelen siparileri tek ekranda ynetin. Kargo firmalaryla entegrasyon, otomatik etiket basm ve teslimat takibi.</p>
                                         <ul className="ft-detail-list">
-                                            <li>Çoklu pazaryeri sipariş birleştirme</li>
-                                            <li>Aras, Yurtiçi, MNG, Sürat entegrasyonu</li>
-                                            <li>Otomatik kargo etiketi oluşturma</li>
-                                            <li>Teslimat durumu & müşteri bildirimi</li>
+                                            <li>oklu pazaryeri sipari birletirme</li>
+                                            <li>Aras, Yurtii, MNG, Srat entegrasyonu</li>
+                                            <li>Otomatik kargo etiketi oluturma</li>
+                                            <li>Teslimat durumu & mteri bildirimi</li>
                                         </ul>
                                     </div>
                                 </div>
 
                                 <div className="ft-detail-card">
-                                    <div className="ft-detail-icon">🏷️</div>
+                                    <div className="ft-detail-icon"></div>
                                     <div className="ft-detail-body">
-                                        <h4>Kategori Merkezi & Eşleştirme</h4>
-                                        <p>Pazaryeri kategori ağaçlarını keşfedin, ürünlerinizi doğru kategorilere eşleştirin. Zorunlu özellik alanlarını otomatik doldurun.</p>
+                                        <h4>Kategori Merkezi & Eletirme</h4>
+                                        <p>Pazaryeri kategori aalarn kefedin, rnlerinizi doru kategorilere eletirin. Zorunlu zellik alanlarn otomatik doldurun.</p>
                                         <ul className="ft-detail-list">
-                                            <li>Pazaryeri kategori ağacı görüntüleme</li>
-                                            <li>Akıllı kategori eşleştirme önerileri</li>
-                                            <li>Zorunlu özellik alanı yönetimi</li>
-                                            <li>Toplu kategori güncelleme</li>
+                                            <li>Pazaryeri kategori aac grntleme</li>
+                                            <li>Akll kategori eletirme nerileri</li>
+                                            <li>Zorunlu zellik alan ynetimi</li>
+                                            <li>Toplu kategori gncelleme</li>
                                         </ul>
                                     </div>
                                 </div>
 
                                 <div className="ft-detail-card">
-                                    <div className="ft-detail-icon">💎</div>
+                                    <div className="ft-detail-icon"></div>
                                     <div className="ft-detail-body">
                                         <h4>Fiyat Senkronizasyonu & Optimizasyon</h4>
-                                        <p>Tüm pazaryerlerinde fiyatlarınızı tek tuşla güncelleyin. Komisyon bazlı fiyat hesaplama, rakip fiyat takibi ve otomatik fiyat kuralları.</p>
+                                        <p>Tm pazaryerlerinde fiyatlarnz tek tula gncelleyin. Komisyon bazl fiyat hesaplama, rakip fiyat takibi ve otomatik fiyat kurallar.</p>
                                         <ul className="ft-detail-list">
-                                            <li>Pazaryeri komisyon bazlı fiyatlama</li>
-                                            <li>Toplu fiyat güncelleme</li>
-                                            <li>Rakip fiyat takibi & uyarı</li>
-                                            <li>Dinamik fiyat kuralları</li>
+                                            <li>Pazaryeri komisyon bazl fiyatlama</li>
+                                            <li>Toplu fiyat gncelleme</li>
+                                            <li>Rakip fiyat takibi & uyar</li>
+                                            <li>Dinamik fiyat kurallar</li>
                                         </ul>
                                     </div>
                                 </div>
                             </div>
 
-                            {/* ── ROKETFY & AI BÖLÜMÜ ── */}
+                            {/*  ROKETFY & AI BLM  */}
                             <div className="ft-ai-banner">
                                 <div className="ft-ai-banner-glow" />
                                 <div className="ft-ai-banner-content">
-                                    <div className="ft-ai-badge">🤖 YAPAY ZEKA DESTEKLİ</div>
-                                    <h3>Rakiplerinizin Bir Adım Önünde Olun</h3>
-                                    <p>LysiaBrain AI ve LysiaRadar PRO ile pazaryerlerindeki trendleri analiz edin, yüksek kârlı ürünleri keşfedin ve satış stratejinizi optimize edin. Yapay zeka sizin için çalışsın.</p>
+                                    <div className="ft-ai-badge"> YAPAY ZEKA DESTEKL</div>
+                                    <h3>Rakiplerinizin Bir Adm nnde Olun</h3>
+                                    <p>LysiaBrain AI ve LysiaRadar PRO ile pazaryerlerindeki trendleri analiz edin, yksek krl rnleri kefedin ve sat stratejinizi optimize edin. Yapay zeka sizin iin alsn.</p>
                                     <div className="ft-ai-features">
                                         <div className="ft-ai-feat">
-                                            <span>🔍</span>
+                                            <span></span>
                                             <div>
                                                 <strong>Pazar Analizi</strong>
-                                                <small>Kategori bazlı talep & rekabet analizi</small>
+                                                <small>Kategori bazl talep & rekabet analizi</small>
                                             </div>
                                         </div>
                                         <div className="ft-ai-feat">
-                                            <span>📈</span>
+                                            <span></span>
                                             <div>
                                                 <strong>Trend Tahmini</strong>
-                                                <small>AI ile gelecek trendleri önceden görün</small>
+                                                <small>AI ile gelecek trendleri nceden grn</small>
                                             </div>
                                         </div>
                                         <div className="ft-ai-feat">
-                                            <span>✍️</span>
+                                            <span></span>
                                             <div>
-                                                <strong>İçerik Üretimi</strong>
-                                                <small>SEO uyumlu ürün açıklaması & başlık</small>
+                                                <strong>erik retimi</strong>
+                                                <small>SEO uyumlu rn aklamas & balk</small>
                                             </div>
                                         </div>
                                         <div className="ft-ai-feat">
-                                            <span>💡</span>
+                                            <span></span>
                                             <div>
-                                                <strong>Strateji Önerisi</strong>
-                                                <small>Kişiselleştirilmiş satış stratejileri</small>
+                                                <strong>Strateji nerisi</strong>
+                                                <small>Kiiselletirilmi sat stratejileri</small>
                                             </div>
                                         </div>
                                     </div>
                                 </div>
                             </div>
 
-                            {/* ── TEKNOLOJİ STACK ── */}
+                            {/*  TEKNOLOJ STACK  */}
                             <div className="ft-section" style={{ marginTop: "48px" }}>
-                                <div className="ft-section-label">🔧 TEKNOLOJİ</div>
-                                <h3 className="ft-section-title">Güvenilir & Modern Altyapı</h3>
+                                <div className="ft-section-label"> TEKNOLOJ</div>
+                                <h3 className="ft-section-title">Gvenilir & Modern Altyap</h3>
                             </div>
 
                             <div className="ft-tech-grid">
                                 <div className="ft-tech-item">
-                                    <div className="ft-tech-icon">☁️</div>
+                                    <div className="ft-tech-icon"></div>
                                     <h5>AWS Cloud</h5>
-                                    <p>Amazon Web Services üzerinde %99.9 uptime garantisi</p>
+                                    <p>Amazon Web Services zerinde %99.9 uptime garantisi</p>
                                 </div>
                                 <div className="ft-tech-item">
-                                    <div className="ft-tech-icon">🔒</div>
+                                    <div className="ft-tech-icon"></div>
                                     <h5>SSL & 2FA</h5>
-                                    <p>256-bit şifreleme ve iki faktörlü kimlik doğrulama</p>
+                                    <p>256-bit ifreleme ve iki faktrl kimlik dorulama</p>
                                 </div>
                                 <div className="ft-tech-item">
-                                    <div className="ft-tech-icon">⚡</div>
-                                    <h5>Gerçek Zamanlı</h5>
-                                    <p>Anlık stok & sipariş senkronizasyonu</p>
+                                    <div className="ft-tech-icon"></div>
+                                    <h5>Gerek Zamanl</h5>
+                                    <p>Anlk stok & sipari senkronizasyonu</p>
                                 </div>
                                 <div className="ft-tech-item">
-                                    <div className="ft-tech-icon">📱</div>
-                                    <h5>PWA Desteği</h5>
-                                    <p>Mobil uygulama gibi çalışan web deneyimi</p>
+                                    <div className="ft-tech-icon"></div>
+                                    <h5>PWA Destei</h5>
+                                    <p>Mobil uygulama gibi alan web deneyimi</p>
                                 </div>
                                 <div className="ft-tech-item">
-                                    <div className="ft-tech-icon">🔄</div>
+                                    <div className="ft-tech-icon"></div>
                                     <h5>API Entegrasyonu</h5>
-                                    <p>RESTful API ile kendi sistemlerinize bağlayın</p>
+                                    <p>RESTful API ile kendi sistemlerinize balayn</p>
                                 </div>
                                 <div className="ft-tech-item">
-                                    <div className="ft-tech-icon">🌍</div>
-                                    <h5>Çoklu Dil</h5>
-                                    <p>Türkçe & İngilizce tam dil desteği</p>
+                                    <div className="ft-tech-icon"></div>
+                                    <h5>oklu Dil</h5>
+                                    <p>Trke & ngilizce tam dil destei</p>
                                 </div>
                             </div>
 
-                            {/* ── İSTATİSTİKLER ── */}
+                            {/*  STATSTKLER  */}
                             <div className="ft-stats-banner">
                                 <div className="ft-stat-big">
                                     <div className="ft-stat-big-value">5+</div>
@@ -734,7 +734,7 @@ const LoginFormInner = () => {
                                 <div className="ft-stat-divider" />
                                 <div className="ft-stat-big">
                                     <div className="ft-stat-big-value">50K+</div>
-                                    <div className="ft-stat-big-label">Yönetilen<br/>Ürün</div>
+                                    <div className="ft-stat-big-label">Ynetilen<br/>rn</div>
                                 </div>
                                 <div className="ft-stat-divider" />
                                 <div className="ft-stat-big">
@@ -749,16 +749,16 @@ const LoginFormInner = () => {
                                 <div className="ft-stat-divider" />
                                 <div className="ft-stat-big">
                                     <div className="ft-stat-big-value">15+</div>
-                                    <div className="ft-stat-big-label">Modül &<br/>Araç</div>
+                                    <div className="ft-stat-big-label">Modl &<br/>Ara</div>
                                 </div>
                             </div>
 
-                            {/* ── CTA ── */}
+                            {/*  CTA  */}
                             <div className="ft-cta">
-                                <h3>Hemen Başlayın — 14 Gün Ücretsiz Deneyin</h3>
-                                <p>Kredi kartı gerekmez. Tüm özelliklere tam erişim.</p>
+                                <h3>Hemen Balayn  14 Gn cretsiz Deneyin</h3>
+                                <p>Kredi kart gerekmez. Tm zelliklere tam eriim.</p>
                                 <button className="ft-cta-btn" type="button" onClick={() => setActiveTab("pricing")}>
-                                    Paketleri İncele →
+                                    Paketleri ncele 
                                 </button>
                             </div>
                         </div>
@@ -766,266 +766,266 @@ const LoginFormInner = () => {
 
                     {activeTab === "pricing" && (
                         <div className="auth-tab-content auth-tab-fullpage">
-                            {/* ── HERO ── */}
+                            {/*  HERO  */}
                             <div className="ft-hero">
-                                <span className="ft-hero-badge">💎 Şeffaf & Uygun Fiyatlandırma</span>
+                                <span className="ft-hero-badge"> effaf & Uygun Fiyatlandrma</span>
                                 <h2 className="ft-hero-title">
-                                    İşletmenizin Büyüklüğüne<br />
+                                    letmenizin Byklne<br />
                                     <span className="ft-gradient-text">Uygun Paketler</span>
                                 </h2>
                                 <p className="ft-hero-desc">
-                                    Gizli ücret yok, sürpriz fatura yok. İhtiyacınıza göre paket seçin,
-                                    istediğiniz zaman yükseltin veya iptal edin. Tüm paketlerde 14 gün ücretsiz deneme.
+                                    Gizli cret yok, srpriz fatura yok. htiyacnza gre paket sein,
+                                    istediiniz zaman ykseltin veya iptal edin. Tm paketlerde 14 gn cretsiz deneme.
                                 </p>
                             </div>
 
-                            {/* ── PAKETLER ── */}
+                            {/*  PAKETLER  */}
                             <div className="pr-grid">
-                                {/* ─ STARTER ─ */}
+                                {/*  STARTER  */}
                                 <div className="pr-card">
                                     <div className="pr-card-header">
-                                        <div className="pr-card-icon" style={{ background: "linear-gradient(135deg, #22c55e, #16a34a)" }}>🌱</div>
+                                        <div className="pr-card-icon" style={{ background: "linear-gradient(135deg, #22c55e, #16a34a)" }}></div>
                                         <h3 className="pr-card-name">Starter</h3>
-                                        <p className="pr-card-desc">E-ticarete yeni başlayanlar için ideal başlangıç paketi</p>
+                                        <p className="pr-card-desc">E-ticarete yeni balayanlar iin ideal balang paketi</p>
                                         <div className="pr-card-price">
-                                            <span className="pr-price-amount">Ücretsiz</span>
-                                            <span className="pr-price-period">14 gün deneme</span>
+                                            <span className="pr-price-amount">cretsiz</span>
+                                            <span className="pr-price-period">14 gn deneme</span>
                                         </div>
-                                        <div className="pr-card-after">Sonrasında <strong>{prices.basic.monthly}/ay</strong></div>
+                                        <div className="pr-card-after">Sonrasnda <strong>{prices.basic.monthly}/ay</strong></div>
                                     </div>
                                     <div className="pr-card-body">
-                                        <div className="pr-section-label">Pazaryeri & Ürün</div>
+                                        <div className="pr-section-label">Pazaryeri & rn</div>
                                         <ul className="pr-feature-list">
-                                            <li className="pr-feat-yes"><span className="pr-check">✓</span> 2 pazaryeri entegrasyonu</li>
-                                            <li className="pr-feat-yes"><span className="pr-check">✓</span> 500 ürün limiti</li>
-                                            <li className="pr-feat-yes"><span className="pr-check">✓</span> 2.000 sipariş / ay</li>
-                                            <li className="pr-feat-yes"><span className="pr-check">✓</span> Manuel stok güncelleme</li>
-                                            <li className="pr-feat-yes"><span className="pr-check">✓</span> Temel ürün yükleme</li>
+                                            <li className="pr-feat-yes"><span className="pr-check"></span> 2 pazaryeri entegrasyonu</li>
+                                            <li className="pr-feat-yes"><span className="pr-check"></span> 500 rn limiti</li>
+                                            <li className="pr-feat-yes"><span className="pr-check"></span> 2.000 sipari / ay</li>
+                                            <li className="pr-feat-yes"><span className="pr-check"></span> Manuel stok gncelleme</li>
+                                            <li className="pr-feat-yes"><span className="pr-check"></span> Temel rn ykleme</li>
                                         </ul>
                                         <div className="pr-section-label">Analitik & Raporlama</div>
                                         <ul className="pr-feature-list">
-                                            <li className="pr-feat-yes"><span className="pr-check">✓</span> Temel satış dashboard'u</li>
-                                            <li className="pr-feat-yes"><span className="pr-check">✓</span> Günlük satış raporu</li>
-                                            <li className="pr-feat-no"><span className="pr-x">✗</span> Gelişmiş analitik</li>
-                                            <li className="pr-feat-no"><span className="pr-x">✗</span> Excel / PDF export</li>
+                                            <li className="pr-feat-yes"><span className="pr-check"></span> Temel sat dashboard'u</li>
+                                            <li className="pr-feat-yes"><span className="pr-check"></span> Gnlk sat raporu</li>
+                                            <li className="pr-feat-no"><span className="pr-x"></span> Gelimi analitik</li>
+                                            <li className="pr-feat-no"><span className="pr-x"></span> Excel / PDF export</li>
                                         </ul>
-                                        <div className="pr-section-label">AI & Araçlar</div>
+                                        <div className="pr-section-label">AI & Aralar</div>
                                         <ul className="pr-feature-list">
-                                            <li className="pr-feat-no"><span className="pr-x">✗</span> LysiaBrain AI Asistan</li>
-                                            <li className="pr-feat-no"><span className="pr-x">✗</span> LysiaRadar PRO</li>
-                                            <li className="pr-feat-no"><span className="pr-x">✗</span> Fiyat optimizasyonu</li>
-                                            <li className="pr-feat-no"><span className="pr-x">✗</span> E-fatura entegrasyonu</li>
+                                            <li className="pr-feat-no"><span className="pr-x"></span> LysiaBrain AI Asistan</li>
+                                            <li className="pr-feat-no"><span className="pr-x"></span> LysiaRadar PRO</li>
+                                            <li className="pr-feat-no"><span className="pr-x"></span> Fiyat optimizasyonu</li>
+                                            <li className="pr-feat-no"><span className="pr-x"></span> E-fatura entegrasyonu</li>
                                         </ul>
                                         <div className="pr-section-label">Destek</div>
                                         <ul className="pr-feature-list">
-                                            <li className="pr-feat-yes"><span className="pr-check">✓</span> E-posta desteği</li>
-                                            <li className="pr-feat-yes"><span className="pr-check">✓</span> Bilgi bankası erişimi</li>
-                                            <li className="pr-feat-no"><span className="pr-x">✗</span> Canlı destek</li>
+                                            <li className="pr-feat-yes"><span className="pr-check"></span> E-posta destei</li>
+                                            <li className="pr-feat-yes"><span className="pr-check"></span> Bilgi bankas eriimi</li>
+                                            <li className="pr-feat-no"><span className="pr-x"></span> Canl destek</li>
                                         </ul>
                                     </div>
                                     <button className="pr-card-btn pr-btn-outline" type="button" onClick={() => setActiveTab("home")}>
-                                        Ücretsiz Dene
+                                        cretsiz Dene
                                     </button>
                                 </div>
 
-                                {/* ─ PRO ─ */}
+                                {/*  PRO  */}
                                 <div className="pr-card pr-card--popular">
-                                    <div className="pr-popular-badge">⭐ EN POPÜLER</div>
+                                    <div className="pr-popular-badge"> EN POPLER</div>
                                     <div className="pr-card-header">
-                                        <div className="pr-card-icon" style={{ background: "linear-gradient(135deg, #7c5cfc, #a855f7)" }}>🚀</div>
+                                        <div className="pr-card-icon" style={{ background: "linear-gradient(135deg, #7c5cfc, #a855f7)" }}></div>
                                         <h3 className="pr-card-name">Pro</h3>
-                                        <p className="pr-card-desc">Büyüyen işletmeler için tam donanımlı profesyonel paket</p>
+                                        <p className="pr-card-desc">Byyen iletmeler iin tam donanml profesyonel paket</p>
                                         <div className="pr-card-price">
                                             {prices.pro.oldMonthly && <span className="pr-price-old">{prices.pro.oldMonthly}</span>}
                                             <span className="pr-price-amount">{prices.pro.monthly}</span>
                                             <span className="pr-price-period">/ ay</span>
                                         </div>
-                                        <div className="pr-card-save">Yıllık ödemede {prices.pro.yearly}/ay — tasarruf edin</div>
+                                        <div className="pr-card-save">Yllk demede {prices.pro.yearly}/ay  tasarruf edin</div>
                                     </div>
                                     <div className="pr-card-body">
-                                        <div className="pr-section-label">Pazaryeri & Ürün</div>
+                                        <div className="pr-section-label">Pazaryeri & rn</div>
                                         <ul className="pr-feature-list">
-                                            <li className="pr-feat-yes"><span className="pr-check">✓</span> <strong>5 pazaryeri</strong> entegrasyonu</li>
-                                            <li className="pr-feat-yes"><span className="pr-check">✓</span> <strong>10.000 ürün</strong> limiti</li>
-                                            <li className="pr-feat-yes"><span className="pr-check">✓</span> <strong>50.000 sipariş</strong> / ay</li>
-                                            <li className="pr-feat-yes"><span className="pr-check">✓</span> Otomatik stok senkronizasyonu</li>
-                                            <li className="pr-feat-yes"><span className="pr-check">✓</span> Toplu ürün yükleme & güncelleme</li>
-                                            <li className="pr-feat-yes"><span className="pr-check">✓</span> Varyant & kategori yönetimi</li>
+                                            <li className="pr-feat-yes"><span className="pr-check"></span> <strong>5 pazaryeri</strong> entegrasyonu</li>
+                                            <li className="pr-feat-yes"><span className="pr-check"></span> <strong>10.000 rn</strong> limiti</li>
+                                            <li className="pr-feat-yes"><span className="pr-check"></span> <strong>50.000 sipari</strong> / ay</li>
+                                            <li className="pr-feat-yes"><span className="pr-check"></span> Otomatik stok senkronizasyonu</li>
+                                            <li className="pr-feat-yes"><span className="pr-check"></span> Toplu rn ykleme & gncelleme</li>
+                                            <li className="pr-feat-yes"><span className="pr-check"></span> Varyant & kategori ynetimi</li>
                                         </ul>
                                         <div className="pr-section-label">Analitik & Raporlama</div>
                                         <ul className="pr-feature-list">
-                                            <li className="pr-feat-yes"><span className="pr-check">✓</span> Gelişmiş satış dashboard'u</li>
-                                            <li className="pr-feat-yes"><span className="pr-check">✓</span> Pazaryeri karşılaştırma raporu</li>
-                                            <li className="pr-feat-yes"><span className="pr-check">✓</span> Ürün performans analizi</li>
-                                            <li className="pr-feat-yes"><span className="pr-check">✓</span> Excel & PDF export</li>
+                                            <li className="pr-feat-yes"><span className="pr-check"></span> Gelimi sat dashboard'u</li>
+                                            <li className="pr-feat-yes"><span className="pr-check"></span> Pazaryeri karlatrma raporu</li>
+                                            <li className="pr-feat-yes"><span className="pr-check"></span> rn performans analizi</li>
+                                            <li className="pr-feat-yes"><span className="pr-check"></span> Excel & PDF export</li>
                                         </ul>
-                                        <div className="pr-section-label">AI & Araçlar</div>
+                                        <div className="pr-section-label">AI & Aralar</div>
                                         <ul className="pr-feature-list">
-                                            <li className="pr-feat-yes pr-feat-highlight"><span className="pr-check">✓</span> <strong>LysiaBrain AI</strong> — 500 sorgu/ay</li>
-                                            <li className="pr-feat-yes pr-feat-highlight"><span className="pr-check">✓</span> <strong>LysiaRadar PRO</strong> — Fırsat keşfi</li>
-                                            <li className="pr-feat-yes"><span className="pr-check">✓</span> Fiyat optimizasyonu & kurallar</li>
-                                            <li className="pr-feat-yes"><span className="pr-check">✓</span> E-fatura entegrasyonu</li>
-                                            <li className="pr-feat-yes"><span className="pr-check">✓</span> Kargo takibi & etiket basımı</li>
+                                            <li className="pr-feat-yes pr-feat-highlight"><span className="pr-check"></span> <strong>LysiaBrain AI</strong>  500 sorgu/ay</li>
+                                            <li className="pr-feat-yes pr-feat-highlight"><span className="pr-check"></span> <strong>LysiaRadar PRO</strong>  Frsat kefi</li>
+                                            <li className="pr-feat-yes"><span className="pr-check"></span> Fiyat optimizasyonu & kurallar</li>
+                                            <li className="pr-feat-yes"><span className="pr-check"></span> E-fatura entegrasyonu</li>
+                                            <li className="pr-feat-yes"><span className="pr-check"></span> Kargo takibi & etiket basm</li>
                                         </ul>
                                         <div className="pr-section-label">Destek</div>
                                         <ul className="pr-feature-list">
-                                            <li className="pr-feat-yes"><span className="pr-check">✓</span> 7/24 canlı destek</li>
-                                            <li className="pr-feat-yes"><span className="pr-check">✓</span> Öncelikli e-posta desteği</li>
-                                            <li className="pr-feat-yes"><span className="pr-check">✓</span> Video eğitim içerikleri</li>
+                                            <li className="pr-feat-yes"><span className="pr-check"></span> 7/24 canl destek</li>
+                                            <li className="pr-feat-yes"><span className="pr-check"></span> ncelikli e-posta destei</li>
+                                            <li className="pr-feat-yes"><span className="pr-check"></span> Video eitim ierikleri</li>
                                         </ul>
                                     </div>
                                     <button className="pr-card-btn pr-btn-primary" type="button" onClick={() => setActiveTab("home")}>
-                                        Pro'ya Başla →
+                                        Pro'ya Bala 
                                     </button>
                                 </div>
 
-                                {/* ─ ENTERPRISE ─ */}
+                                {/*  ENTERPRISE  */}
                                 <div className="pr-card pr-card--enterprise">
                                     <div className="pr-card-header">
-                                        <div className="pr-card-icon" style={{ background: "linear-gradient(135deg, #f59e0b, #d97706)" }}>👑</div>
+                                        <div className="pr-card-icon" style={{ background: "linear-gradient(135deg, #f59e0b, #d97706)" }}></div>
                                         <h3 className="pr-card-name">Enterprise</h3>
-                                        <p className="pr-card-desc">Yüksek hacimli satıcılar ve kurumsal firmalar için sınırsız paket</p>
+                                        <p className="pr-card-desc">Yksek hacimli satclar ve kurumsal firmalar iin snrsz paket</p>
                                         <div className="pr-card-price">
                                             <span className="pr-price-amount">{prices.enterprise.monthly}</span>
                                             <span className="pr-price-period">/ ay</span>
                                         </div>
-                                        <div className="pr-card-save">Yıllık ödemede {prices.enterprise.yearly}/ay — tasarruf edin</div>
+                                        <div className="pr-card-save">Yllk demede {prices.enterprise.yearly}/ay  tasarruf edin</div>
                                     </div>
                                     <div className="pr-card-body">
-                                        <div className="pr-section-label">Pazaryeri & Ürün</div>
+                                        <div className="pr-section-label">Pazaryeri & rn</div>
                                         <ul className="pr-feature-list">
-                                            <li className="pr-feat-yes"><span className="pr-check">✓</span> <strong>Sınırsız</strong> pazaryeri entegrasyonu</li>
-                                            <li className="pr-feat-yes"><span className="pr-check">✓</span> <strong>Sınırsız</strong> ürün</li>
-                                            <li className="pr-feat-yes"><span className="pr-check">✓</span> <strong>Sınırsız</strong> sipariş</li>
-                                            <li className="pr-feat-yes"><span className="pr-check">✓</span> Otomatik stok senkronizasyonu</li>
-                                            <li className="pr-feat-yes"><span className="pr-check">✓</span> Toplu ürün yükleme & güncelleme</li>
-                                            <li className="pr-feat-yes"><span className="pr-check">✓</span> Gelişmiş varyant & kategori</li>
-                                            <li className="pr-feat-yes"><span className="pr-check">✓</span> Özel API erişimi</li>
+                                            <li className="pr-feat-yes"><span className="pr-check"></span> <strong>Snrsz</strong> pazaryeri entegrasyonu</li>
+                                            <li className="pr-feat-yes"><span className="pr-check"></span> <strong>Snrsz</strong> rn</li>
+                                            <li className="pr-feat-yes"><span className="pr-check"></span> <strong>Snrsz</strong> sipari</li>
+                                            <li className="pr-feat-yes"><span className="pr-check"></span> Otomatik stok senkronizasyonu</li>
+                                            <li className="pr-feat-yes"><span className="pr-check"></span> Toplu rn ykleme & gncelleme</li>
+                                            <li className="pr-feat-yes"><span className="pr-check"></span> Gelimi varyant & kategori</li>
+                                            <li className="pr-feat-yes"><span className="pr-check"></span> zel API eriimi</li>
                                         </ul>
                                         <div className="pr-section-label">Analitik & Raporlama</div>
                                         <ul className="pr-feature-list">
-                                            <li className="pr-feat-yes"><span className="pr-check">✓</span> Pro'daki tüm özellikler</li>
-                                            <li className="pr-feat-yes"><span className="pr-check">✓</span> Özel rapor oluşturma</li>
-                                            <li className="pr-feat-yes"><span className="pr-check">✓</span> Otomatik rapor gönderimi</li>
-                                            <li className="pr-feat-yes"><span className="pr-check">✓</span> Çoklu kullanıcı & rol yönetimi</li>
+                                            <li className="pr-feat-yes"><span className="pr-check"></span> Pro'daki tm zellikler</li>
+                                            <li className="pr-feat-yes"><span className="pr-check"></span> zel rapor oluturma</li>
+                                            <li className="pr-feat-yes"><span className="pr-check"></span> Otomatik rapor gnderimi</li>
+                                            <li className="pr-feat-yes"><span className="pr-check"></span> oklu kullanc & rol ynetimi</li>
                                         </ul>
-                                        <div className="pr-section-label">AI & Araçlar</div>
+                                        <div className="pr-section-label">AI & Aralar</div>
                                         <ul className="pr-feature-list">
-                                            <li className="pr-feat-yes pr-feat-highlight"><span className="pr-check">✓</span> <strong>LysiaBrain AI</strong> — Sınırsız sorgu</li>
-                                            <li className="pr-feat-yes pr-feat-highlight"><span className="pr-check">✓</span> <strong>LysiaRadar PRO</strong> — Tam erişim</li>
-                                            <li className="pr-feat-yes"><span className="pr-check">✓</span> Gelişmiş fiyat optimizasyonu</li>
-                                            <li className="pr-feat-yes"><span className="pr-check">✓</span> E-fatura & muhasebe entegrasyonu</li>
-                                            <li className="pr-feat-yes"><span className="pr-check">✓</span> Kargo takibi & etiket basımı</li>
-                                            <li className="pr-feat-yes"><span className="pr-check">✓</span> Webhook & özel entegrasyonlar</li>
+                                            <li className="pr-feat-yes pr-feat-highlight"><span className="pr-check"></span> <strong>LysiaBrain AI</strong>  Snrsz sorgu</li>
+                                            <li className="pr-feat-yes pr-feat-highlight"><span className="pr-check"></span> <strong>LysiaRadar PRO</strong>  Tam eriim</li>
+                                            <li className="pr-feat-yes"><span className="pr-check"></span> Gelimi fiyat optimizasyonu</li>
+                                            <li className="pr-feat-yes"><span className="pr-check"></span> E-fatura & muhasebe entegrasyonu</li>
+                                            <li className="pr-feat-yes"><span className="pr-check"></span> Kargo takibi & etiket basm</li>
+                                            <li className="pr-feat-yes"><span className="pr-check"></span> Webhook & zel entegrasyonlar</li>
                                         </ul>
                                         <div className="pr-section-label">Destek</div>
                                         <ul className="pr-feature-list">
-                                            <li className="pr-feat-yes"><span className="pr-check">✓</span> Dedicated hesap yöneticisi</li>
-                                            <li className="pr-feat-yes"><span className="pr-check">✓</span> SLA garantisi (%99.9 uptime)</li>
-                                            <li className="pr-feat-yes"><span className="pr-check">✓</span> Öncelikli teknik destek</li>
-                                            <li className="pr-feat-yes"><span className="pr-check">✓</span> Özel onboarding eğitimi</li>
+                                            <li className="pr-feat-yes"><span className="pr-check"></span> Dedicated hesap yneticisi</li>
+                                            <li className="pr-feat-yes"><span className="pr-check"></span> SLA garantisi (%99.9 uptime)</li>
+                                            <li className="pr-feat-yes"><span className="pr-check"></span> ncelikli teknik destek</li>
+                                            <li className="pr-feat-yes"><span className="pr-check"></span> zel onboarding eitimi</li>
                                         </ul>
                                     </div>
                                     <button className="pr-card-btn pr-btn-gold" type="button" onClick={() => setActiveTab("home")}>
-                                        İletişime Geç →
+                                        letiime Ge 
                                     </button>
                                 </div>
                             </div>
 
-                            {/* ── KARŞILAŞTIRMA TABLOSU ── */}
+                            {/*  KARILATIRMA TABLOSU  */}
                             <div className="ft-section" style={{ marginTop: "48px" }}>
-                                <div className="ft-section-label">📋 KARŞILAŞTIRMA</div>
-                                <h3 className="ft-section-title">Paketleri Karşılaştırın</h3>
+                                <div className="ft-section-label"> KARILATIRMA</div>
+                                <h3 className="ft-section-title">Paketleri Karlatrn</h3>
                             </div>
 
                             <div className="pr-compare">
                                 <div className="pr-compare-row pr-compare-header">
-                                    <div className="pr-compare-feature">Özellik</div>
+                                    <div className="pr-compare-feature">zellik</div>
                                     <div className="pr-compare-val">Starter</div>
                                     <div className="pr-compare-val pr-compare-val--pop">Pro</div>
                                     <div className="pr-compare-val">Enterprise</div>
                                 </div>
                                 <div className="pr-compare-row">
-                                    <div className="pr-compare-feature">Pazaryeri Sayısı</div>
+                                    <div className="pr-compare-feature">Pazaryeri Says</div>
                                     <div className="pr-compare-val">2</div>
                                     <div className="pr-compare-val pr-compare-val--pop">5</div>
-                                    <div className="pr-compare-val">Sınırsız</div>
+                                    <div className="pr-compare-val">Snrsz</div>
                                 </div>
                                 <div className="pr-compare-row">
-                                    <div className="pr-compare-feature">Ürün Limiti</div>
+                                    <div className="pr-compare-feature">rn Limiti</div>
                                     <div className="pr-compare-val">500</div>
                                     <div className="pr-compare-val pr-compare-val--pop">10.000</div>
-                                    <div className="pr-compare-val">Sınırsız</div>
+                                    <div className="pr-compare-val">Snrsz</div>
                                 </div>
                                 <div className="pr-compare-row">
-                                    <div className="pr-compare-feature">Sipariş / Ay</div>
+                                    <div className="pr-compare-feature">Sipari / Ay</div>
                                     <div className="pr-compare-val">2.000</div>
                                     <div className="pr-compare-val pr-compare-val--pop">50.000</div>
-                                    <div className="pr-compare-val">Sınırsız</div>
+                                    <div className="pr-compare-val">Snrsz</div>
                                 </div>
                                 <div className="pr-compare-row">
                                     <div className="pr-compare-feature">LysiaBrain AI</div>
-                                    <div className="pr-compare-val"><span className="pr-compare-no">✗</span></div>
+                                    <div className="pr-compare-val"><span className="pr-compare-no"></span></div>
                                     <div className="pr-compare-val pr-compare-val--pop"><span className="pr-compare-yes">500/ay</span></div>
-                                    <div className="pr-compare-val"><span className="pr-compare-yes">Sınırsız</span></div>
+                                    <div className="pr-compare-val"><span className="pr-compare-yes">Snrsz</span></div>
                                 </div>
                                 <div className="pr-compare-row">
                                     <div className="pr-compare-feature">LysiaRadar PRO</div>
-                                    <div className="pr-compare-val"><span className="pr-compare-no">✗</span></div>
-                                    <div className="pr-compare-val pr-compare-val--pop"><span className="pr-compare-yes">✓</span></div>
-                                    <div className="pr-compare-val"><span className="pr-compare-yes">✓</span></div>
+                                    <div className="pr-compare-val"><span className="pr-compare-no"></span></div>
+                                    <div className="pr-compare-val pr-compare-val--pop"><span className="pr-compare-yes"></span></div>
+                                    <div className="pr-compare-val"><span className="pr-compare-yes"></span></div>
                                 </div>
                                 <div className="pr-compare-row">
                                     <div className="pr-compare-feature">E-Fatura</div>
-                                    <div className="pr-compare-val"><span className="pr-compare-no">✗</span></div>
-                                    <div className="pr-compare-val pr-compare-val--pop"><span className="pr-compare-yes">✓</span></div>
-                                    <div className="pr-compare-val"><span className="pr-compare-yes">✓</span></div>
+                                    <div className="pr-compare-val"><span className="pr-compare-no"></span></div>
+                                    <div className="pr-compare-val pr-compare-val--pop"><span className="pr-compare-yes"></span></div>
+                                    <div className="pr-compare-val"><span className="pr-compare-yes"></span></div>
                                 </div>
                                 <div className="pr-compare-row">
-                                    <div className="pr-compare-feature">API Erişimi</div>
-                                    <div className="pr-compare-val"><span className="pr-compare-no">✗</span></div>
-                                    <div className="pr-compare-val pr-compare-val--pop"><span className="pr-compare-no">✗</span></div>
-                                    <div className="pr-compare-val"><span className="pr-compare-yes">✓</span></div>
+                                    <div className="pr-compare-feature">API Eriimi</div>
+                                    <div className="pr-compare-val"><span className="pr-compare-no"></span></div>
+                                    <div className="pr-compare-val pr-compare-val--pop"><span className="pr-compare-no"></span></div>
+                                    <div className="pr-compare-val"><span className="pr-compare-yes"></span></div>
                                 </div>
                                 <div className="pr-compare-row">
                                     <div className="pr-compare-feature">Destek</div>
                                     <div className="pr-compare-val">E-posta</div>
-                                    <div className="pr-compare-val pr-compare-val--pop">7/24 Canlı</div>
+                                    <div className="pr-compare-val pr-compare-val--pop">7/24 Canl</div>
                                     <div className="pr-compare-val">Dedicated</div>
                                 </div>
                             </div>
 
-                            {/* ── SSS ── */}
+                            {/*  SSS  */}
                             <div className="ft-section" style={{ marginTop: "48px" }}>
-                                <div className="ft-section-label">❓ SIKÇA SORULAN SORULAR</div>
+                                <div className="ft-section-label"> SIKA SORULAN SORULAR</div>
                                 <h3 className="ft-section-title">Merak Edilenler</h3>
                             </div>
 
                             <div className="pr-faq">
                                 <div className="pr-faq-item">
-                                    <h4>Ücretsiz deneme nasıl çalışır?</h4>
-                                    <p>14 gün boyunca Pro paketinin tüm özelliklerini ücretsiz kullanabilirsiniz. Kredi kartı bilgisi gerekmez. Deneme süresi bittiğinde otomatik olarak Starter pakete geçersiniz.</p>
+                                    <h4>cretsiz deneme nasl alr?</h4>
+                                    <p>14 gn boyunca Pro paketinin tm zelliklerini cretsiz kullanabilirsiniz. Kredi kart bilgisi gerekmez. Deneme sresi bittiinde otomatik olarak Starter pakete geersiniz.</p>
                                 </div>
                                 <div className="pr-faq-item">
-                                    <h4>İstediğim zaman paket değiştirebilir miyim?</h4>
-                                    <p>Evet! İstediğiniz zaman paketinizi yükseltebilir veya düşürebilirsiniz. Yükseltme anında aktif olur, düşürme ise mevcut dönem sonunda geçerli olur.</p>
+                                    <h4>stediim zaman paket deitirebilir miyim?</h4>
+                                    <p>Evet! stediiniz zaman paketinizi ykseltebilir veya drebilirsiniz. Ykseltme annda aktif olur, drme ise mevcut dnem sonunda geerli olur.</p>
                                 </div>
                                 <div className="pr-faq-item">
-                                    <h4>Yıllık ödeme avantajı nedir?</h4>
-                                    <p>Yıllık ödeme tercih ettiğinizde Pro pakette %37'ye varan, Enterprise pakette %20'ye varan tasarruf sağlarsınız. Yıllık ödemeler iade edilebilir.</p>
+                                    <h4>Yllk deme avantaj nedir?</h4>
+                                    <p>Yllk deme tercih ettiinizde Pro pakette %37'ye varan, Enterprise pakette %20'ye varan tasarruf salarsnz. Yllk demeler iade edilebilir.</p>
                                 </div>
                                 <div className="pr-faq-item">
-                                    <h4>Verilerim güvende mi?</h4>
-                                    <p>Tüm verileriniz AWS altyapısında 256-bit SSL şifreleme ile korunur. KVKK uyumlu veri işleme politikamız mevcuttur. Düzenli yedekleme yapılır.</p>
+                                    <h4>Verilerim gvende mi?</h4>
+                                    <p>Tm verileriniz AWS altyapsnda 256-bit SSL ifreleme ile korunur. KVKK uyumlu veri ileme politikamz mevcuttur. Dzenli yedekleme yaplr.</p>
                                 </div>
                             </div>
 
-                            {/* ── CTA ── */}
+                            {/*  CTA  */}
                             <div className="ft-cta">
-                                <h3>14 Gün Ücretsiz Deneyin</h3>
-                                <p>Kredi kartı gerekmez • İstediğiniz zaman iptal edin • Tüm Pro özellikler dahil</p>
+                                <h3>14 Gn cretsiz Deneyin</h3>
+                                <p>Kredi kart gerekmez  stediiniz zaman iptal edin  Tm Pro zellikler dahil</p>
                                 <button className="ft-cta-btn" type="button" onClick={() => setActiveTab("home")}>
-                                    Hemen Kayıt Ol →
+                                    Hemen Kayt Ol 
                                 </button>
                             </div>
                         </div>
@@ -1033,239 +1033,239 @@ const LoginFormInner = () => {
 
                     {activeTab === "about" && (
                         <div className="auth-tab-content auth-tab-fullpage">
-                            {/* ── HERO SECTION ── */}
+                            {/*  HERO SECTION  */}
                             <div className="ft-hero">
-                                <span className="ft-hero-badge">🏢 LysiaETIC Hakkında</span>
+                                <span className="ft-hero-badge"> Pazarynetim Hakknda</span>
                                 <h2 className="ft-hero-title">
-                                    E-Ticaretin Geleceğini<br />
-                                    <span className="ft-gradient-text">Birlikte İnşa Ediyoruz</span>
+                                    E-Ticaretin Geleceini<br />
+                                    <span className="ft-gradient-text">Birlikte na Ediyoruz</span>
                                 </h2>
                                 <p className="ft-hero-desc">
-                                    LysiaETIC, Türkiye'nin en kapsamlı e-ticaret yönetim platformudur. Yapay zeka destekli
-                                    araçlarımızla binlerce satıcının işini büyütmesine yardımcı oluyoruz.
+                                    Pazarynetim, Trkiye'nin en kapsaml e-ticaret ynetim platformudur. Yapay zeka destekli
+                                    aralarmzla binlerce satcnn iini bytmesine yardmc oluyoruz.
                                 </p>
                             </div>
 
-                            {/* ── HİKAYEMİZ ── */}
+                            {/*  HKAYEMZ  */}
                             <div className="ab-story">
                                 <div className="ab-story-glow" />
                                 <div className="ab-story-content">
-                                    <div className="ab-story-badge">📖 HİKAYEMİZ</div>
-                                    <h3>Bir Vizyondan Doğdu</h3>
+                                    <div className="ab-story-badge"> HKAYEMZ</div>
+                                    <h3>Bir Vizyondan Dodu</h3>
                                     <p>
-                                        E-ticaret satıcılarının her gün onlarca farklı araç, panel ve platform arasında
-                                        kaybolduğunu gördük. Stok takibi bir yerde, sipariş yönetimi başka yerde, fiyatlandırma
-                                        ayrı bir yerde... Bu karmaşayı ortadan kaldırmak için yola çıktık.
+                                        E-ticaret satclarnn her gn onlarca farkl ara, panel ve platform arasnda
+                                        kaybolduunu grdk. Stok takibi bir yerde, sipari ynetimi baka yerde, fiyatlandrma
+                                        ayr bir yerde... Bu karmaay ortadan kaldrmak iin yola ktk.
                                     </p>
                                     <p>
-                                        LysiaETIC, tüm e-ticaret operasyonlarını tek bir çatı altında toplayan, yapay zeka
-                                        ile güçlendirilmiş, kullanıcı dostu bir platform olarak doğdu. Amacımız basit:
-                                        <strong> Satıcıların teknik detaylarla değil, işlerini büyütmeyle ilgilenmesini sağlamak.</strong>
+                                        Pazarynetim, tm e-ticaret operasyonlarn tek bir at altnda toplayan, yapay zeka
+                                        ile glendirilmi, kullanc dostu bir platform olarak dodu. Amacmz basit:
+                                        <strong> Satclarn teknik detaylarla deil, ilerini bytmeyle ilgilenmesini salamak.</strong>
                                     </p>
                                 </div>
                             </div>
 
-                            {/* ── MİSYON & VİZYON ── */}
+                            {/*  MSYON & VZYON  */}
                             <div className="ft-section" style={{ marginTop: "48px" }}>
-                                <div className="ft-section-label">🎯 MİSYON & VİZYON</div>
-                                <h3 className="ft-section-title">Neden Varız?</h3>
+                                <div className="ft-section-label"> MSYON & VZYON</div>
+                                <h3 className="ft-section-title">Neden Varz?</h3>
                             </div>
 
                             <div className="ab-mv-grid">
                                 <div className="ab-mv-card ab-mv-card--mission">
-                                    <div className="ab-mv-icon">🎯</div>
+                                    <div className="ab-mv-icon"></div>
                                     <h4>Misyonumuz</h4>
                                     <p>
-                                        E-ticaret işletmelerinin tüm operasyonlarını tek bir platformdan yönetmelerini sağlayarak,
-                                        satıcıların verimliliğini artırmak ve büyümelerini hızlandırmak. Her ölçekteki işletmeye
-                                        kurumsal düzeyde araçlar sunmak.
+                                        E-ticaret iletmelerinin tm operasyonlarn tek bir platformdan ynetmelerini salayarak,
+                                        satclarn verimliliini artrmak ve bymelerini hzlandrmak. Her lekteki iletmeye
+                                        kurumsal dzeyde aralar sunmak.
                                     </p>
                                     <div className="ab-mv-highlights">
-                                        <span>✦ Tek platform, sınırsız imkan</span>
-                                        <span>✦ Her ölçeğe uygun çözüm</span>
-                                        <span>✦ Satıcı odaklı geliştirme</span>
+                                        <span> Tek platform, snrsz imkan</span>
+                                        <span> Her lee uygun zm</span>
+                                        <span> Satc odakl gelitirme</span>
                                     </div>
                                 </div>
                                 <div className="ab-mv-card ab-mv-card--vision">
-                                    <div className="ab-mv-icon">💡</div>
+                                    <div className="ab-mv-icon"></div>
                                     <h4>Vizyonumuz</h4>
                                     <p>
-                                        Türkiye'nin ve bölgenin en kapsamlı e-ticaret yönetim platformu olmak. Yapay zeka
-                                        destekli çözümlerle satıcıların rakiplerinin bir adım önünde olmasını sağlamak
-                                        ve e-ticaret ekosistemini dönüştürmek.
+                                        Trkiye'nin ve blgenin en kapsaml e-ticaret ynetim platformu olmak. Yapay zeka
+                                        destekli zmlerle satclarn rakiplerinin bir adm nnde olmasn salamak
+                                        ve e-ticaret ekosistemini dntrmek.
                                     </p>
                                     <div className="ab-mv-highlights">
-                                        <span>✦ AI-first yaklaşım</span>
-                                        <span>✦ Global ölçekte büyüme</span>
-                                        <span>✦ Ekosistem dönüşümü</span>
+                                        <span> AI-first yaklam</span>
+                                        <span> Global lekte byme</span>
+                                        <span> Ekosistem dnm</span>
                                     </div>
                                 </div>
                             </div>
 
-                            {/* ── DEĞERLER ── */}
+                            {/*  DEERLER  */}
                             <div className="ft-section" style={{ marginTop: "48px" }}>
-                                <div className="ft-section-label">💎 DEĞERLERİMİZ</div>
-                                <h3 className="ft-section-title">Bizi Biz Yapan İlkeler</h3>
+                                <div className="ft-section-label"> DEERLERMZ</div>
+                                <h3 className="ft-section-title">Bizi Biz Yapan lkeler</h3>
                             </div>
 
                             <div className="ab-values-grid">
                                 <div className="ab-value-card">
-                                    <div className="ab-value-icon" style={{ background: "linear-gradient(135deg, #7c5cfc, #a855f7)" }}>🔒</div>
-                                    <h4>Güvenlik & Gizlilik</h4>
-                                    <p>Verileriniz 256-bit SSL şifreleme, 2FA ve KVKK uyumlu altyapı ile korunur. Güvenlik bizim için taviz verilmez bir önceliktir.</p>
+                                    <div className="ab-value-icon" style={{ background: "linear-gradient(135deg, #7c5cfc, #a855f7)" }}></div>
+                                    <h4>Gvenlik & Gizlilik</h4>
+                                    <p>Verileriniz 256-bit SSL ifreleme, 2FA ve KVKK uyumlu altyap ile korunur. Gvenlik bizim iin taviz verilmez bir nceliktir.</p>
                                 </div>
                                 <div className="ab-value-card">
-                                    <div className="ab-value-icon" style={{ background: "linear-gradient(135deg, #22c55e, #16a34a)" }}>⚡</div>
-                                    <h4>Hız & Performans</h4>
-                                    <p>Gerçek zamanlı senkronizasyon, milisaniye düzeyinde yanıt süreleri. İşlemleriniz anında tüm pazaryerlerine yansır.</p>
+                                    <div className="ab-value-icon" style={{ background: "linear-gradient(135deg, #22c55e, #16a34a)" }}></div>
+                                    <h4>Hz & Performans</h4>
+                                    <p>Gerek zamanl senkronizasyon, milisaniye dzeyinde yant sreleri. lemleriniz annda tm pazaryerlerine yansr.</p>
                                 </div>
                                 <div className="ab-value-card">
-                                    <div className="ab-value-icon" style={{ background: "linear-gradient(135deg, #f59e0b, #d97706)" }}>🚀</div>
-                                    <h4>Sürekli İnovasyon</h4>
-                                    <p>Her hafta yeni özellikler, her ay büyük güncellemeler. Kullanıcı geri bildirimlerini dinler, hızla hayata geçiririz.</p>
+                                    <div className="ab-value-icon" style={{ background: "linear-gradient(135deg, #f59e0b, #d97706)" }}></div>
+                                    <h4>Srekli novasyon</h4>
+                                    <p>Her hafta yeni zellikler, her ay byk gncellemeler. Kullanc geri bildirimlerini dinler, hzla hayata geiririz.</p>
                                 </div>
                                 <div className="ab-value-card">
-                                    <div className="ab-value-icon" style={{ background: "linear-gradient(135deg, #ec4899, #db2777)" }}>❤️</div>
-                                    <h4>Müşteri Odaklılık</h4>
-                                    <p>7/24 destek, dedicated hesap yöneticileri ve kişiselleştirilmiş onboarding. Başarınız bizim başarımızdır.</p>
+                                    <div className="ab-value-icon" style={{ background: "linear-gradient(135deg, #ec4899, #db2777)" }}></div>
+                                    <h4>Mteri Odakllk</h4>
+                                    <p>7/24 destek, dedicated hesap yneticileri ve kiiselletirilmi onboarding. Baarnz bizim baarmzdr.</p>
                                 </div>
                                 <div className="ab-value-card">
-                                    <div className="ab-value-icon" style={{ background: "linear-gradient(135deg, #06b6d4, #0891b2)" }}>📈</div>
-                                    <h4>Ölçeklenebilirlik</h4>
-                                    <p>10 ürünle başlayın, 100.000 ürüne kadar büyüyün. Altyapımız işinizle birlikte büyür, sizi asla yavaşlatmaz.</p>
+                                    <div className="ab-value-icon" style={{ background: "linear-gradient(135deg, #06b6d4, #0891b2)" }}></div>
+                                    <h4>leklenebilirlik</h4>
+                                    <p>10 rnle balayn, 100.000 rne kadar byyn. Altyapmz iinizle birlikte byr, sizi asla yavalatmaz.</p>
                                 </div>
                                 <div className="ab-value-card">
-                                    <div className="ab-value-icon" style={{ background: "linear-gradient(135deg, #6366f1, #4f46e5)" }}>🤝</div>
-                                    <h4>Şeffaflık</h4>
-                                    <p>Gizli ücret yok, sürpriz fatura yok. Fiyatlandırmadan yol haritasına kadar her şey açık ve net.</p>
+                                    <div className="ab-value-icon" style={{ background: "linear-gradient(135deg, #6366f1, #4f46e5)" }}></div>
+                                    <h4>effaflk</h4>
+                                    <p>Gizli cret yok, srpriz fatura yok. Fiyatlandrmadan yol haritasna kadar her ey ak ve net.</p>
                                 </div>
                             </div>
 
-                            {/* ── TEKNOLOJİ ALTYAPISI ── */}
+                            {/*  TEKNOLOJ ALTYAPISI  */}
                             <div className="ab-tech-banner">
                                 <div className="ab-tech-banner-glow" />
                                 <div className="ab-tech-banner-content">
-                                    <div className="ft-ai-badge">🔧 TEKNOLOJİ ALTYAPIMIZ</div>
-                                    <h3>Modern, Güvenilir & Ölçeklenebilir</h3>
-                                    <p>En son teknolojilerle inşa edilmiş, kurumsal düzeyde güvenilir bir altyapı.</p>
+                                    <div className="ft-ai-badge"> TEKNOLOJ ALTYAPIMIZ</div>
+                                    <h3>Modern, Gvenilir & leklenebilir</h3>
+                                    <p>En son teknolojilerle ina edilmi, kurumsal dzeyde gvenilir bir altyap.</p>
                                     <div className="ab-tech-stack">
                                         <div className="ab-tech-item">
-                                            <div className="ab-tech-item-icon">⚛️</div>
+                                            <div className="ab-tech-item-icon"></div>
                                             <div>
                                                 <strong>React.js</strong>
-                                                <small>Modern & hızlı kullanıcı arayüzü</small>
+                                                <small>Modern & hzl kullanc arayz</small>
                                             </div>
                                         </div>
                                         <div className="ab-tech-item">
-                                            <div className="ab-tech-item-icon">🟢</div>
+                                            <div className="ab-tech-item-icon"></div>
                                             <div>
                                                 <strong>Node.js</strong>
-                                                <small>Yüksek performanslı backend</small>
+                                                <small>Yksek performansl backend</small>
                                             </div>
                                         </div>
                                         <div className="ab-tech-item">
-                                            <div className="ab-tech-item-icon">🍃</div>
+                                            <div className="ab-tech-item-icon"></div>
                                             <div>
                                                 <strong>MongoDB</strong>
-                                                <small>Esnek & ölçeklenebilir veritabanı</small>
+                                                <small>Esnek & leklenebilir veritaban</small>
                                             </div>
                                         </div>
                                         <div className="ab-tech-item">
-                                            <div className="ab-tech-item-icon">☁️</div>
+                                            <div className="ab-tech-item-icon"></div>
                                             <div>
                                                 <strong>AWS Cloud</strong>
                                                 <small>%99.9 uptime garantisi</small>
                                             </div>
                                         </div>
                                         <div className="ab-tech-item">
-                                            <div className="ab-tech-item-icon">🧠</div>
+                                            <div className="ab-tech-item-icon"></div>
                                             <div>
                                                 <strong>GPT-4 AI</strong>
                                                 <small>Yapay zeka destekli analiz</small>
                                             </div>
                                         </div>
                                         <div className="ab-tech-item">
-                                            <div className="ab-tech-item-icon">🔒</div>
+                                            <div className="ab-tech-item-icon"></div>
                                             <div>
                                                 <strong>SSL & 2FA</strong>
-                                                <small>Kurumsal güvenlik standartları</small>
+                                                <small>Kurumsal gvenlik standartlar</small>
                                             </div>
                                         </div>
                                     </div>
                                 </div>
                             </div>
 
-                            {/* ── RAKAMLARLA BİZ ── */}
+                            {/*  RAKAMLARLA BZ  */}
                             <div className="ft-section" style={{ marginTop: "48px" }}>
-                                <div className="ft-section-label">📊 RAKAMLARLA LysiaETIC</div>
-                                <h3 className="ft-section-title">Büyüyen Bir Ekosistem</h3>
+                                <div className="ft-section-label"> RAKAMLARLA Pazarynetim</div>
+                                <h3 className="ft-section-title">Byyen Bir Ekosistem</h3>
                             </div>
 
                             <div className="ab-numbers-grid">
                                 <div className="ab-number-card">
                                     <div className="ab-number-value">5+</div>
                                     <div className="ab-number-label">Pazaryeri<br/>Entegrasyonu</div>
-                                    <div className="ab-number-desc">Trendyol, Hepsiburada, Amazon, N11, Çiçeksepeti</div>
+                                    <div className="ab-number-desc">Trendyol, Hepsiburada, Amazon, N11, ieksepeti</div>
                                 </div>
                                 <div className="ab-number-card">
                                     <div className="ab-number-value">15+</div>
-                                    <div className="ab-number-label">Modül &<br/>Araç</div>
-                                    <div className="ab-number-desc">Stok, sipariş, finans, AI, radar, kargo ve daha fazlası</div>
+                                    <div className="ab-number-label">Modl &<br/>Ara</div>
+                                    <div className="ab-number-desc">Stok, sipari, finans, AI, radar, kargo ve daha fazlas</div>
                                 </div>
                                 <div className="ab-number-card">
                                     <div className="ab-number-value">50K+</div>
-                                    <div className="ab-number-label">Yönetilen<br/>Ürün</div>
-                                    <div className="ab-number-desc">Platformumuz üzerinden yönetilen toplam ürün sayısı</div>
+                                    <div className="ab-number-label">Ynetilen<br/>rn</div>
+                                    <div className="ab-number-desc">Platformumuz zerinden ynetilen toplam rn says</div>
                                 </div>
                                 <div className="ab-number-card">
                                     <div className="ab-number-value">99.9%</div>
                                     <div className="ab-number-label">Uptime<br/>Garantisi</div>
-                                    <div className="ab-number-desc">AWS altyapısı ile kesintisiz hizmet</div>
+                                    <div className="ab-number-desc">AWS altyaps ile kesintisiz hizmet</div>
                                 </div>
                                 <div className="ab-number-card">
                                     <div className="ab-number-value">7/24</div>
                                     <div className="ab-number-label">Teknik<br/>Destek</div>
-                                    <div className="ab-number-desc">Canlı destek, e-posta ve bilgi bankası</div>
+                                    <div className="ab-number-desc">Canl destek, e-posta ve bilgi bankas</div>
                                 </div>
                                 <div className="ab-number-card">
                                     <div className="ab-number-value">2024</div>
-                                    <div className="ab-number-label">Kuruluş<br/>Yılı</div>
-                                    <div className="ab-number-desc">Genç, dinamik ve hızla büyüyen bir ekip</div>
+                                    <div className="ab-number-label">Kurulu<br/>Yl</div>
+                                    <div className="ab-number-desc">Gen, dinamik ve hzla byyen bir ekip</div>
                                 </div>
                             </div>
 
-                            {/* ── NEDEN LysiaETIC? ── */}
+                            {/*  NEDEN Pazarynetim?  */}
                             <div className="ft-section" style={{ marginTop: "48px" }}>
-                                <div className="ft-section-label">🏆 NEDEN LysiaETIC?</div>
-                                <h3 className="ft-section-title">Farkımız Ne?</h3>
+                                <div className="ft-section-label"> NEDEN Pazarynetim?</div>
+                                <h3 className="ft-section-title">Farkmz Ne?</h3>
                             </div>
 
                             <div className="ab-why-grid">
                                 <div className="ab-why-card">
                                     <div className="ab-why-number">01</div>
                                     <h4>Hepsi Bir Arada</h4>
-                                    <p>Pazaryeri entegrasyonu, stok yönetimi, sipariş takibi, finans, kargo, AI analiz — hepsi tek platformda. 10 farklı araç yerine sadece LysiaETIC.</p>
+                                    <p>Pazaryeri entegrasyonu, stok ynetimi, sipari takibi, finans, kargo, AI analiz  hepsi tek platformda. 10 farkl ara yerine sadece Pazarynetim.</p>
                                 </div>
                                 <div className="ab-why-card">
                                     <div className="ab-why-number">02</div>
-                                    <h4>Yapay Zeka Gücü</h4>
-                                    <p>LysiaBrain AI ve LysiaRadar PRO ile rakiplerinizi analiz edin, trendleri önceden görün, fırsatları yakalayın. AI sizin için çalışsın.</p>
+                                    <h4>Yapay Zeka Gc</h4>
+                                    <p>LysiaBrain AI ve LysiaRadar PRO ile rakiplerinizi analiz edin, trendleri nceden grn, frsatlar yakalayn. AI sizin iin alsn.</p>
                                 </div>
                                 <div className="ab-why-card">
                                     <div className="ab-why-number">03</div>
-                                    <h4>Kolay Kullanım</h4>
-                                    <p>Sezgisel arayüz, sürükle-bırak işlemler, akıllı kısayollar. Teknik bilgi gerektirmez, 5 dakikada kullanmaya başlayın.</p>
+                                    <h4>Kolay Kullanm</h4>
+                                    <p>Sezgisel arayz, srkle-brak ilemler, akll ksayollar. Teknik bilgi gerektirmez, 5 dakikada kullanmaya balayn.</p>
                                 </div>
                                 <div className="ab-why-card">
                                     <div className="ab-why-number">04</div>
-                                    <h4>Türkiye'ye Özel</h4>
-                                    <p>Türk pazaryerlerine tam uyumlu, TL bazlı fiyatlandırma, Türkçe destek, KVKK uyumlu. Yerel ihtiyaçları bilen bir platform.</p>
+                                    <h4>Trkiye'ye zel</h4>
+                                    <p>Trk pazaryerlerine tam uyumlu, TL bazl fiyatlandrma, Trke destek, KVKK uyumlu. Yerel ihtiyalar bilen bir platform.</p>
                                 </div>
                             </div>
 
-                            {/* ── YOLCULUK / TİMELİNE ── */}
+                            {/*  YOLCULUK / TMELNE  */}
                             <div className="ft-section" style={{ marginTop: "48px" }}>
-                                <div className="ft-section-label">🗺️ YOLCULUĞUMUZ</div>
+                                <div className="ft-section-label"> YOLCULUUMUZ</div>
                                 <h3 className="ft-section-title">Nereden Nereye</h3>
                             </div>
 
@@ -1274,16 +1274,16 @@ const LoginFormInner = () => {
                                     <div className="ab-timeline-dot" />
                                     <div className="ab-timeline-content">
                                         <div className="ab-timeline-date">2024 Q1</div>
-                                        <h4>Fikir & Araştırma</h4>
-                                        <p>E-ticaret satıcılarının ihtiyaçları analiz edildi, pazar araştırması yapıldı, teknik altyapı planlandı.</p>
+                                        <h4>Fikir & Aratrma</h4>
+                                        <p>E-ticaret satclarnn ihtiyalar analiz edildi, pazar aratrmas yapld, teknik altyap planland.</p>
                                     </div>
                                 </div>
                                 <div className="ab-timeline-item">
                                     <div className="ab-timeline-dot ab-timeline-dot--active" />
                                     <div className="ab-timeline-content">
                                         <div className="ab-timeline-date">2024 Q2</div>
-                                        <h4>MVP Geliştirme</h4>
-                                        <p>Temel pazaryeri entegrasyonları, ürün yönetimi ve sipariş takibi modülleri geliştirildi.</p>
+                                        <h4>MVP Gelitirme</h4>
+                                        <p>Temel pazaryeri entegrasyonlar, rn ynetimi ve sipari takibi modlleri gelitirildi.</p>
                                     </div>
                                 </div>
                                 <div className="ab-timeline-item">
@@ -1291,7 +1291,7 @@ const LoginFormInner = () => {
                                     <div className="ab-timeline-content">
                                         <div className="ab-timeline-date">2024 Q3</div>
                                         <h4>AI Entegrasyonu</h4>
-                                        <p>LysiaBrain AI asistan, LysiaRadar PRO fırsat motoru ve gelişmiş analitik modülleri eklendi.</p>
+                                        <p>LysiaBrain AI asistan, LysiaRadar PRO frsat motoru ve gelimi analitik modlleri eklendi.</p>
                                     </div>
                                 </div>
                                 <div className="ab-timeline-item">
@@ -1299,71 +1299,71 @@ const LoginFormInner = () => {
                                     <div className="ab-timeline-content">
                                         <div className="ab-timeline-date">2024 Q4</div>
                                         <h4>Tam Lansman</h4>
-                                        <p>Finans modülü, kargo entegrasyonu, mobil PWA desteği ve kurumsal paketlerle tam lansman.</p>
+                                        <p>Finans modl, kargo entegrasyonu, mobil PWA destei ve kurumsal paketlerle tam lansman.</p>
                                     </div>
                                 </div>
                                 <div className="ab-timeline-item">
                                     <div className="ab-timeline-dot" />
                                     <div className="ab-timeline-content">
                                         <div className="ab-timeline-date">2025+</div>
-                                        <h4>Global Büyüme</h4>
-                                        <p>Uluslararası pazaryeri entegrasyonları, çoklu dil desteği ve bölgesel genişleme planları.</p>
+                                        <h4>Global Byme</h4>
+                                        <p>Uluslararas pazaryeri entegrasyonlar, oklu dil destei ve blgesel genileme planlar.</p>
                                     </div>
                                 </div>
                             </div>
 
-                            {/* ── İLETİŞİM ── */}
+                            {/*  LETM  */}
                             <div className="ab-contact-banner">
                                 <div className="ab-contact-glow" />
                                 <div className="ab-contact-content">
-                                    <h3>Bizimle İletişime Geçin</h3>
-                                    <p>Sorularınız mı var? Ekibimiz size yardımcı olmaktan mutluluk duyar.</p>
+                                    <h3>Bizimle letiime Gein</h3>
+                                    <p>Sorularnz m var? Ekibimiz size yardmc olmaktan mutluluk duyar.</p>
                                     <div className="ab-contact-grid">
                                         <div className="ab-contact-item">
-                                            <span>📧</span>
+                                            <span></span>
                                             <div>
                                                 <strong>E-posta</strong>
-                                                <small>info@lysiaetic.com</small>
+                                                <small>info@pazaryonetim.com</small>
                                             </div>
                                         </div>
                                         <div className="ab-contact-item">
-                                            <span>💬</span>
+                                            <span></span>
                                             <div>
-                                                <strong>Canlı Destek</strong>
-                                                <small>7/24 anlık yardım</small>
+                                                <strong>Canl Destek</strong>
+                                                <small>7/24 anlk yardm</small>
                                             </div>
                                         </div>
                                         <div className="ab-contact-item">
-                                            <span>📍</span>
+                                            <span></span>
                                             <div>
                                                 <strong>Konum</strong>
-                                                <small>İstanbul, Türkiye</small>
+                                                <small>stanbul, Trkiye</small>
                                             </div>
                                         </div>
                                         <div className="ab-contact-item">
-                                            <span>📱</span>
+                                            <span></span>
                                             <div>
                                                 <strong>Sosyal Medya</strong>
-                                                <small>@lysiaetic</small>
+                                                <small>@pazaryonetim</small>
                                             </div>
                                         </div>
                                     </div>
                                 </div>
                             </div>
 
-                            {/* ── CTA ── */}
+                            {/*  CTA  */}
                             <div className="ft-cta">
-                                <h3>Hemen Başlayın — 14 Gün Ücretsiz Deneyin</h3>
-                                <p>Kredi kartı gerekmez. Tüm özelliklere tam erişim. İstediğiniz zaman iptal edin.</p>
+                                <h3>Hemen Balayn  14 Gn cretsiz Deneyin</h3>
+                                <p>Kredi kart gerekmez. Tm zelliklere tam eriim. stediiniz zaman iptal edin.</p>
                                 <button className="ft-cta-btn" type="button" onClick={() => setActiveTab("home")}>
-                                    Ücretsiz Kayıt Ol →
+                                    cretsiz Kayt Ol 
                                 </button>
                             </div>
                         </div>
                     )}
                 </div>
 
-                {/* Sağ — Login Form (hidden on features/pricing/about tabs) */}
+                {/* Sa  Login Form (hidden on features/pricing/about tabs) */}
                 {activeTab !== "features" && activeTab !== "pricing" && activeTab !== "about" && (
                     <div className="auth-form-panel auth-fade-in-delay">
                         {forgotMode ? renderForgotForm() : renderLoginForm()}
@@ -1371,7 +1371,7 @@ const LoginFormInner = () => {
                 )}
             </div>
 
-            {/* Footer — ✅ FIX E6: Shared component */}
+            {/* Footer   FIX E6: Shared component */}
             <AuthFooter />
         </div>
     );
@@ -1384,3 +1384,5 @@ const LoginForm = () => (
 );
 
 export default LoginForm;
+
+

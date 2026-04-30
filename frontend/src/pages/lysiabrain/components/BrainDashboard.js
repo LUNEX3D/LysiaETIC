@@ -1,9 +1,9 @@
 /**
- * ═══════════════════════════════════════════════════════════════
- * LYSIA BRAIN v10 — Dashboard Tab — DARK GLASSMORPHISM
- * ═══════════════════════════════════════════════════════════════
+ * 
+ * LYSIA BRAIN v10  Dashboard Tab  DARK GLASSMORPHISM
+ * 
  * + i18n support + responsive layout + accessibility
- * ═══════════════════════════════════════════════════════════════
+ * 
  */
 import React from "react";
 import { T, fmt, fmtN, useResponsive } from "../styles";
@@ -12,7 +12,7 @@ import { Card, CardHeader, StatCard, ScoreRing, HealthBar, Badge, Btn, EmptyStat
 const BrainDashboard = ({ brain, recSummary, onTabChange, onAutoDecide, onDiagnosis, autoDecideLoading, autoDecisions, t }) => {
     const { isMobile, isTablet } = useResponsive();
 
-    if (!brain) return <EmptyState icon="🧠" title={t("common.loading")} description="LysiaBrain" />;
+    if (!brain) return <EmptyState icon="" title={t("common.loading")} description="LysiaBrain" />;
 
     const bh = brain.businessHealth || {};
     const tone = brain.emotionalTone || {};
@@ -25,7 +25,7 @@ const BrainDashboard = ({ brain, recSummary, onTabChange, onAutoDecide, onDiagno
     return (
         <div style={{ display: "flex", flexDirection: "column", gap: isMobile ? "1.5rem" : "2.5rem", maxWidth: 1400, margin: "0 auto" }}>
 
-            {/* ═══ AI THOUGHT PROCESS (REAL-TIME AGENT FEEL) ═══ */}
+            {/*  AI THOUGHT PROCESS (REAL-TIME AGENT FEEL)  */}
             {thoughtProcess.steps && (
                 <section>
                     <Card style={{ 
@@ -72,7 +72,7 @@ const BrainDashboard = ({ brain, recSummary, onTabChange, onAutoDecide, onDiagno
                 </section>
             )}
 
-            {/* ═══ AI COMMAND CENTER (HERO) ═══ */}
+            {/*  AI COMMAND CENTER (HERO)  */}
             <section style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1.6fr 1fr", gap: "1.5rem" }}>
                 <Card glow style={{ 
                     background: `radial-gradient(circle at 10% 10%, ${T.accent}10, transparent 40%), ${T.bgCard}`, 
@@ -83,7 +83,7 @@ const BrainDashboard = ({ brain, recSummary, onTabChange, onAutoDecide, onDiagno
                     justifyContent: "center"
                 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1rem" }}>
-                        <Badge color={T.accent} size="lg">✦ AI ONLINE</Badge>
+                        <Badge color={T.accent} size="lg"> AI ONLINE</Badge>
                         <span style={{ fontSize: "0.7rem", color: T.textDim, fontWeight: 700 }}>VER. 10.4.5</span>
                     </div>
                     <h1 style={{ 
@@ -115,45 +115,45 @@ const BrainDashboard = ({ brain, recSummary, onTabChange, onAutoDecide, onDiagno
 
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" }}>
                     <InsightCard 
-                        icon="📈" 
+                        icon="" 
                         title={t("dash.today_revenue")} 
                         value={fmt(money.todayRevenue)} 
                         trend={bh.metrics?.revenueTrend}
-                        description="Son 24 saatlik satış hacmi"
+                        description="Son 24 saatlik sat hacmi"
                         onClick={() => onTabChange("predictions")}
                     />
                     <InsightCard 
-                        icon="💎" 
+                        icon="" 
                         title={t("dash.ai_earned")} 
                         value={fmt(money.aiEarnings)} 
                         status="success"
-                        description="AI önerileriyle sağlanan ek kâr"
+                        description="AI nerileriyle salanan ek kr"
                         onClick={() => onTabChange("roi")}
                     />
                     <InsightCard 
-                        icon="🚨" 
+                        icon="" 
                         title={t("dash.loss_detected")} 
                         value={fmt(money.potentialLoss)} 
                         status="danger"
-                        description="Kritik zarar riski taşıyan ürünler"
+                        description="Kritik zarar riski tayan rnler"
                         onClick={() => onTabChange("losses")}
                     />
                     <InsightCard 
-                        icon="🎯" 
+                        icon="" 
                         title={t("dash.pending_recs")} 
                         value={recSummary.pending || 0} 
                         status="warning"
-                        description="Uygulanmayı bekleyen stratejik kararlar"
+                        description="Uygulanmay bekleyen stratejik kararlar"
                         onClick={() => onTabChange("recommendations")}
                     />
                 </div>
             </section>
 
-            {/* ═══ CRITICAL ALERTS (HIGH CONTRAST) ═══ */}
+            {/*  CRITICAL ALERTS (HIGH CONTRAST)  */}
             {redAlerts.hasAlerts && (
                 <section>
                     <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", marginBottom: "1rem" }}>
-                        <span style={{ fontSize: "1.25rem" }}>🚨</span>
+                        <span style={{ fontSize: "1.25rem" }}></span>
                         <h2 style={{ fontSize: "1.1rem", fontWeight: 800, margin: 0, textTransform: "uppercase", letterSpacing: "0.05em", color: T.red }}>Immediate Actions Required</h2>
                     </div>
                     <div style={{ display: "grid", gridTemplateColumns: isTablet ? "1fr" : "1fr 1fr", gap: "1rem" }}>
@@ -182,23 +182,23 @@ const BrainDashboard = ({ brain, recSummary, onTabChange, onAutoDecide, onDiagno
                 </section>
             )}
 
-            {/* ═══ CORE METRICS ═══ */}
+            {/*  CORE METRICS  */}
             <section style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "1rem" }}>
-                <StatCard icon="⚡" label={t("dash.today_revenue")} value={fmt(bh.metrics?.todayRevenue)} color={T.accent} trend={bh.metrics?.revenueTrend} />
-                <StatCard icon="💎" label={t("dash.net_profit")} value={fmt(money.summary?.netProfit || 0)} color={T.green} />
-                <StatCard icon="📉" label={t("dash.total_loss")} value={fmt(money.summary?.totalLoss || 0)} color={T.red} />
-                <StatCard icon="✦" label={t("dash.pending_recs")} value={recSummary?.pending || 0} color={T.purple} />
-                <StatCard icon="🛡️" label="Sistem Sağlığı" value={`%${overallScore}`} color={overallScore > 70 ? T.green : T.yellow} />
+                <StatCard icon="" label={t("dash.today_revenue")} value={fmt(bh.metrics?.todayRevenue)} color={T.accent} trend={bh.metrics?.revenueTrend} />
+                <StatCard icon="" label={t("dash.net_profit")} value={fmt(money.summary?.netProfit || 0)} color={T.green} />
+                <StatCard icon="" label={t("dash.total_loss")} value={fmt(money.summary?.totalLoss || 0)} color={T.red} />
+                <StatCard icon="" label={t("dash.pending_recs")} value={recSummary?.pending || 0} color={T.purple} />
+                <StatCard icon="" label="Sistem Sal" value={`%${overallScore}`} color={overallScore > 70 ? T.green : T.yellow} />
             </section>
 
-            {/* ═══ INTELLIGENCE GRID ═══ */}
+            {/*  INTELLIGENCE GRID  */}
             <div style={{ display: "grid", gridTemplateColumns: isTablet ? "1fr" : "2fr 1.2fr", gap: "2rem" }}>
                 
                 {/* Left: Recommendations or Decisions */}
                 <div style={{ display: "flex", flexDirection: "column", gap: "2rem" }}>
                     {autoDecisions ? (
                         <Card glow>
-                            <CardHeader icon="✦" title={t("dash.ai_decisions")} subtitle={autoDecisions.summary} badge={`${autoDecisions.totalDecisions}`} color={T.accent} />
+                            <CardHeader icon="" title={t("dash.ai_decisions")} subtitle={autoDecisions.summary} badge={`${autoDecisions.totalDecisions}`} color={T.accent} />
                             <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: "1rem" }}>
                                 {(autoDecisions.decisions || []).slice(0, 6).map((d, i) => (
                                     <div key={i} style={{ padding: "1rem", background: T.bgGlass, borderRadius: T.rSm, border: `1px solid ${T.border}` }}>
@@ -214,7 +214,7 @@ const BrainDashboard = ({ brain, recSummary, onTabChange, onAutoDecide, onDiagno
                         </Card>
                     ) : (
                         <Card>
-                            <CardHeader icon="◈" title="Strategic Intelligence" subtitle="Recent AI findings and focus items" color={T.accent} />
+                            <CardHeader icon="" title="Strategic Intelligence" subtitle="Recent AI findings and focus items" color={T.accent} />
                             <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
                                 {(brain.focusItems || []).slice(0, 4).map((f, i) => (
                                     <div key={i} style={{ display: "flex", gap: "1.25rem", padding: "1.25rem", background: T.bgGlass, borderRadius: T.rSm, border: `1px solid ${T.border}`, alignItems: "center" }}>
@@ -235,7 +235,7 @@ const BrainDashboard = ({ brain, recSummary, onTabChange, onAutoDecide, onDiagno
                 {/* Right: Health & Top Performers */}
                 <div style={{ display: "flex", flexDirection: "column", gap: "2rem" }}>
                     <Card>
-                        <CardHeader icon="📊" title="Operational Health" color={T.green} />
+                        <CardHeader icon="" title="Operational Health" color={T.green} />
                         <HealthBar value={bh.profitHealth || 0} label="PROFITABILITY" color={T.green} />
                         <HealthBar value={bh.stockHealth || 0} label="INVENTORY" color={T.blue} />
                         <HealthBar value={bh.salesHealth || 0} label="SALES VELOCITY" color={T.yellow} />
@@ -243,7 +243,7 @@ const BrainDashboard = ({ brain, recSummary, onTabChange, onAutoDecide, onDiagno
                     </Card>
 
                     <Card>
-                        <CardHeader icon="🏆" title="Top Contributors" color={T.accent} />
+                        <CardHeader icon="" title="Top Contributors" color={T.accent} />
                         <div style={{ display: "flex", flexDirection: "column", gap: "0.75rem" }}>
                             {(money.topEarners || []).slice(0, 3).map((p, i) => (
                                 <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.75rem 1rem", background: "rgba(52,211,153,0.06)", borderRadius: T.rSm }}>

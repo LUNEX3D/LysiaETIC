@@ -96,14 +96,14 @@ const UserProfilePage = ({ userId, marketplaces }) => {
         setLoading(true);
         try {
             const token = localStorage.getItem("token");
-            console.log("🔑 Token:", token ? "Mevcut" : "YOK!");
-            console.log("📡 API çağrısı yapılıyor: /user/profile");
+            console.log(" Token:", token ? "Mevcut" : "YOK!");
+            console.log(" API çarısı yapılıyor: /user/profile");
 
             const response = await axios.get("/user/profile", {
                 headers: { Authorization: `Bearer ${token}` }
             });
 
-            console.log("✅ Profil yüklendi:", response.data);
+            console.log(" Profil yüklendi:", response.data);
 
             // Handle both response formats
             const userData = response.data.success ? response.data : response.data;
@@ -138,9 +138,9 @@ const UserProfilePage = ({ userId, marketplaces }) => {
 
             setApiKeys(userData.apiKeys || []);
         } catch (error) {
-            console.error("❌ Profil yüklenirken hata:", error);
-            console.error("❌ Error response:", error.response);
-            console.error("❌ Error message:", error.message);
+            console.error(" Profil yüklenirken hata:", error);
+            console.error(" Error response:", error.response);
+            console.error(" Error message:", error.message);
 
             const errorMessage = error.response?.data?.message || error.message || "Profil bilgileri yüklenemedi!";
             showMessage("error", errorMessage);
@@ -155,12 +155,12 @@ const UserProfilePage = ({ userId, marketplaces }) => {
                 headers: { Authorization: `Bearer ${localStorage.getItem("token")}` }
             });
 
-            console.log("📊 İstatistikler yüklendi:", response.data);
+            console.log(" İstatistikler yüklendi:", response.data);
 
             const statsData = response.data.success ? response.data : response.data;
             setStats(statsData);
         } catch (error) {
-            console.error("⚠️ İstatistikler yüklenirken hata:", error);
+            console.error("️ İstatistikler yüklenirken hata:", error);
             // Set default values on error
             setStats({
                 totalOrders: 0,
@@ -181,22 +181,22 @@ const UserProfilePage = ({ userId, marketplaces }) => {
         setSaving(true);
 
         try {
-            console.log("📝 Profil güncelleniyor:", profileForm);
+            console.log(" Profil güncelleniyor:", profileForm);
 
             const response = await axios.put("/user/profile", profileForm, {
                 headers: { Authorization: `Bearer ${localStorage.getItem("token")}` }
             });
 
-            console.log("✅ Profil güncelleme yanıtı:", response.data);
+            console.log(" Profil güncelleme yanıtı:", response.data);
 
             if (response.data.success) {
-                showMessage("success", "Profil bilgileri başarıyla güncellendi!");
+                showMessage("success", "Profil bilgileri baarıyla güncellendi!");
                 loadUserProfile();
             } else {
                 showMessage("error", response.data.message || "Profil güncellenemedi!");
             }
         } catch (error) {
-            console.error("❌ Profil güncellenirken hata:", error);
+            console.error(" Profil güncellenirken hata:", error);
             const errorMessage = error.response?.data?.message || "Profil güncellenemedi!";
             showMessage("error", errorMessage);
         } finally {
@@ -208,7 +208,7 @@ const UserProfilePage = ({ userId, marketplaces }) => {
         e.preventDefault();
 
         if (passwordForm.newPassword !== passwordForm.confirmPassword) {
-            showMessage("error", "Yeni şifreler eşleşmiyor!");
+            showMessage("error", "Yeni ifreler elemiyor!");
             return;
         }
 
@@ -220,7 +220,7 @@ const UserProfilePage = ({ userId, marketplaces }) => {
         setSaving(true);
 
         try {
-            console.log("🔒 Şifre değiştiriliyor...");
+            console.log(" Şifre deitiriliyor...");
 
             const response = await axios.put("/user/change-password", {
                 currentPassword: passwordForm.currentPassword,
@@ -229,17 +229,17 @@ const UserProfilePage = ({ userId, marketplaces }) => {
                 headers: { Authorization: `Bearer ${localStorage.getItem("token")}` }
             });
 
-            console.log("✅ Şifre değiştirme yanıtı:", response.data);
+            console.log(" Şifre deitirme yanıtı:", response.data);
 
             if (response.data.success) {
-                showMessage("success", "Şifre başarıyla değiştirildi!");
+                showMessage("success", "Şifre baarıyla deitirildi!");
                 setPasswordForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
             } else {
-                showMessage("error", response.data.message || "Şifre değiştirilemedi!");
+                showMessage("error", response.data.message || "Şifre deitirilemedi!");
             }
         } catch (error) {
-            console.error("❌ Şifre değiştirilirken hata:", error);
-            const errorMessage = error.response?.data?.message || "Şifre değiştirilemedi!";
+            console.error(" Şifre deitirilirken hata:", error);
+            const errorMessage = error.response?.data?.message || "Şifre deitirilemedi!";
             showMessage("error", errorMessage);
         } finally {
             setSaving(false);
@@ -250,13 +250,13 @@ const UserProfilePage = ({ userId, marketplaces }) => {
         setSaving(true);
 
         try {
-            console.log("🔔 Bildirim tercihleri güncelleniyor:", notifications);
+            console.log(" Bildirim tercihleri güncelleniyor:", notifications);
 
             const response = await axios.put("/user/notifications", notifications, {
                 headers: { Authorization: `Bearer ${localStorage.getItem("token")}` }
             });
 
-            console.log("✅ Bildirim güncelleme yanıtı:", response.data);
+            console.log(" Bildirim güncelleme yanıtı:", response.data);
 
             if (response.data.success) {
                 showMessage("success", "Bildirim tercihleri güncellendi!");
@@ -264,7 +264,7 @@ const UserProfilePage = ({ userId, marketplaces }) => {
                 showMessage("error", response.data.message || "Bildirim tercihleri güncellenemedi!");
             }
         } catch (error) {
-            console.error("❌ Bildirimler güncellenirken hata:", error);
+            console.error(" Bildirimler güncellenirken hata:", error);
             const errorMessage = error.response?.data?.message || "Bildirim tercihleri güncellenemedi!";
             showMessage("error", errorMessage);
         } finally {
@@ -281,7 +281,7 @@ const UserProfilePage = ({ userId, marketplaces }) => {
         setSaving(true);
 
         try {
-            console.log("🔑 API anahtarı oluşturuluyor:", newApiKeyName);
+            console.log(" API anahtarı oluturuluyor:", newApiKeyName);
 
             const response = await axios.post("/user/api-key", {
                 name: newApiKeyName
@@ -289,19 +289,19 @@ const UserProfilePage = ({ userId, marketplaces }) => {
                 headers: { Authorization: `Bearer ${localStorage.getItem("token")}` }
             });
 
-            console.log("✅ API anahtarı oluşturuldu:", response.data);
+            console.log(" API anahtarı oluturuldu:", response.data);
 
             if (response.data.success || response.data.key) {
                 const newKey = response.data.success ? response.data : response.data;
                 setApiKeys([...apiKeys, newKey]);
                 setNewApiKeyName("");
-                showMessage("success", "API anahtarı oluşturuldu!");
+                showMessage("success", "API anahtarı oluturuldu!");
             } else {
-                showMessage("error", response.data.message || "API anahtarı oluşturulamadı!");
+                showMessage("error", response.data.message || "API anahtarı oluturulamadı!");
             }
         } catch (error) {
-            console.error("❌ API anahtarı oluşturulurken hata:", error);
-            const errorMessage = error.response?.data?.message || "API anahtarı oluşturulamadı!";
+            console.error(" API anahtarı oluturulurken hata:", error);
+            const errorMessage = error.response?.data?.message || "API anahtarı oluturulamadı!";
             showMessage("error", errorMessage);
         } finally {
             setSaving(false);
@@ -309,18 +309,18 @@ const UserProfilePage = ({ userId, marketplaces }) => {
     };
 
     const revokeApiKey = async (keyId) => {
-        if (!window.confirm("Bu API anahtarını iptal etmek istediğinizden emin misiniz?")) {
+        if (!window.confirm("Bu API anahtarını iptal etmek istediinizden emin misiniz?")) {
             return;
         }
 
         try {
-            console.log("🗑️ API anahtarı iptal ediliyor:", keyId);
+            console.log("️ API anahtarı iptal ediliyor:", keyId);
 
             const response = await axios.delete(`/user/api-key/${keyId}`, {
                 headers: { Authorization: `Bearer ${localStorage.getItem("token")}` }
             });
 
-            console.log("✅ API anahtarı iptal edildi:", response.data);
+            console.log(" API anahtarı iptal edildi:", response.data);
 
             if (response.data.success) {
                 setApiKeys(apiKeys.filter(k => k._id !== keyId));
@@ -329,7 +329,7 @@ const UserProfilePage = ({ userId, marketplaces }) => {
                 showMessage("error", response.data.message || "API anahtarı iptal edilemedi!");
             }
         } catch (error) {
-            console.error("❌ API anahtarı iptal edilirken hata:", error);
+            console.error(" API anahtarı iptal edilirken hata:", error);
             const errorMessage = error.response?.data?.message || "API anahtarı iptal edilemedi!";
             showMessage("error", errorMessage);
         }
@@ -378,7 +378,7 @@ const UserProfilePage = ({ userId, marketplaces }) => {
     // Verify and show current password
     const handleShowCurrentPassword = async () => {
         if (!verifyPasswordInput) {
-            showMessage("error", "Lütfen şifrenizi girin");
+            showMessage("error", "Lütfen ifrenizi girin");
             return;
         }
 
@@ -395,18 +395,18 @@ const UserProfilePage = ({ userId, marketplaces }) => {
                 setVerifiedCurrentPassword(verifyPasswordInput);
                 setShowCurrentPasswordModal(false);
                 setVerifyPasswordInput("");
-                showMessage("success", "Şifre doğrulandı!");
+                showMessage("success", "Şifre dorulandı!");
 
                 // Hide after 30 seconds
                 setTimeout(() => {
                     setVerifiedCurrentPassword("");
                 }, 30000);
             } else {
-                showMessage("error", "Şifre yanlış!");
+                showMessage("error", "Şifre yanlı!");
             }
         } catch (error) {
-            console.error("❌ Şifre doğrulama hatası:", error);
-            showMessage("error", error.response?.data?.message || "Şifre doğrulanamadı!");
+            console.error(" Şifre dorulama hatası:", error);
+            showMessage("error", error.response?.data?.message || "Şifre dorulanamadı!");
         } finally {
             setVerifying(false);
         }
@@ -497,7 +497,7 @@ const UserProfilePage = ({ userId, marketplaces }) => {
                             <span className={`role-badge role-${user?.role}`}>
                                 {user?.role === "admin" ? "Yönetici" :
                                  user?.role === "seller" ? "Satıcı" :
-                                 user?.role === "dev" ? "Geliştirici" : "Kullanıcı"}
+                                 user?.role === "dev" ? "Gelitirici" : "Kullanıcı"}
                             </span>
                         </div>
                     </div>
@@ -669,7 +669,7 @@ const UserProfilePage = ({ userId, marketplaces }) => {
 
                                 <button type="submit" className="btn-primary" disabled={saving}>
                                     {saving ? <FaSpinner className="spinner" /> : <FaSave />}
-                                    {saving ? "Kaydediliyor..." : "Değişiklikleri Kaydet"}
+                                    {saving ? "Kaydediliyor..." : "Deiiklikleri Kaydet"}
                                 </button>
                             </form>
                         </motion.div>
@@ -690,7 +690,7 @@ const UserProfilePage = ({ userId, marketplaces }) => {
                             <div className="security-card">
                                 <h3><FaKey /> Mevcut Şifre</h3>
                                 <p className="security-info">
-                                    Güvenlik nedeniyle şifrenizi görmek için doğrulama yapmanız gerekir.
+                                    Güvenlik nedeniyle ifrenizi görmek için dorulama yapmanız gerekir.
                                 </p>
 
                                 {verifiedCurrentPassword ? (
@@ -707,7 +707,7 @@ const UserProfilePage = ({ userId, marketplaces }) => {
                                             </button>
                                         </div>
                                         <p className="password-warning">
-                                            <FaExclamationTriangle /> Bu şifre 30 saniye sonra gizlenecek
+                                            <FaExclamationTriangle /> Bu ifre 30 saniye sonra gizlenecek
                                         </p>
                                     </div>
                                 ) : (
@@ -729,8 +729,8 @@ const UserProfilePage = ({ userId, marketplaces }) => {
                                         className="modal-content"
                                         onClick={(e) => e.stopPropagation()}
                                     >
-                                        <h3><FaShieldAlt /> Şifre Doğrulama</h3>
-                                        <p>Mevcut şifrenizi görmek için lütfen şifrenizi girin:</p>
+                                        <h3><FaShieldAlt /> Şifre Dorulama</h3>
+                                        <p>Mevcut ifrenizi görmek için lütfen ifrenizi girin:</p>
 
                                         <div className="form-group">
                                             <input
@@ -759,7 +759,7 @@ const UserProfilePage = ({ userId, marketplaces }) => {
                                                 disabled={verifying || !verifyPasswordInput}
                                             >
                                                 {verifying ? <FaSpinner className="spinner" /> : <FaCheckCircle />}
-                                                {verifying ? "Doğrulanıyor..." : "Doğrula"}
+                                                {verifying ? "Dorulanıyor..." : "Dorula"}
                                             </button>
                                         </div>
                                     </motion.div>
@@ -767,7 +767,7 @@ const UserProfilePage = ({ userId, marketplaces }) => {
                             )}
 
                             <div className="security-card">
-                                <h3><FaShieldAlt /> Şifre Değiştir</h3>
+                                <h3><FaShieldAlt /> Şifre Deitir</h3>
                                 <form onSubmit={handlePasswordChange} className="password-form">
                                     <div className="form-group">
                                         <label>Mevcut Şifre</label>
@@ -847,11 +847,11 @@ const UserProfilePage = ({ userId, marketplaces }) => {
                                             <div style={{ marginTop: "0.5rem" }}>
                                                 {passwordForm.newPassword === passwordForm.confirmPassword ? (
                                                     <span style={{ color: "#22c55e", fontSize: "0.875rem" }}>
-                                                        <FaCheckCircle /> Şifreler eşleşiyor
+                                                        <FaCheckCircle /> Şifreler eleiyor
                                                     </span>
                                                 ) : (
                                                     <span style={{ color: "#ef4444", fontSize: "0.875rem" }}>
-                                                        <FaExclamationTriangle /> Şifreler eşleşmiyor
+                                                        <FaExclamationTriangle /> Şifreler elemiyor
                                                     </span>
                                                 )}
                                             </div>
@@ -861,7 +861,7 @@ const UserProfilePage = ({ userId, marketplaces }) => {
                                     {/* Password Requirements */}
                                     <div className="password-requirements">
                                         <p style={{ fontSize: "0.875rem", color: "#94a3b8", marginBottom: "0.5rem" }}>
-                                            Güçlü bir şifre için:
+                                            Güçlü bir ifre için:
                                         </p>
                                         <ul style={{ fontSize: "0.8rem", color: "#64748b", paddingLeft: "1.5rem" }}>
                                             <li style={{ color: passwordForm.newPassword?.length >= 8 ? "#22c55e" : "#64748b" }}>
@@ -877,32 +877,32 @@ const UserProfilePage = ({ userId, marketplaces }) => {
                                                 Rakam içermeli
                                             </li>
                                             <li style={{ color: /[^a-zA-Z0-9]/.test(passwordForm.newPassword) ? "#22c55e" : "#64748b" }}>
-                                                Özel karakter içermeli (!@#$%^&*)
+                                                zel karakter içermeli (!@#$%^&*)
                                             </li>
                                         </ul>
                                     </div>
 
                                     <button type="submit" className="btn-primary" disabled={saving}>
                                         {saving ? <FaSpinner className="spinner" /> : <FaSave />}
-                                        {saving ? "Değiştiriliyor..." : "Şifreyi Değiştir"}
+                                        {saving ? "Deitiriliyor..." : "Şifreyi Deitir"}
                                     </button>
                                 </form>
                             </div>
 
                             <div className="security-card">
-                                <h3><FaQrcode /> İki Faktörlü Doğrulama (2FA)</h3>
+                                <h3><FaQrcode /> İki Faktörlü Dorulama (2FA)</h3>
                                 <p className="security-info">
-                                    İki faktörlü doğrulama ile hesabınızı daha güvenli hale getirin.
+                                    İki faktörlü dorulama ile hesabınızı daha güvenli hale getirin.
                                 </p>
                                 <button className="btn-secondary">
-                                    2FA'yı Etkinleştir (Yakında)
+                                    2FA'yı Etkinletir (Yakında)
                                 </button>
                             </div>
 
                             <div className="security-card">
-                                <h3><FaClock /> Oturum Geçmişi</h3>
+                                <h3><FaClock /> Oturum Geçmii</h3>
                                 <p className="security-info">
-                                    Son oturum açma işlemlerinizi görüntüleyin.
+                                    Son oturum açma ilemlerinizi görüntüleyin.
                                 </p>
                                 <div className="login-history">
                                     <div className="history-item">
@@ -984,7 +984,7 @@ const UserProfilePage = ({ userId, marketplaces }) => {
                                         <FaShoppingCart style={{ color: "#10b981" }} />
                                     </div>
                                     <div className="stat-content">
-                                        <h3>Toplam Sipariş</h3>
+                                        <h3>Toplam Sipari</h3>
                                         <p className="stat-value">{stats.totalOrders?.toLocaleString("tr-TR") || 0}</p>
                                         <span className="stat-change positive">+12% bu ay</span>
                                     </div>
@@ -1006,7 +1006,7 @@ const UserProfilePage = ({ userId, marketplaces }) => {
                                         <FaBox style={{ color: "#06b6d4" }} />
                                     </div>
                                     <div className="stat-content">
-                                        <h3>Aktif Ürün</h3>
+                                        <h3>Aktif rün</h3>
                                         <p className="stat-value">{stats.activeProducts?.toLocaleString("tr-TR") || 0}</p>
                                         <span className="stat-change neutral">Sabit</span>
                                     </div>
@@ -1031,7 +1031,7 @@ const UserProfilePage = ({ userId, marketplaces }) => {
                                         {[
                                             { day: "Pzt", orders: 45, revenue: 12500 },
                                             { day: "Sal", orders: 52, revenue: 15200 },
-                                            { day: "Çar", orders: 38, revenue: 10800 },
+                                            { day: "ar", orders: 38, revenue: 10800 },
                                             { day: "Per", orders: 61, revenue: 18900 },
                                             { day: "Cum", orders: 55, revenue: 16400 },
                                             { day: "Cmt", orders: 42, revenue: 11200 },
@@ -1045,7 +1045,7 @@ const UserProfilePage = ({ userId, marketplaces }) => {
                                                         <div
                                                             className="chart-bar"
                                                             style={{ height: `${height}%` }}
-                                                            title={`${data.orders} sipariş - ${formatCurrency(data.revenue)}`}
+                                                            title={`${data.orders} sipari - ${formatCurrency(data.revenue)}`}
                                                         >
                                                             <span className="bar-value">{data.orders}</span>
                                                         </div>
@@ -1058,26 +1058,26 @@ const UserProfilePage = ({ userId, marketplaces }) => {
                                     <div className="chart-legend">
                                         <div className="legend-item">
                                             <div className="legend-color" style={{ background: "linear-gradient(135deg, #4ecdc4 0%, #44a08d 100%)" }}></div>
-                                            <span>Günlük Sipariş Sayısı</span>
+                                            <span>Günlük Sipari Sayısı</span>
                                         </div>
                                     </div>
                                 </div>
 
                                 <div className="performance-insights">
-                                    <h4>Önemli Bilgiler</h4>
+                                    <h4>nemli Bilgiler</h4>
                                     <div className="insights-grid">
                                         <div className="insight-card">
                                             <FaCheckCircle style={{ color: "#22c55e" }} />
                                             <div>
-                                                <strong>En Yüksek Satış</strong>
-                                                <p>Perşembe günü 61 sipariş ile en yüksek satış gerçekleşti</p>
+                                                <strong>En Yüksek Satı</strong>
+                                                <p>Perembe günü 61 sipari ile en yüksek satı gerçekleti</p>
                                             </div>
                                         </div>
                                         <div className="insight-card">
                                             <FaChartLine style={{ color: "#3b82f6" }} />
                                             <div>
                                                 <strong>Haftalık Ortalama</strong>
-                                                <p>Günlük ortalama 47 sipariş alındı</p>
+                                                <p>Günlük ortalama 47 sipari alındı</p>
                                             </div>
                                         </div>
                                         <div className="insight-card">
@@ -1108,8 +1108,8 @@ const UserProfilePage = ({ userId, marketplaces }) => {
                                 <div>
                                     <strong>Bildirim Sistemi Hakkında</strong>
                                     <p>
-                                        Bildirim tercihlerinizi buradan yönetebilirsiniz. Seçtiğiniz kanallara göre
-                                        önemli olaylar (yeni sipariş, stok azalması, ödeme bildirimleri vb.) size
+                                        Bildirim tercihlerinizi buradan yönetebilirsiniz. Seçtiiniz kanallara göre
+                                        önemli olaylar (yeni sipari, stok azalması, ödeme bildirimleri vb.) size
                                         iletilecektir. E-posta bildirimleri anında, SMS bildirimleri acil durumlar için,
                                         push bildirimleri ise tarayıcınız üzerinden gönderilir.
                                     </p>
@@ -1124,7 +1124,7 @@ const UserProfilePage = ({ userId, marketplaces }) => {
                                             <FaEnvelope />
                                             <div>
                                                 <h4>E-posta Bildirimleri</h4>
-                                                <p>Önemli güncellemeler e-posta ile gönderilsin</p>
+                                                <p>nemli güncellemeler e-posta ile gönderilsin</p>
                                             </div>
                                         </div>
                                         <label className="toggle">
@@ -1180,8 +1180,8 @@ const UserProfilePage = ({ userId, marketplaces }) => {
                                         <div className="notification-info">
                                             <FaShoppingCart />
                                             <div>
-                                                <h4>Sipariş Bildirimleri</h4>
-                                                <p>Yeni sipariş, iptal, iade bildirimleri</p>
+                                                <h4>Sipari Bildirimleri</h4>
+                                                <p>Yeni sipari, iptal, iade bildirimleri</p>
                                             </div>
                                         </div>
                                         <label className="toggle">
@@ -1217,7 +1217,7 @@ const UserProfilePage = ({ userId, marketplaces }) => {
                                             <FaMoneyBillWave />
                                             <div>
                                                 <h4>Finans Bildirimleri</h4>
-                                                <p>Ödeme, fatura bildirimleri</p>
+                                                <p>deme, fatura bildirimleri</p>
                                             </div>
                                         </div>
                                         <label className="toggle">
@@ -1253,15 +1253,15 @@ const UserProfilePage = ({ userId, marketplaces }) => {
                                 <h3><FaInfoCircle /> API Anahtarları Nedir?</h3>
                                 <p className="section-description">
                                     API anahtarları, harici uygulamalar, mobil uygulamalar veya otomatik sistemlerin
-                                    LysiaETIC platformuna güvenli bir şekilde erişmesini sağlar.
+                                    Pazarynetim platformuna güvenli bir ekilde erimesini salar.
                                 </p>
                                 <div className="api-use-cases">
                                     <h4>Kullanım Alanları:</h4>
                                     <ul>
-                                        <li><FaCheckCircle /> <strong>Mobil Uygulama:</strong> Kendi mobil uygulamanızı geliştirirken API anahtarı kullanabilirsiniz</li>
-                                        <li><FaCheckCircle /> <strong>Otomasyon:</strong> Stok, sipariş ve fiyat güncellemelerini otomatik yapabilirsiniz</li>
+                                        <li><FaCheckCircle /> <strong>Mobil Uygulama:</strong> Kendi mobil uygulamanızı gelitirirken API anahtarı kullanabilirsiniz</li>
+                                        <li><FaCheckCircle /> <strong>Otomasyon:</strong> Stok, sipari ve fiyat güncellemelerini otomatik yapabilirsiniz</li>
                                         <li><FaCheckCircle /> <strong>Entegrasyon:</strong> Kendi ERP, WMS veya muhasebe sisteminizle entegre edebilirsiniz</li>
-                                        <li><FaCheckCircle /> <strong>Raporlama:</strong> Özel raporlama araçları için veri çekebilirsiniz</li>
+                                        <li><FaCheckCircle /> <strong>Raporlama:</strong> zel raporlama araçları için veri çekebilirsiniz</li>
                                         <li><FaCheckCircle /> <strong>Webhook:</strong> Gerçek zamanlı bildirimler alabilirsiniz</li>
                                     </ul>
                                 </div>
@@ -1269,8 +1269,8 @@ const UserProfilePage = ({ userId, marketplaces }) => {
                                     <FaExclamationTriangle />
                                     <div>
                                         <strong>Güvenlik Uyarısı:</strong>
-                                        <p>API anahtarlarınızı asla başkalarıyla paylaşmayın ve güvenli bir yerde saklayın.
-                                        Şüpheli bir durum fark ederseniz hemen anahtarı iptal edin ve yeni bir tane oluşturun.</p>
+                                        <p>API anahtarlarınızı asla bakalarıyla paylamayın ve güvenli bir yerde saklayın.
+                                        Şüpheli bir durum fark ederseniz hemen anahtarı iptal edin ve yeni bir tane oluturun.</p>
                                     </div>
                                 </div>
                             </div>
@@ -1284,7 +1284,7 @@ const UserProfilePage = ({ userId, marketplaces }) => {
                                 />
                                 <button onClick={generateApiKey} className="btn-primary" disabled={saving}>
                                     {saving ? <FaSpinner className="spinner" /> : <FaKey />}
-                                    Yeni Anahtar Oluştur
+                                    Yeni Anahtar Olutur
                                 </button>
                             </div>
 
@@ -1295,9 +1295,9 @@ const UserProfilePage = ({ userId, marketplaces }) => {
                                             <tr>
                                                 <th>İsim</th>
                                                 <th>Anahtar</th>
-                                                <th>Oluşturulma</th>
+                                                <th>Oluturulma</th>
                                                 <th>Son Kullanım</th>
-                                                <th>İşlem</th>
+                                                <th>İlem</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -1306,7 +1306,7 @@ const UserProfilePage = ({ userId, marketplaces }) => {
                                                     <td>{key.name}</td>
                                                     <td className="api-key-cell">
                                                         <code>
-                                                            {showApiKey[key._id] ? key.key : "••••••••••••••••"}
+                                                            {showApiKey[key._id] ? key.key : ""}
                                                         </code>
                                                         <button
                                                             onClick={() => setShowApiKey({...showApiKey, [key._id]: !showApiKey[key._id]})}
@@ -1340,7 +1340,7 @@ const UserProfilePage = ({ userId, marketplaces }) => {
                                 <div className="empty-state">
                                     <FaKey />
                                     <h3>Henüz API anahtarı yok</h3>
-                                    <p>Yukarıdaki formu kullanarak yeni bir API anahtarı oluşturabilirsiniz.</p>
+                                    <p>Yukarıdaki formu kullanarak yeni bir API anahtarı oluturabilirsiniz.</p>
                                 </div>
                             )}
                         </motion.div>
@@ -1352,3 +1352,4 @@ const UserProfilePage = ({ userId, marketplaces }) => {
 };
 
 export default UserProfilePage;
+

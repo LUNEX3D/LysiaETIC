@@ -1,6 +1,6 @@
 {
-  "short_name": "LysiaETIC",
-  "name": "LysiaETIC - Marketplace Yönetim Platformu",
+  "short_name": "Pazaryönetim",
+  "name": "Pazaryönetim - Marketplace Yönetim Platformu",
   "description": "E-ticaret pazaryeri entegrasyonu, ürün yönetimi, sipariş takibi ve AI destekli karar merkezi.",
   "icons": [
     {
@@ -100,14 +100,14 @@
       "sizes": "512x512",
       "type": "image/png",
       "form_factor": "wide",
-      "label": "LysiaETIC Dashboard"
+      "label": "Pazaryönetim Dashboard"
     },
     {
       "src": "icons/icon-384x384.png",
       "sizes": "384x384",
       "type": "image/png",
       "form_factor": "narrow",
-      "label": "LysiaETIC Mobil"
+      "label": "Pazaryönetim Mobil"
     }
   ],
   "handle_links": "preferred",
@@ -115,3 +115,4 @@
     "client_mode": "navigate-existing"
   }
 }
+

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * AuthNavbar — Shared Auth Component
  * ✅ FIX E6: LoginForm ve RegisterForm'daki ~200 satır duplicate kod tek dosyaya taşındı
  * ✅ Tab sistemi: Özellikler, Fiyatlandırma, Hakkımızda sekmeleri
@@ -27,7 +27,7 @@ const AuthNavbar = ({ activeTab, onTabChange }) => (
                     <path d="M12 2C8 2 4.5 5 4 9"/>
                 </svg>
             </div>
-            <span className="auth-navbar-logo-text">LUNEXETIC</span>
+            <span className="auth-navbar-logo-text">PAZARYONETIM</span>
         </a>
         <div className="auth-navbar-links">
             {TABS.map((tab) => (
@@ -45,3 +45,5 @@ const AuthNavbar = ({ activeTab, onTabChange }) => (
 );
 
 export default AuthNavbar;
+
+

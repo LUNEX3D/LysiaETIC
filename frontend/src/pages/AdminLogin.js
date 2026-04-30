@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+﻿import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "../services/api";
 import {
@@ -61,7 +61,7 @@ const AdminLogin = () => {
             const token = response.data.token;
             const refreshTokenValue = response.data.refreshToken;
 
-            // ✅ FIX: Yeni token'ı ÖNCE kaydet — axios interceptor localStorage'dan okuyor
+            // FIX: Yeni token'ı önce kaydet, axios interceptor localStorage'dan okuyor
             localStorage.setItem("token", token);
             if (refreshTokenValue) localStorage.setItem("refreshToken", refreshTokenValue);
 
@@ -69,7 +69,7 @@ const AdminLogin = () => {
             const user = profileRes.data;
 
             if (user.role !== "admin" && user.role !== "dev") {
-                // ✅ SEC #3: Yetkisiz kullanıcının token'ını hemen temizle
+                // SEC #3: Yetkisiz kullanıcının token'ını hemen temizle
                 localStorage.removeItem("token");
                 localStorage.removeItem("refreshToken");
                 sessionStorage.removeItem("token");
@@ -117,7 +117,7 @@ const AdminLogin = () => {
                         <div className="al-logo">
                             <FaShieldAlt />
                         </div>
-                        <h1 className="al-title">LysiaETIC</h1>
+                        <h1 className="al-title">Pazaryönetim</h1>
                         <p className="al-subtitle">Yönetim Konsolu</p>
                     </div>
 
@@ -142,7 +142,7 @@ const AdminLogin = () => {
                                     className="al-input"
                                     type="email"
                                     name="email"
-                                    placeholder="admin@lysiaetic.com"
+                                    placeholder="admin@pazaryonetim.com"
                                     value={formData.email}
                                     onChange={handleChange}
                                     required
@@ -160,7 +160,7 @@ const AdminLogin = () => {
                                     className="al-input"
                                     type={showPassword ? "text" : "password"}
                                     name="password"
-                                    placeholder="••••••••"
+                                    placeholder=""
                                     value={formData.password}
                                     onChange={handleChange}
                                     required
@@ -212,21 +212,21 @@ const AdminLogin = () => {
                 {/* Info Cards */}
                 <div className="al-info">
                     <div className="al-info-card">
-                        <div className="al-info-icon">🔒</div>
+                        <div className="al-info-icon"></div>
                         <div>
                             <strong>Güvenli Erişim</strong>
                             <p>256-bit şifreleme ile korunan bağlantı</p>
                         </div>
                     </div>
                     <div className="al-info-card">
-                        <div className="al-info-icon">📊</div>
+                        <div className="al-info-icon"></div>
                         <div>
                             <strong>Tam Kontrol</strong>
                             <p>Sunucu, kullanıcı ve sistem yönetimi</p>
                         </div>
                     </div>
                     <div className="al-info-card">
-                        <div className="al-info-icon">⚡</div>
+                        <div className="al-info-icon"></div>
                         <div>
                             <strong>Gerçek Zamanlı</strong>
                             <p>Anlık sistem izleme ve bildirimler</p>
@@ -239,3 +239,4 @@ const AdminLogin = () => {
 };
 
 export default AdminLogin;
+

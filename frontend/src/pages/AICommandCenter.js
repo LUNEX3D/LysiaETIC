@@ -1,21 +1,21 @@
-﻿/**
- * ═══════════════════════════════════════════════════════════════════════════════
- * AI ASISTAN — LysiaETIC (v7 — Clean Full-Width Design)
- * ═══════════════════════════════════════════════════════════════════════════════
+/**
+ * 
+ * AI ASISTAN  LysiaETIC (v7  Clean Full-Width Design)
+ * 
  *
- * Temiz, anlaşılır, tam sayfa genişliğinde AI asistan paneli.
- * İç içe karmaşık yapı yok — her şey düz ve net.
+ * Temiz, anlalr, tam sayfa geniliinde AI asistan paneli.
+ *  ie karmak yap yok  her ey dz ve net.
  *
  * 7 Sekme:
- *  1. Genel Bakış — Skor, KPI'lar, Günlük Rapor, Uyarılar
- *  2. Öneriler — Onayla/Reddet/Uygula
- *  3. Analitik — Ürün Sağlığı, Segmentasyon, Zamanlama
- *  4. Tahmin & Risk — Tahminler, Risk Analizi, Kayıp Avcısı
- *  5. Simülasyon — What-If Analizi
- *  6. Strateji & Hedef — Strateji Modu, Hedefler
- *  7. Ürünlerim — Maliyet Girişi
+ *  1. Genel Bak  Skor, KPI'lar, Gnlk Rapor, Uyarlar
+ *  2. neriler  Onayla/Reddet/Uygula
+ *  3. Analitik  rn Sal, Segmentasyon, Zamanlama
+ *  4. Tahmin & Risk  Tahminler, Risk Analizi, Kayp Avcs
+ *  5. Simlasyon  What-If Analizi
+ *  6. Strateji & Hedef  Strateji Modu, Hedefler
+ *  7. rnlerim  Maliyet Girii
  *
- * ═══════════════════════════════════════════════════════════════════════════════
+ * 
  */
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
@@ -37,10 +37,10 @@ import API from "../services/api";
 import AIErrorBoundary from "../components/AIErrorBoundary";
 import "../styles/aiCommandCenter.css";
 
-/* ── Helpers ── */
+/*  Helpers  */
 const fmtCurrency = (v) => {
     try { return new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY", maximumFractionDigits: 0 }).format(Number(v || 0)); }
-    catch { return `${Number(v || 0).toFixed(0)} ₺`; }
+    catch { return `${Number(v || 0).toFixed(0)} `; }
 };
 const fmtNum = (v) => new Intl.NumberFormat("tr-TR").format(Number(v || 0));
 const fmtPct = (v) => `%${Number(v || 0).toFixed(1)}`;
@@ -52,7 +52,7 @@ const AICommandCenter = () => {
     const [error, setError] = useState(null);
     const pollRef = useRef(null);
 
-    // Data — single brain endpoint
+    // Data  single brain endpoint
     const [brain, setBrain] = useState(null);
     const [recommendations, setRecommendations] = useState([]);
     const [recSummary, setRecSummary] = useState({ pending: 0, executed: 0, approved: 0, rejected: 0 });
@@ -102,16 +102,16 @@ const AICommandCenter = () => {
     // Rec category filter
     const [recCategoryFilter, setRecCategoryFilter] = useState("all");
 
-    // v5 — New panels
+    // v5  New panels
     const [autoDecideLoading, setAutoDecideLoading] = useState(false);
     const [autoDecisions, setAutoDecisions] = useState(null);
     const [diagnosisLoading, setDiagnosisLoading] = useState(false);
     const [diagnosisData, setDiagnosisData] = useState(null);
     const [showDiagnosisModal, setShowDiagnosisModal] = useState(false);
 
-    // ═══════════════════════════════════════════════════════════════════════
+    // 
     // DATA LOADING
-    // ═══════════════════════════════════════════════════════════════════════
+    // 
 
     const loadBrain = useCallback(async (showRefresh = false) => {
         try {
@@ -125,7 +125,7 @@ const AICommandCenter = () => {
                 setGoals(res.data.goals || []);
             }
         } catch (err) {
-            setError(err.response?.data?.message || err.message || "Bağlantı hatası");
+            setError(err.response?.data?.message || err.message || "Balant hatas");
         } finally {
             setRefreshing(false);
             setLoading(false);
@@ -153,16 +153,16 @@ const AICommandCenter = () => {
         }).catch(() => {});
     }, []);
 
-    // ═══════════════════════════════════════════════════════════════════════
+    // 
     // ACTIONS
-    // ═══════════════════════════════════════════════════════════════════════
+    // 
 
     const handleApprove = async (recId) => {
         try {
             await API.post(`/ai-engine/recommendations/${recId}/approve`);
             setRecommendations(prev => prev.map(r => r._id === recId ? { ...r, status: "approved" } : r));
             setRecSummary(prev => ({ ...prev, pending: Math.max(0, prev.pending - 1), approved: prev.approved + 1 }));
-        } catch (err) { alert("Onaylama başarısız: " + (err.response?.data?.message || err.message)); }
+        } catch (err) { alert("Onaylama baarsz: " + (err.response?.data?.message || err.message)); }
     };
 
     const handleReject = async (recId) => {
@@ -170,19 +170,19 @@ const AICommandCenter = () => {
             await API.post(`/ai-engine/recommendations/${recId}/reject`);
             setRecommendations(prev => prev.map(r => r._id === recId ? { ...r, status: "rejected" } : r));
             setRecSummary(prev => ({ ...prev, pending: Math.max(0, prev.pending - 1), rejected: prev.rejected + 1 }));
-        } catch (err) { alert("Reddetme başarısız: " + (err.response?.data?.message || err.message)); }
+        } catch (err) { alert("Reddetme baarsz: " + (err.response?.data?.message || err.message)); }
     };
 
     const handleExecute = async (recId) => {
-        if (!window.confirm("Bu aksiyonu uygulamak istediğinizden emin misiniz?")) return;
+        if (!window.confirm("Bu aksiyonu uygulamak istediinizden emin misiniz?")) return;
         try {
             const res = await API.post(`/ai-engine/recommendations/${recId}/execute`);
             if (res.data.success) {
                 setRecommendations(prev => prev.map(r => r._id === recId ? { ...r, status: "executed" } : r));
                 setRecSummary(prev => ({ ...prev, approved: Math.max(0, prev.approved - 1), executed: prev.executed + 1 }));
-                alert("✅ " + res.data.message);
-            } else { alert("❌ " + res.data.message); }
-        } catch (err) { alert("Uygulama başarısız: " + (err.response?.data?.message || err.message)); }
+                alert(" " + res.data.message);
+            } else { alert(" " + res.data.message); }
+        } catch (err) { alert("Uygulama baarsz: " + (err.response?.data?.message || err.message)); }
     };
 
     const handleGenerateRecs = async () => {
@@ -190,10 +190,10 @@ const AICommandCenter = () => {
             setRefreshing(true);
             const res = await API.post("/ai-engine/recommendations/generate", { strategyMode: selectedStrategy });
             if (res.data.success) {
-                alert(`✅ ${res.data.saved} yeni öneri oluşturuldu`);
+                alert(` ${res.data.saved} yeni neri oluturuldu`);
                 loadBrain(true);
             }
-        } catch (err) { alert("Öneri oluşturulamadı: " + (err.response?.data?.message || err.message)); }
+        } catch (err) { alert("neri oluturulamad: " + (err.response?.data?.message || err.message)); }
         finally { setRefreshing(false); }
     };
 
@@ -206,33 +206,33 @@ const AICommandCenter = () => {
                 setSimResult(result);
                 setSimScenarios(prev => [...prev, { params: { ...simParams }, result, timestamp: new Date().toLocaleTimeString("tr-TR") }].slice(-5));
             } else { alert(res.data.message); }
-        } catch (err) { alert("Simülasyon başarısız: " + (err.response?.data?.message || err.message)); }
+        } catch (err) { alert("Simlasyon baarsz: " + (err.response?.data?.message || err.message)); }
         finally { setSimulating(false); }
     };
 
     const handleApplySimulation = async () => {
         if (!simResult?.products?.length) return;
         const changedProducts = simResult.products.filter(p => p.simulated.price !== p.current.price);
-        if (changedProducts.length === 0) { alert("Fiyat değişikliği olan ürün yok."); return; }
+        if (changedProducts.length === 0) { alert("Fiyat deiiklii olan rn yok."); return; }
         if (!window.confirm(
-            `${changedProducts.length} ürünün fiyatı gerçekten değişecek!\n\n` +
-            changedProducts.slice(0, 5).map(p => `• ${p.name?.slice(0, 30)}: ${p.current.price}₺ → ${p.simulated.price}₺`).join("\n") +
-            (changedProducts.length > 5 ? `\n... ve ${changedProducts.length - 5} ürün daha` : "") +
-            "\n\nOnaylıyor musunuz?"
+            `${changedProducts.length} rnn fiyat gerekten deiecek!\n\n` +
+            changedProducts.slice(0, 5).map(p => ` ${p.name?.slice(0, 30)}: ${p.current.price}  ${p.simulated.price}`).join("\n") +
+            (changedProducts.length > 5 ? `\n... ve ${changedProducts.length - 5} rn daha` : "") +
+            "\n\nOnaylyor musunuz?"
         )) return;
         try {
             const res = await API.post("/ai-engine/simulate/apply", {
                 products: changedProducts.map(p => ({ barcode: p.barcode, newPrice: p.simulated.price, oldPrice: p.current.price }))
             });
             if (res.data.success) {
-                alert(`✅ ${res.data.applied} ürünün fiyatı güncellendi!${res.data.failed > 0 ? ` (${res.data.failed} başarısız)` : ""}`);
+                alert(` ${res.data.applied} rnn fiyat gncellendi!${res.data.failed > 0 ? ` (${res.data.failed} baarsz)` : ""}`);
                 loadBrain(true);
-            } else { alert("❌ " + res.data.message); }
-        } catch (err) { alert("Uygulama hatası: " + (err.response?.data?.message || err.message)); }
+            } else { alert(" " + res.data.message); }
+        } catch (err) { alert("Uygulama hatas: " + (err.response?.data?.message || err.message)); }
     };
 
     const handleCreateGoal = async () => {
-        if (!goalForm.title || !goalForm.targetValue || !goalForm.endDate) { alert("Tüm alanları doldurun"); return; }
+        if (!goalForm.title || !goalForm.targetValue || !goalForm.endDate) { alert("Tm alanlar doldurun"); return; }
         try {
             const res = await API.post("/ai-engine/goals", goalForm);
             if (res.data.success) {
@@ -240,14 +240,14 @@ const AICommandCenter = () => {
                 setShowGoalForm(false);
                 loadBrain(true);
             }
-        } catch (err) { alert("Hedef oluşturulamadı: " + (err.response?.data?.message || err.message)); }
+        } catch (err) { alert("Hedef oluturulamad: " + (err.response?.data?.message || err.message)); }
     };
 
     const handleExplain = async (recId) => {
         try {
             const res = await API.post(`/ai-engine/brain/explain/${recId}`);
             if (res.data.success) setExplainModal(res.data);
-        } catch (err) { alert("Açıklama yüklenemedi"); }
+        } catch (err) { alert("Aklama yklenemedi"); }
     };
 
     // Cost Entry
@@ -279,7 +279,7 @@ const AICommandCenter = () => {
             if (res.data.success) {
                 setCostEditing(prev => { const n = { ...prev }; delete n[barcode]; return n; });
                 loadCostProducts(costSearch);
-            } else { alert("❌ " + res.data.message); }
+            } else { alert(" " + res.data.message); }
         } catch (err) { alert("Hata: " + (err.response?.data?.message || err.message)); }
         finally { setCostSaving(""); }
     };
@@ -291,26 +291,26 @@ const AICommandCenter = () => {
         try {
             const res = await API.post("/ai-engine/recommendations/bulk-approve", { ids: [...selectedRecs] });
             if (res.data.success) {
-                alert(`✅ ${res.data.approved} öneri onaylandı`);
+                alert(` ${res.data.approved} neri onayland`);
                 setSelectedRecs(new Set());
                 loadBrain(true);
             }
-        } catch (err) { alert("Toplu onay başarısız: " + (err.response?.data?.message || err.message)); }
+        } catch (err) { alert("Toplu onay baarsz: " + (err.response?.data?.message || err.message)); }
         finally { setBulkLoading(false); }
     };
 
     const handleBulkReject = async () => {
         if (selectedRecs.size === 0) return;
-        if (!window.confirm(`${selectedRecs.size} öneriyi reddetmek istediğinizden emin misiniz?`)) return;
+        if (!window.confirm(`${selectedRecs.size} neriyi reddetmek istediinizden emin misiniz?`)) return;
         setBulkLoading(true);
         try {
             const res = await API.post("/ai-engine/recommendations/bulk-reject", { ids: [...selectedRecs] });
             if (res.data.success) {
-                alert(`✅ ${res.data.rejected} öneri reddedildi`);
+                alert(` ${res.data.rejected} neri reddedildi`);
                 setSelectedRecs(new Set());
                 loadBrain(true);
             }
-        } catch (err) { alert("Toplu red başarısız: " + (err.response?.data?.message || err.message)); }
+        } catch (err) { alert("Toplu red baarsz: " + (err.response?.data?.message || err.message)); }
         finally { setBulkLoading(false); }
     };
 
@@ -339,7 +339,7 @@ const AICommandCenter = () => {
         try {
             const res = await API.post("/ai-engine/brain/auto-decide");
             if (res.data.success) setAutoDecisions(res.data);
-        } catch (err) { alert("Otomatik karar motoru başarısız: " + (err.response?.data?.message || err.message)); }
+        } catch (err) { alert("Otomatik karar motoru baarsz: " + (err.response?.data?.message || err.message)); }
         finally { setAutoDecideLoading(false); }
     };
 
@@ -349,7 +349,7 @@ const AICommandCenter = () => {
         try {
             const res = await API.get("/ai-engine/brain/diagnosis");
             if (res.data.success) setDiagnosisData(res.data.diagnosis);
-        } catch (err) { alert("Teşhis motoru başarısız: " + (err.response?.data?.message || err.message)); }
+        } catch (err) { alert("Tehis motoru baarsz: " + (err.response?.data?.message || err.message)); }
         finally { setDiagnosisLoading(false); }
     };
 
@@ -377,9 +377,9 @@ const AICommandCenter = () => {
         if (presets[preset]) setSimParams(p => ({ ...p, ...presets[preset] }));
     };
 
-    // ═══════════════════════════════════════════════════════════════════════
+    // 
     // RENDER HELPERS
-    // ═══════════════════════════════════════════════════════════════════════
+    // 
 
     const ScoreRing = ({ score, size = 56, thickness = 3 }) => {
         const r = (size - thickness * 2) / 2;
@@ -415,14 +415,14 @@ const AICommandCenter = () => {
 
     const priorityConfig = {
         critical: { color: "#f87171", label: "Kritik", icon: <FaExclamationTriangle /> },
-        high: { color: "#fbbf24", label: "Yüksek", icon: <FaFire /> },
+        high: { color: "#fbbf24", label: "Yksek", icon: <FaFire /> },
         medium: { color: "#60a5fa", label: "Orta", icon: <FaInfoCircle /> },
-        low: { color: "#71717a", label: "Düşük", icon: <FaLightbulb /> },
+        low: { color: "#71717a", label: "Dk", icon: <FaLightbulb /> },
     };
 
-    // ═══════════════════════════════════════════════════════════════════════
+    // 
     // TAB 1: BRAIN (Overview)
-    // ═══════════════════════════════════════════════════════════════════════
+    // 
 
     const renderBrain = () => {
         const bh = brain?.businessHealth || {};
@@ -440,11 +440,11 @@ const AICommandCenter = () => {
 
         return (
             <div className="ai-tab-content">
-                {/* Kırmızı Alarm */}
+                {/* Krmz Alarm */}
                 {redAlerts.hasAlerts && (
                     <div className="ai-card" style={{ borderColor: "rgba(248,113,113,0.3)" }}>
                         <div className="ai-card-head">
-                            <h3>🚨 Kırmızı Alarm</h3>
+                            <h3> Krmz Alarm</h3>
                             <Badge color="#f87171">{redAlerts.criticalCount} kritik</Badge>
                         </div>
                         {(redAlerts.alerts || []).map((alert, i) => (
@@ -453,7 +453,7 @@ const AICommandCenter = () => {
                                 <div style={{ flex: 1 }}>
                                     <div style={{ fontWeight: 700, fontSize: "0.85rem", color: "#f87171" }}>{alert.headline}</div>
                                     <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)", marginTop: "0.2rem" }}>{alert.message}</div>
-                                    <div style={{ fontSize: "0.72rem", color: "var(--accent)", marginTop: "0.3rem" }}>→ {alert.action}</div>
+                                    <div style={{ fontSize: "0.72rem", color: "var(--accent)", marginTop: "0.3rem" }}> {alert.action}</div>
                                 </div>
                                 {alert.amount > 0 && <Badge color="#f87171">{fmtCurrency(alert.amount)}</Badge>}
                             </div>
@@ -461,20 +461,20 @@ const AICommandCenter = () => {
                     </div>
                 )}
 
-                {/* Karşılama + Skor + Hızlı Aksiyonlar */}
+                {/* Karlama + Skor + Hzl Aksiyonlar */}
                 <div className="ai-card">
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "1rem" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: "1rem", flex: 1 }}>
-                            <span style={{ fontSize: "2.5rem" }}>{tone.emoji || "🤖"}</span>
+                            <span style={{ fontSize: "2.5rem" }}>{tone.emoji || ""}</span>
                             <div>
                                 <h2 style={{ margin: 0, fontSize: "1.2rem", fontWeight: 700 }}>{context.greeting || "Merhaba"}</h2>
-                                <p style={{ margin: "0.25rem 0 0", fontSize: "0.85rem", color: "var(--text-secondary)" }}>{tone.message || "AI sistemi çalışıyor..."}</p>
+                                <p style={{ margin: "0.25rem 0 0", fontSize: "0.85rem", color: "var(--text-secondary)" }}>{tone.message || "AI sistemi alyor..."}</p>
                             </div>
                         </div>
                         <div style={{ display: "flex", alignItems: "center", gap: "1.5rem" }}>
                             <div style={{ textAlign: "center" }}>
                                 <ScoreRing score={bh.overallScore || 0} size={72} thickness={4} />
-                                <div style={{ fontSize: "0.65rem", color: "var(--text-dim)", marginTop: "0.25rem" }}>İşletme Sağlığı</div>
+                                <div style={{ fontSize: "0.65rem", color: "var(--text-dim)", marginTop: "0.25rem" }}>letme Sal</div>
                             </div>
                             <div style={{ textAlign: "center" }}>
                                 <ScoreRing score={score.overall || 0} size={72} thickness={4} />
@@ -485,22 +485,22 @@ const AICommandCenter = () => {
                     {/* Quick Actions */}
                     <div style={{ display: "flex", gap: "0.75rem", marginTop: "1.25rem", flexWrap: "wrap" }}>
                         <button className="ai-btn ai-btn-execute" onClick={handleAutoDecide} disabled={autoDecideLoading} style={{ flex: 1, minWidth: 200 }}>
-                            {autoDecideLoading ? <><FaSync className="ai-spin" /> Hesaplanıyor...</> : <><FaMagic /> Benim Yerime Karar Ver</>}
+                            {autoDecideLoading ? <><FaSync className="ai-spin" /> Hesaplanyor...</> : <><FaMagic /> Benim Yerime Karar Ver</>}
                         </button>
                         <button className="ai-btn ai-btn-secondary" onClick={handleDiagnosis} disabled={diagnosisLoading} style={{ flex: 1, minWidth: 200 }}>
-                            {diagnosisLoading ? <><FaSync className="ai-spin" /> Analiz ediliyor...</> : <><FaStethoscope /> İşletme Teşhisi</>}
+                            {diagnosisLoading ? <><FaSync className="ai-spin" /> Analiz ediliyor...</> : <><FaStethoscope /> letme Tehisi</>}
                         </button>
                     </div>
                 </div>
 
-                {/* KPI Kartları */}
+                {/* KPI Kartlar */}
                 <div className="ai-kpi-grid">
                     {[
-                        { icon: <FaDollarSign />, label: "Bugün Ciro", value: fmtCurrency(bh.metrics?.todayRevenue), color: "#34d399" },
-                        { icon: <FaBoxOpen />, label: "Ürün", value: fmtNum(brain?.productCount || 0), color: "#818cf8" },
-                        { icon: <FaBell />, label: "Bekleyen Öneri", value: recSummary.pending || 0, color: "#fbbf24" },
-                        { icon: <FaTrophy />, label: "AI Kazandırdı", value: fmtCurrency(roi.totalProfitGenerated || selfEval.totalProfitGenerated || 0), color: "#f472b6" },
-                        { icon: <FaExclamationTriangle />, label: "Kayıp Tespiti", value: fmtCurrency(brain?.lossHunter?.totalImpact || 0), color: "#f87171" },
+                        { icon: <FaDollarSign />, label: "Bugn Ciro", value: fmtCurrency(bh.metrics?.todayRevenue), color: "#34d399" },
+                        { icon: <FaBoxOpen />, label: "rn", value: fmtNum(brain?.productCount || 0), color: "#818cf8" },
+                        { icon: <FaBell />, label: "Bekleyen neri", value: recSummary.pending || 0, color: "#fbbf24" },
+                        { icon: <FaTrophy />, label: "AI Kazandrd", value: fmtCurrency(roi.totalProfitGenerated || selfEval.totalProfitGenerated || 0), color: "#f472b6" },
+                        { icon: <FaExclamationTriangle />, label: "Kayp Tespiti", value: fmtCurrency(brain?.lossHunter?.totalImpact || 0), color: "#f87171" },
                     ].map((kpi, i) => (
                         <motion.div key={i} className="ai-kpi" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.04 }}>
                             <div className="ai-kpi-icon" style={{ color: kpi.color }}>{kpi.icon}</div>
@@ -510,12 +510,12 @@ const AICommandCenter = () => {
                     ))}
                 </div>
 
-                {/* Bugün Ne Yapmalıyım + Auto Decisions */}
+                {/* Bugn Ne Yapmalym + Auto Decisions */}
                 {focus.length > 0 && (
                     <div className="ai-card">
                         <div className="ai-card-head">
-                            <h3><FaCrosshairs /> Bugün Ne Yapmalıyım?</h3>
-                            <Badge color="#f87171">{focus.length} görev</Badge>
+                            <h3><FaCrosshairs /> Bugn Ne Yapmalym?</h3>
+                            <Badge color="#f87171">{focus.length} grev</Badge>
                         </div>
                         {focus.map((f, i) => (
                             <div key={i} style={{ display: "flex", gap: "0.75rem", padding: "0.75rem 0", borderBottom: i < focus.length - 1 ? "1px solid var(--border)" : "none" }}>
@@ -523,7 +523,7 @@ const AICommandCenter = () => {
                                 <div style={{ flex: 1 }}>
                                     <div style={{ fontWeight: 600, fontSize: "0.85rem" }}>{f.icon} {f.title}</div>
                                     <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)", marginTop: "0.15rem" }}>{f.description}</div>
-                                    <div style={{ fontSize: "0.72rem", color: "var(--accent)", marginTop: "0.25rem" }}>→ {f.action}</div>
+                                    <div style={{ fontSize: "0.72rem", color: "var(--accent)", marginTop: "0.25rem" }}> {f.action}</div>
                                 </div>
                                 <Badge color={f.urgency === "critical" ? "#f87171" : f.urgency === "high" ? "#fbbf24" : "#60a5fa"}>{f.impact}</Badge>
                             </div>
@@ -534,7 +534,7 @@ const AICommandCenter = () => {
                 {autoDecisions && (
                     <div className="ai-card">
                         <div className="ai-card-head">
-                            <h3><FaMagic /> AI Kararları</h3>
+                            <h3><FaMagic /> AI Kararlar</h3>
                             <div style={{ display: "flex", gap: "0.5rem" }}>
                                 <Badge color="#818cf8">{autoDecisions.totalDecisions} karar</Badge>
                                 <Badge color="#34d399">Potansiyel: {fmtCurrency(autoDecisions.totalPotentialImpact)}</Badge>
@@ -548,9 +548,9 @@ const AICommandCenter = () => {
                                     <div style={{ fontWeight: 600, fontSize: "0.82rem" }}>{d.title}</div>
                                     <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>{d.description}</div>
                                     <div style={{ display: "flex", gap: "0.4rem", marginTop: "0.3rem", flexWrap: "wrap" }}>
-                                        <Badge color={d.urgency === "critical" ? "#f87171" : "#fbbf24"}>{d.urgency === "critical" ? "ACİL" : "Yüksek"}</Badge>
+                                        <Badge color={d.urgency === "critical" ? "#f87171" : "#fbbf24"}>{d.urgency === "critical" ? "ACL" : "Yksek"}</Badge>
                                         <Badge color="#34d399">{d.impactLabel}</Badge>
-                                        <Badge color="#818cf8">Güven: %{d.confidence}</Badge>
+                                        <Badge color="#818cf8">Gven: %{d.confidence}</Badge>
                                     </div>
                                 </div>
                             </div>
@@ -558,22 +558,22 @@ const AICommandCenter = () => {
                     </div>
                 )}
 
-                {/* İşletme Sağlığı + Para Nerede — Yan Yana */}
+                {/* letme Sal + Para Nerede  Yan Yana */}
                 <div className="ai-grid-2">
                     <div className="ai-card">
-                        <div className="ai-card-head"><h3><FaHeartbeat /> İşletme Sağlığı</h3></div>
+                        <div className="ai-card-head"><h3><FaHeartbeat /> letme Sal</h3></div>
                         <div className="ai-subscores">
-                            <HealthBar value={bh.profitHealth || 0} label="💰 Kâr" gradient="linear-gradient(90deg, #34d399, #10b981)" />
-                            <HealthBar value={bh.stockHealth || 0} label="📦 Stok" gradient="linear-gradient(90deg, #60a5fa, #818cf8)" />
-                            <HealthBar value={bh.salesHealth || 0} label="📈 Satış" gradient="linear-gradient(90deg, #fbbf24, #fbbf24)" />
-                            <HealthBar value={bh.operationsHealth || 0} label="⚙️ Operasyon" gradient="linear-gradient(90deg, #a78bfa, #f472b6)" />
+                            <HealthBar value={bh.profitHealth || 0} label=" Kr" gradient="linear-gradient(90deg, #34d399, #10b981)" />
+                            <HealthBar value={bh.stockHealth || 0} label=" Stok" gradient="linear-gradient(90deg, #60a5fa, #818cf8)" />
+                            <HealthBar value={bh.salesHealth || 0} label=" Sat" gradient="linear-gradient(90deg, #fbbf24, #fbbf24)" />
+                            <HealthBar value={bh.operationsHealth || 0} label=" Operasyon" gradient="linear-gradient(90deg, #a78bfa, #f472b6)" />
                         </div>
                     </div>
                     <div className="ai-card">
                         <div className="ai-card-head"><h3><FaMoneyBillWave /> Para Nerede?</h3></div>
                         <div style={{ display: "flex", gap: "0.75rem", marginBottom: "0.75rem" }}>
                             <div style={{ flex: 1, background: "var(--green-muted)", borderRadius: 10, padding: "0.75rem", textAlign: "center" }}>
-                                <div style={{ fontSize: "0.7rem", color: "var(--text-dim)" }}>Net Kâr</div>
+                                <div style={{ fontSize: "0.7rem", color: "var(--text-dim)" }}>Net Kr</div>
                                 <div style={{ fontSize: "1.1rem", fontWeight: 800, color: "var(--green)" }}>{fmtCurrency(money.summary?.netProfit || 0)}</div>
                             </div>
                             <div style={{ flex: 1, background: "var(--red-muted)", borderRadius: 10, padding: "0.75rem", textAlign: "center" }}>
@@ -583,46 +583,46 @@ const AICommandCenter = () => {
                         </div>
                         {(money.topEarners || []).slice(0, 3).map((p, i) => (
                             <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "0.3rem 0", fontSize: "0.75rem" }}>
-                                <span style={{ color: "var(--text-secondary)" }}>💰 {p.name?.slice(0, 25)}</span>
+                                <span style={{ color: "var(--text-secondary)" }}> {p.name?.slice(0, 25)}</span>
                                 <span style={{ color: "#34d399", fontWeight: 700 }}>+{fmtCurrency(p.totalProfit)}</span>
                             </div>
                         ))}
                         {(money.topLosers || []).slice(0, 3).map((p, i) => (
                             <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "0.3rem 0", fontSize: "0.75rem" }}>
-                                <span style={{ color: "var(--text-secondary)" }}>🔴 {p.name?.slice(0, 25)}</span>
+                                <span style={{ color: "var(--text-secondary)" }}> {p.name?.slice(0, 25)}</span>
                                 <span style={{ color: "#f87171", fontWeight: 700 }}>-{fmtCurrency(p.totalLoss)}</span>
                             </div>
                         ))}
                     </div>
                 </div>
 
-                {/* Günlük Rapor + Uyarılar + AI Öğretiyor */}
+                {/* Gnlk Rapor + Uyarlar + AI retiyor */}
                 <div className="ai-grid-3">
                     <div className="ai-card">
-                        <div className="ai-card-head"><h3><FaCalendarAlt /> Günlük Rapor</h3></div>
+                        <div className="ai-card-head"><h3><FaCalendarAlt /> Gnlk Rapor</h3></div>
                         {(journal.problems || []).length > 0 && (
                             <div style={{ marginBottom: "0.75rem" }}>
-                                <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "#f87171", marginBottom: "0.3rem" }}>🚨 Sorunlar</div>
+                                <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "#f87171", marginBottom: "0.3rem" }}> Sorunlar</div>
                                 {journal.problems.map((p, i) => <div key={i} style={{ fontSize: "0.75rem", color: "var(--text-secondary)", padding: "0.15rem 0" }}>{p.icon} {p.text}</div>)}
                             </div>
                         )}
                         {(journal.opportunities || []).length > 0 && (
                             <div style={{ marginBottom: "0.75rem" }}>
-                                <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "#34d399", marginBottom: "0.3rem" }}>💡 Fırsatlar</div>
+                                <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "#34d399", marginBottom: "0.3rem" }}> Frsatlar</div>
                                 {journal.opportunities.map((o, i) => <div key={i} style={{ fontSize: "0.75rem", color: "var(--text-secondary)", padding: "0.15rem 0" }}>{o.icon} {o.text}</div>)}
                             </div>
                         )}
                         {(journal.actions || []).length > 0 && (
                             <div>
-                                <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "#818cf8", marginBottom: "0.3rem" }}>🎯 Aksiyonlar</div>
+                                <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "#818cf8", marginBottom: "0.3rem" }}> Aksiyonlar</div>
                                 {journal.actions.map((a, i) => <div key={i} style={{ fontSize: "0.75rem", color: "var(--text-secondary)", padding: "0.15rem 0" }}>{a.icon} {a.text}</div>)}
                             </div>
                         )}
                     </div>
                     <div className="ai-card">
-                        <div className="ai-card-head"><h3><FaBell /> Uyarılar</h3><Badge color="#f87171">{notifs.length}</Badge></div>
+                        <div className="ai-card-head"><h3><FaBell /> Uyarlar</h3><Badge color="#f87171">{notifs.length}</Badge></div>
                         {notifs.length === 0 ? (
-                            <div className="ai-empty"><FaCheckCircle className="ai-empty-icon" /><p>Her şey yolunda ✅</p></div>
+                            <div className="ai-empty"><FaCheckCircle className="ai-empty-icon" /><p>Her ey yolunda </p></div>
                         ) : notifs.map((n, i) => (
                             <div key={i} style={{ display: "flex", gap: "0.5rem", padding: "0.5rem 0", borderBottom: "1px solid var(--border)" }}>
                                 <span>{n.icon}</span>
@@ -631,14 +631,14 @@ const AICommandCenter = () => {
                         ))}
                     </div>
                     <div className="ai-card">
-                        <div className="ai-card-head"><h3><FaGraduationCap /> AI Öğretiyor</h3></div>
+                        <div className="ai-card-head"><h3><FaGraduationCap /> AI retiyor</h3></div>
                         {teaching.length === 0 ? (
-                            <div className="ai-empty"><p>Şu an ipucu yok</p></div>
+                            <div className="ai-empty"><p>u an ipucu yok</p></div>
                         ) : teaching.map((tip, i) => (
                             <div key={i} style={{ padding: "0.5rem 0", borderBottom: "1px solid var(--border)" }}>
                                 <div style={{ fontWeight: 600, fontSize: "0.78rem" }}>{tip.icon} {tip.title}</div>
                                 <div style={{ fontSize: "0.72rem", color: "var(--text-secondary)", margin: "0.2rem 0" }}>{tip.content}</div>
-                                <div style={{ fontSize: "0.68rem", color: "var(--accent)" }}>→ {tip.action}</div>
+                                <div style={{ fontSize: "0.68rem", color: "var(--accent)" }}> {tip.action}</div>
                             </div>
                         ))}
                     </div>
@@ -647,9 +647,9 @@ const AICommandCenter = () => {
         );
     };
 
-    // ═══════════════════════════════════════════════════════════════════════
+    // 
     // TAB 2: RECOMMENDATIONS
-    // ═══════════════════════════════════════════════════════════════════════
+    // 
 
     const renderRecommendations = () => {
         let filtered = recommendations.filter(r => recFilter === "all" ? true : r.status === recFilter);
@@ -660,9 +660,9 @@ const AICommandCenter = () => {
             <div className="ai-tab-content">
                 <div className="ai-card">
                     <div className="ai-card-head">
-                        <h3><FaLightbulb /> AI Önerileri</h3>
+                        <h3><FaLightbulb /> AI nerileri</h3>
                         <button className="ai-btn ai-btn-secondary" onClick={handleGenerateRecs} disabled={refreshing}>
-                            <FaSync className={refreshing ? "ai-spin" : ""} /> Yeni Öneriler Üret
+                            <FaSync className={refreshing ? "ai-spin" : ""} /> Yeni neriler ret
                         </button>
                     </div>
 
@@ -673,7 +673,7 @@ const AICommandCenter = () => {
                             { id: "approved", label: "Onaylanan", count: recSummary.approved },
                             { id: "executed", label: "Uygulanan", count: recSummary.executed },
                             { id: "rejected", label: "Reddedilen", count: recSummary.rejected },
-                            { id: "all", label: "Tümü", count: recommendations.length },
+                            { id: "all", label: "Tm", count: recommendations.length },
                         ].map(f => (
                             <button key={f.id} className={`ai-rec-filter ${recFilter === f.id ? "active" : ""}`} onClick={() => setRecFilter(f.id)}>
                                 {f.label} <span className="ai-rec-filter-count">{f.count}</span>
@@ -681,16 +681,16 @@ const AICommandCenter = () => {
                         ))}
                     </div>
 
-                    {/* Toplu İşlem */}
+                    {/* Toplu lem */}
                     {recFilter === "pending" && recSummary.pending > 0 && (
                         <div className="ai-bulk-bar">
                             <label className="ai-bulk-select-all">
                                 <input type="checkbox" checked={selectedRecs.size > 0 && selectedRecs.size === recommendations.filter(r => r.status === "pending").length} onChange={selectAllPendingRecs} />
-                                <span>Tümünü Seç</span>
+                                <span>Tmn Se</span>
                             </label>
                             {selectedRecs.size > 0 && (
                                 <div className="ai-bulk-actions">
-                                    <span className="ai-bulk-count">{selectedRecs.size} seçili</span>
+                                    <span className="ai-bulk-count">{selectedRecs.size} seili</span>
                                     <button className="ai-btn ai-btn-approve" onClick={handleBulkApprove} disabled={bulkLoading}><FaCheckCircle /> Toplu Onayla</button>
                                     <button className="ai-btn ai-btn-reject" onClick={handleBulkReject} disabled={bulkLoading}><FaTimesCircle /> Toplu Reddet</button>
                                 </div>
@@ -701,18 +701,18 @@ const AICommandCenter = () => {
                     {/* Kategori Filtresi */}
                     {categories.length > 1 && (
                         <div className="ai-rec-filters" style={{ marginTop: "-0.5rem" }}>
-                            <button className={`ai-rec-filter ${recCategoryFilter === "all" ? "active" : ""}`} onClick={() => setRecCategoryFilter("all")}><FaTags style={{ fontSize: "0.65rem" }} /> Tümü</button>
+                            <button className={`ai-rec-filter ${recCategoryFilter === "all" ? "active" : ""}`} onClick={() => setRecCategoryFilter("all")}><FaTags style={{ fontSize: "0.65rem" }} /> Tm</button>
                             {categories.map(cat => (
                                 <button key={cat} className={`ai-rec-filter ${recCategoryFilter === cat ? "active" : ""}`} onClick={() => setRecCategoryFilter(cat)}>
-                                    {cat === "pricing" ? "💰 Fiyat" : cat === "stock" ? "📦 Stok" : cat === "performance" ? "📊 Performans" : cat === "financial" ? "💵 Finans" : cat === "strategy" ? "🎯 Strateji" : cat}
+                                    {cat === "pricing" ? " Fiyat" : cat === "stock" ? " Stok" : cat === "performance" ? " Performans" : cat === "financial" ? " Finans" : cat === "strategy" ? " Strateji" : cat}
                                 </button>
                             ))}
                         </div>
                     )}
 
-                    {/* Öneri Listesi */}
+                    {/* neri Listesi */}
                     {filtered.length === 0 ? (
-                        <div className="ai-empty"><FaCheckCircle className="ai-empty-icon" /><p>{recFilter === "pending" ? "Tüm öneriler işlendi!" : "Bu kategoride öneri yok"}</p></div>
+                        <div className="ai-empty"><FaCheckCircle className="ai-empty-icon" /><p>{recFilter === "pending" ? "Tm neriler ilendi!" : "Bu kategoride neri yok"}</p></div>
                     ) : (
                         <div className="ai-rec-list">
                             {filtered.map((rec, idx) => {
@@ -732,21 +732,21 @@ const AICommandCenter = () => {
                                             <Badge color={pc.color}>{pc.label}</Badge>
                                             <Badge color="#818cf8">{rec.category}</Badge>
                                             <div className="ai-confidence">
-                                                <span>Güven:</span>
+                                                <span>Gven:</span>
                                                 <div className="ai-confidence-bar"><div className="ai-confidence-fill" style={{ width: `${rec.confidenceScore}%`, background: rec.confidenceScore >= 80 ? "#34d399" : rec.confidenceScore >= 60 ? "#60a5fa" : "#fbbf24" }} /></div>
                                                 <span>{rec.confidenceScore}%</span>
                                             </div>
                                         </div>
                                         {rec.impact && (
                                             <div className="ai-rec-impact">
-                                                {rec.impact.profitChange !== 0 && <span className={rec.impact.profitChange > 0 ? "positive" : "negative"}>{rec.impact.profitChange > 0 ? <FaArrowUp /> : <FaArrowDown />} Kâr: {fmtCurrency(Math.abs(rec.impact.profitChange))}</span>}
+                                                {rec.impact.profitChange !== 0 && <span className={rec.impact.profitChange > 0 ? "positive" : "negative"}>{rec.impact.profitChange > 0 ? <FaArrowUp /> : <FaArrowDown />} Kr: {fmtCurrency(Math.abs(rec.impact.profitChange))}</span>}
                                                 {rec.impact.revenueChange !== 0 && <span className={rec.impact.revenueChange > 0 ? "positive" : "negative"}>{rec.impact.revenueChange > 0 ? <FaArrowUp /> : <FaArrowDown />} Ciro: {fmtCurrency(Math.abs(rec.impact.revenueChange))}</span>}
                                             </div>
                                         )}
                                         <div className="ai-rec-actions">
                                             {rec.status === "pending" && (<><button className="ai-btn ai-btn-approve" onClick={() => handleApprove(rec._id)}><FaCheckCircle /> Onayla</button><button className="ai-btn ai-btn-reject" onClick={() => handleReject(rec._id)}><FaTimesCircle /> Reddet</button></>)}
                                             {rec.status === "approved" && <button className="ai-btn ai-btn-execute" onClick={() => handleExecute(rec._id)}><FaBolt /> Uygula</button>}
-                                            {(rec.status === "executed" || rec.status === "rejected") && <Badge color={rec.status === "executed" ? "#34d399" : "#f87171"}>{rec.status === "executed" ? "✅ Uygulandı" : "🚫 Reddedildi"}</Badge>}
+                                            {(rec.status === "executed" || rec.status === "rejected") && <Badge color={rec.status === "executed" ? "#34d399" : "#f87171"}>{rec.status === "executed" ? " Uyguland" : " Reddedildi"}</Badge>}
                                             <button className="ai-btn ai-btn-ghost" onClick={() => handleExplain(rec._id)}><FaEye /> Neden?</button>
                                         </div>
                                     </motion.div>
@@ -759,9 +759,9 @@ const AICommandCenter = () => {
         );
     };
 
-    // ═══════════════════════════════════════════════════════════════════════
+    // 
     // TAB 3: ANALYTICS
-    // ═══════════════════════════════════════════════════════════════════════
+    // 
 
     const renderAnalytics = () => {
         const heatmap = brain?.heatmap || {};
@@ -773,15 +773,15 @@ const AICommandCenter = () => {
 
         return (
             <div className="ai-tab-content">
-                {/* Ürün Sağlığı */}
+                {/* rn Sal */}
                 <div className="ai-card">
-                    <div className="ai-card-head"><h3><FaHeartbeat /> Ürün Sağlığı</h3><Badge color="#4ecdc4">Ort: {ph.avgHealthScore || 0}/100</Badge></div>
+                    <div className="ai-card-head"><h3><FaHeartbeat /> rn Sal</h3><Badge color="#4ecdc4">Ort: {ph.avgHealthScore || 0}/100</Badge></div>
                     <div className="ai-health-segments">
                         {[
-                            { label: "Mükemmel", count: ph.segments?.excellent || 0, color: "#34d399", icon: "🏆" },
-                            { label: "Sağlıklı", count: ph.segments?.healthy || 0, color: "#60a5fa", icon: "✅" },
-                            { label: "Uyarı", count: ph.segments?.warning || 0, color: "#fbbf24", icon: "⚠️" },
-                            { label: "Kritik", count: ph.segments?.critical || 0, color: "#f87171", icon: "🚨" },
+                            { label: "Mkemmel", count: ph.segments?.excellent || 0, color: "#34d399", icon: "" },
+                            { label: "Salkl", count: ph.segments?.healthy || 0, color: "#60a5fa", icon: "" },
+                            { label: "Uyar", count: ph.segments?.warning || 0, color: "#fbbf24", icon: "" },
+                            { label: "Kritik", count: ph.segments?.critical || 0, color: "#f87171", icon: "" },
                         ].map((s, i) => (
                             <div key={i} className="ai-health-seg" style={{ borderColor: `${s.color}30` }}>
                                 <span style={{ fontSize: "1.3rem" }}>{s.icon}</span>
@@ -795,13 +795,13 @@ const AICommandCenter = () => {
                 {/* Segmentasyon */}
                 {seg.stars && (
                     <div className="ai-card">
-                        <div className="ai-card-head"><h3><FaLayerGroup /> Ürün Segmentasyonu</h3></div>
+                        <div className="ai-card-head"><h3><FaLayerGroup /> rn Segmentasyonu</h3></div>
                         <div className="ai-seg-grid">
                             {[
-                                { key: "stars", label: "⭐ Yıldızlar", color: "#34d399", data: seg.stars },
-                                { key: "cashCows", label: "🐄 Nakit İnekleri", color: "#60a5fa", data: seg.cashCows },
-                                { key: "questionMarks", label: "❓ Soru İşaretleri", color: "#fbbf24", data: seg.questionMarks },
-                                { key: "dogs", label: "🐕 Köpekler", color: "#f87171", data: seg.dogs },
+                                { key: "stars", label: " Yldzlar", color: "#34d399", data: seg.stars },
+                                { key: "cashCows", label: " Nakit nekleri", color: "#60a5fa", data: seg.cashCows },
+                                { key: "questionMarks", label: " Soru aretleri", color: "#fbbf24", data: seg.questionMarks },
+                                { key: "dogs", label: " Kpekler", color: "#f87171", data: seg.dogs },
                             ].map(s => (
                                 <div key={s.key} className="ai-seg-card" style={{ borderColor: `${s.color}30` }}>
                                     <div className="ai-seg-head"><span>{s.label}</span><Badge color={s.color}>{s.data?.count || 0}</Badge></div>
@@ -818,13 +818,13 @@ const AICommandCenter = () => {
                     </div>
                 )}
 
-                {/* Kârlılık Haritası */}
+                {/* Krllk Haritas */}
                 {(heatmap.byCategory || []).length > 0 && (
                     <div className="ai-card">
-                        <div className="ai-card-head"><h3><FaMapMarkedAlt /> Kârlılık Haritası</h3></div>
+                        <div className="ai-card-head"><h3><FaMapMarkedAlt /> Krllk Haritas</h3></div>
                         <div className="ai-table-wrap">
                             <table className="ai-table">
-                                <thead><tr><th>Kategori</th><th>Ürün</th><th>Ciro</th><th>Kâr</th><th>Marj</th></tr></thead>
+                                <thead><tr><th>Kategori</th><th>rn</th><th>Ciro</th><th>Kr</th><th>Marj</th></tr></thead>
                                 <tbody>
                                     {heatmap.byCategory.slice(0, 8).map((c, i) => (
                                         <tr key={i}>
@@ -841,23 +841,23 @@ const AICommandCenter = () => {
                     </div>
                 )}
 
-                {/* Zamanlama + Geçmiş */}
+                {/* Zamanlama + Gemi */}
                 <div className="ai-grid-2">
                     <div className="ai-card">
                         <div className="ai-card-head"><h3><FaClock /> Zamanlama</h3></div>
                         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem" }}>
-                            <div style={{ padding: "0.6rem", background: "var(--surface)", borderRadius: 8 }}><div style={{ fontSize: "0.65rem", color: "var(--text-dim)" }}>🔥 En yoğun saat</div><div style={{ fontWeight: 700, fontSize: "0.9rem" }}>{timing.bestHour || "N/A"}</div></div>
-                            <div style={{ padding: "0.6rem", background: "var(--surface)", borderRadius: 8 }}><div style={{ fontSize: "0.65rem", color: "var(--text-dim)" }}>🔥 En yoğun gün</div><div style={{ fontWeight: 700, fontSize: "0.9rem" }}>{timing.bestDay || "N/A"}</div></div>
-                            <div style={{ padding: "0.6rem", background: "var(--surface)", borderRadius: 8 }}><div style={{ fontSize: "0.65rem", color: "var(--text-dim)" }}>💤 En düşük saat</div><div style={{ fontWeight: 700, fontSize: "0.9rem" }}>{timing.worstHour || "N/A"}</div></div>
-                            <div style={{ padding: "0.6rem", background: "var(--surface)", borderRadius: 8 }}><div style={{ fontSize: "0.65rem", color: "var(--text-dim)" }}>💤 En düşük gün</div><div style={{ fontWeight: 700, fontSize: "0.9rem" }}>{timing.worstDay || "N/A"}</div></div>
+                            <div style={{ padding: "0.6rem", background: "var(--surface)", borderRadius: 8 }}><div style={{ fontSize: "0.65rem", color: "var(--text-dim)" }}> En youn saat</div><div style={{ fontWeight: 700, fontSize: "0.9rem" }}>{timing.bestHour || "N/A"}</div></div>
+                            <div style={{ padding: "0.6rem", background: "var(--surface)", borderRadius: 8 }}><div style={{ fontSize: "0.65rem", color: "var(--text-dim)" }}> En youn gn</div><div style={{ fontWeight: 700, fontSize: "0.9rem" }}>{timing.bestDay || "N/A"}</div></div>
+                            <div style={{ padding: "0.6rem", background: "var(--surface)", borderRadius: 8 }}><div style={{ fontSize: "0.65rem", color: "var(--text-dim)" }}> En dk saat</div><div style={{ fontWeight: 700, fontSize: "0.9rem" }}>{timing.worstHour || "N/A"}</div></div>
+                            <div style={{ padding: "0.6rem", background: "var(--surface)", borderRadius: 8 }}><div style={{ fontSize: "0.65rem", color: "var(--text-dim)" }}> En dk gn</div><div style={{ fontWeight: 700, fontSize: "0.9rem" }}>{timing.worstDay || "N/A"}</div></div>
                         </div>
-                        {timing.suggestions?.length > 0 && <div style={{ marginTop: "0.75rem" }}>{timing.suggestions.map((s, i) => <div key={i} style={{ fontSize: "0.72rem", color: "var(--accent)", padding: "0.15rem 0" }}>💡 {s}</div>)}</div>}
+                        {timing.suggestions?.length > 0 && <div style={{ marginTop: "0.75rem" }}>{timing.suggestions.map((s, i) => <div key={i} style={{ fontSize: "0.72rem", color: "var(--accent)", padding: "0.15rem 0" }}> {s}</div>)}</div>}
                     </div>
                     <div className="ai-card">
-                        <div className="ai-card-head"><h3><FaHistory /> Geçmiş Analizi</h3></div>
+                        <div className="ai-card-head"><h3><FaHistory /> Gemi Analizi</h3></div>
                         <div style={{ textAlign: "center", padding: "0.5rem 0", marginBottom: "0.5rem" }}>
                             <div style={{ fontSize: "1.3rem", fontWeight: 800, color: "#f87171" }}>-{fmtCurrency(retro.totalLostProfit || 0)}</div>
-                            <div style={{ fontSize: "0.72rem", color: "var(--text-dim)" }}>{retro.summary || "Kayıp analizi"}</div>
+                            <div style={{ fontSize: "0.72rem", color: "var(--text-dim)" }}>{retro.summary || "Kayp analizi"}</div>
                         </div>
                         {(retro.mistakes || []).slice(0, 3).map((m, i) => (
                             <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "0.3rem 0", fontSize: "0.75rem" }}>
@@ -871,9 +871,9 @@ const AICommandCenter = () => {
         );
     };
 
-    // ═══════════════════════════════════════════════════════════════════════
+    // 
     // TAB 4: PREDICTIONS & RISK
-    // ═══════════════════════════════════════════════════════════════════════
+    // 
 
     const renderPredictionsRisk = () => {
         const predictions = brain?.predictions || {};
@@ -890,8 +890,8 @@ const AICommandCenter = () => {
                     {[
                         { icon: <FaChartLine />, label: "Tahmin", value: predList.length, color: "#818cf8" },
                         { icon: <FaShieldAlt />, label: "Risk Skoru", value: `${risks.riskScore || 0}/100`, color: risks.overallRiskLevel === "high" ? "#f87171" : "#34d399" },
-                        { icon: <FaSearch />, label: "Kayıp", value: fmtCurrency(lossHunter.totalImpact || 0), color: "#f87171" },
-                        { icon: <FaDollarSign />, label: "Bugün Ciro", value: fmtCurrency(trendData.todayRevenue || 0), color: "#34d399" },
+                        { icon: <FaSearch />, label: "Kayp", value: fmtCurrency(lossHunter.totalImpact || 0), color: "#f87171" },
+                        { icon: <FaDollarSign />, label: "Bugn Ciro", value: fmtCurrency(trendData.todayRevenue || 0), color: "#34d399" },
                     ].map((kpi, i) => (
                         <motion.div key={i} className="ai-kpi" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.04 }}>
                             <div className="ai-kpi-icon" style={{ color: kpi.color }}>{kpi.icon}</div>
@@ -904,7 +904,7 @@ const AICommandCenter = () => {
                 {/* Ciro Trendi */}
                 {(trendData.dailyRevenues || []).length > 0 && (
                     <div className="ai-card">
-                        <div className="ai-card-head"><h3><FaChartBar /> 14 Günlük Ciro</h3></div>
+                        <div className="ai-card-head"><h3><FaChartBar /> 14 Gnlk Ciro</h3></div>
                         <div style={{ display: "flex", gap: "3px", height: 80, alignItems: "flex-end", padding: "0.5rem 0" }}>
                             {trendData.dailyRevenues.map((d, i) => {
                                 const max = Math.max(...trendData.dailyRevenues.map(x => x.revenue), 1);
@@ -927,7 +927,7 @@ const AICommandCenter = () => {
                     <div className="ai-card">
                         <div className="ai-card-head"><h3><FaChartLine /> AI Tahminleri</h3></div>
                         {predList.length === 0 ? (
-                            <div className="ai-empty"><p>{predictions.message || "Tahmin için veri gerekli"}</p></div>
+                            <div className="ai-empty"><p>{predictions.message || "Tahmin iin veri gerekli"}</p></div>
                         ) : predList.map((p, i) => (
                             <div key={i} style={{ padding: "0.6rem 0", borderBottom: "1px solid var(--border)" }}>
                                 <div style={{ display: "flex", gap: "0.5rem", alignItems: "flex-start" }}>
@@ -936,10 +936,10 @@ const AICommandCenter = () => {
                                         <div style={{ fontSize: "0.82rem", fontWeight: 600 }}>{p.prediction}</div>
                                         {p.detail && <div style={{ fontSize: "0.72rem", color: "var(--text-dim)", marginTop: "0.15rem" }}>{p.detail}</div>}
                                         <div style={{ display: "flex", gap: "0.4rem", marginTop: "0.3rem", flexWrap: "wrap" }}>
-                                            <Badge color="#818cf8">Güven: {p.confidence}%</Badge>
+                                            <Badge color="#818cf8">Gven: {p.confidence}%</Badge>
                                             {p.financialImpact !== 0 && p.financialImpact !== undefined && <Badge color={p.financialImpact > 0 ? "#34d399" : "#f87171"}>{p.financialImpact > 0 ? "+" : ""}{fmtCurrency(p.financialImpact)}</Badge>}
                                         </div>
-                                        {p.action && <div style={{ fontSize: "0.68rem", color: "var(--accent)", marginTop: "0.2rem" }}>→ {p.action}</div>}
+                                        {p.action && <div style={{ fontSize: "0.68rem", color: "var(--accent)", marginTop: "0.2rem" }}> {p.action}</div>}
                                     </div>
                                 </div>
                             </div>
@@ -954,7 +954,7 @@ const AICommandCenter = () => {
                                     <div style={{ flex: 1 }}>
                                         <div style={{ fontWeight: 600, fontSize: "0.82rem" }}>{r.title}</div>
                                         <div style={{ fontSize: "0.72rem", color: "var(--text-dim)" }}>{r.impact}</div>
-                                        <div style={{ fontSize: "0.68rem", color: "var(--accent)", marginTop: "0.2rem" }}>→ {r.mitigation}</div>
+                                        <div style={{ fontSize: "0.68rem", color: "var(--accent)", marginTop: "0.2rem" }}> {r.mitigation}</div>
                                     </div>
                                 </div>
                             </div>
@@ -962,14 +962,14 @@ const AICommandCenter = () => {
                     </div>
                 </div>
 
-                {/* Kayıp Avcısı */}
+                {/* Kayp Avcs */}
                 <div className="ai-card">
                     <div className="ai-card-head">
-                        <h3><FaSearch /> Kayıp Avcısı</h3>
+                        <h3><FaSearch /> Kayp Avcs</h3>
                         <Badge color="#f87171">{fmtCurrency(lossHunter.totalImpact || 0)}</Badge>
                     </div>
                     {(lossHunter.losses || []).length === 0 ? (
-                        <div className="ai-empty"><FaCheckCircle className="ai-empty-icon" /><p>Kayıp tespit edilmedi ✅</p></div>
+                        <div className="ai-empty"><FaCheckCircle className="ai-empty-icon" /><p>Kayp tespit edilmedi </p></div>
                     ) : (lossHunter.losses || []).slice(0, 10).map((l, i) => (
                         <div key={i} style={{ display: "flex", gap: "0.5rem", padding: "0.5rem 0", borderBottom: "1px solid var(--border)" }}>
                             <span>{l.icon}</span>
@@ -977,7 +977,7 @@ const AICommandCenter = () => {
                                 <div style={{ fontSize: "0.8rem" }}>{l.description}</div>
                                 <div style={{ display: "flex", gap: "0.4rem", marginTop: "0.2rem" }}>
                                     <Badge color="#f87171">-{fmtCurrency(l.amount)}</Badge>
-                                    <span style={{ fontSize: "0.68rem", color: "var(--accent)" }}>→ {l.action}</span>
+                                    <span style={{ fontSize: "0.68rem", color: "var(--accent)" }}> {l.action}</span>
                                 </div>
                             </div>
                         </div>
@@ -987,26 +987,26 @@ const AICommandCenter = () => {
         );
     };
 
-    // ═══════════════════════════════════════════════════════════════════════
+    // 
     // TAB 5: SIMULATION
-    // ═══════════════════════════════════════════════════════════════════════
+    // 
 
     const renderSimulation = () => {
         const dc = brain?.decisionComparison || {};
 
         return (
             <div className="ai-tab-content">
-                {/* Karar Karşılaştırma */}
+                {/* Karar Karlatrma */}
                 {dc.comparisons?.length > 0 && (
                     <div className="ai-card">
-                        <div className="ai-card-head"><h3><FaBalanceScale /> AI Karar Karşılaştırma</h3></div>
+                        <div className="ai-card-head"><h3><FaBalanceScale /> AI Karar Karlatrma</h3></div>
                         <div className="ai-table-wrap">
                             <table className="ai-table">
-                                <thead><tr><th>Senaryo</th><th>Ciro Δ</th><th>Kâr Δ</th><th>Risk</th></tr></thead>
+                                <thead><tr><th>Senaryo</th><th>Ciro </th><th>Kr </th><th>Risk</th></tr></thead>
                                 <tbody>
                                     {dc.comparisons.map((c, i) => (
                                         <tr key={i} style={c.name === dc.recommended ? { background: "rgba(34,197,94,0.08)" } : {}}>
-                                            <td style={{ fontWeight: c.name === dc.recommended ? 700 : 400 }}>{c.name} {c.name === dc.recommended && <Badge color="#34d399">ÖNERİLEN</Badge>}</td>
+                                            <td style={{ fontWeight: c.name === dc.recommended ? 700 : 400 }}>{c.name} {c.name === dc.recommended && <Badge color="#34d399">NERLEN</Badge>}</td>
                                             <td style={{ color: c.revenueChange >= 0 ? "#34d399" : "#f87171" }}>{c.revenueChange >= 0 ? "+" : ""}{fmtCurrency(c.revenueChange)}</td>
                                             <td style={{ color: c.profitChange >= 0 ? "#34d399" : "#f87171" }}>{c.profitChange >= 0 ? "+" : ""}{fmtCurrency(c.profitChange)}</td>
                                             <td><Badge color={c.risk === "high" ? "#f87171" : c.risk === "medium" ? "#fbbf24" : "#34d399"}>{c.risk}</Badge></td>
@@ -1018,17 +1018,17 @@ const AICommandCenter = () => {
                     </div>
                 )}
 
-                {/* Simülasyon Motoru */}
+                {/* Simlasyon Motoru */}
                 <div className="ai-card">
-                    <div className="ai-card-head"><h3><FaFlask /> Simülasyon Motoru</h3></div>
-                    <p style={{ fontSize: "0.82rem", color: "var(--text-secondary)", margin: "0 0 1rem" }}>Ürün seçin, senaryo uygulayın, sonuçları beğenirseniz platforma uygulayın.</p>
+                    <div className="ai-card-head"><h3><FaFlask /> Simlasyon Motoru</h3></div>
+                    <p style={{ fontSize: "0.82rem", color: "var(--text-secondary)", margin: "0 0 1rem" }}>rn sein, senaryo uygulayn, sonular beenirseniz platforma uygulayn.</p>
 
-                    {/* Ürün Seçimi */}
+                    {/* rn Seimi */}
                     <div style={{ display: "flex", gap: "0.5rem", marginBottom: "0.75rem" }}>
-                        <input className="ai-input" placeholder="Ürün adı veya barkod ara..." value={simProductSearch}
+                        <input className="ai-input" placeholder="rn ad veya barkod ara..." value={simProductSearch}
                             onChange={e => { setSimProductSearch(e.target.value); if (e.target.value.length > 1) loadSimProducts(e.target.value); }}
                             style={{ flex: 1 }} />
-                        <button className="ai-btn ai-btn-secondary" onClick={() => { setSimSelectedProduct(null); setSimParams(p => ({ ...p, barcode: "" })); setSimProductSearch(""); }}>Tümü</button>
+                        <button className="ai-btn ai-btn-secondary" onClick={() => { setSimSelectedProduct(null); setSimParams(p => ({ ...p, barcode: "" })); setSimProductSearch(""); }}>Tm</button>
                     </div>
                     {simProducts.length > 0 && simProductSearch.length > 1 && !simSelectedProduct && (
                         <div style={{ maxHeight: 150, overflowY: "auto", borderRadius: 8, border: "1px solid var(--border)", marginBottom: "0.75rem" }}>
@@ -1036,7 +1036,7 @@ const AICommandCenter = () => {
                                 <div key={i} onClick={() => { setSimSelectedProduct(p); setSimParams(prev => ({ ...prev, barcode: p.barcode })); setSimProductSearch(""); }}
                                     style={{ display: "flex", justifyContent: "space-between", padding: "0.5rem 0.75rem", cursor: "pointer", borderBottom: "1px solid var(--border)", fontSize: "0.75rem" }}
                                     onMouseEnter={e => e.currentTarget.style.background = "var(--surface-hover)"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                                    <div><div style={{ fontWeight: 600 }}>{p.name?.slice(0, 40)}</div><div style={{ color: "var(--text-dim)", fontSize: "0.65rem" }}>{p.barcode} · Stok: {p.stock}</div></div>
+                                    <div><div style={{ fontWeight: 600 }}>{p.name?.slice(0, 40)}</div><div style={{ color: "var(--text-dim)", fontSize: "0.65rem" }}>{p.barcode}  Stok: {p.stock}</div></div>
                                     <span style={{ color: "var(--accent)", fontWeight: 700 }}>{fmtCurrency(p.price)}</span>
                                 </div>
                             ))}
@@ -1044,18 +1044,18 @@ const AICommandCenter = () => {
                     )}
                     {simSelectedProduct && (
                         <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap", fontSize: "0.72rem", color: "var(--text-tertiary)", marginBottom: "0.75rem", padding: "0.5rem", background: "var(--surface)", borderRadius: 8 }}>
-                            <span>💰 {fmtCurrency(simSelectedProduct.price)}</span><span>📦 Stok: {simSelectedProduct.stock}</span><span>📊 Marj: {fmtPct(simSelectedProduct.profitMargin)}</span>
+                            <span> {fmtCurrency(simSelectedProduct.price)}</span><span> Stok: {simSelectedProduct.stock}</span><span> Marj: {fmtPct(simSelectedProduct.profitMargin)}</span>
                         </div>
                     )}
 
-                    {/* Hazır Senaryolar */}
-                    <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--text-tertiary)", marginBottom: "0.4rem" }}>⚡ Hazır Senaryolar</div>
+                    {/* Hazr Senaryolar */}
+                    <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--text-tertiary)", marginBottom: "0.4rem" }}> Hazr Senaryolar</div>
                     <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap", marginBottom: "1rem" }}>
                         {[
                             { id: "price_up_5", label: "Fiyat +%5" }, { id: "price_up_10", label: "Fiyat +%10" },
                             { id: "price_down_5", label: "Fiyat -%5" }, { id: "price_down_10", label: "Fiyat -%10" },
                             { id: "campaign_10", label: "%10 Kampanya" }, { id: "campaign_20", label: "%20 Kampanya" },
-                            { id: "aggressive", label: "🚀 Agresif" },
+                            { id: "aggressive", label: " Agresif" },
                         ].map(preset => (
                             <button key={preset.id} className={`ai-btn ${simPreset === preset.id ? "ai-btn-execute" : "ai-btn-secondary"}`}
                                 onClick={() => applySimPreset(preset.id)} style={{ fontSize: "0.68rem", padding: "0.35rem 0.65rem" }}>
@@ -1066,36 +1066,36 @@ const AICommandCenter = () => {
 
                     {/* Manuel Parametreler */}
                     <div className="ai-sim-form">
-                        <div className="ai-input-group"><label>Fiyat Δ (%)</label><input className="ai-input" type="number" value={simParams.priceChangePct} onChange={e => setSimParams(p => ({ ...p, priceChangePct: parseFloat(e.target.value) || 0 }))} /></div>
-                        <div className="ai-input-group"><label>Stok Δ</label><input className="ai-input" type="number" value={simParams.stockChange} onChange={e => setSimParams(p => ({ ...p, stockChange: parseInt(e.target.value) || 0 }))} /></div>
+                        <div className="ai-input-group"><label>Fiyat  (%)</label><input className="ai-input" type="number" value={simParams.priceChangePct} onChange={e => setSimParams(p => ({ ...p, priceChangePct: parseFloat(e.target.value) || 0 }))} /></div>
+                        <div className="ai-input-group"><label>Stok </label><input className="ai-input" type="number" value={simParams.stockChange} onChange={e => setSimParams(p => ({ ...p, stockChange: parseInt(e.target.value) || 0 }))} /></div>
                         <div className="ai-input-group"><label>Kampanya (%)</label><input className="ai-input" type="number" value={simParams.campaignDiscountPct} onChange={e => setSimParams(p => ({ ...p, campaignDiscountPct: parseFloat(e.target.value) || 0 }))} /></div>
                     </div>
                     <div style={{ display: "flex", gap: "0.5rem", marginTop: "1rem" }}>
                         <button className="ai-btn ai-btn-execute" onClick={handleSimulate} disabled={simulating}>
-                            {simulating ? <><FaSync className="ai-spin" /> Hesaplanıyor...</> : <><FaPlay /> Simülasyonu Çalıştır</>}
+                            {simulating ? <><FaSync className="ai-spin" /> Hesaplanyor...</> : <><FaPlay /> Simlasyonu altr</>}
                         </button>
                         {simResult && <button className="ai-btn ai-btn-approve" onClick={handleApplySimulation}><FaBolt /> Platformlara Uygula</button>}
                     </div>
                 </div>
 
-                {/* Sonuçlar */}
+                {/* Sonular */}
                 {simResult && (
                     <div className="ai-card">
-                        <div className="ai-card-head"><h3><FaChartBar /> Sonuçlar</h3><Badge color="#818cf8">{simResult.summary?.productsAffected || 0} ürün</Badge></div>
+                        <div className="ai-card-head"><h3><FaChartBar /> Sonular</h3><Badge color="#818cf8">{simResult.summary?.productsAffected || 0} rn</Badge></div>
                         <div style={{ display: "flex", gap: "1rem", marginBottom: "1rem" }}>
                             <div style={{ flex: 1, textAlign: "center", padding: "0.75rem", background: "var(--surface)", borderRadius: 8 }}>
-                                <div style={{ fontSize: "0.65rem", color: "var(--text-dim)" }}>Ciro Δ</div>
+                                <div style={{ fontSize: "0.65rem", color: "var(--text-dim)" }}>Ciro </div>
                                 <div style={{ fontSize: "1.1rem", fontWeight: 800, color: (simResult.summary?.totalRevenueChange || 0) >= 0 ? "#34d399" : "#f87171" }}>{(simResult.summary?.totalRevenueChange || 0) >= 0 ? "+" : ""}{fmtCurrency(simResult.summary?.totalRevenueChange || 0)}</div>
                             </div>
                             <div style={{ flex: 1, textAlign: "center", padding: "0.75rem", background: "var(--surface)", borderRadius: 8 }}>
-                                <div style={{ fontSize: "0.65rem", color: "var(--text-dim)" }}>Kâr Δ</div>
+                                <div style={{ fontSize: "0.65rem", color: "var(--text-dim)" }}>Kr </div>
                                 <div style={{ fontSize: "1.1rem", fontWeight: 800, color: (simResult.summary?.totalProfitChange || 0) >= 0 ? "#34d399" : "#f87171" }}>{(simResult.summary?.totalProfitChange || 0) >= 0 ? "+" : ""}{fmtCurrency(simResult.summary?.totalProfitChange || 0)}</div>
                             </div>
                         </div>
                         {simResult.products?.length > 0 && (
                             <div className="ai-table-wrap">
                                 <table className="ai-table">
-                                    <thead><tr><th>Ürün</th><th>Mevcut</th><th>Yeni</th><th>Ciro Δ</th><th>Kâr Δ</th></tr></thead>
+                                    <thead><tr><th>rn</th><th>Mevcut</th><th>Yeni</th><th>Ciro </th><th>Kr </th></tr></thead>
                                     <tbody>
                                         {simResult.products.slice(0, 15).map((p, i) => (
                                             <tr key={i}>
@@ -1116,9 +1116,9 @@ const AICommandCenter = () => {
         );
     };
 
-    // ═══════════════════════════════════════════════════════════════════════
+    // 
     // TAB 6: STRATEGY & GOALS
-    // ═══════════════════════════════════════════════════════════════════════
+    // 
 
     const renderStrategyGoals = () => {
         const strategy = brain?.strategy || {};
@@ -1130,7 +1130,7 @@ const AICommandCenter = () => {
                     {/* Strateji */}
                     <div className="ai-card">
                         <div className="ai-card-head"><h3><FaRocket /> Strateji Modu</h3><Badge color="#fbbf24">{selectedStrategy}</Badge></div>
-                        <p style={{ fontSize: "0.82rem", color: "var(--text-secondary)", margin: "0 0 0.75rem" }}>{strategy.reason || "Strateji seçin"}</p>
+                        <p style={{ fontSize: "0.82rem", color: "var(--text-secondary)", margin: "0 0 0.75rem" }}>{strategy.reason || "Strateji sein"}</p>
                         <div className="ai-strategy-grid">
                             {(strategy.options || []).map(opt => (
                                 <div key={opt.id} className={`ai-strategy-card ${selectedStrategy === opt.id ? "active" : ""} ${strategy.recommended === opt.id ? "recommended" : ""}`}
@@ -1138,24 +1138,24 @@ const AICommandCenter = () => {
                                     <div className="ai-strategy-icon">{opt.icon}</div>
                                     <div className="ai-strategy-name">{opt.name}</div>
                                     <div className="ai-strategy-desc">{opt.description}</div>
-                                    {strategy.recommended === opt.id && <div className="ai-strategy-badge">ÖNERİLEN</div>}
+                                    {strategy.recommended === opt.id && <div className="ai-strategy-badge">NERLEN</div>}
                                 </div>
                             ))}
                         </div>
                     </div>
 
-                    {/* Fırsat Radarı */}
+                    {/* Frsat Radar */}
                     <div className="ai-card">
-                        <div className="ai-card-head"><h3><FaCrosshairs /> Fırsat Radarı</h3><Badge color="#34d399">{opportunities.length}</Badge></div>
+                        <div className="ai-card-head"><h3><FaCrosshairs /> Frsat Radar</h3><Badge color="#34d399">{opportunities.length}</Badge></div>
                         {opportunities.length === 0 ? (
-                            <div className="ai-empty"><p>Fırsat taranıyor...</p></div>
+                            <div className="ai-empty"><p>Frsat taranyor...</p></div>
                         ) : opportunities.map((o, i) => (
                             <div key={i} style={{ padding: "0.6rem 0", borderBottom: "1px solid var(--border)" }}>
                                 <div style={{ fontWeight: 600, fontSize: "0.82rem" }}>{o.icon} {o.title}</div>
                                 <div style={{ fontSize: "0.72rem", color: "var(--text-secondary)", marginTop: "0.15rem" }}>{o.description}</div>
                                 <div style={{ display: "flex", gap: "0.4rem", marginTop: "0.25rem" }}>
                                     {o.potential > 0 && <Badge color="#34d399">+{fmtCurrency(o.potential)}</Badge>}
-                                    <Badge color="#818cf8">Güven: {o.confidence}%</Badge>
+                                    <Badge color="#818cf8">Gven: {o.confidence}%</Badge>
                                 </div>
                             </div>
                         ))}
@@ -1165,22 +1165,22 @@ const AICommandCenter = () => {
                 {/* Hedefler */}
                 <div className="ai-card">
                     <div className="ai-card-head">
-                        <h3><FaBullseye /> İş Hedefleri</h3>
-                        <button className="ai-btn ai-btn-secondary" onClick={() => setShowGoalForm(!showGoalForm)}>{showGoalForm ? "İptal" : "+ Yeni Hedef"}</button>
+                        <h3><FaBullseye />  Hedefleri</h3>
+                        <button className="ai-btn ai-btn-secondary" onClick={() => setShowGoalForm(!showGoalForm)}>{showGoalForm ? "ptal" : "+ Yeni Hedef"}</button>
                     </div>
                     {showGoalForm && (
                         <div style={{ marginBottom: "1rem", padding: "1rem", background: "var(--surface)", borderRadius: 10 }}>
                             <div className="ai-sim-form">
-                                <div className="ai-input-group"><label>Hedef Adı</label><input className="ai-input" placeholder="örn: Aylık Ciro" value={goalForm.title} onChange={e => setGoalForm(p => ({ ...p, title: e.target.value }))} /></div>
-                                <div className="ai-input-group"><label>Tip</label><select className="ai-select" value={goalForm.goalType} onChange={e => setGoalForm(p => ({ ...p, goalType: e.target.value }))}><option value="revenue">Ciro</option><option value="profit">Kâr</option><option value="sales">Satış</option></select></div>
-                                <div className="ai-input-group"><label>Hedef Değer</label><input className="ai-input" type="number" value={goalForm.targetValue} onChange={e => setGoalForm(p => ({ ...p, targetValue: e.target.value }))} /></div>
-                                <div className="ai-input-group"><label>Bitiş</label><input className="ai-input" type="date" value={goalForm.endDate} onChange={e => setGoalForm(p => ({ ...p, endDate: e.target.value }))} /></div>
+                                <div className="ai-input-group"><label>Hedef Ad</label><input className="ai-input" placeholder="rn: Aylk Ciro" value={goalForm.title} onChange={e => setGoalForm(p => ({ ...p, title: e.target.value }))} /></div>
+                                <div className="ai-input-group"><label>Tip</label><select className="ai-select" value={goalForm.goalType} onChange={e => setGoalForm(p => ({ ...p, goalType: e.target.value }))}><option value="revenue">Ciro</option><option value="profit">Kr</option><option value="sales">Sat</option></select></div>
+                                <div className="ai-input-group"><label>Hedef Deer</label><input className="ai-input" type="number" value={goalForm.targetValue} onChange={e => setGoalForm(p => ({ ...p, targetValue: e.target.value }))} /></div>
+                                <div className="ai-input-group"><label>Biti</label><input className="ai-input" type="date" value={goalForm.endDate} onChange={e => setGoalForm(p => ({ ...p, endDate: e.target.value }))} /></div>
                             </div>
-                            <button className="ai-btn ai-btn-approve" onClick={handleCreateGoal} style={{ marginTop: "0.75rem" }}><FaCheckCircle /> Oluştur</button>
+                            <button className="ai-btn ai-btn-approve" onClick={handleCreateGoal} style={{ marginTop: "0.75rem" }}><FaCheckCircle /> Olutur</button>
                         </div>
                     )}
                     {goals.length === 0 ? (
-                        <div className="ai-empty"><FaBullseye className="ai-empty-icon" /><p>Henüz hedef yok</p></div>
+                        <div className="ai-empty"><FaBullseye className="ai-empty-icon" /><p>Henz hedef yok</p></div>
                     ) : goals.map((g, i) => {
                         const pColor = g.progressPercent >= 100 ? "#34d399" : g.progressPercent >= 70 ? "#60a5fa" : g.progressPercent >= 40 ? "#fbbf24" : "#f87171";
                         return (
@@ -1191,7 +1191,7 @@ const AICommandCenter = () => {
                                 </div>
                                 <div className="ai-progress"><motion.div className="ai-progress-fill" initial={{ width: 0 }} animate={{ width: `${Math.min(g.progressPercent, 100)}%` }} transition={{ duration: 0.8 }} style={{ background: pColor }} /></div>
                                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.72rem", color: "var(--text-dim)", marginTop: "0.3rem" }}>
-                                    <span>Mevcut: {fmtNum(g.currentValue)}</span><span>Hedef: {fmtNum(g.targetValue)}</span><span>{g.daysLeft} gün kaldı</span>
+                                    <span>Mevcut: {fmtNum(g.currentValue)}</span><span>Hedef: {fmtNum(g.targetValue)}</span><span>{g.daysLeft} gn kald</span>
                                 </div>
                             </div>
                         );
@@ -1201,31 +1201,31 @@ const AICommandCenter = () => {
         );
     };
 
-    // ═══════════════════════════════════════════════════════════════════════
-    // TAB 7: ÜRÜN MALİYET YÖNETİMİ
-    // ═══════════════════════════════════════════════════════════════════════
+    // 
+    // TAB 7: RN MALYET YNETM
+    // 
 
     const renderCostEntry = () => (
         <div className="ai-tab-content">
             <div className="ai-card">
                 <div className="ai-card-head">
-                    <h3><FaEdit /> Ürün Maliyet Bilgileri</h3>
+                    <h3><FaEdit /> rn Maliyet Bilgileri</h3>
                     <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-                        <Badge color="#818cf8">{costStats.withCost}/{costStats.total} girilmiş</Badge>
+                        <Badge color="#818cf8">{costStats.withCost}/{costStats.total} girilmi</Badge>
                         <button className="ai-btn ai-btn-secondary" onClick={() => loadCostProducts(costSearch)} disabled={costLoading}>
                             <FaSync className={costLoading ? "ai-spin" : ""} /> Yenile
                         </button>
                     </div>
                 </div>
                 <p style={{ fontSize: "0.82rem", color: "var(--text-secondary)", margin: "0 0 1rem" }}>
-                    Maliyet bilgilerini girerek AI'ın kâr analizi ve fiyat önerilerinin doğruluğunu artırın.
+                    Maliyet bilgilerini girerek AI'n kr analizi ve fiyat nerilerinin doruluunu artrn.
                 </p>
 
-                {/* İstatistikler */}
+                {/* statistikler */}
                 <div style={{ display: "flex", gap: "0.75rem", marginBottom: "1rem" }}>
                     {[
                         { label: "Toplam", value: costStats.total, color: "#818cf8" },
-                        { label: "Girilmiş", value: costStats.withCost, color: "#34d399" },
+                        { label: "Girilmi", value: costStats.withCost, color: "#34d399" },
                         { label: "Eksik", value: costStats.withoutCost, color: "#f87171" },
                         { label: "Tamamlanma", value: costStats.total > 0 ? `%${Math.round(costStats.withCost / costStats.total * 100)}` : "%0", color: "#fbbf24" },
                     ].map((s, i) => (
@@ -1238,33 +1238,33 @@ const AICommandCenter = () => {
 
                 {/* Arama */}
                 <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem" }}>
-                    <input className="ai-input" placeholder="Ürün adı veya barkod ara..." value={costSearch}
+                    <input className="ai-input" placeholder="rn ad veya barkod ara..." value={costSearch}
                         onChange={e => setCostSearch(e.target.value)}
                         onKeyDown={e => e.key === "Enter" && loadCostProducts(costSearch)}
                         style={{ flex: 1 }} />
                     <button className="ai-btn ai-btn-execute" onClick={() => loadCostProducts(costSearch)}><FaSearch /> Ara</button>
                 </div>
 
-                {/* Ürün Listesi */}
+                {/* rn Listesi */}
                 {costProducts.length === 0 ? (
                     <div className="ai-empty">
                         <FaBoxOpen className="ai-empty-icon" />
-                        <p>{costLoading ? "Yükleniyor..." : "Ürün aramak için arama kutusunu kullanın"}</p>
-                        <button className="ai-btn ai-btn-secondary" onClick={() => loadCostProducts("")} style={{ marginTop: "0.5rem" }}>Tüm Ürünleri Yükle</button>
+                        <p>{costLoading ? "Ykleniyor..." : "rn aramak iin arama kutusunu kullann"}</p>
+                        <button className="ai-btn ai-btn-secondary" onClick={() => loadCostProducts("")} style={{ marginTop: "0.5rem" }}>Tm rnleri Ykle</button>
                     </div>
                 ) : (
                     <div className="ai-table-wrap">
                         <table className="ai-table">
                             <thead>
                                 <tr>
-                                    <th>Ürün</th>
-                                    <th>Satış Fiyatı</th>
-                                    <th>Maliyet (₺)</th>
+                                    <th>rn</th>
+                                    <th>Sat Fiyat</th>
+                                    <th>Maliyet ()</th>
                                     <th>Komisyon (%)</th>
-                                    <th>Kargo (₺)</th>
-                                    <th>Paketleme (₺)</th>
-                                    <th>Kâr Marjı</th>
-                                    <th>İşlem</th>
+                                    <th>Kargo ()</th>
+                                    <th>Paketleme ()</th>
+                                    <th>Kr Marj</th>
+                                    <th>lem</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -1286,7 +1286,7 @@ const AICommandCenter = () => {
                                                         value={edit.costPrice ?? p.costPrice ?? ""} placeholder="0"
                                                         onChange={e => setCostEditing(prev => ({ ...prev, [p.barcode]: { ...prev[p.barcode], costPrice: e.target.value } }))} />
                                                 ) : (
-                                                    <span style={{ color: p.costPrice > 0 ? "#34d399" : "#f87171", fontWeight: 700 }}>{p.costPrice > 0 ? fmtCurrency(p.costPrice) : "—"}</span>
+                                                    <span style={{ color: p.costPrice > 0 ? "#34d399" : "#f87171", fontWeight: 700 }}>{p.costPrice > 0 ? fmtCurrency(p.costPrice) : ""}</span>
                                                 )}
                                             </td>
                                             <td>
@@ -1295,7 +1295,7 @@ const AICommandCenter = () => {
                                                         value={edit.commissionRate ?? p.commissionRate ?? ""} placeholder="0"
                                                         onChange={e => setCostEditing(prev => ({ ...prev, [p.barcode]: { ...prev[p.barcode], commissionRate: e.target.value } }))} />
                                                 ) : (
-                                                    <span style={{ fontSize: "0.75rem" }}>{p.commissionRate > 0 ? `%${p.commissionRate.toFixed(1)}` : "—"}</span>
+                                                    <span style={{ fontSize: "0.75rem" }}>{p.commissionRate > 0 ? `%${p.commissionRate.toFixed(1)}` : ""}</span>
                                                 )}
                                             </td>
                                             <td>
@@ -1304,7 +1304,7 @@ const AICommandCenter = () => {
                                                         value={edit.shippingCost ?? p.shippingCost ?? ""} placeholder="0"
                                                         onChange={e => setCostEditing(prev => ({ ...prev, [p.barcode]: { ...prev[p.barcode], shippingCost: e.target.value } }))} />
                                                 ) : (
-                                                    <span style={{ fontSize: "0.75rem" }}>{p.shippingCost > 0 ? fmtCurrency(p.shippingCost) : "—"}</span>
+                                                    <span style={{ fontSize: "0.75rem" }}>{p.shippingCost > 0 ? fmtCurrency(p.shippingCost) : ""}</span>
                                                 )}
                                             </td>
                                             <td>
@@ -1313,12 +1313,12 @@ const AICommandCenter = () => {
                                                         value={edit.packagingCost ?? ""} placeholder="0"
                                                         onChange={e => setCostEditing(prev => ({ ...prev, [p.barcode]: { ...prev[p.barcode], packagingCost: e.target.value } }))} />
                                                 ) : (
-                                                    <span style={{ fontSize: "0.75rem" }}>—</span>
+                                                    <span style={{ fontSize: "0.75rem" }}></span>
                                                 )}
                                             </td>
                                             <td>
                                                 <span style={{ fontWeight: 700, color: p.profitMargin > 15 ? "#34d399" : p.profitMargin > 0 ? "#fbbf24" : p.costPrice > 0 ? "#f87171" : "var(--text-dim)" }}>
-                                                    {p.costPrice > 0 ? fmtPct(p.profitMargin) : "—"}
+                                                    {p.costPrice > 0 ? fmtPct(p.profitMargin) : ""}
                                                 </span>
                                             </td>
                                             <td>
@@ -1330,7 +1330,7 @@ const AICommandCenter = () => {
                                                         </button>
                                                         <button className="ai-btn ai-btn-reject" style={{ padding: "0.3rem 0.5rem", fontSize: "0.65rem" }}
                                                             onClick={() => setCostEditing(prev => { const n = { ...prev }; delete n[p.barcode]; return n; })}>
-                                                            İptal
+                                                            ptal
                                                         </button>
                                                     </div>
                                                 ) : (
@@ -1345,7 +1345,7 @@ const AICommandCenter = () => {
                                                                 costType: "purchase",
                                                             }
                                                         }))}>
-                                                        <FaEdit /> Düzenle
+                                                        <FaEdit /> Dzenle
                                                     </button>
                                                 )}
                                             </td>
@@ -1360,9 +1360,9 @@ const AICommandCenter = () => {
         </div>
     );
 
-    // ═══════════════════════════════════════════════════════════════════════
+    // 
     // MODALS
-    // ═══════════════════════════════════════════════════════════════════════
+    // 
 
     const renderDiagnosisModal = () => {
         if (!showDiagnosisModal) return null;
@@ -1370,7 +1370,7 @@ const AICommandCenter = () => {
         return (
             <motion.div className="ai-modal-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} onClick={() => setShowDiagnosisModal(false)}>
                 <motion.div className="ai-modal" initial={{ scale: 0.92, y: 40 }} animate={{ scale: 1, y: 0 }} onClick={e => e.stopPropagation()} style={{ maxWidth: 720 }}>
-                    <div className="ai-modal-head"><h3><FaStethoscope /> İşletme Teşhisi</h3><button className="ai-modal-close" onClick={() => setShowDiagnosisModal(false)}>✕</button></div>
+                    <div className="ai-modal-head"><h3><FaStethoscope /> letme Tehisi</h3><button className="ai-modal-close" onClick={() => setShowDiagnosisModal(false)}></button></div>
                     <div className="ai-modal-body">
                         {diagnosisLoading ? (
                             <div className="ai-loading" style={{ minHeight: 200 }}><div className="ai-loading-spinner" /><p>Analiz ediliyor...</p></div>
@@ -1383,42 +1383,42 @@ const AICommandCenter = () => {
                                 </div>
                                 {d.mistakes?.length > 0 && (
                                     <div style={{ marginBottom: "1rem" }}>
-                                        <h4 style={{ color: "#f87171", fontSize: "0.85rem", marginBottom: "0.5rem" }}>🔴 Hatalar</h4>
+                                        <h4 style={{ color: "#f87171", fontSize: "0.85rem", marginBottom: "0.5rem" }}> Hatalar</h4>
                                         {d.mistakes.map((m, i) => (
                                             <div key={i} style={{ padding: "0.5rem 0", borderBottom: "1px solid var(--border)" }}>
                                                 <div style={{ fontWeight: 600, fontSize: "0.82rem" }}>{m.icon} {m.title}</div>
                                                 <div style={{ fontSize: "0.72rem", color: "var(--text-secondary)" }}>{m.detail}</div>
-                                                <div style={{ fontSize: "0.68rem", color: "var(--accent)", marginTop: "0.2rem" }}>💊 {m.fix}</div>
+                                                <div style={{ fontSize: "0.68rem", color: "var(--accent)", marginTop: "0.2rem" }}> {m.fix}</div>
                                             </div>
                                         ))}
                                     </div>
                                 )}
                                 {d.leaks?.length > 0 && (
                                     <div style={{ marginBottom: "1rem" }}>
-                                        <h4 style={{ color: "#fbbf24", fontSize: "0.85rem", marginBottom: "0.5rem" }}>💸 Para Kaçakları</h4>
+                                        <h4 style={{ color: "#fbbf24", fontSize: "0.85rem", marginBottom: "0.5rem" }}> Para Kaaklar</h4>
                                         {d.leaks.map((l, i) => (
                                             <div key={i} style={{ padding: "0.5rem 0", borderBottom: "1px solid var(--border)" }}>
                                                 <div style={{ fontWeight: 600, fontSize: "0.82rem" }}>{l.icon} {l.title}</div>
                                                 <div style={{ fontSize: "0.72rem", color: "var(--text-secondary)" }}>{l.detail}</div>
-                                                <div style={{ fontSize: "0.68rem", color: "var(--accent)", marginTop: "0.2rem" }}>💊 {l.fix}</div>
+                                                <div style={{ fontSize: "0.68rem", color: "var(--accent)", marginTop: "0.2rem" }}> {l.fix}</div>
                                             </div>
                                         ))}
                                     </div>
                                 )}
                                 {d.opportunities?.length > 0 && (
                                     <div>
-                                        <h4 style={{ color: "#34d399", fontSize: "0.85rem", marginBottom: "0.5rem" }}>💰 Fırsatlar</h4>
+                                        <h4 style={{ color: "#34d399", fontSize: "0.85rem", marginBottom: "0.5rem" }}> Frsatlar</h4>
                                         {d.opportunities.map((o, i) => (
                                             <div key={i} style={{ padding: "0.5rem 0", borderBottom: "1px solid var(--border)" }}>
                                                 <div style={{ fontWeight: 600, fontSize: "0.82rem" }}>{o.icon} {o.title}</div>
                                                 <div style={{ fontSize: "0.72rem", color: "var(--text-secondary)" }}>{o.detail}</div>
-                                                <div style={{ fontSize: "0.68rem", color: "var(--accent)", marginTop: "0.2rem" }}>🎯 {o.action}</div>
+                                                <div style={{ fontSize: "0.68rem", color: "var(--accent)", marginTop: "0.2rem" }}> {o.action}</div>
                                             </div>
                                         ))}
                                     </div>
                                 )}
                             </>
-                        ) : <div className="ai-empty"><p>Teşhis verisi yüklenemedi</p></div>}
+                        ) : <div className="ai-empty"><p>Tehis verisi yklenemedi</p></div>}
                     </div>
                 </motion.div>
             </motion.div>
@@ -1431,7 +1431,7 @@ const AICommandCenter = () => {
         return (
             <motion.div className="ai-modal-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} onClick={() => setExplainModal(null)}>
                 <motion.div className="ai-modal" initial={{ scale: 0.92, y: 40 }} animate={{ scale: 1, y: 0 }} onClick={e => e.stopPropagation()}>
-                    <div className="ai-modal-head"><h3><FaEye /> Neden Bu Öneri?</h3><button className="ai-modal-close" onClick={() => setExplainModal(null)}>✕</button></div>
+                    <div className="ai-modal-head"><h3><FaEye /> Neden Bu neri?</h3><button className="ai-modal-close" onClick={() => setExplainModal(null)}></button></div>
                     <div className="ai-modal-body">
                         <h4 style={{ margin: "0 0 0.5rem", fontSize: "0.95rem" }}>{rec?.title}</h4>
                         <p style={{ fontSize: "0.82rem", color: "var(--text-secondary)", margin: "0 0 1rem" }}>{rec?.description}</p>
@@ -1447,29 +1447,29 @@ const AICommandCenter = () => {
         );
     };
 
-    // ═══════════════════════════════════════════════════════════════════════
+    // 
     // MAIN RENDER
-    // ═══════════════════════════════════════════════════════════════════════
+    // 
 
     if (loading) {
         return (
             <div className="ai-cc">
                 <div className="ai-loading">
                     <div className="ai-loading-spinner" />
-                    <p>AI Asistan yükleniyor...</p>
+                    <p>AI Asistan ykleniyor...</p>
                 </div>
             </div>
         );
     }
 
     const tabs = [
-        { id: "brain", icon: <FaBrain />, label: "Genel Bakış" },
-        { id: "recommendations", icon: <FaLightbulb />, label: "Öneriler", badge: recSummary.pending },
+        { id: "brain", icon: <FaBrain />, label: "Genel Bak" },
+        { id: "recommendations", icon: <FaLightbulb />, label: "neriler", badge: recSummary.pending },
         { id: "analytics", icon: <FaChartBar />, label: "Analitik" },
         { id: "predictions", icon: <FaChartLine />, label: "Tahmin & Risk" },
-        { id: "simulation", icon: <FaFlask />, label: "Simülasyon" },
+        { id: "simulation", icon: <FaFlask />, label: "Simlasyon" },
         { id: "strategy", icon: <FaRocket />, label: "Strateji & Hedef", badge: goals.length },
-        { id: "costs", icon: <FaTag />, label: "Ürünlerim" },
+        { id: "costs", icon: <FaTag />, label: "rnlerim" },
     ];
 
     return (
@@ -1482,12 +1482,12 @@ const AICommandCenter = () => {
                         <span className="ai-title-accent">AI Asistan</span>
                     </h1>
                     <div className="ai-subtitle-row">
-                        <p className="ai-subtitle">Karar verir · Aksiyon önerir · Öğretir</p>
+                        <p className="ai-subtitle">Karar verir  Aksiyon nerir  retir</p>
                         {workerStatus?.isActive && <span className="ai-worker-badge"><span className="ai-worker-dot" /> Arka Plan AI Aktif</span>}
                     </div>
                 </div>
                 <div className="ai-header-right">
-                    {strategyChanging && <span className="ai-strategy-loading"><FaSync className="ai-spin" /> Strateji değişiyor...</span>}
+                    {strategyChanging && <span className="ai-strategy-loading"><FaSync className="ai-spin" /> Strateji deiiyor...</span>}
                     {brain?.score && <ScoreRing score={brain.score.overall} size={44} thickness={3} />}
                     <button className={`ai-refresh-btn ${refreshing ? "loading" : ""}`} onClick={() => loadBrain(true)}>
                         <FaSync className={refreshing ? "ai-spin" : ""} /> Yenile

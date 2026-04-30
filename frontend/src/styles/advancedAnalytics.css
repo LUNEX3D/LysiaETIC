@@ -1,12 +1,12 @@
 /* ============================================
-   ADVANCED ANALYTICS — PREMIUM DARK THEME
-   ✅ TAMAMEN YENİDEN YAZILDI
-   7 Tab: Genel Bakış, Satış & Kâr, Ürün Performans,
-          Pazaryeri Karşılaştırma, Stok & Talep,
+   ADVANCED ANALYTICS  PREMIUM DARK THEME
+    TAMAMEN YENDEN YAZILDI
+   7 Tab: Genel Bak, Sat & Kr, rn Performans,
+          Pazaryeri Karlatrma, Stok & Talep,
           Komisyon & Gider, Aksiyon Merkezi
    ============================================ */
 
-/* ─── Container ─── */
+/*  Container  */
 .aa-container {
     min-height: 100%;
     background: transparent;
@@ -20,7 +20,7 @@
     box-sizing: border-box;
 }
 
-/* ─── Loading ─── */
+/*  Loading  */
 .aa-loading {
     display: flex;
     flex-direction: column;
@@ -45,7 +45,7 @@
 @keyframes aaSpin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 .spinning { animation: aaSpin 1s linear infinite; }
 
-/* ─── Header ─── */
+/*  Header  */
 .aa-header {
     display: flex;
     justify-content: space-between;
@@ -96,7 +96,7 @@
 .aa-action-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 15px rgba(78, 205, 196, 0.3); }
 .aa-action-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
-/* ─── KPI Grid ─── */
+/*  KPI Grid  */
 .aa-kpi-grid {
     display: grid;
     grid-template-columns: repeat(6, 1fr);
@@ -133,7 +133,7 @@
 .aa-kpi-change.down { background: rgba(239, 68, 68, 0.1); color: #ef4444; }
 .aa-kpi-sub { font-size: 0.68rem; color: #475569; }
 
-/* ─── Tabs ─── */
+/*  Tabs  */
 .aa-tabs {
     display: flex; gap: 0.25rem; padding: 0.35rem;
     background: rgba(15, 23, 42, 0.8); border-radius: 14px;
@@ -156,7 +156,7 @@
 
 .aa-tab-content { min-height: 300px; overflow: hidden; }
 
-/* ─── Tab Grid (ana layout) ─── */
+/*  Tab Grid (ana layout)  */
 .aa-tab-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -166,7 +166,7 @@
 .aa-span-2 { grid-column: span 2; }
 .aa-span-full { grid-column: 1 / -1; }
 
-/* ─── Cards ─── */
+/*  Cards  */
 .aa-card {
     background: linear-gradient(145deg, rgba(15, 23, 42, 0.9) 0%, rgba(30, 41, 59, 0.5) 100%);
     border-radius: 16px; padding: 1.25rem;
@@ -196,7 +196,7 @@
 }
 .aa-link-btn:hover { color: #6ee7de; }
 
-/* ─── No Data ─── */
+/*  No Data  */
 .aa-no-data {
     display: flex; flex-direction: column; align-items: center; justify-content: center;
     padding: 3rem 1rem; gap: 0.75rem; color: #475569;
@@ -210,7 +210,7 @@
 }
 .aa-no-data-full svg { font-size: 3rem; opacity: 0.4; }
 
-/* ─── Daily Summary ─── */
+/*  Daily Summary  */
 .aa-daily-summary {
     display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem;
 }
@@ -230,7 +230,7 @@
 .aa-ds-change.up { background: rgba(34, 197, 94, 0.1); color: #22c55e; }
 .aa-ds-change.down { background: rgba(239, 68, 68, 0.1); color: #ef4444; }
 
-/* ─── Pie Legend ─── */
+/*  Pie Legend  */
 .aa-pie-legend { display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.75rem; }
 .aa-pie-legend-item {
     display: flex; align-items: center; gap: 0.6rem;
@@ -240,7 +240,7 @@
 .aa-legend-name { flex: 1; font-weight: 600; color: #e2e8f0; font-size: 0.82rem; }
 .aa-legend-val { font-weight: 700; color: #4ecdc4; font-size: 0.82rem; }
 
-/* ─── Top 5 List ─── */
+/*  Top 5 List  */
 .aa-top5-list { display: flex; flex-direction: column; gap: 0.5rem; }
 .aa-top5-item {
     display: flex; align-items: center; gap: 0.75rem;
@@ -269,7 +269,7 @@
 .aa-margin-chip.mid { background: rgba(245, 158, 11, 0.1); color: #f59e0b; }
 .aa-margin-chip.low { background: rgba(239, 68, 68, 0.1); color: #ef4444; }
 
-/* ─── Actions Preview ─── */
+/*  Actions Preview  */
 .aa-actions-preview { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.75rem; }
 .aa-action-preview-card {
     padding: 1rem; border-radius: 12px;
@@ -288,7 +288,7 @@
 .aa-priority-badge.warning { background: rgba(245, 158, 11, 0.15); color: #f59e0b; }
 .aa-priority-badge.info { background: rgba(59, 130, 246, 0.15); color: #3b82f6; }
 
-/* ─── Stock Health Grid ─── */
+/*  Stock Health Grid  */
 .aa-stock-health-grid { display: flex; flex-direction: column; gap: 0.5rem; }
 .aa-sh-item {
     display: flex; align-items: center; gap: 0.6rem;
@@ -298,7 +298,7 @@
 .aa-sh-value { font-size: 1.1rem; font-weight: 800; display: block; }
 .aa-sh-label { font-size: 0.72rem; color: #64748b; }
 
-/* ─── Week Summary ─── */
+/*  Week Summary  */
 .aa-week-summary { display: flex; flex-direction: column; gap: 0.6rem; }
 .aa-ws-item {
     display: flex; justify-content: space-between; align-items: center;
@@ -307,7 +307,7 @@
 .aa-ws-label { font-size: 0.82rem; color: #94a3b8; font-weight: 600; }
 .aa-ws-value { font-size: 1rem; font-weight: 800; }
 
-/* ─── Profit Summary Grid ─── */
+/*  Profit Summary Grid  */
 .aa-profit-summary-grid {
     display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.75rem;
 }
@@ -326,14 +326,14 @@
 .aa-pc-label { font-size: 0.7rem; color: #64748b; font-weight: 500; text-transform: uppercase; }
 .aa-pc-value { font-size: 1.1rem; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-/* ─── Expense Legend ─── */
+/*  Expense Legend  */
 .aa-expense-legend { display: flex; flex-direction: column; gap: 0.35rem; margin-top: 0.75rem; }
 .aa-el-item { display: flex; align-items: center; gap: 0.5rem; padding: 0.3rem 0.5rem; }
 .aa-el-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .aa-el-name { flex: 1; font-size: 0.78rem; color: #94a3b8; }
 .aa-el-value { font-size: 0.82rem; font-weight: 700; color: #e2e8f0; }
 
-/* ─── Tables ─── */
+/*  Tables  */
 .aa-table-wrap {
     overflow-x: auto; -webkit-overflow-scrolling: touch;
     scrollbar-width: thin; scrollbar-color: #1e293b transparent;
@@ -363,7 +363,7 @@
 .aa-pc-name { font-weight: 600; color: #e2e8f0; font-size: 0.82rem; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .aa-pc-cat { font-size: 0.68rem; color: #64748b; }
 
-/* ─── Sort Controls ─── */
+/*  Sort Controls  */
 .aa-sort-controls { display: flex; align-items: center; gap: 0.4rem; }
 .aa-sort-label { font-size: 0.72rem; color: #64748b; font-weight: 600; }
 .aa-sort-btn {
@@ -375,7 +375,7 @@
 .aa-sort-btn.active { background: rgba(78, 205, 196, 0.15); border-color: #4ecdc4; color: #4ecdc4; }
 .aa-sort-btn:hover { border-color: rgba(78, 205, 196, 0.3); }
 
-/* ─── Badges ─── */
+/*  Badges  */
 .aa-margin-badge {
     font-size: 0.72rem; font-weight: 700; padding: 0.15rem 0.5rem; border-radius: 5px;
 }
@@ -421,7 +421,7 @@
 .aa-expense-rate.mid { background: rgba(245, 158, 11, 0.1); color: #f59e0b; }
 .aa-expense-rate.high { background: rgba(239, 68, 68, 0.1); color: #ef4444; }
 
-/* ─── Category List ─── */
+/*  Category List  */
 .aa-cat-list { display: flex; flex-direction: column; gap: 0.5rem; }
 .aa-cat-item {
     display: flex; align-items: center; gap: 0.75rem;
@@ -439,7 +439,7 @@
 .aa-cat-margin.good { color: #22c55e; }
 .aa-cat-margin.low { color: #f59e0b; }
 
-/* ─── Marketplace Cards ─── */
+/*  Marketplace Cards  */
 .aa-mp-card {
     background: linear-gradient(145deg, rgba(15, 23, 42, 0.95) 0%, rgba(30, 41, 59, 0.6) 100%);
     border-radius: 16px; padding: 1.25rem;
@@ -471,7 +471,7 @@
 .aa-mpm-value { font-weight: 700; color: #e2e8f0; font-size: 0.82rem; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .aa-mpm-label { font-size: 0.65rem; color: #64748b; }
 
-/* ─── Stock Summary Grid ─── */
+/*  Stock Summary Grid  */
 .aa-stock-summary-grid {
     display: grid; grid-template-columns: repeat(7, 1fr); gap: 0.75rem;
 }
@@ -485,7 +485,7 @@
 .aa-ss-value { font-size: 1.1rem; font-weight: 800; }
 .aa-ss-label { font-size: 0.68rem; color: #64748b; font-weight: 500; }
 
-/* ─── Dead Stock Grid ─── */
+/*  Dead Stock Grid  */
 .aa-dead-stock-grid {
     display: grid; grid-template-columns: repeat(auto-fill, minmax(min(250px, 100%), 1fr)); gap: 0.6rem;
 }
@@ -496,7 +496,7 @@
 .aa-dsi-name { font-weight: 600; color: #e2e8f0; font-size: 0.82rem; display: block; margin-bottom: 0.3rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .aa-dsi-metrics { display: flex; justify-content: space-between; font-size: 0.75rem; color: #94a3b8; }
 
-/* ─── Commission Category List ─── */
+/*  Commission Category List  */
 .aa-comm-cat-list { display: flex; flex-direction: column; gap: 0.6rem; }
 .aa-comm-cat-item { padding: 0.6rem 0; border-bottom: 1px solid rgba(30, 41, 59, 0.5); }
 .aa-comm-cat-item:last-child { border-bottom: none; }
@@ -509,7 +509,7 @@
 .aa-cci-bar { height: 4px; background: rgba(30, 41, 59, 0.6); border-radius: 2px; overflow: hidden; }
 .aa-cci-bar-fill { height: 100%; border-radius: 2px; transition: width 0.5s ease; }
 
-/* ─── Action Cards ─── */
+/*  Action Cards  */
 .aa-action-summary {
     display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem;
 }
@@ -564,16 +564,16 @@
 }
 .aa-ac-count { font-size: 0.72rem; color: #94a3b8; font-weight: 600; }
 
-/* ─── Recharts Override ─── */
+/*  Recharts Override  */
 .recharts-default-tooltip {
     background: #0f172a !important;
     border: 1px solid #1e293b !important;
     border-radius: 12px !important;
 }
 
-/* ═══════════════════════════════════════════════════════════
+/* 
    RESPONSIVE
-   ═══════════════════════════════════════════════════════════ */
+    */
 @media (max-width: 1600px) {
     .aa-kpi-grid { grid-template-columns: repeat(3, 1fr); }
     .aa-stock-summary-grid { grid-template-columns: repeat(4, 1fr); }

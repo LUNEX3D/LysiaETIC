@@ -1,21 +1,21 @@
 /**
- * ═══════════════════════════════════════════════════════════════════════════════
- * AI CHAT WIDGET — LysiaETIC AI Operatör
- * ═══════════════════════════════════════════════════════════════════════════════
+ * 
+ * AI CHAT WIDGET  Pazarynetim AI Operatör
+ * 
  *
- * Floating chat widget — her sayfada görünür.
- * Kullanıcı AI ile doğal dilde konuşabilir.
+ * Floating chat widget  her sayfada görünür.
+ * Kullanıcı AI ile doal dilde konuabilir.
  *
- * Özellikler:
- *  - Floating button (sağ alt köşe)
+ * zellikler:
+ *  - Floating button (sa alt köe)
  *  - Açılır chat penceresi
- *  - Mesaj geçmişi
+ *  - Mesaj geçmii
  *  - Quick reply butonları
  *  - Proaktif uyarı badge'i
  *  - Typing indicator
  *  - Session management
  *
- * ═══════════════════════════════════════════════════════════════════════════════
+ * 
  */
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
@@ -34,7 +34,7 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import API from "../services/api";
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
+//  Helpers 
 const generateSessionId = () => `session_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 
 const formatTime = (ts) => {
@@ -43,23 +43,23 @@ const formatTime = (ts) => {
     return d.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" });
 };
 
-// Simple markdown-like bold: **text** → <strong>text</strong>
+// Simple markdown-like bold: **text**  <strong>text</strong>
 const renderContent = (text) => {
     if (!text) return "";
-    // SEC: Önce HTML entity escape — XSS koruması
+    // SEC: nce HTML entity escape  XSS koruması
     const escaped = text
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#039;");
-    // Sonra güvenli markdown dönüşümleri
+    // Sonra güvenli markdown dönüümleri
     return escaped
         .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
         .replace(/\n/g, "<br/>");
 };
 
-// ─── Main Component ─────────────────────────────────────────────────────────
+//  Main Component 
 const AIChatWidget = () => {
     const [isOpen, setIsOpen] = useState(false);
     const [messages, setMessages] = useState([]);
@@ -73,14 +73,14 @@ const AIChatWidget = () => {
     const messagesEndRef = useRef(null);
     const inputRef = useRef(null);
 
-    // ── Scroll to bottom ──
+    //  Scroll to bottom 
     const scrollToBottom = useCallback(() => {
         setTimeout(() => {
             messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
         }, 100);
     }, []);
 
-    // ── Load conversation history ──
+    //  Load conversation history 
     const loadHistory = useCallback(async () => {
         try {
             const res = await API.get(`/ai-chat/history/${sessionId}`);
@@ -88,11 +88,11 @@ const AIChatWidget = () => {
                 setMessages(res.data.messages);
             }
         } catch {
-            // No history yet — that's fine
+            // No history yet  that's fine
         }
     }, [sessionId]);
 
-    // ── Load alerts count ──
+    //  Load alerts count 
     const loadAlerts = useCallback(async () => {
         try {
             const res = await API.get("/ai-chat/alerts");
@@ -104,7 +104,7 @@ const AIChatWidget = () => {
         }
     }, []);
 
-    // ── Load quick stats ──
+    //  Load quick stats 
     const loadQuickStats = useCallback(async () => {
         try {
             const res = await API.get("/ai-chat/quick-stats");
@@ -116,7 +116,7 @@ const AIChatWidget = () => {
         }
     }, []);
 
-    // ── Init ──
+    //  Init 
     useEffect(() => {
         localStorage.setItem("ai_chat_session", sessionId);
         loadAlerts();
@@ -129,7 +129,7 @@ const AIChatWidget = () => {
         return () => clearInterval(interval);
     }, [sessionId, loadAlerts, loadQuickStats]);
 
-    // ── Load history when opened ──
+    //  Load history when opened 
     useEffect(() => {
         if (isOpen) {
             loadHistory();
@@ -137,12 +137,12 @@ const AIChatWidget = () => {
         }
     }, [isOpen, loadHistory]);
 
-    // ── Scroll on new messages ──
+    //  Scroll on new messages 
     useEffect(() => {
         scrollToBottom();
     }, [messages, scrollToBottom]);
 
-    // ── Send message ──
+    //  Send message 
     const sendMessage = async (text) => {
         const msg = (text || input).trim();
         if (!msg || loading) return;
@@ -173,7 +173,7 @@ const AIChatWidget = () => {
             } else {
                 setMessages(prev => [...prev, {
                     role: "ai",
-                    content: "Bir hata oluştu. Lütfen tekrar deneyin. 🔄",
+                    content: "Bir hata olutu. Lütfen tekrar deneyin. ",
                     timestamp: new Date().toISOString(),
                     metadata: { suggestions: ["Tekrar dene"] },
                 }]);
@@ -181,7 +181,7 @@ const AIChatWidget = () => {
         } catch (err) {
             setMessages(prev => [...prev, {
                 role: "ai",
-                content: "Bağlantı hatası. Sunucu erişilebilir olduğundan emin olun. 🔌",
+                content: "Balantı hatası. Sunucu eriilebilir olduundan emin olun. ",
                 timestamp: new Date().toISOString(),
                 metadata: { suggestions: ["Tekrar dene"] },
             }]);
@@ -190,7 +190,7 @@ const AIChatWidget = () => {
         }
     };
 
-    // ── New conversation ──
+    //  New conversation 
     const startNewConversation = () => {
         const newSid = generateSessionId();
         setSessionId(newSid);
@@ -198,7 +198,7 @@ const AIChatWidget = () => {
         localStorage.setItem("ai_chat_session", newSid);
     };
 
-    // ── Handle key press ──
+    //  Handle key press 
     const handleKeyPress = (e) => {
         if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
@@ -206,7 +206,7 @@ const AIChatWidget = () => {
         }
     };
 
-    // ── Health color ──
+    //  Health color 
     const getHealthColor = () => {
         if (!quickStats) return "#9e9e9e";
         if (quickStats.rating === "excellent") return "#22c55e";
@@ -215,13 +215,13 @@ const AIChatWidget = () => {
         return "#ef4444";
     };
 
-    // ── Last suggestions ──
+    //  Last suggestions 
     const lastAiMessage = [...messages].reverse().find(m => m.role === "ai");
     const suggestions = lastAiMessage?.metadata?.suggestions || [];
 
     return (
         <>
-            {/* ── Floating Button ── */}
+            {/*  Floating Button  */}
             <AnimatePresence>
                 {!isOpen && (
                     <motion.div
@@ -235,7 +235,7 @@ const AIChatWidget = () => {
                             zIndex: 9999,
                         }}
                     >
-                        <Tooltip title="AI Operatör ile konuş" placement="left">
+                        <Tooltip title="AI Operatör ile konu" placement="left">
                             <Badge
                                 badgeContent={alertCount}
                                 color="error"
@@ -265,7 +265,7 @@ const AIChatWidget = () => {
                 )}
             </AnimatePresence>
 
-            {/* ── Chat Window ── */}
+            {/*  Chat Window  */}
             <AnimatePresence>
                 {isOpen && (
                     <motion.div
@@ -296,7 +296,7 @@ const AIChatWidget = () => {
                                 border: "1px solid rgba(255,255,255,0.1)",
                             }}
                         >
-                            {/* ── Header ── */}
+                            {/*  Header  */}
                             <Box sx={{
                                 background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
                                 color: "#fff",
@@ -314,13 +314,13 @@ const AIChatWidget = () => {
                                         <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
                                             <DotIcon sx={{ fontSize: 8, color: getHealthColor() }} />
                                             <Typography variant="caption" sx={{ opacity: 0.9 }}>
-                                                {quickStats ? `Sağlık: ${quickStats.healthScore}/100` : "Bağlanıyor..."}
+                                                {quickStats ? `Salık: ${quickStats.healthScore}/100` : "Balanıyor..."}
                                             </Typography>
                                         </Box>
                                     </Box>
                                 </Box>
                                 <Box>
-                                    <Tooltip title="Yeni konuşma">
+                                    <Tooltip title="Yeni konuma">
                                         <IconButton size="small" sx={{ color: "#fff" }} onClick={startNewConversation}>
                                             <RefreshIcon fontSize="small" />
                                         </IconButton>
@@ -333,7 +333,7 @@ const AIChatWidget = () => {
                                 </Box>
                             </Box>
 
-                            {/* ── Messages ── */}
+                            {/*  Messages  */}
                             <Box sx={{
                                 flex: 1,
                                 overflowY: "auto",
@@ -350,11 +350,11 @@ const AIChatWidget = () => {
                                     <Box sx={{ textAlign: "center", py: 4 }}>
                                         <BotIcon sx={{ fontSize: 48, color: "#667eea", mb: 1 }} />
                                         <Typography variant="body1" fontWeight={600} color="text.primary">
-                                            Merhaba! 👋
+                                            Merhaba! 
                                         </Typography>
                                         <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 2 }}>
-                                            Ben LysiaETIC AI Operatör.<br />
-                                            İşletmenizi yönetmek için buradayım.
+                                            Ben Pazarynetim AI Operatör.<br />
+                                            İletmenizi yönetmek için buradayım.
                                         </Typography>
                                         <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, justifyContent: "center" }}>
                                             {["Nasıl gidiyor?", "Stok durumu", "Ne yapmalıyım?", "Yardım"].map(s => (
@@ -427,7 +427,7 @@ const AIChatWidget = () => {
                                     <Box sx={{ display: "flex", alignItems: "center", gap: 1, pl: 1 }}>
                                         <CircularProgress size={16} sx={{ color: "#667eea" }} />
                                         <Typography variant="caption" color="text.secondary">
-                                            AI düşünüyor...
+                                            AI düünüyor...
                                         </Typography>
                                     </Box>
                                 )}
@@ -435,7 +435,7 @@ const AIChatWidget = () => {
                                 <div ref={messagesEndRef} />
                             </Box>
 
-                            {/* ── Quick Replies ── */}
+                            {/*  Quick Replies  */}
                             {suggestions.length > 0 && !loading && (
                                 <Box sx={{
                                     px: 2, py: 1,
@@ -465,7 +465,7 @@ const AIChatWidget = () => {
                                 </Box>
                             )}
 
-                            {/* ── Input ── */}
+                            {/*  Input  */}
                             <Box sx={{
                                 p: 1.5,
                                 borderTop: "1px solid #eee",
@@ -516,3 +516,4 @@ const AIChatWidget = () => {
 };
 
 export default AIChatWidget;
+

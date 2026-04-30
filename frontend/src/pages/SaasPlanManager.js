@@ -1,16 +1,16 @@
 /**
- * SaasPlanManager — Admin Paket Yönetimi Sayfası
+ * SaasPlanManager  Admin Paket Ynetimi Sayfas
  *
- * Admin panelden tüm paketlerin fiyatlarını, limitlerini, özelliklerini,
- * açıklamalarını ve badge'lerini yönetme.
+ * Admin panelden tm paketlerin fiyatlarn, limitlerini, zelliklerini,
+ * aklamalarn ve badge'lerini ynetme.
  *
- * ✅ v2: Özellik ekleme artık A-Z katalogdan seçmeli (checkbox)
- *        + Özel özellik yazma desteği korunuyor
+ *  v2: zellik ekleme artk A-Z katalogdan semeli (checkbox)
+ *        + zel zellik yazma destei korunuyor
  *
- * Buradan yapılan değişiklikler:
- *   - Ana sayfa (HomePage) paket kartlarına yansır
- *   - Kullanıcı abonelik sayfasına (SubscriptionPage) yansır
- *   - PayTR ödeme tutarlarına yansır
+ * Buradan yaplan deiiklikler:
+ *   - Ana sayfa (HomePage) paket kartlarna yansr
+ *   - Kullanc abonelik sayfasna (SubscriptionPage) yansr
+ *   - PayTR deme tutarlarna yansr
  */
 
 import React, { useEffect, useState, useCallback, useMemo, useRef } from "react";
@@ -26,111 +26,111 @@ import {
 import AdminLayout from "../components/AdminLayout";
 import { getSystemConfig, updatePlanDefinitions } from "../services/saasAdminApi";
 
-/* ═══════════════════════════════════════════════════════════════════════════
-   A-Z ÖZELLİK KATALOĞU — Platformdaki tüm özellikler kategorilere ayrılmış
-   Admin buradan checkbox ile seçerek paketlere özellik ekler.
-   ═══════════════════════════════════════════════════════════════════════════ */
+/* 
+   A-Z ZELLK KATALOU  Platformdaki tm zellikler kategorilere ayrlm
+   Admin buradan checkbox ile seerek paketlere zellik ekler.
+    */
 const FEATURE_CATALOG = [
     {
-        category: "📊 Dashboard & Raporlama",
+        category: " Dashboard & Raporlama",
         icon: <FaChartBar style={{ fontSize: 11 }} />,
         items: [
-            "Dashboard erişimi",
+            "Dashboard eriimi",
             "Temel raporlama",
-            "Gelişmiş raporlama",
-            "Gelişmiş analitik",
-            "Gerçek zamanlı dashboard",
-            "Satış trendi analizi",
-            "Kâr/zarar raporları",
-            "Performans karşılaştırma",
-            "Özel rapor oluşturma",
-            "Rapor dışa aktarma (Excel/PDF)",
-            "Haftalık özet e-posta",
+            "Gelimi raporlama",
+            "Gelimi analitik",
+            "Gerek zamanl dashboard",
+            "Sat trendi analizi",
+            "Kr/zarar raporlar",
+            "Performans karlatrma",
+            "zel rapor oluturma",
+            "Rapor da aktarma (Excel/PDF)",
+            "Haftalk zet e-posta",
         ],
     },
     {
-        category: "📦 Ürün Yönetimi",
+        category: " rn Ynetimi",
         icon: <FaBoxOpen style={{ fontSize: 11 }} />,
         items: [
-            "Temel ürün yönetimi",
-            "Toplu ürün düzenleme",
-            "Toplu ürün dağıtımı",
-            "Ürün eşleştirme (mapping)",
+            "Temel rn ynetimi",
+            "Toplu rn dzenleme",
+            "Toplu rn datm",
+            "rn eletirme (mapping)",
             "Stok senkronizasyonu",
-            "Otomatik stok güncelleme",
-            "Varyant yönetimi",
-            "Marka yönetimi",
-            "Kategori eşleştirme",
-            "Ürün görseli yönetimi",
-            "Barkod/SKU yönetimi",
-            "Ürün içe/dışa aktarma",
-            "Gelişmiş ürün filtreleme",
-            "Ürün performans takibi",
-            "Ölü ürün tespiti",
+            "Otomatik stok gncelleme",
+            "Varyant ynetimi",
+            "Marka ynetimi",
+            "Kategori eletirme",
+            "rn grseli ynetimi",
+            "Barkod/SKU ynetimi",
+            "rn ie/da aktarma",
+            "Gelimi rn filtreleme",
+            "rn performans takibi",
+            "l rn tespiti",
         ],
     },
     {
-        category: "🛒 Sipariş Yönetimi",
+        category: " Sipari Ynetimi",
         icon: <FaClipboardList style={{ fontSize: 11 }} />,
         items: [
-            "Sipariş görüntüleme",
-            "Sipariş yönetimi",
-            "Otomatik sipariş işleme",
-            "Toplu sipariş onaylama",
-            "Sipariş durumu takibi",
-            "İade/iptal yönetimi",
-            "Sipariş geçmişi",
-            "Sipariş bildirimleri",
+            "Sipari grntleme",
+            "Sipari ynetimi",
+            "Otomatik sipari ileme",
+            "Toplu sipari onaylama",
+            "Sipari durumu takibi",
+            "ade/iptal ynetimi",
+            "Sipari gemii",
+            "Sipari bildirimleri",
         ],
     },
     {
-        category: "🏪 Pazaryeri Entegrasyonları",
+        category: " Pazaryeri Entegrasyonlar",
         icon: <FaPlug style={{ fontSize: 11 }} />,
         items: [
             "Trendyol entegrasyonu",
             "Hepsiburada entegrasyonu",
             "Amazon entegrasyonu",
-            "ÇiçekSepeti entegrasyonu",
+            "iekSepeti entegrasyonu",
             "N11 entegrasyonu",
-            "Çoklu pazaryeri yönetimi",
+            "oklu pazaryeri ynetimi",
             "Pazaryeri senkronizasyonu",
-            "Pazaryeri fiyat yönetimi",
-            "Webhook desteği",
-            "Özel API erişimi",
+            "Pazaryeri fiyat ynetimi",
+            "Webhook destei",
+            "zel API eriimi",
         ],
     },
     {
-        category: "🤖 AI & Yapay Zeka",
+        category: " AI & Yapay Zeka",
         icon: <FaBrain style={{ fontSize: 11 }} />,
         items: [
             "AI Asistan (LysiaBrain)",
             "AI destekli analiz",
-            "AI fiyat önerileri",
-            "AI ürün açıklama oluşturma",
+            "AI fiyat nerileri",
+            "AI rn aklama oluturma",
             "AI SEO optimizasyonu",
             "AI stok tahmini",
-            "AI satış tahmini",
-            "AI Radar — fırsat tarama",
-            "AI Operatör — otonom yönetim",
+            "AI sat tahmini",
+            "AI Radar  frsat tarama",
+            "AI Operatr  otonom ynetim",
             "AI maliyet analizi",
             "AI rekabet analizi",
-            "AI kategori önerisi",
+            "AI kategori nerisi",
             "Roketfy entegrasyonu",
         ],
     },
     {
-        category: "🚚 Kargo & Lojistik",
+        category: " Kargo & Lojistik",
         icon: <FaTruck style={{ fontSize: 11 }} />,
         items: [
             "Kargo takibi",
-            "Çoklu kargo firması desteği",
+            "oklu kargo firmas destei",
             "Otomatik kargo etiketi",
             "Kargo maliyet hesaplama",
             "Teslimat performans raporu",
         ],
     },
     {
-        category: "🧾 Fatura & Finans",
+        category: " Fatura & Finans",
         icon: <FaFileInvoice style={{ fontSize: 11 }} />,
         items: [
             "E-fatura entegrasyonu",
@@ -138,97 +138,97 @@ const FEATURE_CATALOG = [
             "Finans dashboard",
             "Gelir/gider takibi",
             "Vergi hesaplama",
-            "Ödeme takibi",
-            "Fatura dışa aktarma",
-            "Çoklu e-fatura sağlayıcısı",
+            "deme takibi",
+            "Fatura da aktarma",
+            "oklu e-fatura salaycs",
         ],
     },
     {
-        category: "📈 Analitik & Rekabet",
+        category: " Analitik & Rekabet",
         icon: <FaChartLine style={{ fontSize: 11 }} />,
         items: [
-            "Satış analitiği",
+            "Sat analitii",
             "Rekabet analizi",
-            "Fiyat karşılaştırma",
+            "Fiyat karlatrma",
             "Pazar trendi analizi",
             "Kategori analizi",
-            "Müşteri segmentasyonu",
-            "Dönüşüm oranı takibi",
+            "Mteri segmentasyonu",
+            "Dnm oran takibi",
             "Reklam performans takibi",
         ],
     },
     {
-        category: "🏭 Envanter & Depo",
+        category: " Envanter & Depo",
         icon: <FaWarehouse style={{ fontSize: 11 }} />,
         items: [
-            "Envanter yönetimi",
-            "Çoklu depo desteği",
+            "Envanter ynetimi",
+            "oklu depo destei",
             "Stok alarm sistemi",
-            "Minimum stok uyarısı",
-            "Envanter raporları",
+            "Minimum stok uyars",
+            "Envanter raporlar",
             "Depo transferi",
         ],
     },
     {
-        category: "🔔 Bildirim & İletişim",
+        category: " Bildirim & letiim",
         icon: <FaBell style={{ fontSize: 11 }} />,
         items: [
             "E-posta bildirimleri",
-            "Uygulama içi bildirimler",
-            "Sipariş bildirimleri",
-            "Stok uyarı bildirimleri",
-            "Özel bildirim kuralları",
+            "Uygulama ii bildirimler",
+            "Sipari bildirimleri",
+            "Stok uyar bildirimleri",
+            "zel bildirim kurallar",
         ],
     },
     {
-        category: "🔐 Güvenlik & Yönetim",
+        category: " Gvenlik & Ynetim",
         icon: <FaShieldAlt style={{ fontSize: 11 }} />,
         items: [
-            "İki faktörlü doğrulama (2FA)",
-            "Çoklu kullanıcı desteği",
-            "Rol bazlı yetkilendirme",
-            "API key yönetimi",
-            "Aktivite logları",
-            "IP kısıtlama",
+            "ki faktrl dorulama (2FA)",
+            "oklu kullanc destei",
+            "Rol bazl yetkilendirme",
+            "API key ynetimi",
+            "Aktivite loglar",
+            "IP kstlama",
         ],
     },
     {
-        category: "🎧 Destek & SLA",
+        category: " Destek & SLA",
         icon: <FaHeadset style={{ fontSize: 11 }} />,
         items: [
-            "E-posta desteği",
-            "Öncelikli destek",
+            "E-posta destei",
+            "ncelikli destek",
             "7/24 destek",
-            "Canlı chat desteği",
-            "Dedicated hesap yöneticisi",
+            "Canl chat destei",
+            "Dedicated hesap yneticisi",
             "SLA garantisi",
-            "Özel eğitim & onboarding",
-            "Telefon desteği",
+            "zel eitim & onboarding",
+            "Telefon destei",
         ],
     },
     {
-        category: "⚙️ Gelişmiş & Kurumsal",
+        category: " Gelimi & Kurumsal",
         icon: <FaCogs style={{ fontSize: 11 }} />,
         items: [
-            "White-label seçeneği",
-            "Özel entegrasyonlar",
-            "Özel API geliştirme",
+            "White-label seenei",
+            "zel entegrasyonlar",
+            "zel API gelitirme",
             "Veri yedekleme",
-            "Öncelikli sunucu kaynağı",
-            "Özel domain desteği",
-            "Sınırsız ürün",
-            "Sınırsız sipariş",
-            "Sınırsız pazaryeri",
-            "Sınırsız kullanıcı",
-            "Sınırsız API çağrısı",
-            "Beta özelliklere erken erişim",
+            "ncelikli sunucu kayna",
+            "zel domain destei",
+            "Snrsz rn",
+            "Snrsz sipari",
+            "Snrsz pazaryeri",
+            "Snrsz kullanc",
+            "Snrsz API ars",
+            "Beta zelliklere erken eriim",
         ],
     },
 ];
 
-/* ═══════════════════════════════════════════════════════════════════════════
-   FeaturePickerModal — Checkbox ile özellik seçme modalı
-   ═══════════════════════════════════════════════════════════════════════════ */
+/* 
+   FeaturePickerModal  Checkbox ile zellik seme modal
+    */
 const FeaturePickerModal = ({ currentFeatures, onSave, onClose }) => {
     const [selected, setSelected] = useState(new Set(currentFeatures || []));
     const [search, setSearch] = useState("");
@@ -236,7 +236,7 @@ const FeaturePickerModal = ({ currentFeatures, onSave, onClose }) => {
     const [customFeature, setCustomFeature] = useState("");
     const searchRef = useRef(null);
 
-    // Arama sonuçlarını filtrele
+    // Arama sonularn filtrele
     const filteredCatalog = useMemo(() => {
         if (!search.trim()) return FEATURE_CATALOG;
         const q = search.toLowerCase().trim();
@@ -246,7 +246,7 @@ const FeaturePickerModal = ({ currentFeatures, onSave, onClose }) => {
         })).filter(cat => cat.items.length > 0);
     }, [search]);
 
-    // Seçili sayısı
+    // Seili says
     const selectedCount = selected.size;
     const totalAvailable = FEATURE_CATALOG.reduce((sum, cat) => sum + cat.items.length, 0);
 
@@ -297,16 +297,16 @@ const FeaturePickerModal = ({ currentFeatures, onSave, onClose }) => {
     };
 
     const deselectAll = () => {
-        // Sadece katalogdaki özellikleri kaldır, özel eklenenler kalsın
+        // Sadece katalogdaki zellikleri kaldr, zel eklenenler kalsn
         const catalogItems = new Set(FEATURE_CATALOG.flatMap(c => c.items));
         setSelected(prev => new Set([...prev].filter(f => !catalogItems.has(f))));
     };
 
-    // Özel (katalogda olmayan) özellikler
+    // zel (katalogda olmayan) zellikler
     const catalogItemsSet = useMemo(() => new Set(FEATURE_CATALOG.flatMap(c => c.items)), []);
     const customFeatures = useMemo(() => [...selected].filter(f => !catalogItemsSet.has(f)), [selected, catalogItemsSet]);
 
-    // Modal açılınca arama kutusuna focus
+    // Modal alnca arama kutusuna focus
     useEffect(() => {
         setTimeout(() => searchRef.current?.focus(), 100);
     }, []);
@@ -318,16 +318,16 @@ const FeaturePickerModal = ({ currentFeatures, onSave, onClose }) => {
                 <div style={modalHeader}>
                     <div>
                         <div style={{ fontSize: 16, fontWeight: 700, color: "#f1f5f9", display: "flex", alignItems: "center", gap: 8 }}>
-                            <FaListUl style={{ color: "#818cf8" }} /> Özellik Kataloğu
+                            <FaListUl style={{ color: "#818cf8" }} /> zellik Katalou
                         </div>
                         <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>
-                            {selectedCount} özellik seçili / {totalAvailable} mevcut
+                            {selectedCount} zellik seili / {totalAvailable} mevcut
                         </div>
                     </div>
                     <button onClick={onClose} style={modalCloseBtn}><FaTimes /></button>
                 </div>
 
-                {/* Search + Toplu İşlem */}
+                {/* Search + Toplu lem */}
                 <div style={{ padding: "0 20px 12px", display: "flex", gap: 8, alignItems: "center" }}>
                     <div style={{ flex: 1, position: "relative" }}>
                         <FaSearch style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "#64748b", fontSize: 12 }} />
@@ -336,14 +336,14 @@ const FeaturePickerModal = ({ currentFeatures, onSave, onClose }) => {
                             type="text"
                             value={search}
                             onChange={e => setSearch(e.target.value)}
-                            placeholder="Özellik ara..."
+                            placeholder="zellik ara..."
                             style={{ ...inputStyle, width: "100%", paddingLeft: 32, fontSize: 12 }}
                         />
                     </div>
-                    <button onClick={selectAll} style={modalSmBtn} title="Tümünü Seç">
-                        <FaCheck style={{ fontSize: 9 }} /> Tümü
+                    <button onClick={selectAll} style={modalSmBtn} title="Tmn Se">
+                        <FaCheck style={{ fontSize: 9 }} /> Tm
                     </button>
-                    <button onClick={deselectAll} style={{ ...modalSmBtn, color: "#f87171", borderColor: "rgba(248,113,113,0.3)" }} title="Tümünü Kaldır">
+                    <button onClick={deselectAll} style={{ ...modalSmBtn, color: "#f87171", borderColor: "rgba(248,113,113,0.3)" }} title="Tmn Kaldr">
                         <FaTimes style={{ fontSize: 9 }} /> Temizle
                     </button>
                 </div>
@@ -358,13 +358,13 @@ const FeaturePickerModal = ({ currentFeatures, onSave, onClose }) => {
 
                         return (
                             <div key={cat.category} style={{ marginBottom: 4 }}>
-                                {/* Kategori Başlığı */}
+                                {/* Kategori Bal */}
                                 <div
                                     style={catHeader}
                                     onClick={() => toggleExpandCat(cat.category)}
                                 >
                                     <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, cursor: "pointer" }}>
-                                        <span style={{ fontSize: 14, transition: "transform 0.2s", transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)" }}>▶</span>
+                                        <span style={{ fontSize: 14, transition: "transform 0.2s", transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)" }}></span>
                                         <span style={{ fontSize: 13, fontWeight: 700, color: "#e2e8f0" }}>{cat.category}</span>
                                         <span style={{ fontSize: 10, color: "#64748b", fontWeight: 400 }}>
                                             ({selectedInCat}/{cat.items.length})
@@ -377,14 +377,14 @@ const FeaturePickerModal = ({ currentFeatures, onSave, onClose }) => {
                                             background: allInCatSelected ? "#6366f1" : someInCatSelected ? "rgba(99,102,241,0.4)" : "transparent",
                                             borderColor: allInCatSelected || someInCatSelected ? "#6366f1" : "#475569",
                                         }}
-                                        title={allInCatSelected ? "Tümünü kaldır" : "Tümünü seç"}
+                                        title={allInCatSelected ? "Tmn kaldr" : "Tmn se"}
                                     >
                                         {allInCatSelected && <FaCheck style={{ fontSize: 8, color: "#fff" }} />}
-                                        {someInCatSelected && !allInCatSelected && <span style={{ fontSize: 10, color: "#fff", lineHeight: 1 }}>—</span>}
+                                        {someInCatSelected && !allInCatSelected && <span style={{ fontSize: 10, color: "#fff", lineHeight: 1 }}></span>}
                                     </div>
                                 </div>
 
-                                {/* Özellik Listesi */}
+                                {/* zellik Listesi */}
                                 {isExpanded && (
                                     <div style={{ paddingLeft: 12 }}>
                                         {cat.items.map((feat) => {
@@ -423,17 +423,17 @@ const FeaturePickerModal = ({ currentFeatures, onSave, onClose }) => {
                     {filteredCatalog.length === 0 && (
                         <div style={{ textAlign: "center", padding: 30, color: "#64748b", fontSize: 13 }}>
                             <FaSearch style={{ fontSize: 20, marginBottom: 8, display: "block", margin: "0 auto 8px" }} />
-                            "{search}" ile eşleşen özellik bulunamadı
+                            "{search}" ile eleen zellik bulunamad
                         </div>
                     )}
 
-                    {/* Özel Eklenen Özellikler */}
+                    {/* zel Eklenen zellikler */}
                     {customFeatures.length > 0 && (
                         <div style={{ marginTop: 8 }}>
                             <div style={{ ...catHeader, cursor: "default" }}>
                                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                                     <FaPencilAlt style={{ fontSize: 11, color: "#fbbf24" }} />
-                                    <span style={{ fontSize: 13, fontWeight: 700, color: "#fbbf24" }}>✏️ Özel Eklenen</span>
+                                    <span style={{ fontSize: 13, fontWeight: 700, color: "#fbbf24" }}> zel Eklenen</span>
                                     <span style={{ fontSize: 10, color: "#64748b" }}>({customFeatures.length})</span>
                                 </div>
                             </div>
@@ -457,14 +457,14 @@ const FeaturePickerModal = ({ currentFeatures, onSave, onClose }) => {
                     )}
                 </div>
 
-                {/* Özel Özellik Ekleme */}
+                {/* zel zellik Ekleme */}
                 <div style={{ padding: "12px 20px", borderTop: "1px solid rgba(99,102,241,0.15)", display: "flex", gap: 8 }}>
                     <input
                         type="text"
                         value={customFeature}
                         onChange={e => setCustomFeature(e.target.value)}
                         onKeyDown={e => e.key === "Enter" && handleAddCustom()}
-                        placeholder="Özel özellik yaz ve ekle..."
+                        placeholder="zel zellik yaz ve ekle..."
                         style={{ ...inputStyle, flex: 1, fontSize: 12 }}
                     />
                     <button
@@ -484,11 +484,11 @@ const FeaturePickerModal = ({ currentFeatures, onSave, onClose }) => {
                 {/* Footer */}
                 <div style={modalFooter}>
                     <div style={{ fontSize: 11, color: "#64748b" }}>
-                        <FaInfoCircle style={{ fontSize: 10 }} /> Seçilen özellikler paket kartında görünecek
+                        <FaInfoCircle style={{ fontSize: 10 }} /> Seilen zellikler paket kartnda grnecek
                     </div>
                     <div style={{ display: "flex", gap: 8 }}>
                         <button onClick={onClose} style={{ ...modalSmBtn, padding: "8px 16px", fontSize: 12 }}>
-                            <FaTimes style={{ fontSize: 10 }} /> İptal
+                            <FaTimes style={{ fontSize: 10 }} /> ptal
                         </button>
                         <button
                             onClick={() => onSave([...selected])}
@@ -499,7 +499,7 @@ const FeaturePickerModal = ({ currentFeatures, onSave, onClose }) => {
                                 display: "flex", alignItems: "center", gap: 6,
                             }}
                         >
-                            <FaCheck style={{ fontSize: 10 }} /> {selectedCount} Özelliği Kaydet
+                            <FaCheck style={{ fontSize: 10 }} /> {selectedCount} zellii Kaydet
                         </button>
                     </div>
                 </div>
@@ -508,9 +508,9 @@ const FeaturePickerModal = ({ currentFeatures, onSave, onClose }) => {
     );
 };
 
-/* ═══════════════════════════════════════════════════════════════════════════
-   ANA COMPONENT — SaasPlanManager
-   ═══════════════════════════════════════════════════════════════════════════ */
+/* 
+   ANA COMPONENT  SaasPlanManager
+    */
 const SaasPlanManager = () => {
     const [config, setConfig] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -520,7 +520,7 @@ const SaasPlanManager = () => {
     const [saving, setSaving] = useState(false);
     const [draft, setDraft] = useState({});
     const [previewCycle, setPreviewCycle] = useState("monthly");
-    const [featurePickerPlan, setFeaturePickerPlan] = useState(null); // Hangi plan için picker açık
+    const [featurePickerPlan, setFeaturePickerPlan] = useState(null); // Hangi plan iin picker ak
 
     const loadConfig = useCallback(async () => {
         setLoading(true);
@@ -531,7 +531,7 @@ const SaasPlanManager = () => {
             setDraft(JSON.parse(JSON.stringify(res.data.planDefinitions || {})));
         } catch (err) {
             console.error(err);
-            setError("Paket bilgileri alınamadı.");
+            setError("Paket bilgileri alnamad.");
         } finally {
             setLoading(false);
         }
@@ -539,7 +539,7 @@ const SaasPlanManager = () => {
 
     useEffect(() => { loadConfig(); }, [loadConfig]);
 
-    // ── Field Handlers ──────────────────────────────────────────────────────
+    //  Field Handlers 
     const handleField = (planKey, field, value) => {
         setDraft(prev => ({
             ...prev,
@@ -565,7 +565,7 @@ const SaasPlanManager = () => {
         });
     };
 
-    // ── Feature Picker kaydet ────────────────────────────────────────────────
+    //  Feature Picker kaydet 
     const handleFeaturePickerSave = (planKey, selectedFeatures) => {
         setDraft(prev => ({
             ...prev,
@@ -574,26 +574,26 @@ const SaasPlanManager = () => {
         setFeaturePickerPlan(null);
     };
 
-    // ── Save ────────────────────────────────────────────────────────────────
+    //  Save 
     const handleSave = async () => {
         setSaving(true);
         setMessage({ text: "", type: "" });
         try {
-            // price'ı monthlyPrice ile senkronize et
+            // price' monthlyPrice ile senkronize et
             const toSave = JSON.parse(JSON.stringify(draft));
             for (const [, plan] of Object.entries(toSave)) {
                 plan.price = plan.monthlyPrice || plan.price || 0;
-                // Boş feature'ları temizle
+                // Bo feature'lar temizle
                 if (Array.isArray(plan.features)) {
                     plan.features = plan.features.filter(f => f && f.trim());
                 }
             }
             await updatePlanDefinitions(toSave);
-            setMessage({ text: "✅ Paket tanımları başarıyla güncellendi! Değişiklikler ana sayfa ve abonelik sayfasına anında yansıyacak.", type: "success" });
+            setMessage({ text: " Paket tanmlar baaryla gncellendi! Deiiklikler ana sayfa ve abonelik sayfasna annda yansyacak.", type: "success" });
             setEditing(false);
             loadConfig();
         } catch (err) {
-            setMessage({ text: err.response?.data?.message || "Paket tanımları güncellenemedi", type: "error" });
+            setMessage({ text: err.response?.data?.message || "Paket tanmlar gncellenemedi", type: "error" });
         } finally {
             setSaving(false);
         }
@@ -604,32 +604,32 @@ const SaasPlanManager = () => {
         setEditing(false);
     };
 
-    // ── Helpers ─────────────────────────────────────────────────────────────
+    //  Helpers 
     const planColors = { trial: "yellow", basic: "blue", pro: "purple", enterprise: "green" };
     const planIcons = { trial: <FaClock />, basic: <FaBoxOpen />, pro: <FaChartBar />, enterprise: <FaShieldAlt /> };
 
     const limitLabels = {
-        maxProducts: { label: "Maks Ürün", icon: <FaBoxOpen /> },
-        maxOrders: { label: "Maks Sipariş/Ay", icon: <FaClipboardList /> },
+        maxProducts: { label: "Maks rn", icon: <FaBoxOpen /> },
+        maxOrders: { label: "Maks Sipari/Ay", icon: <FaClipboardList /> },
         maxMarketplaces: { label: "Maks Pazaryeri", icon: <FaPlug /> },
-        maxApiCalls: { label: "API Çağrı/Ay", icon: <FaCode /> },
-        maxUsers: { label: "Maks Kullanıcı", icon: <FaUsers /> },
+        maxApiCalls: { label: "API ar/Ay", icon: <FaCode /> },
+        maxUsers: { label: "Maks Kullanc", icon: <FaUsers /> },
     };
 
     const fmtPrice = (n) => {
-        if (!n && n !== 0) return "₺0";
-        return "₺" + Number(n).toLocaleString("tr-TR");
+        if (!n && n !== 0) return "0";
+        return "" + Number(n).toLocaleString("tr-TR");
     };
 
-    // Katalogdaki tüm özellikler (set) — bir özelliğin katalogda olup olmadığını kontrol için
+    // Katalogdaki tm zellikler (set)  bir zelliin katalogda olup olmadn kontrol iin
     const catalogItemsSet = useMemo(() => new Set(FEATURE_CATALOG.flatMap(c => c.items)), []);
 
     const plans = editing ? draft : (config?.planDefinitions || {});
 
     return (
         <AdminLayout
-            title="Paket Yönetimi"
-            subtitle="Abonelik paketlerinin fiyatlarını, limitlerini ve özelliklerini yönetin — değişiklikler anında yansır"
+            title="Paket Ynetimi"
+            subtitle="Abonelik paketlerinin fiyatlarn, limitlerini ve zelliklerini ynetin  deiiklikler annda yansr"
             actions={
                 <div style={{ display: "flex", gap: 8 }}>
                     <button className="ap-btn ap-btn--ghost" onClick={loadConfig} disabled={loading}>
@@ -646,11 +646,11 @@ const SaasPlanManager = () => {
                 </div>
             )}
             {error && <div className="ap-alert ap-alert--error"><FaExclamationTriangle /> {error}</div>}
-            {loading && !config && <div className="ap-loading">Yükleniyor...</div>}
+            {loading && !config && <div className="ap-loading">Ykleniyor...</div>}
 
             {config && (
                 <>
-                    {/* ═══ TOOLBAR ═══ */}
+                    {/*  TOOLBAR  */}
                     <div className="ap-card" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                             <div className="ap-kpi-icon ap-kpi-icon--purple" style={{ width: 44, height: 44, borderRadius: 12, fontSize: 20 }}>
@@ -659,8 +659,8 @@ const SaasPlanManager = () => {
                             <div>
                                 <div style={{ fontWeight: 700, fontSize: 16 }}>Abonelik Paketleri</div>
                                 <div style={{ fontSize: 12, color: "var(--ap-muted)" }}>
-                                    Fiyatları, limitleri, özellikleri ve açıklamaları buradan yönetin.
-                                    Değişiklikler ana sayfa ve kullanıcı paket seçim sayfasına anında yansır.
+                                    Fiyatlar, limitleri, zellikleri ve aklamalar buradan ynetin.
+                                    Deiiklikler ana sayfa ve kullanc paket seim sayfasna annda yansr.
                                 </div>
                             </div>
                         </div>
@@ -668,21 +668,21 @@ const SaasPlanManager = () => {
                             {editing ? (
                                 <>
                                     <button className="ap-btn ap-btn--ghost" onClick={handleCancel} disabled={saving}>
-                                        <FaTimes /> İptal
+                                        <FaTimes /> ptal
                                     </button>
                                     <button className="ap-btn ap-btn--primary" onClick={handleSave} disabled={saving}>
-                                        <FaSave /> {saving ? "Kaydediliyor..." : "Tüm Değişiklikleri Kaydet"}
+                                        <FaSave /> {saving ? "Kaydediliyor..." : "Tm Deiiklikleri Kaydet"}
                                     </button>
                                 </>
                             ) : (
                                 <button className="ap-btn ap-btn--primary" onClick={() => setEditing(true)}>
-                                    <FaEdit /> Paketleri Düzenle
+                                    <FaEdit /> Paketleri Dzenle
                                 </button>
                             )}
                         </div>
                     </div>
 
-                    {/* ═══ PAKET KARTLARI ═══ */}
+                    {/*  PAKET KARTLARI  */}
                     {Object.entries(plans).map(([key, plan]) => {
                         const color = planColors[key] || "purple";
                         return (
@@ -697,13 +697,13 @@ const SaasPlanManager = () => {
                                             {editing ? (
                                                 <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                                                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                                        <label style={labelSm}>Paket Adı</label>
+                                                        <label style={labelSm}>Paket Ad</label>
                                                         <input
                                                             type="text"
                                                             value={plan.name || ""}
                                                             onChange={(e) => handleField(key, "name", e.target.value)}
                                                             style={{ ...inputStyle, width: 180, fontSize: 15, fontWeight: 700 }}
-                                                            placeholder="Paket adı"
+                                                            placeholder="Paket ad"
                                                         />
                                                     </div>
                                                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -713,7 +713,7 @@ const SaasPlanManager = () => {
                                                             value={plan.badge || ""}
                                                             onChange={(e) => handleField(key, "badge", e.target.value)}
                                                             style={{ ...inputStyle, width: 180 }}
-                                                            placeholder='ör: "EN POPÜLER", "ÖZEL"'
+                                                            placeholder='r: "EN POPLER", "ZEL"'
                                                         />
                                                     </div>
                                                 </div>
@@ -730,20 +730,20 @@ const SaasPlanManager = () => {
                                                         )}
                                                     </div>
                                                     <div style={{ fontSize: 12, color: "var(--ap-muted)", marginTop: 4 }}>
-                                                        {plan.description || "Açıklama eklenmemiş"}
+                                                        {plan.description || "Aklama eklenmemi"}
                                                     </div>
                                                 </div>
                                             )}
                                         </div>
                                     </div>
 
-                                    {/* Fiyat Bölümü */}
+                                    {/* Fiyat Blm */}
                                     <div style={{ textAlign: "right" }}>
                                         {editing ? (
                                             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                                                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                                    <label style={labelSm}>Aylık</label>
-                                                    <span style={{ fontSize: 16, fontWeight: 800, color: "var(--ap-text)" }}>₺</span>
+                                                    <label style={labelSm}>Aylk</label>
+                                                    <span style={{ fontSize: 16, fontWeight: 800, color: "var(--ap-text)" }}></span>
                                                     <input
                                                         type="number"
                                                         value={plan.monthlyPrice ?? plan.price ?? 0}
@@ -753,8 +753,8 @@ const SaasPlanManager = () => {
                                                     />
                                                 </div>
                                                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                                    <label style={labelSm}>Yıllık</label>
-                                                    <span style={{ fontSize: 16, fontWeight: 800, color: "var(--ap-text)" }}>₺</span>
+                                                    <label style={labelSm}>Yllk</label>
+                                                    <span style={{ fontSize: 16, fontWeight: 800, color: "var(--ap-text)" }}></span>
                                                     <input
                                                         type="number"
                                                         value={plan.yearlyPrice ?? 0}
@@ -764,7 +764,7 @@ const SaasPlanManager = () => {
                                                     />
                                                 </div>
                                                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                                    <label style={labelSm}>Süre</label>
+                                                    <label style={labelSm}>Sre</label>
                                                     <input
                                                         type="number"
                                                         value={plan.duration ?? 30}
@@ -772,7 +772,7 @@ const SaasPlanManager = () => {
                                                         style={{ ...inputStyle, width: 60, textAlign: "center" }}
                                                         min="1"
                                                     />
-                                                    <span style={{ fontSize: 11, color: "var(--ap-muted)" }}>gün</span>
+                                                    <span style={{ fontSize: 11, color: "var(--ap-muted)" }}>gn</span>
                                                 </div>
                                             </div>
                                         ) : (
@@ -783,7 +783,7 @@ const SaasPlanManager = () => {
                                                 </div>
                                                 <div style={{ fontSize: 14, color: "var(--ap-muted)", marginTop: 2 }}>
                                                     {fmtPrice(plan.yearlyPrice || Math.round((plan.monthlyPrice || plan.price || 0) * 10))}
-                                                    <span style={{ fontSize: 11 }}>/yıl</span>
+                                                    <span style={{ fontSize: 11 }}>/yl</span>
                                                     {(plan.monthlyPrice || plan.price) > 0 && (
                                                         <span className="ap-badge ap-badge--green" style={{ fontSize: 10, padding: "2px 6px", marginLeft: 6 }}>
                                                             %{Math.round(100 - ((plan.yearlyPrice || Math.round((plan.monthlyPrice || plan.price) * 10)) / ((plan.monthlyPrice || plan.price) * 12)) * 100)} indirim
@@ -791,35 +791,35 @@ const SaasPlanManager = () => {
                                                     )}
                                                 </div>
                                                 <div style={{ fontSize: 11, color: "var(--ap-muted)", marginTop: 4 }}>
-                                                    <FaClock style={{ fontSize: 9 }} /> {plan.duration || 30} gün
+                                                    <FaClock style={{ fontSize: 9 }} /> {plan.duration || 30} gn
                                                 </div>
                                             </div>
                                         )}
                                     </div>
                                 </div>
 
-                                {/* Açıklama (editing) */}
+                                {/* Aklama (editing) */}
                                 {editing && (
                                     <div style={{ marginBottom: 16 }}>
                                         <label style={{ ...labelSm, marginBottom: 4, display: "block" }}>
-                                            <FaInfoCircle style={{ fontSize: 10 }} /> Paket Açıklaması
+                                            <FaInfoCircle style={{ fontSize: 10 }} /> Paket Aklamas
                                         </label>
                                         <input
                                             type="text"
                                             value={plan.description || ""}
                                             onChange={(e) => handleField(key, "description", e.target.value)}
                                             style={{ ...inputStyle, width: "100%" }}
-                                            placeholder="Bu paket hakkında kısa açıklama..."
+                                            placeholder="Bu paket hakknda ksa aklama..."
                                         />
                                     </div>
                                 )}
 
-                                {/* İki Sütun: Limitler + Özellikler */}
+                                {/* ki Stun: Limitler + zellikler */}
                                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
                                     {/* Limitler */}
                                     <div>
                                         <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ap-text2)", marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
-                                            <FaShieldAlt style={{ fontSize: 12 }} /> Kullanım Limitleri
+                                            <FaShieldAlt style={{ fontSize: 12 }} /> Kullanm Limitleri
                                         </div>
                                         <div className="ap-list" style={{ margin: 0 }}>
                                             {Object.entries(limitLabels).map(([limitKey, { label, icon }]) => (
@@ -838,7 +838,7 @@ const SaasPlanManager = () => {
                                                     ) : (
                                                         <span style={{ fontWeight: 700, fontSize: 13 }}>
                                                             {(plan.limits?.[limitKey] ?? 0) >= 999999
-                                                                ? "Sınırsız"
+                                                                ? "Snrsz"
                                                                 : (plan.limits?.[limitKey] || 0).toLocaleString("tr-TR")}
                                                         </span>
                                                     )}
@@ -847,13 +847,13 @@ const SaasPlanManager = () => {
                                         </div>
                                     </div>
 
-                                    {/* Özellikler */}
+                                    {/* zellikler */}
                                     <div>
                                         <div style={{ fontSize: 13, fontWeight: 700, color: "var(--ap-text2)", marginBottom: 10, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                                             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                                <FaListUl style={{ fontSize: 12 }} /> Paket Özellikleri
+                                                <FaListUl style={{ fontSize: 12 }} /> Paket zellikleri
                                                 <span style={{ fontSize: 11, fontWeight: 400, color: "var(--ap-muted)" }}>
-                                                    ({(plan.features || []).length} özellik)
+                                                    ({(plan.features || []).length} zellik)
                                                 </span>
                                             </div>
                                             {editing && (
@@ -874,7 +874,7 @@ const SaasPlanManager = () => {
                                                         fontFamily: "inherit",
                                                     }}
                                                 >
-                                                    <FaPlus style={{ fontSize: 9 }} /> Katalogdan Seç
+                                                    <FaPlus style={{ fontSize: 9 }} /> Katalogdan Se
                                                 </button>
                                             )}
                                         </div>
@@ -894,10 +894,10 @@ const SaasPlanManager = () => {
                                                     >
                                                         <FaPlus style={{ fontSize: 16, color: "#6366f1", marginBottom: 6 }} />
                                                         <div style={{ fontSize: 12, color: "#818cf8", fontWeight: 600 }}>
-                                                            Katalogdan özellik seçmek için tıklayın
+                                                            Katalogdan zellik semek iin tklayn
                                                         </div>
                                                         <div style={{ fontSize: 10, color: "#64748b", marginTop: 4 }}>
-                                                            {FEATURE_CATALOG.reduce((s, c) => s + c.items.length, 0)} özellik mevcut
+                                                            {FEATURE_CATALOG.reduce((s, c) => s + c.items.length, 0)} zellik mevcut
                                                         </div>
                                                     </div>
                                                 ) : (
@@ -923,7 +923,7 @@ const SaasPlanManager = () => {
                                                                             fontSize: 9, color: "#f59e0b", background: "rgba(245,158,11,0.1)",
                                                                             padding: "1px 6px", borderRadius: 4, fontWeight: 600,
                                                                         }}>
-                                                                            ÖZEL
+                                                                            ZEL
                                                                         </span>
                                                                     )}
                                                                     <button
@@ -936,7 +936,7 @@ const SaasPlanManager = () => {
                                                                         }}
                                                                         onMouseEnter={e => e.target.style.opacity = 1}
                                                                         onMouseLeave={e => e.target.style.opacity = 0.6}
-                                                                        title="Özelliği kaldır"
+                                                                        title="zellii kaldr"
                                                                     >
                                                                         <FaTrash />
                                                                     </button>
@@ -950,7 +950,7 @@ const SaasPlanManager = () => {
                                             <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                                                 {(plan.features || []).length === 0 ? (
                                                     <div style={{ fontSize: 12, color: "var(--ap-muted)", fontStyle: "italic" }}>
-                                                        Henüz özellik eklenmemiş
+                                                        Henz zellik eklenmemi
                                                     </div>
                                                 ) : (
                                                     (plan.features || []).map((feat, idx) => (
@@ -968,25 +968,25 @@ const SaasPlanManager = () => {
                         );
                     })}
 
-                    {/* ═══ ÖNİZLEME ═══ */}
+                    {/*  NZLEME  */}
                     {!editing && (
                         <div className="ap-card">
                             <div className="ap-card-head" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                    <FaEye /> Kullanıcı Görünümü Önizleme
+                                    <FaEye /> Kullanc Grnm nizleme
                                 </div>
                                 <div style={{ display: "flex", gap: 6 }}>
                                     <button
                                         className={`ap-btn ap-btn--sm ${previewCycle === "monthly" ? "ap-btn--primary" : "ap-btn--ghost"}`}
                                         onClick={() => setPreviewCycle("monthly")}
                                     >
-                                        Aylık
+                                        Aylk
                                     </button>
                                     <button
                                         className={`ap-btn ap-btn--sm ${previewCycle === "yearly" ? "ap-btn--primary" : "ap-btn--ghost"}`}
                                         onClick={() => setPreviewCycle("yearly")}
                                     >
-                                        Yıllık
+                                        Yllk
                                     </button>
                                 </div>
                             </div>
@@ -995,7 +995,7 @@ const SaasPlanManager = () => {
                                     const price = previewCycle === "yearly"
                                         ? (plan.yearlyPrice || Math.round((plan.monthlyPrice || plan.price || 0) * 10))
                                         : (plan.monthlyPrice || plan.price || 0);
-                                    const isPopular = plan.badge === "EN POPÜLER";
+                                    const isPopular = plan.badge === "EN POPLER";
                                     return (
                                         <div key={key} style={{
                                             background: isPopular ? "linear-gradient(135deg, rgba(99,102,241,0.12), rgba(139,92,246,0.08))" : "var(--ap-surface)",
@@ -1020,7 +1020,7 @@ const SaasPlanManager = () => {
                                                 {fmtPrice(price)}
                                             </div>
                                             <div style={{ fontSize: 12, color: "var(--ap-muted)", marginBottom: 16 }}>
-                                                /{previewCycle === "yearly" ? "yıl" : "ay"}
+                                                /{previewCycle === "yearly" ? "yl" : "ay"}
                                             </div>
                                             <div style={{ textAlign: "left" }}>
                                                 {(plan.features || []).map((f, i) => (
@@ -1035,7 +1035,7 @@ const SaasPlanManager = () => {
                                                 color: isPopular ? "#fff" : "var(--ap-primary)",
                                                 fontSize: 13, fontWeight: 700, textAlign: "center",
                                             }}>
-                                                Paketi Seç
+                                                Paketi Se
                                             </div>
                                         </div>
                                     );
@@ -1044,23 +1044,23 @@ const SaasPlanManager = () => {
                         </div>
                     )}
 
-                    {/* ═══ BİLGİ BANNER ═══ */}
+                    {/*  BLG BANNER  */}
                     <div className="ap-alert ap-alert--info">
                         <FaInfoCircle />
                         <div>
-                            <strong>Nasıl çalışır?</strong> Burada yaptığınız değişiklikler kaydedildiğinde:
+                            <strong>Nasl alr?</strong> Burada yaptnz deiiklikler kaydedildiinde:
                             <ul style={{ margin: "8px 0 0", paddingLeft: 20, fontSize: 12 }}>
-                                <li><FaGlobe style={{ fontSize: 10 }} /> <strong>Ana sayfa</strong> — Paket kartları güncel fiyat ve özelliklerle gösterilir</li>
-                                <li><FaStar style={{ fontSize: 10 }} /> <strong>Abonelik sayfası</strong> — Kullanıcılar güncel fiyatlarla paket satın alır</li>
-                                <li><FaDollarSign style={{ fontSize: 10 }} /> <strong>PayTR ödemeleri</strong> — Ödeme tutarları güncel fiyatlara göre hesaplanır</li>
-                                <li><FaShieldAlt style={{ fontSize: 10 }} /> <strong>Mevcut abonelikler</strong> — Etkilenmez, sadece yeni abonelikler güncel tanımlarla oluşturulur</li>
+                                <li><FaGlobe style={{ fontSize: 10 }} /> <strong>Ana sayfa</strong>  Paket kartlar gncel fiyat ve zelliklerle gsterilir</li>
+                                <li><FaStar style={{ fontSize: 10 }} /> <strong>Abonelik sayfas</strong>  Kullanclar gncel fiyatlarla paket satn alr</li>
+                                <li><FaDollarSign style={{ fontSize: 10 }} /> <strong>PayTR demeleri</strong>  deme tutarlar gncel fiyatlara gre hesaplanr</li>
+                                <li><FaShieldAlt style={{ fontSize: 10 }} /> <strong>Mevcut abonelikler</strong>  Etkilenmez, sadece yeni abonelikler gncel tanmlarla oluturulur</li>
                             </ul>
                         </div>
                     </div>
                 </>
             )}
 
-            {/* ═══ FEATURE PICKER MODAL ═══ */}
+            {/*  FEATURE PICKER MODAL  */}
             {featurePickerPlan && (
                 <FeaturePickerModal
                     currentFeatures={draft[featurePickerPlan]?.features || []}
@@ -1072,7 +1072,7 @@ const SaasPlanManager = () => {
     );
 };
 
-// ─── Shared Styles ──────────────────────────────────────────────────────────
+//  Shared Styles 
 const inputStyle = {
     padding: "8px 12px",
     background: "rgba(12,15,26,0.9)",
@@ -1093,7 +1093,7 @@ const labelSm = {
     minWidth: 50,
 };
 
-// ─── Modal Styles ───────────────────────────────────────────────────────────
+//  Modal Styles 
 const modalOverlay = {
     position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
     background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)",

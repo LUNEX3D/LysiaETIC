@@ -1,5 +1,5 @@
 /* ═══════════════════════════════════════════════════════════
-   LysiaETIC - Service Worker (PWA) — ENHANCED v3
+   Pazaryönetim - Service Worker (PWA) — ENHANCED v3
    ✅ SPA-uyumlu: Navigation istekleri her zaman /index.html'e düşer
    ✅ Cache-first for static assets (JS, CSS, images, fonts)
    ✅ Network-first for API calls
@@ -125,7 +125,7 @@ self.addEventListener('fetch', (event) => {
 // ═══════════════════════════════════════════════════════════
 self.addEventListener('push', (event) => {
   let data = {
-    title: 'LysiaETIC',
+    title: 'Pazaryönetim',
     body: 'Yeni bir bildiriminiz var',
     icon: '/icons/icon-192x192.png',
     badge: '/icons/icon-72x72.png',
@@ -322,7 +322,7 @@ async function checkForNewOrders() {
     if (response.ok) {
       const data = await response.json();
       if (data.count > 0) {
-        await self.registration.showNotification('LysiaETIC', {
+        await self.registration.showNotification('Pazaryönetim', {
           body: `${data.count} yeni bildiriminiz var`,
           icon: '/icons/icon-192x192.png',
           badge: '/icons/icon-72x72.png',
@@ -459,3 +459,4 @@ self.addEventListener('message', (event) => {
     });
   }
 });
+

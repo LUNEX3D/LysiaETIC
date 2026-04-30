@@ -615,7 +615,7 @@ const FeaturesTab = () => {
     return (
         <div style={S.tabContent}>
             <div style={S.section}>
-                <h2 style={S.sectionTitle}>Neden LysiaETIC?</h2>
+                <h2 style={S.sectionTitle}>Neden Pazaryönetim?</h2>
                 <p style={S.sectionSub}>E-ticaret operasyonlarınızı kolaylaştıran güçlü özellikler</p>
                 <div style={S.featGrid}>
                     {FEATURES.map((f, i) => (
@@ -833,7 +833,7 @@ const LandingSection = ({ onScrollToLogin }) => {
                             <path d="M2 12l10 5 10-5"/>
                         </svg>
                     </div>
-                    <span style={S.navLogoText}>LUNEXETIC</span>
+                    <span style={S.navLogoText}>PAZARYONETIM</span>
                 </div>
                 <div style={S.navTabs}>
                     {TABS.map((tab) => (
@@ -877,3 +877,5 @@ const LandingSection = ({ onScrollToLogin }) => {
 };
 
 export default LandingSection;
+
+

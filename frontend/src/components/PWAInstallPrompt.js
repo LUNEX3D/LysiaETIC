@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useCallback } from "react";
 
 /**
- * PWA Install Prompt — Cross-platform install support
- * ✅ Android/Chrome: Native beforeinstallprompt
- * ✅ iOS Safari: Manual instructions (Share → Add to Home Screen)
- * ✅ Network status indicator (online/offline)
+ * PWA Install Prompt - Cross-platform install support
+ * Android/Chrome: Native beforeinstallprompt
+ * iOS Safari: Manual instructions (Share -> Add to Home Screen)
+ *  Network status indicator (online/offline)
  */
 const PWAInstallPrompt = () => {
     const [deferredPrompt, setDeferredPrompt] = useState(null);
@@ -13,7 +13,7 @@ const PWAInstallPrompt = () => {
     const [isOnline, setIsOnline] = useState(navigator.onLine);
     const [showOnlineStatus, setShowOnlineStatus] = useState(false);
 
-    // ✅ Detect iOS Safari
+    // Detect iOS Safari
     const isIOS = useCallback(() => {
         const ua = window.navigator.userAgent;
         return /iPad|iPhone|iPod/.test(ua) ||
@@ -31,7 +31,7 @@ const PWAInstallPrompt = () => {
     }, []);
 
     useEffect(() => {
-        // ✅ Chrome/Android: Native install prompt
+        // Chrome/Android: Native install prompt
         const handleBeforeInstallPrompt = (e) => {
             e.preventDefault();
             setDeferredPrompt(e);
@@ -53,7 +53,7 @@ const PWAInstallPrompt = () => {
 
         window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
 
-        // ✅ iOS Safari: Show manual instructions
+        // iOS Safari: Show manual instructions
         if (isIOS() && isSafari() && !isInStandaloneMode()) {
             const iosDismissed = localStorage.getItem("pwa-ios-dismissed");
             const iosDismissedAt = localStorage.getItem("pwa-ios-dismissed-at");
@@ -132,16 +132,16 @@ const PWAInstallPrompt = () => {
             {showOnlineStatus && (
                 <div className={`network-status ${isOnline ? "online" : "offline"}`}>
                     {isOnline
-                        ? "✅ İnternet bağlantısı yeniden sağlandı"
-                        : "⚠️ İnternet bağlantısı kesildi — Çevrimdışı moddasınız"}
+                        ? "İnternet bağlantısı yeniden sağlandı"
+                        : "İnternet bağlantısı kesildi - çevrimdışı moddasınız"}
                 </div>
             )}
 
-            {/* ✅ Chrome/Android: Native PWA Install Banner */}
+            {/* Chrome/Android: Native PWA Install Banner */}
             {showBanner && (
                 <div className="pwa-install-banner">
                     <div className="pwa-install-banner-text">
-                        <strong>📱 LysiaETIC&apos;i Yükleyin</strong>
+                        <strong>Pazaryönetim&apos;i Yükleyin</strong>
                         <span>
                             Ana ekranınıza ekleyerek daha hızlı erişim sağlayın
                         </span>
@@ -155,18 +155,17 @@ const PWAInstallPrompt = () => {
                 </div>
             )}
 
-            {/* ✅ iOS Safari: Manual install instructions */}
+            {/* iOS Safari: Manual install instructions */}
             {showIOSInstructions && (
                 <div className="pwa-ios-instructions">
                     <div className="pwa-ios-instructions-title">
-                        📱 LysiaETIC&apos;i Ana Ekrana Ekleyin
+                        Pazaryönetim&apos;i Ana Ekrana Ekleyin
                     </div>
                     <div className="pwa-ios-step">
                         <span className="pwa-ios-step-num">1</span>
                         <span>
                             Alt menüdeki{" "}
-                            <strong style={{ fontSize: "1.1em" }}>⎙</strong>{" "}
-                            (Paylaş) butonuna dokunun
+                            <strong style={{ fontSize: "1.1em" }}>Paylaş</strong> butonuna dokunun
                         </span>
                     </div>
                     <div className="pwa-ios-step">
@@ -197,3 +196,4 @@ const PWAInstallPrompt = () => {
 };
 
 export default PWAInstallPrompt;
+

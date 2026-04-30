@@ -1,21 +1,21 @@
     /**
- * ═══════════════════════════════════════════════════════════════════════════════
- * LysiaRadar PANELİ V5 — Modern Dark Theme Arayüz
- * ═══════════════════════════════════════════════════════════════════════════════
+ * 
+ * LysiaRadar PANEL V5  Modern Dark Theme Arayz
+ * 
  *
- * Trendyol pazar istihbaratı paneli — anlık veri, hiyerarşik kategori sistemi.
+ * Trendyol pazar istihbarat paneli  anlk veri, hiyerarik kategori sistemi.
  *
  * 8 Sekme:
- *   0. Çok Satanlar       — Anlık en çok satan ürünler (kategori/alt kategori)
- *   1. Flaş Ürünler       — Anlık yüksek indirimli ürünler
- *   2. Ürün Araştırması   — Anahtar kelime ile arama
- *   3. Rakip Araştırması  — Ürün URL veya kelime ile rakip analizi
- *   4. Listeleme Analisti — Kendi ürünlerinin skoru
- *   5. AI İçerik Yazarı   — SEO başlık/açıklama üretimi
- *   6. Yorum Analizi      — Trendyol yorumları NLP analizi
- *   7. Kelime & Fiyat     — Anahtar kelime araştırması + fiyat önerisi
+ *   0. ok Satanlar        Anlk en ok satan rnler (kategori/alt kategori)
+ *   1. Fla rnler        Anlk yksek indirimli rnler
+ *   2. rn Aratrmas    Anahtar kelime ile arama
+ *   3. Rakip Aratrmas   rn URL veya kelime ile rakip analizi
+ *   4. Listeleme Analisti  Kendi rnlerinin skoru
+ *   5. AI erik Yazar    SEO balk/aklama retimi
+ *   6. Yorum Analizi       Trendyol yorumlar NLP analizi
+ *   7. Kelime & Fiyat      Anahtar kelime aratrmas + fiyat nerisi
  *
- * ═══════════════════════════════════════════════════════════════════════════════
+ * 
  */
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
@@ -33,79 +33,79 @@ import {
 import API from "../services/api";
 import "../styles/RoketfyPanel.css";
 
-// ─── Kategori İkonları & Renkleri ────────────────────────────────────────────
+//  Kategori konlar & Renkleri 
 const CATEGORY_META = {
-    "kadin":         { icon: "👗", color: "#ec4899", bg: "rgba(236,72,153,0.12)" },
-    "erkek":         { icon: "👔", color: "#3b82f6", bg: "rgba(59,130,246,0.12)" },
-    "aksesuar":      { icon: "👜", color: "#f59e0b", bg: "rgba(245,158,11,0.12)" },
-    "ayakkabi":      { icon: "👟", color: "#8b5cf6", bg: "rgba(139,92,246,0.12)" },
-    "ev-mobilya":    { icon: "🏠", color: "#22c55e", bg: "rgba(34,197,94,0.12)" },
-    "kozmetik":      { icon: "💄", color: "#ec4899", bg: "rgba(236,72,153,0.12)" },
-    "elektronik":    { icon: "📱", color: "#4ecdc4", bg: "rgba(78,205,196,0.12)" },
-    "supermarket":   { icon: "🛒", color: "#f27a1a", bg: "rgba(242,122,26,0.12)" },
-    "anne-bebek":    { icon: "👶", color: "#a78bfa", bg: "rgba(167,139,250,0.12)" },
-    "spor-outdoor":  { icon: "⚽", color: "#22d3ee", bg: "rgba(34,211,238,0.12)" },
+    "kadin":         { icon: "", color: "#ec4899", bg: "rgba(236,72,153,0.12)" },
+    "erkek":         { icon: "", color: "#3b82f6", bg: "rgba(59,130,246,0.12)" },
+    "aksesuar":      { icon: "", color: "#f59e0b", bg: "rgba(245,158,11,0.12)" },
+    "ayakkabi":      { icon: "", color: "#8b5cf6", bg: "rgba(139,92,246,0.12)" },
+    "ev-mobilya":    { icon: "", color: "#22c55e", bg: "rgba(34,197,94,0.12)" },
+    "kozmetik":      { icon: "", color: "#ec4899", bg: "rgba(236,72,153,0.12)" },
+    "elektronik":    { icon: "", color: "#4ecdc4", bg: "rgba(78,205,196,0.12)" },
+    "supermarket":   { icon: "", color: "#f27a1a", bg: "rgba(242,122,26,0.12)" },
+    "anne-bebek":    { icon: "", color: "#a78bfa", bg: "rgba(167,139,250,0.12)" },
+    "spor-outdoor":  { icon: "", color: "#22d3ee", bg: "rgba(34,211,238,0.12)" },
 };
 
 const SORT_OPTIONS = [
-    { value: "BEST_SELLER", label: "En Çok Satanlar" },
-    { value: "MOST_RATED", label: "En Çok Değerlendirilen" },
-    { value: "PRICE_BY_ASC", label: "Fiyat: Düşükten Yükseğe" },
-    { value: "PRICE_BY_DESC", label: "Fiyat: Yüksekten Düşüğe" },
+    { value: "BEST_SELLER", label: "En ok Satanlar" },
+    { value: "MOST_RATED", label: "En ok Deerlendirilen" },
+    { value: "PRICE_BY_ASC", label: "Fiyat: Dkten Yksee" },
+    { value: "PRICE_BY_DESC", label: "Fiyat: Yksekten De" },
     { value: "MOST_RECENT", label: "En Yeniler" },
 ];
 
 const TAB_CONFIG = [
-    { id: "best-sellers",  label: "Çok Satanlar",       icon: FaTrophy,         color: "accent" },
-    { id: "flash",         label: "Flaş Ürünler",       icon: FaBolt,           color: "orange" },
-    { id: "research",      label: "Ürün Araştırması",   icon: FaSearch,         color: "accent" },
-    { id: "competitor",    label: "Rakip Araştırması",   icon: FaBalanceScale,   color: "accent" },
+    { id: "best-sellers",  label: "ok Satanlar",       icon: FaTrophy,         color: "accent" },
+    { id: "flash",         label: "Fla rnler",       icon: FaBolt,           color: "orange" },
+    { id: "research",      label: "rn Aratrmas",   icon: FaSearch,         color: "accent" },
+    { id: "competitor",    label: "Rakip Aratrmas",   icon: FaBalanceScale,   color: "accent" },
     { id: "listing",       label: "Listeleme Analisti",  icon: FaClipboardCheck, color: "accent" },
-    { id: "content",       label: "AI İçerik Yazarı",   icon: FaPen,            color: "accent" },
+    { id: "content",       label: "AI erik Yazar",   icon: FaPen,            color: "accent" },
     { id: "reviews",       label: "Yorum Analizi",       icon: FaComments,       color: "accent" },
     { id: "keywords",      label: "Kelime & Fiyat",      icon: FaKey,            color: "accent" },
 ];
 
-// ─── Yardımcı Fonksiyonlar ──────────────────────────────────────────────────
+//  Yardmc Fonksiyonlar 
 const fmt = (n) => (n || 0).toLocaleString("tr-TR");
-const fmtPrice = (n) => `₺${(n || 0).toLocaleString("tr-TR", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+const fmtPrice = (n) => `${(n || 0).toLocaleString("tr-TR", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
 const salesClass = (s) => s > 10 ? "high" : s > 3 ? "medium" : "low";
 const scoreColor = (s) => s >= 80 ? "var(--rk-green)" : s >= 60 ? "var(--rk-blue)" : s >= 40 ? "var(--rk-yellow)" : "var(--rk-red)";
 const gradeColor = (g) => !g ? "var(--rk-text-sec)" : g.startsWith("A") ? "var(--rk-green)" : g.startsWith("B") ? "var(--rk-blue)" : g.startsWith("C") ? "var(--rk-yellow)" : "var(--rk-red)";
 const rankClass = (i) => i === 0 ? "gold" : i === 1 ? "silver" : i === 2 ? "bronze" : "normal";
 
-// ═════════════════════════════════════════════════════════════════════════════
+// 
 // ANA PANEL
-// ═════════════════════════════════════════════════════════════════════════════
+// 
 
 export default function RoketfyPanel() {
-    // ── Genel State ──
+    //  Genel State 
     const [activeTab, setActiveTab] = useState(0);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
     const [viewMode, setViewMode] = useState("grid"); // grid | table
 
-    // ── Kategori State ──
+    //  Kategori State 
     const [categories, setCategories] = useState([]);
     const [selectedCategory, setSelectedCategory] = useState("");
     const [selectedSubCategory, setSelectedSubCategory] = useState("");
     const [expandedCategory, setExpandedCategory] = useState("");
     const [selectedSort, setSelectedSort] = useState("BEST_SELLER");
 
-    // ── Çok Satanlar State ──
+    //  ok Satanlar State 
     const [bestSellers, setBestSellers] = useState(null);
 
-    // ── Flaş Ürünler State ──
+    //  Fla rnler State 
     const [flashProducts, setFlashProducts] = useState(null);
 
-    // ── Ürün Araştırması State ──
+    //  rn Aratrmas State 
     const [searchQuery, setSearchQuery] = useState("");
     const [researchResult, setResearchResult] = useState(null);
     const [researchSort, setResearchSort] = useState("BEST_SELLER");
     const [researchLoading, setResearchLoading] = useState(false);
     const lastResearchQueryRef = useRef("");
 
-    // ── Rakip State ──
+    //  Rakip State 
     const [compProductUrl, setCompProductUrl] = useState("");
     const [compSearchQuery, setCompSearchQuery] = useState("");
     const [compResult, setCompResult] = useState(null);
@@ -115,27 +115,27 @@ export default function RoketfyPanel() {
     const [compLoading, setCompLoading] = useState(false);
     const [compAnalyzingBarcode, setCompAnalyzingBarcode] = useState("");
 
-    // ── Listeleme State ──
+    //  Listeleme State 
     const [listingBarcode, setListingBarcode] = useState("");
     const [listingResult, setListingResult] = useState(null);
     const [bulkResult, setBulkResult] = useState(null);
 
-    // ── İçerik State ──
+    //  erik State 
     const [contentBarcode, setContentBarcode] = useState("");
     const [contentKeywords, setContentKeywords] = useState("");
     const [contentProductInfo, setContentProductInfo] = useState("");
     const [titleResult, setTitleResult] = useState(null);
     const [descResult, setDescResult] = useState(null);
 
-    // ── Yorum State ──
+    //  Yorum State 
     const [reviewInput, setReviewInput] = useState("");
     const [reviewResult, setReviewResult] = useState(null);
 
-    // ── Anahtar Kelime State ──
+    //  Anahtar Kelime State 
     const [kwSeed, setKwSeed] = useState("");
     const [kwResult, setKwResult] = useState(null);
 
-    // ── Fiyat State ──
+    //  Fiyat State 
     const [priceBarcode, setPriceBarcode] = useState("");
     const [priceResult, setPriceResult] = useState(null);
 
@@ -145,7 +145,7 @@ export default function RoketfyPanel() {
     const countdownRef = useRef(null);
     const AUTO_REFRESH_MS = 3 * 60 * 1000; // 3 dakika
 
-    // ── API Çağrısı ──
+    //  API ars 
     const apiCall = useCallback(async (method, url, data, setter) => {
         setLoading(true);
         setError("");
@@ -154,7 +154,7 @@ export default function RoketfyPanel() {
             if (setter) setter(res.data);
             return res.data;
         } catch (err) {
-            setError(err.response?.data?.message || "İşlem başarısız");
+            setError(err.response?.data?.message || "lem baarsz");
             return null;
         } finally {
             setLoading(false);
@@ -165,14 +165,14 @@ export default function RoketfyPanel() {
         navigator.clipboard.writeText(text);
     };
 
-    // ── Kategorileri Yükle ──
+    //  Kategorileri Ykle 
     useEffect(() => {
         API.get("/roketfy/categories/detailed")
             .then(res => { if (res.data?.categories) setCategories(res.data.categories); })
             .catch(() => {});
     }, []);
 
-    // ── İlk Yüklemede & Tab Değişiminde Anlık Veri Çek ──
+    //  lk Yklemede & Tab Deiiminde Anlk Veri ek 
     useEffect(() => {
         if (activeTab === 0 && !bestSellers) {
             fetchBestSellers();
@@ -186,7 +186,7 @@ export default function RoketfyPanel() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeTab]);
 
-    // ── Kullanıcının Ürünlerini Yükle (Rakip Araştırması için) ──
+    //  Kullancnn rnlerini Ykle (Rakip Aratrmas iin) 
     const loadMyProducts = useCallback(async (search = "") => {
         try {
             const url = `/roketfy/competitor/my-products?limit=500${search ? `&search=${encodeURIComponent(search)}` : ""}`;
@@ -196,13 +196,13 @@ export default function RoketfyPanel() {
                 setMyProductsLoaded(true);
             }
         } catch (err) {
-            // Sessiz hata — ürün yoksa boş göster
+            // Sessiz hata  rn yoksa bo gster
             setMyProducts([]);
             setMyProductsLoaded(true);
         }
     }, []);
 
-    // ── Tek Tıkla Rakip Analizi (Barkod ile) ──
+    //  Tek Tkla Rakip Analizi (Barkod ile) 
     const analyzeCompetitorByBarcode = useCallback(async (barcode) => {
         setCompLoading(true);
         setCompAnalyzingBarcode(barcode);
@@ -212,16 +212,16 @@ export default function RoketfyPanel() {
             const res = await API.post("/roketfy/competitor/analyze", { barcode });
             if (res.data) setCompResult(res.data);
         } catch (err) {
-            setError(err.response?.data?.message || "Rakip analizi başarısız");
+            setError(err.response?.data?.message || "Rakip analizi baarsz");
         } finally {
             setCompLoading(false);
             setCompAnalyzingBarcode("");
         }
     }, []);
 
-    // ── Auto-Refresh: Her 3 dakikada bir otomatik yenile ──
+    //  Auto-Refresh: Her 3 dakikada bir otomatik yenile 
     useEffect(() => {
-        // Countdown başlat
+        // Countdown balat
         const startCountdown = () => {
             setNextRefreshIn(AUTO_REFRESH_MS / 1000);
             if (countdownRef.current) clearInterval(countdownRef.current);
@@ -255,7 +255,7 @@ export default function RoketfyPanel() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeTab, selectedCategory, selectedSort]);
 
-    // ── Veri Çekme Fonksiyonları — Anlık Trendyol Verisi ──
+    //  Veri ekme Fonksiyonlar  Anlk Trendyol Verisi 
     const fetchBestSellers = useCallback(async (catKey = "") => {
         setLoading(true);
         setError("");
@@ -272,7 +272,7 @@ export default function RoketfyPanel() {
             });
             lastFetchRef.current = new Date();
         } catch (err) {
-            setError(err.response?.data?.message || "Veriler yüklenemedi");
+            setError(err.response?.data?.message || "Veriler yklenemedi");
         } finally {
             setLoading(false);
         }
@@ -293,13 +293,13 @@ export default function RoketfyPanel() {
             });
             lastFetchRef.current = new Date();
         } catch (err) {
-            setError(err.response?.data?.message || "Veriler yüklenemedi");
+            setError(err.response?.data?.message || "Veriler yklenemedi");
         } finally {
             setLoading(false);
         }
     }, [selectedCategory]);
 
-    // ── Kategori Seçimi ──
+    //  Kategori Seimi 
     const handleCategoryClick = (catKey) => {
         if (expandedCategory === catKey) {
             setExpandedCategory("");
@@ -323,7 +323,7 @@ export default function RoketfyPanel() {
         setSelectedCategory(catKey);
         setSelectedSubCategory(subCat.key);
 
-        // Alt kategori seçildiğinde arama terimi ile araştırma yap
+        // Alt kategori seildiinde arama terimi ile aratrma yap
         if (activeTab === 0 || activeTab === 1) {
             setLoading(true);
             setError("");
@@ -339,7 +339,7 @@ export default function RoketfyPanel() {
                         source: "search_subcategory",
                     });
                 } else {
-                    // Flaş ürünler için indirimli olanları filtrele
+                    // Fla rnler iin indirimli olanlar filtrele
                     const prods = allProducts.filter(p => p.discountPercentage > 5);
                     setFlashProducts({
                         products: prods.length > 0 ? prods : allProducts,
@@ -349,12 +349,12 @@ export default function RoketfyPanel() {
                 }
                 lastFetchRef.current = new Date();
             }).catch(err => {
-                setError(err.response?.data?.message || "Veriler yüklenemedi");
+                setError(err.response?.data?.message || "Veriler yklenemedi");
             }).finally(() => setLoading(false));
         }
     };
 
-    // ── Sıralama değiştiğinde yeniden çek ──
+    //  Sralama deitiinde yeniden ek 
     useEffect(() => {
         if (activeTab === 0 && bestSellers) {
             setBestSellers(null);
@@ -363,7 +363,7 @@ export default function RoketfyPanel() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [selectedSort]);
 
-    // ── Ürün Araştırması: Arama fonksiyonu ──
+    //  rn Aratrmas: Arama fonksiyonu 
     const fetchResearchProducts = useCallback(async (queryOverride, sortOverride) => {
         const q = queryOverride || lastResearchQueryRef.current || searchQuery;
         if (!q) return;
@@ -380,13 +380,13 @@ export default function RoketfyPanel() {
             if (res.data) setResearchResult(res.data);
             lastFetchRef.current = new Date();
         } catch (err) {
-            setError(err.response?.data?.message || "Arama başarısız");
+            setError(err.response?.data?.message || "Arama baarsz");
         } finally {
             setResearchLoading(false);
         }
     }, [searchQuery, researchSort]);
 
-    // ── Ürün Araştırması: Sıralama değiştiğinde yeniden çek ──
+    //  rn Aratrmas: Sralama deitiinde yeniden ek 
     useEffect(() => {
         if (activeTab === 2 && researchResult && lastResearchQueryRef.current) {
             fetchResearchProducts(lastResearchQueryRef.current, researchSort);
@@ -395,7 +395,7 @@ export default function RoketfyPanel() {
     }, [researchSort]);
 
     const handleRefresh = () => {
-        // Countdown sıfırla
+        // Countdown sfrla
         setNextRefreshIn(AUTO_REFRESH_MS / 1000);
         if (activeTab === 0) {
             setBestSellers(null);
@@ -408,14 +408,14 @@ export default function RoketfyPanel() {
         }
     };
 
-    // ═════════════════════════════════════════════════════════════════════════
+    // 
     // RENDER: Kategori Paneli (Sol Sidebar)
-    // ═════════════════════════════════════════════════════════════════════════
+    // 
     const renderCategoryPanel = () => (
         <div className="rk-categories">
             <h4 className="rk-cat-title">Kategoriler</h4>
 
-            {/* Tüm Kategoriler */}
+            {/* Tm Kategoriler */}
             <div
                 className={`rk-cat-item ${!selectedCategory ? "active" : ""}`}
                 onClick={() => { setSelectedCategory(""); setSelectedSubCategory(""); setExpandedCategory(""); if (activeTab === 0) fetchBestSellers(""); else if (activeTab === 1) fetchFlashProducts(""); }}
@@ -424,12 +424,12 @@ export default function RoketfyPanel() {
                     <div className="rk-cat-icon" style={{ background: "rgba(78,205,196,0.12)", color: "var(--rk-accent)" }}>
                         <FaGlobe />
                     </div>
-                    <span className="rk-cat-name">Tüm Kategoriler</span>
+                    <span className="rk-cat-name">Tm Kategoriler</span>
                 </div>
             </div>
 
             {categories.map(cat => {
-                const meta = CATEGORY_META[cat.key] || { icon: "📦", color: "#8b95a5", bg: "rgba(139,149,165,0.12)" };
+                const meta = CATEGORY_META[cat.key] || { icon: "", color: "#8b95a5", bg: "rgba(139,149,165,0.12)" };
                 const isExpanded = expandedCategory === cat.key;
                 const isActive = selectedCategory === cat.key && !selectedSubCategory;
 
@@ -471,9 +471,9 @@ export default function RoketfyPanel() {
         </div>
     );
 
-    // ═════════════════════════════════════════════════════════════════════════
-    // RENDER: Ürün Kartı
-    // ═════════════════════════════════════════════════════════════════════════
+    // 
+    // RENDER: rn Kart
+    // 
     const ProductCard = ({ product, index, isFlash }) => (
         <div className="rk-product-card" onClick={() => product.url && window.open(product.url, "_blank")}>
             <div className="rk-product-img-wrap">
@@ -491,10 +491,10 @@ export default function RoketfyPanel() {
                         <span className="rk-badge rk-badge-discount">-%{product.discountPercentage}</span>
                     )}
                     {isFlash && (
-                        <span className="rk-badge rk-badge-flash"><FaBolt /> FLAŞ</span>
+                        <span className="rk-badge rk-badge-flash"><FaBolt /> FLA</span>
                     )}
                     {(product.freeCargo || product.hasFreeCargo) && (
-                        <span className="rk-badge rk-badge-cargo"><FaTruck /> Ücretsiz</span>
+                        <span className="rk-badge rk-badge-cargo"><FaTruck /> cretsiz</span>
                     )}
                     {product.isBestSeller && (
                         <span className="rk-badge rk-badge-best"><FaTrophy /> #1</span>
@@ -502,7 +502,7 @@ export default function RoketfyPanel() {
                 </div>
             </div>
             <div className="rk-product-body">
-                <div className="rk-product-brand">{product.brand || product.merchantName || "—"}</div>
+                <div className="rk-product-brand">{product.brand || product.merchantName || ""}</div>
                 <div className="rk-product-name">{product.name}</div>
                 <div className="rk-product-price-row">
                     <span className="rk-product-price">{fmtPrice(product.price)}</span>
@@ -518,12 +518,12 @@ export default function RoketfyPanel() {
                     {product.orderCount > 0 && (
                         <div className="rk-meta-item">
                             <FaShoppingCart style={{ color: "var(--rk-accent)" }} />
-                            <span className="rk-meta-val">{fmt(product.orderCount)} sipariş</span>
+                            <span className="rk-meta-val">{fmt(product.orderCount)} sipari</span>
                         </div>
                     )}
                     <div className="rk-meta-item">
                         <FaStar style={{ color: "var(--rk-yellow)" }} />
-                        <span className="rk-meta-val">{product.ratingScore || "—"}{product.ratingCount > 0 ? ` (${fmt(product.ratingCount)})` : ""}</span>
+                        <span className="rk-meta-val">{product.ratingScore || ""}{product.ratingCount > 0 ? ` (${fmt(product.ratingCount)})` : ""}</span>
                     </div>
                     <div className="rk-meta-item">
                         <FaChartLine style={{ color: "var(--rk-green)" }} />
@@ -534,22 +534,22 @@ export default function RoketfyPanel() {
         </div>
     );
 
-    // ═════════════════════════════════════════════════════════════════════════
-    // RENDER: Ürün Tablosu
-    // ═════════════════════════════════════════════════════════════════════════
+    // 
+    // RENDER: rn Tablosu
+    // 
     const ProductTable = ({ products, isFlash }) => (
         <div className="rk-product-table-wrap">
             <table className="rk-product-table">
                 <thead>
                     <tr>
                         <th>#</th>
-                        <th>ÜRÜN</th>
-                        <th className="right">FİYAT</th>
-                        <th className="right">FAVORİ</th>
-                        <th className="right">SİPARİŞ</th>
+                        <th>RN</th>
+                        <th className="right">FYAT</th>
+                        <th className="right">FAVOR</th>
+                        <th className="right">SPAR</th>
                         <th className="right">PUAN</th>
-                        <th className="right">TAH. CİRO/AY</th>
-                        {isFlash && <th className="right">İNDİRİM</th>}
+                        <th className="right">TAH. CRO/AY</th>
+                        {isFlash && <th className="right">NDRM</th>}
                     </tr>
                 </thead>
                 <tbody>
@@ -565,7 +565,7 @@ export default function RoketfyPanel() {
                                     )}
                                     <div className="rk-table-product-info">
                                         <div className="rk-table-product-name">{(p.name || "").slice(0, 70)}</div>
-                                        <div className="rk-table-product-brand">{p.brand || p.merchantName || "—"}</div>
+                                        <div className="rk-table-product-brand">{p.brand || p.merchantName || ""}</div>
                                     </div>
                                 </div>
                             </td>
@@ -582,7 +582,7 @@ export default function RoketfyPanel() {
                             </td>
                             <td className="right">
                                 <span className={`rk-table-sales ${salesClass(p.estimatedDailySales)}`}>
-                                    {p.orderCount > 0 ? fmt(p.orderCount) : (p.estimatedDailySales || 0) + "/gün"}
+                                    {p.orderCount > 0 ? fmt(p.orderCount) : (p.estimatedDailySales || 0) + "/gn"}
                                 </span>
                             </td>
                             <td className="right">
@@ -591,7 +591,7 @@ export default function RoketfyPanel() {
                                         <FaStar style={{ fontSize: 10, marginRight: 2 }} />{p.ratingScore}
                                         {p.ratingCount > 0 && <span style={{ color: "var(--rk-text-dim)", fontWeight: 400, fontSize: 10 }}> ({fmt(p.ratingCount)})</span>}
                                     </span>
-                                ) : <span style={{ color: "var(--rk-text-dim)" }}>—</span>}
+                                ) : <span style={{ color: "var(--rk-text-dim)" }}></span>}
                             </td>
                             <td className="right">
                                 <span className="rk-table-revenue">{fmtPrice(p.estimatedMonthlyRevenue)}</span>
@@ -608,9 +608,9 @@ export default function RoketfyPanel() {
         </div>
     );
 
-    // ═════════════════════════════════════════════════════════════════════════
-    // RENDER: İstatistik Satırı
-    // ═════════════════════════════════════════════════════════════════════════
+    // 
+    // RENDER: statistik Satr
+    // 
     const StatsRow = ({ products }) => {
         if (!products?.length) return null;
         const prices = products.map(p => p.price).filter(p => p > 0);
@@ -623,7 +623,7 @@ export default function RoketfyPanel() {
                 <div className="rk-stat-card">
                     <div className="rk-stat-icon" style={{ background: "rgba(78,205,196,0.12)", color: "var(--rk-accent)" }}><FaBoxOpen /></div>
                     <div className="rk-stat-info">
-                        <div className="rk-stat-label">Toplam Ürün</div>
+                        <div className="rk-stat-label">Toplam rn</div>
                         <div className="rk-stat-value">{fmt(products.length)}</div>
                     </div>
                 </div>
@@ -644,7 +644,7 @@ export default function RoketfyPanel() {
                 <div className="rk-stat-card">
                     <div className="rk-stat-icon" style={{ background: "rgba(242,122,26,0.12)", color: "var(--rk-orange)" }}><FaChartLine /></div>
                     <div className="rk-stat-info">
-                        <div className="rk-stat-label">Ort. Satış/Gün</div>
+                        <div className="rk-stat-label">Ort. Sat/Gn</div>
                         <div className="rk-stat-value">{avgSales}</div>
                     </div>
                 </div>
@@ -652,29 +652,29 @@ export default function RoketfyPanel() {
         );
     };
 
-    // ── Veri Kaynağı Etiketi ──
+    //  Veri Kayna Etiketi 
     const DataSourceBadge = ({ source }) => {
         if (!source) return null;
         const isLive = source.includes("live") || source.includes("trendyol");
-        const label = isLive ? "Anlık Trendyol Verisi" : source.includes("search") ? "Trendyol Arama" : "Veri";
+        const label = isLive ? "Anlk Trendyol Verisi" : source.includes("search") ? "Trendyol Arama" : "Veri";
         return (
             <span className={`rk-source-badge ${isLive ? "rk-source-live" : "rk-source-search"}`}>
                 <span className={isLive ? "rk-live-dot" : ""} />
-                {isLive ? "🔴 CANLI" : "🔍"} {label}
+                {isLive ? " CANLI" : ""} {label}
             </span>
         );
     };
 
-    // ── Sonraki Yenileme Geri Sayımı ──
+    //  Sonraki Yenileme Geri Saym 
     const formatCountdown = (seconds) => {
         const m = Math.floor(seconds / 60);
         const s = seconds % 60;
         return `${m}:${String(s).padStart(2, "0")}`;
     };
 
-    // ═════════════════════════════════════════════════════════════════════════
-    // TAB 0: ÇOK SATANLAR
-    // ═════════════════════════════════════════════════════════════════════════
+    // 
+    // TAB 0: OK SATANLAR
+    // 
     const renderBestSellers = () => {
         const products = bestSellers?.products || [];
         const source = bestSellers?.source || "";
@@ -684,7 +684,7 @@ export default function RoketfyPanel() {
                 {/* Sort Bar */}
                 <div className="rk-sort-bar">
                     <div className="rk-sort-left">
-                        <span className="rk-sort-label">Sıralama:</span>
+                        <span className="rk-sort-label">Sralama:</span>
                         <select className="rk-sort-select" value={selectedSort} onChange={(e) => setSelectedSort(e.target.value)}>
                             {SORT_OPTIONS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
                         </select>
@@ -695,9 +695,9 @@ export default function RoketfyPanel() {
                     </div>
                     <div className="rk-result-count">
                         <DataSourceBadge source={source} />
-                        <strong>{fmt(products.length)}</strong> ürün
-                        {lastFetchRef.current && <span> · {lastFetchRef.current.toLocaleTimeString("tr-TR")}</span>}
-                        {nextRefreshIn > 0 && <span className="rk-countdown"> · ⏱ {formatCountdown(nextRefreshIn)}</span>}
+                        <strong>{fmt(products.length)}</strong> rn
+                        {lastFetchRef.current && <span>  {lastFetchRef.current.toLocaleTimeString("tr-TR")}</span>}
+                        {nextRefreshIn > 0 && <span className="rk-countdown">   {formatCountdown(nextRefreshIn)}</span>}
                     </div>
                 </div>
 
@@ -706,13 +706,13 @@ export default function RoketfyPanel() {
                 {loading ? (
                     <div className="rk-loading">
                         <div className="rk-loading-spinner" />
-                        <div className="rk-loading-text">Trendyol'dan anlık veriler çekiliyor...</div>
+                        <div className="rk-loading-text">Trendyol'dan anlk veriler ekiliyor...</div>
                     </div>
                 ) : products.length === 0 ? (
                     <div className="rk-empty">
                         <FaTrophy className="rk-empty-icon" />
-                        <div className="rk-empty-text">Henüz veri yok</div>
-                        <div className="rk-empty-sub">Bir kategori seçin veya yenile butonuna tıklayın</div>
+                        <div className="rk-empty-text">Henz veri yok</div>
+                        <div className="rk-empty-sub">Bir kategori sein veya yenile butonuna tklayn</div>
                     </div>
                 ) : viewMode === "grid" ? (
                     <div className="rk-product-grid">
@@ -725,9 +725,9 @@ export default function RoketfyPanel() {
         );
     };
 
-    // ═════════════════════════════════════════════════════════════════════════
-    // TAB 1: FLAŞ ÜRÜNLER
-    // ═════════════════════════════════════════════════════════════════════════
+    // 
+    // TAB 1: FLA RNLER
+    // 
     const renderFlashProducts = () => {
         const products = flashProducts?.products || [];
         const source = flashProducts?.source || "";
@@ -737,7 +737,7 @@ export default function RoketfyPanel() {
                 <div className="rk-sort-bar">
                     <div className="rk-sort-left">
                         <span className="rk-sort-label" style={{ color: "var(--rk-orange)" }}>
-                            <FaBolt style={{ marginRight: 4 }} /> Flaş İndirimler
+                            <FaBolt style={{ marginRight: 4 }} /> Fla ndirimler
                         </span>
                         <div className="rk-view-toggle">
                             <button className={`rk-view-btn ${viewMode === "grid" ? "active" : ""}`} onClick={() => setViewMode("grid")}><FaTh /></button>
@@ -746,9 +746,9 @@ export default function RoketfyPanel() {
                     </div>
                     <div className="rk-result-count">
                         <DataSourceBadge source={source} />
-                        <strong>{fmt(products.length)}</strong> indirimli ürün
-                        {lastFetchRef.current && <span> · {lastFetchRef.current.toLocaleTimeString("tr-TR")}</span>}
-                        {nextRefreshIn > 0 && <span className="rk-countdown"> · ⏱ {formatCountdown(nextRefreshIn)}</span>}
+                        <strong>{fmt(products.length)}</strong> indirimli rn
+                        {lastFetchRef.current && <span>  {lastFetchRef.current.toLocaleTimeString("tr-TR")}</span>}
+                        {nextRefreshIn > 0 && <span className="rk-countdown">   {formatCountdown(nextRefreshIn)}</span>}
                     </div>
                 </div>
 
@@ -757,13 +757,13 @@ export default function RoketfyPanel() {
                 {loading ? (
                     <div className="rk-loading">
                         <div className="rk-loading-spinner" />
-                        <div className="rk-loading-text">Trendyol'dan flaş ürünler çekiliyor...</div>
+                        <div className="rk-loading-text">Trendyol'dan fla rnler ekiliyor...</div>
                     </div>
                 ) : products.length === 0 ? (
                     <div className="rk-empty">
                         <FaBolt className="rk-empty-icon" />
-                        <div className="rk-empty-text">Flaş ürün bulunamadı</div>
-                        <div className="rk-empty-sub">Farklı bir kategori deneyin</div>
+                        <div className="rk-empty-text">Fla rn bulunamad</div>
+                        <div className="rk-empty-sub">Farkl bir kategori deneyin</div>
                     </div>
                 ) : viewMode === "grid" ? (
                     <div className="rk-product-grid">
@@ -776,9 +776,9 @@ export default function RoketfyPanel() {
         );
     };
 
-    // ═════════════════════════════════════════════════════════════════════════
-    // TAB 2: ÜRÜN ARAŞTIRMASI
-    // ═════════════════════════════════════════════════════════════════════════
+    // 
+    // TAB 2: RN ARATIRMASI
+    // 
     const renderProductResearch = () => {
         const research = researchResult?.research;
         const products = research?.topProducts || [];
@@ -791,7 +791,7 @@ export default function RoketfyPanel() {
                         <FaSearch className="rk-search-icon" />
                         <input
                             className="rk-search-input"
-                            placeholder="Trendyol'da ürün ara... (tişört, iphone kılıf, ayakkabı)"
+                            placeholder="Trendyol'da rn ara... (tirt, iphone klf, ayakkab)"
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
                             onKeyDown={(e) => e.key === "Enter" && searchQuery && fetchResearchProducts(searchQuery)}
@@ -802,7 +802,7 @@ export default function RoketfyPanel() {
                         disabled={!searchQuery || isSearching}
                         onClick={() => fetchResearchProducts(searchQuery)}
                     >
-                        <FaSearch /> Araştır
+                        <FaSearch /> Aratr
                     </button>
                 </div>
 
@@ -812,7 +812,7 @@ export default function RoketfyPanel() {
                             <div className="rk-stat-card">
                                 <div className="rk-stat-icon" style={{ background: "rgba(78,205,196,0.12)", color: "var(--rk-accent)" }}><FaBoxOpen /></div>
                                 <div className="rk-stat-info">
-                                    <div className="rk-stat-label">Toplam Ürün</div>
+                                    <div className="rk-stat-label">Toplam rn</div>
                                     <div className="rk-stat-value">{fmt(research.totalResults)}</div>
                                 </div>
                             </div>
@@ -821,7 +821,7 @@ export default function RoketfyPanel() {
                                 <div className="rk-stat-info">
                                     <div className="rk-stat-label">Ort. Fiyat</div>
                                     <div className="rk-stat-value">{fmtPrice(research.marketStats?.avgPrice)}</div>
-                                    <div className="rk-stat-sub">{fmtPrice(research.marketStats?.minPrice)} — {fmtPrice(research.marketStats?.maxPrice)}</div>
+                                    <div className="rk-stat-sub">{fmtPrice(research.marketStats?.minPrice)}  {fmtPrice(research.marketStats?.maxPrice)}</div>
                                 </div>
                             </div>
                             <div className="rk-stat-card">
@@ -829,23 +829,23 @@ export default function RoketfyPanel() {
                                 <div className="rk-stat-info">
                                     <div className="rk-stat-label">Rekabet</div>
                                     <div className="rk-stat-value">
-                                        {{ very_high: "Çok Yüksek", high: "Yüksek", medium: "Orta", low: "Düşük", very_low: "Çok Düşük" }[research.marketStats?.competitionLevel] || "—"}
+                                        {{ very_high: "ok Yksek", high: "Yksek", medium: "Orta", low: "Dk", very_low: "ok Dk" }[research.marketStats?.competitionLevel] || ""}
                                     </div>
                                 </div>
                             </div>
                             <div className="rk-stat-card">
                                 <div className="rk-stat-icon" style={{ background: "rgba(139,92,246,0.12)", color: "var(--rk-purple)" }}><FaTag /></div>
                                 <div className="rk-stat-info">
-                                    <div className="rk-stat-label">Marka Sayısı</div>
+                                    <div className="rk-stat-label">Marka Says</div>
                                     <div className="rk-stat-value">{research.topBrands?.length || 0}</div>
                                 </div>
                             </div>
                         </div>
 
-                        {/* Marka Dağılımı */}
+                        {/* Marka Dalm */}
                         {research.topBrands?.length > 0 && (
                             <div className="rk-brands-section">
-                                <h4 className="rk-brands-title"><FaTag /> Marka Dağılımı</h4>
+                                <h4 className="rk-brands-title"><FaTag /> Marka Dalm</h4>
                                 <div className="rk-brands-wrap">
                                     {research.topBrands.map((b, i) => (
                                         <span key={i} className={`rk-brand-tag ${i < 3 ? "top" : ""}`}>
@@ -858,7 +858,7 @@ export default function RoketfyPanel() {
 
                         <div className="rk-sort-bar">
                             <div className="rk-sort-left">
-                                <span className="rk-sort-label">Sıralama:</span>
+                                <span className="rk-sort-label">Sralama:</span>
                                 <select className="rk-sort-select" value={researchSort} onChange={(e) => setResearchSort(e.target.value)}>
                                     {SORT_OPTIONS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
                                 </select>
@@ -869,18 +869,18 @@ export default function RoketfyPanel() {
                             </div>
                             <div className="rk-result-count">
                                 <DataSourceBadge source="trendyol_search_live" />
-                                <strong>{fmt(products.length)}</strong> ürün listeleniyor
+                                <strong>{fmt(products.length)}</strong> rn listeleniyor
                                 {research.totalResults > products.length && (
-                                    <span style={{ color: "var(--rk-text-dim)", fontSize: 11 }}> (Trendyol'da {fmt(research.totalResults)} ürün)</span>
+                                    <span style={{ color: "var(--rk-text-dim)", fontSize: 11 }}> (Trendyol'da {fmt(research.totalResults)} rn)</span>
                                 )}
-                                {lastFetchRef.current && <span> · {lastFetchRef.current.toLocaleTimeString("tr-TR")}</span>}
+                                {lastFetchRef.current && <span>  {lastFetchRef.current.toLocaleTimeString("tr-TR")}</span>}
                             </div>
                         </div>
 
                         {isSearching ? (
                             <div className="rk-loading">
                                 <div className="rk-loading-spinner" />
-                                <div className="rk-loading-text">Trendyol'dan ürünler çekiliyor...</div>
+                                <div className="rk-loading-text">Trendyol'dan rnler ekiliyor...</div>
                             </div>
                         ) : viewMode === "grid" ? (
                             <div className="rk-product-grid">
@@ -896,23 +896,23 @@ export default function RoketfyPanel() {
                     <div className="rk-empty">
                         <FaSearch className="rk-empty-icon" />
                         <div className="rk-empty-text">Bir arama kelimesi girin</div>
-                        <div className="rk-empty-sub">Trendyol'daki tüm ürünleri analiz edin — fiyatlar, satışlar, rakipler</div>
+                        <div className="rk-empty-sub">Trendyol'daki tm rnleri analiz edin  fiyatlar, satlar, rakipler</div>
                     </div>
                 )}
 
                 {!research && isSearching && (
                     <div className="rk-loading">
                         <div className="rk-loading-spinner" />
-                        <div className="rk-loading-text">Trendyol'dan anlık veriler çekiliyor...</div>
+                        <div className="rk-loading-text">Trendyol'dan anlk veriler ekiliyor...</div>
                     </div>
                 )}
             </div>
         );
     };
 
-    // ═════════════════════════════════════════════════════════════════════════
-    // TAB 3: RAKİP ARAŞTIRMASI
-    // ═════════════════════════════════════════════════════════════════════════
+    // 
+    // TAB 3: RAKP ARATIRMASI
+    // 
     const renderCompetitorAnalysis = () => {
         const comp = compResult?.competitor;
         const filteredMyProducts = myProductSearch
@@ -925,19 +925,19 @@ export default function RoketfyPanel() {
 
         return (
             <div className="rk-content">
-                {/* ÜRÜNLERİM — Yatay kart listesi */}
+                {/* RNLERM  Yatay kart listesi */}
                 {myProducts.length > 0 && (
                     <div className="rk-section" style={{ borderColor: "rgba(78,205,196,0.3)", background: "rgba(78,205,196,0.03)" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                             <h4 className="rk-section-title" style={{ margin: 0 }}>
-                                <FaBoxOpen style={{ color: "var(--rk-accent)" }} /> Ürünlerim
-                                <span style={{ fontSize: 12, fontWeight: 400, color: "var(--rk-text-dim)", marginLeft: 8 }}>({myProducts.length} ürün)</span>
+                                <FaBoxOpen style={{ color: "var(--rk-accent)" }} /> rnlerim
+                                <span style={{ fontSize: 12, fontWeight: 400, color: "var(--rk-text-dim)", marginLeft: 8 }}>({myProducts.length} rn)</span>
                             </h4>
                             <div className="rk-search-input-wrap" style={{ maxWidth: 260, margin: 0 }}>
                                 <FaSearch className="rk-search-icon" />
                                 <input
                                     className="rk-search-input"
-                                    placeholder="Ürün ara..."
+                                    placeholder="rn ara..."
                                     value={myProductSearch}
                                     onChange={(e) => setMyProductSearch(e.target.value)}
                                     style={{ fontSize: 12, padding: "6px 10px 6px 32px" }}
@@ -961,7 +961,7 @@ export default function RoketfyPanel() {
                                         {p.imageUrl ? (
                                             <img src={p.imageUrl} alt="" style={{ width: 40, height: 40, borderRadius: 8, objectFit: "cover", background: "var(--rk-bg-sec)" }} onError={(e) => { e.target.style.display = "none"; }} />
                                         ) : (
-                                            <div style={{ width: 40, height: 40, borderRadius: 8, background: "var(--rk-bg-sec)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>📦</div>
+                                            <div style={{ width: 40, height: 40, borderRadius: 8, background: "var(--rk-bg-sec)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}></div>
                                         )}
                                         <div style={{ flex: 1, minWidth: 0 }}>
                                             <div style={{ fontSize: 12, fontWeight: 600, color: "var(--rk-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>
@@ -972,7 +972,7 @@ export default function RoketfyPanel() {
                                         <div>
                                             <div style={{ fontSize: 14, fontWeight: 700, color: "var(--rk-accent)" }}>{fmtPrice(p.price)}</div>
                                             <div style={{ fontSize: 10, color: p.isOutOfStock ? "var(--rk-red)" : p.stock < 5 ? "var(--rk-yellow)" : "var(--rk-text-dim)" }}>
-                                                {p.isOutOfStock ? "❌ Stok Yok" : `📦 ${p.stock} adet`}
+                                                {p.isOutOfStock ? " Stok Yok" : ` ${p.stock} adet`}
                                             </div>
                                         </div>
                                         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -1002,18 +1002,18 @@ export default function RoketfyPanel() {
                         </div>
                         {filteredMyProducts.length === 0 && myProductSearch && (
                             <div style={{ textAlign: "center", padding: 12, fontSize: 12, color: "var(--rk-text-dim)" }}>
-                                "{myProductSearch}" ile eşleşen ürün bulunamadı
+                                "{myProductSearch}" ile eleen rn bulunamad
                             </div>
                         )}
                     </div>
                 )}
 
-                {/* MANUEL GİRİŞ */}
+                {/* MANUEL GR */}
                 <div className="rk-section">
-                    <h3 className="rk-section-title"><FaBalanceScale style={{ color: "var(--rk-yellow)" }} /> Manuel Rakip Araştırması</h3>
-                    <p className="rk-section-desc">Trendyol ürün linki veya anahtar kelime girerek rakiplerinizi analiz edin</p>
+                    <h3 className="rk-section-title"><FaBalanceScale style={{ color: "var(--rk-yellow)" }} /> Manuel Rakip Aratrmas</h3>
+                    <p className="rk-section-desc">Trendyol rn linki veya anahtar kelime girerek rakiplerinizi analiz edin</p>
                     <div className="rk-form-row">
-                        <input className="rk-input" placeholder="Trendyol Ürün Linki (opsiyonel)" value={compProductUrl} onChange={(e) => setCompProductUrl(e.target.value)} />
+                        <input className="rk-input" placeholder="Trendyol rn Linki (opsiyonel)" value={compProductUrl} onChange={(e) => setCompProductUrl(e.target.value)} />
                         <input className="rk-input" placeholder="Arama Kelimesi" value={compSearchQuery} onChange={(e) => setCompSearchQuery(e.target.value)}
                             onKeyDown={(e) => e.key === "Enter" && compSearchQuery && apiCall("post", "/roketfy/competitor/analyze", { productUrl: compProductUrl, searchQuery: compSearchQuery }, setCompResult)} />
                         <button className="rk-btn rk-btn-orange" disabled={(!compProductUrl && !compSearchQuery) || loading || compLoading}
@@ -1027,17 +1027,17 @@ export default function RoketfyPanel() {
                 {compLoading && (
                     <div className="rk-loading">
                         <div className="rk-loading-spinner" />
-                        <div className="rk-loading-text">Trendyol'dan rakip verileri çekiliyor...</div>
+                        <div className="rk-loading-text">Trendyol'dan rakip verileri ekiliyor...</div>
                     </div>
                 )}
 
-                {/* SONUÇLAR */}
+                {/* SONULAR */}
                 {comp && !compLoading && (
                     <>
-                        {/* SENİN ÜRÜNÜN KARTI */}
+                        {/* SENN RNN KARTI */}
                         {comp.myProduct && (
                             <div className="rk-section" style={{ borderColor: "rgba(78,205,196,0.4)", background: "rgba(78,205,196,0.04)" }}>
-                                <h4 className="rk-section-title"><FaBoxOpen style={{ color: "var(--rk-accent)" }} /> Senin Ürünün</h4>
+                                <h4 className="rk-section-title"><FaBoxOpen style={{ color: "var(--rk-accent)" }} /> Senin rnn</h4>
                                 <div style={{ display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap" }}>
                                     {comp.myProduct.imageUrl && (
                                         <img src={comp.myProduct.imageUrl} alt="" style={{ width: 64, height: 64, borderRadius: 10, objectFit: "cover", border: "2px solid var(--rk-accent)" }} onError={(e) => { e.target.style.display = "none"; }} />
@@ -1048,7 +1048,7 @@ export default function RoketfyPanel() {
                                             <span className="rk-chip rk-chip-accent">{fmtPrice(comp.myProduct.price)}</span>
                                             {comp.myProduct.brand && <span className="rk-chip rk-chip-info">{comp.myProduct.brand}</span>}
                                             <span className="rk-chip" style={{ background: comp.myProduct.stock > 0 ? "rgba(34,197,94,0.12)" : "rgba(239,68,68,0.12)", color: comp.myProduct.stock > 0 ? "var(--rk-green)" : "var(--rk-red)" }}>
-                                                {comp.myProduct.stock > 0 ? `📦 ${comp.myProduct.stock} stok` : "❌ Stok Yok"}
+                                                {comp.myProduct.stock > 0 ? ` ${comp.myProduct.stock} stok` : " Stok Yok"}
                                             </span>
                                             <span style={{ fontSize: 10, fontFamily: "monospace", color: "var(--rk-text-dim)", alignSelf: "center" }}>{comp.myProduct.barcode}</span>
                                         </div>
@@ -1063,15 +1063,15 @@ export default function RoketfyPanel() {
                             </div>
                         )}
 
-                        {/* TRENDYOL ÜRÜNÜ (URL ile analiz) */}
+                        {/* TRENDYOL RN (URL ile analiz) */}
                         {comp.analyzedProduct && (
                             <div className="rk-section" style={{ borderColor: "rgba(242,122,26,0.3)" }}>
-                                <h4 className="rk-section-title"><FaEye /> Analiz Edilen Trendyol Ürünü</h4>
+                                <h4 className="rk-section-title"><FaEye /> Analiz Edilen Trendyol rn</h4>
                                 <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>{comp.analyzedProduct.name}</div>
                                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                                     <span className="rk-chip rk-chip-accent">{fmtPrice(comp.analyzedProduct.price)}</span>
-                                    <span className="rk-chip rk-chip-warning">⭐ {comp.analyzedProduct.ratingScore}</span>
-                                    <span className="rk-chip rk-chip-danger">❤️ {fmt(comp.analyzedProduct.favoriteCount)}</span>
+                                    <span className="rk-chip rk-chip-warning"> {comp.analyzedProduct.ratingScore}</span>
+                                    <span className="rk-chip rk-chip-danger"> {fmt(comp.analyzedProduct.favoriteCount)}</span>
                                 </div>
                             </div>
                         )}
@@ -1112,15 +1112,15 @@ export default function RoketfyPanel() {
 
                         {comp.insights?.length > 0 && (
                             <div className="rk-section">
-                                <h4 className="rk-section-title"><FaLightbulb style={{ color: "var(--rk-yellow)" }} /> İçgörüler & Öneriler</h4>
+                                <h4 className="rk-section-title"><FaLightbulb style={{ color: "var(--rk-yellow)" }} /> grler & neriler</h4>
                                 {comp.insights.map((ins, i) => (
                                     <div key={i} style={{
                                         padding: "8px 12px",
-                                        background: ins.includes("⚠️") ? "rgba(239,68,68,0.06)" : "rgba(59,130,246,0.06)",
-                                        border: `1px solid ${ins.includes("⚠️") ? "rgba(239,68,68,0.15)" : "rgba(59,130,246,0.15)"}`,
+                                        background: ins.includes("") ? "rgba(239,68,68,0.06)" : "rgba(59,130,246,0.06)",
+                                        border: `1px solid ${ins.includes("") ? "rgba(239,68,68,0.15)" : "rgba(59,130,246,0.15)"}`,
                                         borderRadius: 8, marginBottom: 6, fontSize: 13, color: "var(--rk-text-sec)"
                                     }}>
-                                        {ins.includes("⚠️") ? "" : "💡 "}{ins}
+                                        {ins.includes("") ? "" : " "}{ins}
                                     </div>
                                 ))}
                             </div>
@@ -1128,26 +1128,26 @@ export default function RoketfyPanel() {
                     </>
                 )}
 
-                {/* BOŞ DURUM */}
+                {/* BO DURUM */}
                 {!comp && !compLoading && myProducts.length === 0 && (
                     <div className="rk-empty">
                         <FaBalanceScale className="rk-empty-icon" />
-                        <div className="rk-empty-text">Rakip analizi yapmak için</div>
-                        <div className="rk-empty-sub">Yukarıdaki alana Trendyol ürün linki veya anahtar kelime girin</div>
+                        <div className="rk-empty-text">Rakip analizi yapmak iin</div>
+                        <div className="rk-empty-sub">Yukardaki alana Trendyol rn linki veya anahtar kelime girin</div>
                     </div>
                 )}
             </div>
         );
     };
 
-    // ═════════════════════════════════════════════════════════════════════════
-    // TAB 4: LİSTELEME ANALİSTİ
-    // ═════════════════════════════════════════════════════════════════════════
+    // 
+    // TAB 4: LSTELEME ANALST
+    // 
     const renderListingAnalyst = () => (
         <div className="rk-content">
             <div className="rk-section">
                 <h3 className="rk-section-title"><FaClipboardCheck style={{ color: "var(--rk-blue)" }} /> Listeleme Analisti</h3>
-                <p className="rk-section-desc">Ürününüzü Trendyol'daki en iyi ürünlerle karşılaştırın — SEO, başlık, görsel, fiyat analizi</p>
+                <p className="rk-section-desc">rnnz Trendyol'daki en iyi rnlerle karlatrn  SEO, balk, grsel, fiyat analizi</p>
                 <div className="rk-form-row">
                     <input className="rk-input" placeholder="Barkod girin" value={listingBarcode} onChange={(e) => setListingBarcode(e.target.value)} />
                     <button className="rk-btn rk-btn-primary" disabled={!listingBarcode || loading}
@@ -1156,7 +1156,7 @@ export default function RoketfyPanel() {
                     </button>
                     <button className="rk-btn rk-btn-secondary" disabled={loading}
                         onClick={() => apiCall("post", "/roketfy/listing/analyze-all", {}, setBulkResult)}>
-                        <FaSync /> Tümünü Analiz Et
+                        <FaSync /> Tmn Analiz Et
                     </button>
                 </div>
             </div>
@@ -1169,17 +1169,17 @@ export default function RoketfyPanel() {
                         </div>
                         <div>
                             <div className="rk-score-grade" style={{ color: gradeColor(listingResult.analysis.grade) }}>{listingResult.analysis.grade}</div>
-                            <div className="rk-score-label">Listeleme Skoru · {listingResult.analysis.priceScore?.comparedWith || 0} ürünle karşılaştırıldı</div>
+                            <div className="rk-score-label">Listeleme Skoru  {listingResult.analysis.priceScore?.comparedWith || 0} rnle karlatrld</div>
                         </div>
                     </div>
 
                     <div className="rk-stats-row">
                         {[
-                            { label: "Başlık", score: listingResult.analysis.titleScore?.score, icon: "📝" },
-                            { label: "Açıklama", score: listingResult.analysis.descriptionScore?.score, icon: "📄" },
-                            { label: "Görseller", score: listingResult.analysis.imageScore?.score, icon: "🖼️" },
-                            { label: "Fiyat", score: listingResult.analysis.priceScore?.score, icon: "💰" },
-                            { label: "Stok", score: listingResult.analysis.stockScore?.score, icon: "📦" },
+                            { label: "Balk", score: listingResult.analysis.titleScore?.score, icon: "" },
+                            { label: "Aklama", score: listingResult.analysis.descriptionScore?.score, icon: "" },
+                            { label: "Grseller", score: listingResult.analysis.imageScore?.score, icon: "" },
+                            { label: "Fiyat", score: listingResult.analysis.priceScore?.score, icon: "" },
+                            { label: "Stok", score: listingResult.analysis.stockScore?.score, icon: "" },
                         ].map((item, i) => (
                             <div key={i} className="rk-stat-card" style={{ flexDirection: "column", alignItems: "flex-start", gap: 8 }}>
                                 <div style={{ display: "flex", justifyContent: "space-between", width: "100%", alignItems: "center" }}>
@@ -1198,7 +1198,7 @@ export default function RoketfyPanel() {
                         <div style={{ marginBottom: 16 }}>
                             {listingResult.analysis.seoAnalysis.matchedKeywords?.length > 0 && (
                                 <div style={{ marginBottom: 8 }}>
-                                    <span style={{ fontSize: 12, color: "var(--rk-green)", fontWeight: 600 }}>✅ Eşleşen: </span>
+                                    <span style={{ fontSize: 12, color: "var(--rk-green)", fontWeight: 600 }}> Eleen: </span>
                                     {listingResult.analysis.seoAnalysis.matchedKeywords.map((kw, i) => (
                                         <span key={i} className="rk-chip rk-chip-success" style={{ marginLeft: 4 }}>{kw}</span>
                                     ))}
@@ -1206,7 +1206,7 @@ export default function RoketfyPanel() {
                             )}
                             {listingResult.analysis.seoAnalysis.missingKeywords?.length > 0 && (
                                 <div>
-                                    <span style={{ fontSize: 12, color: "var(--rk-red)", fontWeight: 600 }}>❌ Eksik: </span>
+                                    <span style={{ fontSize: 12, color: "var(--rk-red)", fontWeight: 600 }}> Eksik: </span>
                                     {listingResult.analysis.seoAnalysis.missingKeywords.map((kw, i) => (
                                         <span key={i} className="rk-chip rk-chip-danger" style={{ marginLeft: 4 }}>{kw}</span>
                                     ))}
@@ -1215,20 +1215,20 @@ export default function RoketfyPanel() {
                         </div>
                     )}
 
-                    {/* Öneriler */}
+                    {/* neriler */}
                     {listingResult.analysis.recommendations?.length > 0 && (
                         <div>
-                            <h4 className="rk-brands-title"><FaLightbulb /> Öneriler</h4>
+                            <h4 className="rk-brands-title"><FaLightbulb /> neriler</h4>
                             {listingResult.analysis.recommendations.map((rec, i) => (
                                 <div key={i} style={{ padding: "10px 14px", background: rec.priority === "critical" ? "rgba(239,68,68,0.08)" : rec.priority === "high" ? "rgba(245,158,11,0.08)" : "rgba(59,130,246,0.08)", borderRadius: 8, marginBottom: 6, border: `1px solid ${rec.priority === "critical" ? "rgba(239,68,68,0.2)" : rec.priority === "high" ? "rgba(245,158,11,0.2)" : "rgba(59,130,246,0.2)"}` }}>
                                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
                                         <span className={`rk-chip ${rec.priority === "critical" ? "rk-chip-danger" : rec.priority === "high" ? "rk-chip-warning" : "rk-chip-info"}`}>
-                                            {rec.priority === "critical" ? "Kritik" : rec.priority === "high" ? "Yüksek" : "Orta"}
+                                            {rec.priority === "critical" ? "Kritik" : rec.priority === "high" ? "Yksek" : "Orta"}
                                         </span>
                                         <span style={{ fontSize: 13, fontWeight: 600, color: "var(--rk-text)" }}>{rec.message}</span>
                                     </div>
                                     {rec.currentValue && <div style={{ fontSize: 11, color: "var(--rk-text-dim)" }}>Mevcut: {rec.currentValue}</div>}
-                                    {rec.suggestedValue && <div style={{ fontSize: 11, color: "var(--rk-green)" }}>Öneri: {rec.suggestedValue}</div>}
+                                    {rec.suggestedValue && <div style={{ fontSize: 11, color: "var(--rk-green)" }}>neri: {rec.suggestedValue}</div>}
                                 </div>
                             ))}
                         </div>
@@ -1236,23 +1236,23 @@ export default function RoketfyPanel() {
                 </div>
             )}
 
-            {/* Toplu Sonuç */}
+            {/* Toplu Sonu */}
             {bulkResult?.products && (
                 <div className="rk-section">
                     <div className="rk-score-wrap">
                         <div className="rk-score-circle" style={{ color: scoreColor(bulkResult.averageScore) }}>{bulkResult.averageScore}</div>
                         <div>
-                            <div style={{ fontSize: 16, fontWeight: 700 }}>{bulkResult.totalProducts} Ürün Analiz Edildi</div>
+                            <div style={{ fontSize: 16, fontWeight: 700 }}>{bulkResult.totalProducts} rn Analiz Edildi</div>
                             <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
-                                <span className="rk-chip rk-chip-success">{bulkResult.gradeDistribution?.excellent || 0} Mükemmel</span>
-                                <span className="rk-chip rk-chip-info">{bulkResult.gradeDistribution?.good || 0} İyi</span>
-                                <span className="rk-chip rk-chip-danger">{bulkResult.gradeDistribution?.poor || 0} Zayıf</span>
+                                <span className="rk-chip rk-chip-success">{bulkResult.gradeDistribution?.excellent || 0} Mkemmel</span>
+                                <span className="rk-chip rk-chip-info">{bulkResult.gradeDistribution?.good || 0} yi</span>
+                                <span className="rk-chip rk-chip-danger">{bulkResult.gradeDistribution?.poor || 0} Zayf</span>
                             </div>
                         </div>
                     </div>
                     <div className="rk-product-table-wrap">
                         <table className="rk-product-table">
-                            <thead><tr><th>ÜRÜN</th><th>BARKOD</th><th className="right">SKOR</th><th className="right">NOT</th></tr></thead>
+                            <thead><tr><th>RN</th><th>BARKOD</th><th className="right">SKOR</th><th className="right">NOT</th></tr></thead>
                             <tbody>
                                 {bulkResult.products.slice(0, 30).map((p, i) => (
                                     <tr key={i}>
@@ -1270,34 +1270,34 @@ export default function RoketfyPanel() {
         </div>
     );
 
-    // ═════════════════════════════════════════════════════════════════════════
-    // TAB 5: AI İÇERİK YAZARI
-    // ═════════════════════════════════════════════════════════════════════════
+    // 
+    // TAB 5: AI ERK YAZARI
+    // 
     const renderContentWriter = () => (
         <div className="rk-content">
             <div className="rk-section">
-                <h3 className="rk-section-title"><FaPen style={{ color: "var(--rk-purple)" }} /> AI İçerik Yazarı</h3>
-                <p className="rk-section-desc">SEO uyumlu başlık ve açıklama üretin</p>
+                <h3 className="rk-section-title"><FaPen style={{ color: "var(--rk-purple)" }} /> AI erik Yazar</h3>
+                <p className="rk-section-desc">SEO uyumlu balk ve aklama retin</p>
                 <div className="rk-form-row">
                     <input className="rk-input" placeholder="Barkod (opsiyonel)" value={contentBarcode} onChange={(e) => setContentBarcode(e.target.value)} />
-                    <input className="rk-input" placeholder="Anahtar Kelimeler (virgülle)" value={contentKeywords} onChange={(e) => setContentKeywords(e.target.value)} />
-                    <input className="rk-input" placeholder="Ürün Bilgisi" value={contentProductInfo} onChange={(e) => setContentProductInfo(e.target.value)} />
+                    <input className="rk-input" placeholder="Anahtar Kelimeler (virglle)" value={contentKeywords} onChange={(e) => setContentKeywords(e.target.value)} />
+                    <input className="rk-input" placeholder="rn Bilgisi" value={contentProductInfo} onChange={(e) => setContentProductInfo(e.target.value)} />
                 </div>
                 <div style={{ display: "flex", gap: 10 }}>
                     <button className="rk-btn rk-btn-purple" disabled={loading}
                         onClick={() => apiCall("post", "/roketfy/content/title", { barcode: contentBarcode, keywords: contentKeywords.split(",").map(s => s.trim()).filter(Boolean), productInfo: contentProductInfo }, setTitleResult)}>
-                        <FaPen /> Başlık Üret
+                        <FaPen /> Balk ret
                     </button>
                     <button className="rk-btn rk-btn-orange" disabled={loading}
                         onClick={() => apiCall("post", "/roketfy/content/description", { barcode: contentBarcode, keywords: contentKeywords.split(",").map(s => s.trim()).filter(Boolean), productInfo: contentProductInfo }, setDescResult)}>
-                        <FaRobot /> Açıklama Üret
+                        <FaRobot /> Aklama ret
                     </button>
                 </div>
             </div>
 
             {titleResult?.content?.generatedTitles?.length > 0 && (
                 <div className="rk-section">
-                    <h4 className="rk-section-title">📝 Üretilen Başlıklar</h4>
+                    <h4 className="rk-section-title"> retilen Balklar</h4>
                     {titleResult.content.generatedTitles.map((t, i) => (
                         <div key={i} style={{ padding: "12px 16px", background: i === 0 ? "rgba(34,197,94,0.06)" : "transparent", border: "1px solid var(--rk-border)", borderRadius: 10, marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
                             <span style={{ fontSize: 13, fontWeight: 600, flex: 1 }}>{t.title}</span>
@@ -1324,7 +1324,7 @@ export default function RoketfyPanel() {
 
             {descResult?.content?.generatedDescriptions?.length > 0 && (
                 <div className="rk-section">
-                    <h4 className="rk-section-title">📄 Üretilen Açıklamalar</h4>
+                    <h4 className="rk-section-title"> retilen Aklamalar</h4>
                     {descResult.content.generatedDescriptions.map((d, i) => (
                         <div key={i} className="rk-accordion">
                             <div className="rk-accordion-header">
@@ -1344,16 +1344,16 @@ export default function RoketfyPanel() {
         </div>
     );
 
-    // ═════════════════════════════════════════════════════════════════════════
-    // TAB 6: YORUM ANALİZİ
-    // ═════════════════════════════════════════════════════════════════════════
+    // 
+    // TAB 6: YORUM ANALZ
+    // 
     const renderReviewAnalysis = () => (
         <div className="rk-content">
             <div className="rk-section">
                 <h3 className="rk-section-title"><FaComments style={{ color: "var(--rk-pink)" }} /> Yorum Analizi</h3>
-                <p className="rk-section-desc">Trendyol ürün linki veya Content ID girerek yorumları NLP ile analiz edin</p>
+                <p className="rk-section-desc">Trendyol rn linki veya Content ID girerek yorumlar NLP ile analiz edin</p>
                 <div className="rk-form-row">
-                    <input className="rk-input" placeholder="Trendyol Ürün Linki veya Content ID" value={reviewInput} onChange={(e) => setReviewInput(e.target.value)} />
+                    <input className="rk-input" placeholder="Trendyol rn Linki veya Content ID" value={reviewInput} onChange={(e) => setReviewInput(e.target.value)} />
                     <button className="rk-btn rk-btn-orange" disabled={!reviewInput || loading}
                         onClick={() => {
                             const isUrl = reviewInput.includes("trendyol.com");
@@ -1382,29 +1382,29 @@ export default function RoketfyPanel() {
                             <div style={{ display: "flex", gap: 2 }}>
                                 {[1,2,3,4,5].map(s => <FaStar key={s} style={{ color: s <= Math.round(reviewResult.reviews.averageRating) ? "var(--rk-yellow)" : "var(--rk-text-dim)", fontSize: 14 }} />)}
                             </div>
-                            <div style={{ fontSize: 11, color: "var(--rk-text-sec)", marginTop: 4 }}>{fmt(reviewResult.reviews.totalReviews)} değerlendirme</div>
+                            <div style={{ fontSize: 11, color: "var(--rk-text-sec)", marginTop: 4 }}>{fmt(reviewResult.reviews.totalReviews)} deerlendirme</div>
                         </div>
                         <div className="rk-stat-card" style={{ flexDirection: "column", gap: 8 }}>
-                            <div style={{ fontSize: 13, fontWeight: 700 }}>Duygu Dağılımı</div>
+                            <div style={{ fontSize: 13, fontWeight: 700 }}>Duygu Dalm</div>
                             <div className="rk-sentiment-bar">
                                 <div style={{ width: `${reviewResult.reviews.sentimentBreakdown?.positive || 0}%`, background: "var(--rk-green)" }} />
                                 <div style={{ width: `${reviewResult.reviews.sentimentBreakdown?.neutral || 0}%`, background: "var(--rk-yellow)" }} />
                                 <div style={{ width: `${reviewResult.reviews.sentimentBreakdown?.negative || 0}%`, background: "var(--rk-red)" }} />
                             </div>
                             <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}>
-                                <span style={{ color: "var(--rk-green)" }}>😊 %{reviewResult.reviews.sentimentBreakdown?.positive}</span>
-                                <span style={{ color: "var(--rk-yellow)" }}>😐 %{reviewResult.reviews.sentimentBreakdown?.neutral}</span>
-                                <span style={{ color: "var(--rk-red)" }}>😞 %{reviewResult.reviews.sentimentBreakdown?.negative}</span>
+                                <span style={{ color: "var(--rk-green)" }}> %{reviewResult.reviews.sentimentBreakdown?.positive}</span>
+                                <span style={{ color: "var(--rk-yellow)" }}> %{reviewResult.reviews.sentimentBreakdown?.neutral}</span>
+                                <span style={{ color: "var(--rk-red)" }}> %{reviewResult.reviews.sentimentBreakdown?.negative}</span>
                             </div>
                         </div>
                         <div className="rk-stat-card" style={{ flexDirection: "column", gap: 4 }}>
-                            <div style={{ fontSize: 13, fontWeight: 700, color: "var(--rk-green)" }}>💪 Güçlü</div>
-                            {(reviewResult.reviews.strengths || []).map((s, i) => <div key={i} style={{ fontSize: 11, color: "var(--rk-text-sec)" }}>✅ {s}</div>)}
+                            <div style={{ fontSize: 13, fontWeight: 700, color: "var(--rk-green)" }}> Gl</div>
+                            {(reviewResult.reviews.strengths || []).map((s, i) => <div key={i} style={{ fontSize: 11, color: "var(--rk-text-sec)" }}> {s}</div>)}
                             {(reviewResult.reviews.strengths || []).length === 0 && <div style={{ fontSize: 11, color: "var(--rk-text-dim)" }}>Veri yetersiz</div>}
                         </div>
                         <div className="rk-stat-card" style={{ flexDirection: "column", gap: 4 }}>
-                            <div style={{ fontSize: 13, fontWeight: 700, color: "var(--rk-red)" }}>⚠️ Zayıf</div>
-                            {(reviewResult.reviews.weaknesses || []).map((w, i) => <div key={i} style={{ fontSize: 11, color: "var(--rk-text-sec)" }}>❌ {w}</div>)}
+                            <div style={{ fontSize: 13, fontWeight: 700, color: "var(--rk-red)" }}> Zayf</div>
+                            {(reviewResult.reviews.weaknesses || []).map((w, i) => <div key={i} style={{ fontSize: 11, color: "var(--rk-text-sec)" }}> {w}</div>)}
                             {(reviewResult.reviews.weaknesses || []).length === 0 && <div style={{ fontSize: 11, color: "var(--rk-text-dim)" }}>Sorun yok</div>}
                         </div>
                     </div>
@@ -1412,14 +1412,14 @@ export default function RoketfyPanel() {
                     {/* Konu Analizi */}
                     {reviewResult.reviews.topicAnalysis?.length > 0 && (
                         <div className="rk-section">
-                            <h4 className="rk-section-title">📊 Konu Bazlı Analiz</h4>
+                            <h4 className="rk-section-title"> Konu Bazl Analiz</h4>
                             {reviewResult.reviews.topicAnalysis.map((topic, i) => (
                                 <div key={i} style={{ padding: "10px 14px", border: "1px solid var(--rk-border)", borderRadius: 8, marginBottom: 8 }}>
                                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                                         <span style={{ fontWeight: 600, fontSize: 13 }}>{topic.topic}</span>
                                         <div style={{ display: "flex", gap: 6 }}>
                                             <span className={`rk-chip ${topic.sentiment === "positive" ? "rk-chip-success" : topic.sentiment === "negative" ? "rk-chip-danger" : "rk-chip-warning"}`}>
-                                                {topic.sentiment === "positive" ? "Pozitif" : topic.sentiment === "negative" ? "Negatif" : "Karışık"}
+                                                {topic.sentiment === "positive" ? "Pozitif" : topic.sentiment === "negative" ? "Negatif" : "Kark"}
                                             </span>
                                             <span className="rk-chip rk-chip-info">{topic.mentionCount} bahsetme</span>
                                         </div>
@@ -1435,7 +1435,7 @@ export default function RoketfyPanel() {
                     {/* Son Yorumlar */}
                     {reviewResult.reviews.recentReviews?.length > 0 && (
                         <div className="rk-section">
-                            <h4 className="rk-section-title">💬 Son Yorumlar ({reviewResult.reviews.recentReviews.length})</h4>
+                            <h4 className="rk-section-title"> Son Yorumlar ({reviewResult.reviews.recentReviews.length})</h4>
                             {reviewResult.reviews.recentReviews.slice(0, 10).map((r, i) => (
                                 <div key={i} style={{ padding: "10px 14px", border: "1px solid var(--rk-border)", borderRadius: 8, marginBottom: 6, background: r.sentiment === "negative" ? "rgba(239,68,68,0.04)" : r.sentiment === "positive" ? "rgba(34,197,94,0.04)" : "transparent" }}>
                                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
@@ -1446,7 +1446,7 @@ export default function RoketfyPanel() {
                                             </div>
                                         </div>
                                         <span className={`rk-chip ${r.sentiment === "positive" ? "rk-chip-success" : r.sentiment === "negative" ? "rk-chip-danger" : "rk-chip-warning"}`}>
-                                            {r.sentiment === "positive" ? "😊" : r.sentiment === "negative" ? "😞" : "😐"}
+                                            {r.sentiment === "positive" ? "" : r.sentiment === "negative" ? "" : ""}
                                         </span>
                                     </div>
                                     <div style={{ fontSize: 12, color: "var(--rk-text-sec)", lineHeight: 1.5 }}>{r.comment}</div>
@@ -1455,10 +1455,10 @@ export default function RoketfyPanel() {
                         </div>
                     )}
 
-                    {/* AI Özet */}
+                    {/* AI zet */}
                     {reviewResult.reviews.aiSummary && (
                         <div className="rk-section" style={{ borderColor: "rgba(78,205,196,0.3)", background: "rgba(78,205,196,0.04)" }}>
-                            <h4 className="rk-section-title"><FaRobot style={{ color: "var(--rk-accent)" }} /> AI Özet</h4>
+                            <h4 className="rk-section-title"><FaRobot style={{ color: "var(--rk-accent)" }} /> AI zet</h4>
                             <p style={{ fontSize: 13, lineHeight: 1.8, color: "var(--rk-text-sec)", margin: 0 }}>{reviewResult.reviews.aiSummary}</p>
                         </div>
                     )}
@@ -1467,20 +1467,20 @@ export default function RoketfyPanel() {
         </div>
     );
 
-    // ═════════════════════════════════════════════════════════════════════════
-    // TAB 7: ANAHTAR KELİME & FİYAT
-    // ═════════════════════════════════════════════════════════════════════════
+    // 
+    // TAB 7: ANAHTAR KELME & FYAT
+    // 
     const renderKeywordsAndPrice = () => (
         <div className="rk-content">
             {/* Anahtar Kelime */}
             <div className="rk-section">
-                <h3 className="rk-section-title"><FaKey style={{ color: "var(--rk-accent)" }} /> Anahtar Kelime Araştırması</h3>
+                <h3 className="rk-section-title"><FaKey style={{ color: "var(--rk-accent)" }} /> Anahtar Kelime Aratrmas</h3>
                 <div className="rk-form-row">
-                    <input className="rk-input" placeholder="Anahtar kelime girin... (tişört, ayakkabı)" value={kwSeed} onChange={(e) => setKwSeed(e.target.value)}
+                    <input className="rk-input" placeholder="Anahtar kelime girin... (tirt, ayakkab)" value={kwSeed} onChange={(e) => setKwSeed(e.target.value)}
                         onKeyDown={(e) => e.key === "Enter" && kwSeed && apiCall("post", "/roketfy/research/keywords", { seedKeyword: kwSeed }, setKwResult)} />
                     <button className="rk-btn rk-btn-primary" disabled={!kwSeed || loading}
                         onClick={() => apiCall("post", "/roketfy/research/keywords", { seedKeyword: kwSeed }, setKwResult)}>
-                        <FaSearch /> Araştır
+                        <FaSearch /> Aratr
                     </button>
                 </div>
             </div>
@@ -1490,7 +1490,7 @@ export default function RoketfyPanel() {
                     <div className="rk-stats-row">
                         <div className="rk-stat-card">
                             <div className="rk-stat-icon" style={{ background: "rgba(78,205,196,0.12)", color: "var(--rk-accent)" }}><FaBoxOpen /></div>
-                            <div className="rk-stat-info"><div className="rk-stat-label">Toplam Ürün</div><div className="rk-stat-value">{fmt(kwResult.keywords.totalMarketProducts)}</div></div>
+                            <div className="rk-stat-info"><div className="rk-stat-label">Toplam rn</div><div className="rk-stat-value">{fmt(kwResult.keywords.totalMarketProducts)}</div></div>
                         </div>
                         <div className="rk-stat-card">
                             <div className="rk-stat-icon" style={{ background: "rgba(34,197,94,0.12)", color: "var(--rk-green)" }}><FaDollarSign /></div>
@@ -1509,7 +1509,7 @@ export default function RoketfyPanel() {
                     {kwResult.keywords.keywords?.length > 0 && (
                         <div className="rk-product-table-wrap">
                             <table className="rk-product-table">
-                                <thead><tr><th>ANAHTAR KELİME</th><th className="right">ÜRÜN SAYISI</th><th className="right">REKABET</th><th className="right">UYGUNLUK</th></tr></thead>
+                                <thead><tr><th>ANAHTAR KELME</th><th className="right">RN SAYISI</th><th className="right">REKABET</th><th className="right">UYGUNLUK</th></tr></thead>
                                 <tbody>
                                     {kwResult.keywords.keywords.slice(0, 25).map((kw, i) => (
                                         <tr key={i}>
@@ -1517,7 +1517,7 @@ export default function RoketfyPanel() {
                                             <td className="right" style={{ fontWeight: 600 }}>{fmt(kw.searchVolume)}</td>
                                             <td className="right">
                                                 <span className={`rk-chip ${kw.competition === "low" ? "rk-chip-success" : kw.competition === "high" || kw.competition === "very_high" ? "rk-chip-danger" : "rk-chip-warning"}`}>
-                                                    {kw.competition === "low" ? "Düşük" : kw.competition === "high" ? "Yüksek" : kw.competition === "very_high" ? "Çok Yüksek" : "Orta"}
+                                                    {kw.competition === "low" ? "Dk" : kw.competition === "high" ? "Yksek" : kw.competition === "very_high" ? "ok Yksek" : "Orta"}
                                                 </span>
                                             </td>
                                             <td className="right">
@@ -1532,7 +1532,7 @@ export default function RoketfyPanel() {
 
                     {kwResult.keywords.topBrands?.length > 0 && (
                         <div className="rk-brands-section">
-                            <h4 className="rk-brands-title"><FaTag /> En Popüler Markalar</h4>
+                            <h4 className="rk-brands-title"><FaTag /> En Popler Markalar</h4>
                             <div className="rk-brands-wrap">
                                 {kwResult.keywords.topBrands.map((b, i) => (
                                     <span key={i} className={`rk-brand-tag ${i < 3 ? "top" : ""}`}>{b.name} (%{b.percentage})</span>
@@ -1543,15 +1543,15 @@ export default function RoketfyPanel() {
                 </>
             )}
 
-            {/* Fiyat Önerisi */}
+            {/* Fiyat nerisi */}
             <div className="rk-section" style={{ marginTop: 20 }}>
-                <h3 className="rk-section-title"><FaDollarSign style={{ color: "var(--rk-green)" }} /> Fiyat Önerisi</h3>
-                <p className="rk-section-desc">Ürününüzü Trendyol pazar fiyatlarıyla karşılaştırın</p>
+                <h3 className="rk-section-title"><FaDollarSign style={{ color: "var(--rk-green)" }} /> Fiyat nerisi</h3>
+                <p className="rk-section-desc">rnnz Trendyol pazar fiyatlaryla karlatrn</p>
                 <div className="rk-form-row">
                     <input className="rk-input" placeholder="Barkod girin" value={priceBarcode} onChange={(e) => setPriceBarcode(e.target.value)} />
                     <button className="rk-btn rk-btn-primary" disabled={!priceBarcode || loading}
                         onClick={() => apiCall("post", "/roketfy/price/suggest", { barcode: priceBarcode }, setPriceResult)}>
-                        <FaDollarSign /> Fiyat Öner
+                        <FaDollarSign /> Fiyat ner
                     </button>
                 </div>
             </div>
@@ -1564,12 +1564,12 @@ export default function RoketfyPanel() {
                             <div style={{ fontSize: 28, fontWeight: 800 }}>{fmtPrice(priceResult.pricing.currentPrice)}</div>
                         </div>
                         <div style={{ textAlign: "center" }}>
-                            <div style={{ fontSize: 11, color: "var(--rk-green)", fontWeight: 600 }}>Önerilen Fiyat</div>
+                            <div style={{ fontSize: 11, color: "var(--rk-green)", fontWeight: 600 }}>nerilen Fiyat</div>
                             <div style={{ fontSize: 36, fontWeight: 800, color: "var(--rk-green)" }}>{fmtPrice(priceResult.pricing.suggestedPrice)}</div>
-                            {priceResult.pricing.profitMargin != null && <span className="rk-chip rk-chip-success">Kâr: %{priceResult.pricing.profitMargin}</span>}
+                            {priceResult.pricing.profitMargin != null && <span className="rk-chip rk-chip-success">Kr: %{priceResult.pricing.profitMargin}</span>}
                         </div>
                         <div style={{ textAlign: "center" }}>
-                            <div style={{ fontSize: 11, color: "var(--rk-text-dim)" }}>Trendyol Ortalaması</div>
+                            <div style={{ fontSize: 11, color: "var(--rk-text-dim)" }}>Trendyol Ortalamas</div>
                             <div style={{ fontSize: 28, fontWeight: 800, color: "var(--rk-purple)" }}>{fmtPrice(priceResult.pricing.marketAvgPrice)}</div>
                             <div style={{ fontSize: 11, color: "var(--rk-text-sec)" }}>{priceResult.pricing.analyzedProductCount} rakip</div>
                         </div>
@@ -1582,15 +1582,15 @@ export default function RoketfyPanel() {
                     </div>
 
                     <div style={{ padding: "12px 16px", background: "rgba(59,130,246,0.08)", borderRadius: 10, fontSize: 13, lineHeight: 1.8, color: "var(--rk-text-sec)" }}>
-                        💡 {priceResult.pricing.reasoning}
+                         {priceResult.pricing.reasoning}
                     </div>
 
                     {priceResult.pricing.competitorPrices?.length > 0 && (
                         <div style={{ marginTop: 16 }}>
-                            <h4 className="rk-brands-title"><FaTag /> Rakip Fiyatları</h4>
+                            <h4 className="rk-brands-title"><FaTag /> Rakip Fiyatlar</h4>
                             <div className="rk-product-table-wrap">
                                 <table className="rk-product-table">
-                                    <thead><tr><th>ÜRÜN</th><th>MARKA</th><th className="right">FİYAT</th><th className="right">RATING</th><th className="right">FARK</th></tr></thead>
+                                    <thead><tr><th>RN</th><th>MARKA</th><th className="right">FYAT</th><th className="right">RATING</th><th className="right">FARK</th></tr></thead>
                                     <tbody>
                                         {priceResult.pricing.competitorPrices.map((cp, i) => {
                                             const diff = priceResult.pricing.currentPrice > 0 ? Math.round(((cp.price - priceResult.pricing.currentPrice) / priceResult.pricing.currentPrice) * 100) : 0;
@@ -1599,7 +1599,7 @@ export default function RoketfyPanel() {
                                                     <td style={{ fontSize: 12, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cp.productName}</td>
                                                     <td style={{ fontSize: 12, color: "var(--rk-text-sec)" }}>{cp.sellerName}</td>
                                                     <td className="right" style={{ fontWeight: 600 }}>{fmtPrice(cp.price)}</td>
-                                                    <td className="right">⭐ {cp.ratingScore || "—"}</td>
+                                                    <td className="right"> {cp.ratingScore || ""}</td>
                                                     <td className="right">
                                                         <span className={`rk-chip ${diff > 0 ? "rk-chip-danger" : diff < 0 ? "rk-chip-success" : "rk-chip-warning"}`}>
                                                             {diff > 0 ? "+" : ""}{diff}%
@@ -1618,9 +1618,9 @@ export default function RoketfyPanel() {
         </div>
     );
 
-    // ═════════════════════════════════════════════════════════════════════════
+    // 
     // ANA RENDER
-    // ═════════════════════════════════════════════════════════════════════════
+    // 
     const showCategoryPanel = activeTab === 0 || activeTab === 1;
 
     const renderActiveTab = () => {
@@ -1646,14 +1646,14 @@ export default function RoketfyPanel() {
                         <FaRocket className="rk-header-icon" />
                         LysiaRadar
                     </h1>
-                    <p>Pazar istihbaratınız — en çok satanlar, flaş indirimler, rakip analizi, fiyat takibi</p>
+                    <p>Pazar istihbaratnz  en ok satanlar, fla indirimler, rakip analizi, fiyat takibi</p>
                 </div>
                 <div className="rk-header-right">
                     <div className="rk-live-badge">
                         <span className="rk-live-dot" />
-                        CANLI VERİ
+                        CANLI VER
                         {(activeTab === 0 || activeTab === 1 || (activeTab === 2 && researchResult)) && nextRefreshIn > 0 && (
-                            <span style={{ fontSize: 10, opacity: 0.7, marginLeft: 6 }}>⏱ {formatCountdown(nextRefreshIn)}</span>
+                            <span style={{ fontSize: 10, opacity: 0.7, marginLeft: 6 }}> {formatCountdown(nextRefreshIn)}</span>
                         )}
                     </div>
                     <button className={`rk-refresh-btn ${loading ? "spinning" : ""}`} onClick={handleRefresh} disabled={loading}>

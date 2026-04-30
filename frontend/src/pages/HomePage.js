@@ -1,11 +1,11 @@
 /**
- * HomePage — LysiaETIC Landing Page
+ * HomePage  Pazarynetim Landing Page
  *
- * Giriş yapmamış kullanıcılar için ana sayfa.
- * Admin panelden ayarlanan paket fiyatları ve özellikleri burada gösterilir.
+ * Giri yapmam kullanclar iin ana sayfa.
+ * Admin panelden ayarlanan paket fiyatlar ve zellikleri burada gsterilir.
  *
- * ✅ Paket bilgileri /api/saas-admin/public/plans endpoint'inden dinamik olarak çekilir
- * ✅ Admin panelden fiyat/özellik değiştirildiğinde anında yansır
+ *  Paket bilgileri /api/saas-admin/public/plans endpoint'inden dinamik olarak ekilir
+ *  Admin panelden fiyat/zellik deitirildiinde annda yansr
  */
 
 import React, { useState, useEffect } from "react";
@@ -34,7 +34,7 @@ const HomePage = () => {
                 setPlans(res.data.plans);
             }
         } catch (err) {
-            console.warn("Plan bilgileri yüklenemedi:", err.message);
+            console.warn("Plan bilgileri yklenemedi:", err.message);
         } finally {
             setLoading(false);
         }
@@ -46,40 +46,40 @@ const HomePage = () => {
     };
 
     const platformFeatures = [
-        { icon: <FaPlug />, title: "Çoklu Pazaryeri", desc: "Trendyol, Hepsiburada, N11, Amazon, ÇiçekSepeti tek panelden" },
-        { icon: <FaBoxOpen />, title: "Ürün Yönetimi", desc: "Stok, fiyat ve ürün bilgilerini merkezi olarak yönetin" },
-        { icon: <FaChartLine />, title: "Gelişmiş Analitik", desc: "Satış, kâr ve performans raporları ile veriye dayalı kararlar" },
-        { icon: <FaBrain />, title: "AI Asistan", desc: "Yapay zeka destekli ürün önerileri ve fiyat optimizasyonu" },
-        { icon: <FaShieldAlt />, title: "Güvenli Altyapı", desc: "256-bit SSL, 2FA ve KVKK uyumlu veri güvenliği" },
-        { icon: <FaGlobe />, title: "7/24 Erişim", desc: "Bulut tabanlı altyapı ile her yerden, her cihazdan erişim" },
+        { icon: <FaPlug />, title: "oklu Pazaryeri", desc: "Trendyol, Hepsiburada, N11, Amazon, iekSepeti tek panelden" },
+        { icon: <FaBoxOpen />, title: "rn Ynetimi", desc: "Stok, fiyat ve rn bilgilerini merkezi olarak ynetin" },
+        { icon: <FaChartLine />, title: "Gelimi Analitik", desc: "Sat, kr ve performans raporlar ile veriye dayal kararlar" },
+        { icon: <FaBrain />, title: "AI Asistan", desc: "Yapay zeka destekli rn nerileri ve fiyat optimizasyonu" },
+        { icon: <FaShieldAlt />, title: "Gvenli Altyap", desc: "256-bit SSL, 2FA ve KVKK uyumlu veri gvenlii" },
+        { icon: <FaGlobe />, title: "7/24 Eriim", desc: "Bulut tabanl altyap ile her yerden, her cihazdan eriim" },
     ];
 
     const planOrder = ["basic", "pro", "enterprise"];
 
     return (
         <div style={S.page}>
-            {/* ═══ HERO ═══ */}
+            {/*  HERO  */}
             <header style={S.hero}>
                 <div style={S.heroContent}>
                     <div style={S.heroBadge}>
-                        <FaRocket style={{ fontSize: 12 }} /> E-Ticaret Yönetim Platformu
+                        <FaRocket style={{ fontSize: 12 }} /> E-Ticaret Ynetim Platformu
                     </div>
                     <h1 style={S.heroTitle}>
-                        Tüm Pazaryerlerinizi
+                        Tm Pazaryerlerinizi
                         <span style={S.heroGradient}> Tek Panelden </span>
-                        Yönetin
+                        Ynetin
                     </h1>
                     <p style={S.heroDesc}>
-                        LysiaETIC ile Trendyol, Hepsiburada, N11, Amazon ve daha fazlasını
-                        tek bir merkezden kontrol edin. Stok, sipariş, fiyat ve raporlarınız
-                        her zaman güncel.
+                        Pazarynetim ile Trendyol, Hepsiburada, N11, Amazon ve daha fazlasn
+                        tek bir merkezden kontrol edin. Stok, sipari, fiyat ve raporlarnz
+                        her zaman gncel.
                     </p>
                     <div style={S.heroBtns}>
                         <button style={S.btnPrimary} onClick={() => navigate("/register")}>
-                            Ücretsiz Dene <FaArrowRight />
+                            cretsiz Dene <FaArrowRight />
                         </button>
                         <button style={S.btnSecondary} onClick={() => navigate("/login")}>
-                            Giriş Yap
+                            Giri Yap
                         </button>
                     </div>
                     <div style={S.heroStats}>
@@ -95,17 +95,17 @@ const HomePage = () => {
                         <div style={S.heroStatDivider} />
                         <div style={S.heroStat}>
                             <div style={S.heroStatVal}>7/24</div>
-                            <div style={S.heroStatLabel}>Erişim</div>
+                            <div style={S.heroStatLabel}>Eriim</div>
                         </div>
                     </div>
                 </div>
             </header>
 
-            {/* ═══ ÖZELLİKLER ═══ */}
+            {/*  ZELLKLER  */}
             <section style={S.section}>
                 <div style={S.sectionInner}>
-                    <h2 style={S.sectionTitle}>Neden LysiaETIC?</h2>
-                    <p style={S.sectionDesc}>E-ticaret operasyonlarınızı güçlendiren özellikler</p>
+                    <h2 style={S.sectionTitle}>Neden Pazarynetim?</h2>
+                    <p style={S.sectionDesc}>E-ticaret operasyonlarnz glendiren zellikler</p>
                     <div style={S.featuresGrid}>
                         {platformFeatures.map((f, i) => (
                             <div key={i} style={S.featureCard}>
@@ -118,13 +118,13 @@ const HomePage = () => {
                 </div>
             </section>
 
-            {/* ═══ FİYATLANDIRMA ═══ */}
+            {/*  FYATLANDIRMA  */}
             <section style={S.pricingSection} id="pricing">
                 <div style={S.sectionInner}>
                     <h2 style={S.sectionTitle}>
-                        <FaCrown style={{ color: "#fbbf24" }} /> Paketler & Fiyatlandırma
+                        <FaCrown style={{ color: "#fbbf24" }} /> Paketler & Fiyatlandrma
                     </h2>
-                    <p style={S.sectionDesc}>İşletmenize uygun paketi seçin, hemen başlayın</p>
+                    <p style={S.sectionDesc}>letmenize uygun paketi sein, hemen balayn</p>
 
                     {/* Billing Toggle */}
                     <div style={S.billingToggle}>
@@ -132,20 +132,20 @@ const HomePage = () => {
                             style={S.toggleBtn(billingCycle === "monthly")}
                             onClick={() => setBillingCycle("monthly")}
                         >
-                            Aylık
+                            Aylk
                         </button>
                         <button
                             style={S.toggleBtn(billingCycle === "yearly")}
                             onClick={() => setBillingCycle("yearly")}
                         >
-                            Yıllık <span style={S.saveBadge}>Tasarruf</span>
+                            Yllk <span style={S.saveBadge}>Tasarruf</span>
                         </button>
                     </div>
 
                     {/* Plan Cards */}
                     {loading ? (
                         <div style={{ textAlign: "center", padding: "60px 20px", color: "#64748b" }}>
-                            Paketler yükleniyor...
+                            Paketler ykleniyor...
                         </div>
                     ) : (
                         <div style={S.plansGrid}>
@@ -154,7 +154,7 @@ const HomePage = () => {
                                 const price = billingCycle === "yearly"
                                     ? (plan.yearlyPrice || Math.round((plan.monthlyPrice || plan.price || 0) * 10))
                                     : (plan.monthlyPrice || plan.price || 0);
-                                const isPopular = (plan.badge || "").includes("POPÜLER");
+                                const isPopular = (plan.badge || "").includes("POPLER");
                                 const monthlyEquiv = billingCycle === "yearly" ? Math.round(price / 12) : price;
 
                                 return (
@@ -168,13 +168,13 @@ const HomePage = () => {
                                         <div style={S.planName}>{plan.name}</div>
                                         <div style={S.planDesc}>{plan.description}</div>
                                         <div style={S.planPrice}>
-                                            <span style={S.planCurrency}>₺</span>
+                                            <span style={S.planCurrency}></span>
                                             {fmtPrice(price)}
                                         </div>
                                         <div style={S.planPeriod}>
-                                            /{billingCycle === "yearly" ? "yıl" : "ay"}
+                                            /{billingCycle === "yearly" ? "yl" : "ay"}
                                             {billingCycle === "yearly" && (
-                                                <span style={S.planMonthly}> (₺{fmtPrice(monthlyEquiv)}/ay)</span>
+                                                <span style={S.planMonthly}> ({fmtPrice(monthlyEquiv)}/ay)</span>
                                             )}
                                         </div>
 
@@ -192,15 +192,15 @@ const HomePage = () => {
                                         <div style={S.planLimits}>
                                             <div style={S.planLimit}>
                                                 <FaBoxOpen style={{ fontSize: 10 }} />
-                                                {(plan.limits?.maxProducts ?? 0) >= 999999 ? "Sınırsız" : fmtPrice(plan.limits?.maxProducts)} ürün
+                                                {(plan.limits?.maxProducts ?? 0) >= 999999 ? "Snrsz" : fmtPrice(plan.limits?.maxProducts)} rn
                                             </div>
                                             <div style={S.planLimit}>
                                                 <FaPlug style={{ fontSize: 10 }} />
-                                                {(plan.limits?.maxMarketplaces ?? 0) >= 999 ? "Sınırsız" : plan.limits?.maxMarketplaces} pazaryeri
+                                                {(plan.limits?.maxMarketplaces ?? 0) >= 999 ? "Snrsz" : plan.limits?.maxMarketplaces} pazaryeri
                                             </div>
                                             <div style={S.planLimit}>
                                                 <FaUsers style={{ fontSize: 10 }} />
-                                                {(plan.limits?.maxUsers ?? 0) >= 999 ? "Sınırsız" : plan.limits?.maxUsers} kullanıcı
+                                                {(plan.limits?.maxUsers ?? 0) >= 999 ? "Snrsz" : plan.limits?.maxUsers} kullanc
                                             </div>
                                         </div>
 
@@ -208,7 +208,7 @@ const HomePage = () => {
                                             style={S.planBtn(isPopular)}
                                             onClick={() => navigate("/register")}
                                         >
-                                            Hemen Başla <FaArrowRight style={{ fontSize: 12 }} />
+                                            Hemen Bala <FaArrowRight style={{ fontSize: 12 }} />
                                         </button>
                                     </div>
                                 );
@@ -221,51 +221,51 @@ const HomePage = () => {
                         <div style={S.trialBanner}>
                             <FaRocket style={{ color: "#fbbf24", fontSize: 18 }} />
                             <div>
-                                <strong>Ücretsiz {plans.trial.duration || 14} Gün Deneyin!</strong>
+                                <strong>cretsiz {plans.trial.duration || 14} Gn Deneyin!</strong>
                                 <div style={{ fontSize: 13, color: "#94a3b8", marginTop: 2 }}>
-                                    Kredi kartı gerekmez. Tüm temel özelliklere erişim.
-                                    {plans.trial.limits?.maxProducts && ` ${plans.trial.limits.maxProducts} ürün, `}
-                                    {plans.trial.limits?.maxOrders && `${plans.trial.limits.maxOrders} sipariş/ay.`}
+                                    Kredi kart gerekmez. Tm temel zelliklere eriim.
+                                    {plans.trial.limits?.maxProducts && ` ${plans.trial.limits.maxProducts} rn, `}
+                                    {plans.trial.limits?.maxOrders && `${plans.trial.limits.maxOrders} sipari/ay.`}
                                 </div>
                             </div>
                             <button style={S.trialBtn} onClick={() => navigate("/register")}>
-                                Ücretsiz Başla
+                                cretsiz Bala
                             </button>
                         </div>
                     )}
                 </div>
             </section>
 
-            {/* ═══ CTA ═══ */}
+            {/*  CTA  */}
             <section style={S.ctaSection}>
-                <h2 style={S.ctaTitle}>E-Ticaretinizi Bir Üst Seviyeye Taşıyın</h2>
+                <h2 style={S.ctaTitle}>E-Ticaretinizi Bir st Seviyeye Tayn</h2>
                 <p style={S.ctaDesc}>
-                    Hemen kayıt olun, ücretsiz deneme sürenizle platformu keşfedin.
+                    Hemen kayt olun, cretsiz deneme srenizle platformu kefedin.
                 </p>
                 <div style={S.heroBtns}>
                     <button style={S.btnPrimary} onClick={() => navigate("/register")}>
-                        Ücretsiz Kayıt Ol <FaArrowRight />
+                        cretsiz Kayt Ol <FaArrowRight />
                     </button>
                     <button style={S.btnSecondary} onClick={() => navigate("/login")}>
-                        Giriş Yap
+                        Giri Yap
                     </button>
                 </div>
             </section>
 
-            {/* ═══ FOOTER ═══ */}
+            {/*  FOOTER  */}
             <footer style={S.footer}>
                 <div style={S.footerInner}>
                     <div style={S.footerBrand}>
                         <div style={S.footerLogo}>LE</div>
-                        <span style={S.footerName}>LysiaETIC</span>
+                        <span style={S.footerName}>Pazarynetim</span>
                     </div>
                     <div style={S.footerLinks}>
-                        <a href="/privacy" style={S.footerLink}>Gizlilik Politikası</a>
-                        <a href="/terms" style={S.footerLink}>Kullanım Koşulları</a>
-                        <a href="/distance-sales" style={S.footerLink}>Mesafeli Satış Sözleşmesi</a>
+                        <a href="/privacy" style={S.footerLink}>Gizlilik Politikas</a>
+                        <a href="/terms" style={S.footerLink}>Kullanm Koullar</a>
+                        <a href="/distance-sales" style={S.footerLink}>Mesafeli Sat Szlemesi</a>
                     </div>
                     <div style={S.footerCopy}>
-                        © {new Date().getFullYear()} LysiaETIC. Tüm hakları saklıdır.
+                         {new Date().getFullYear()} Pazarynetim. Tm haklar sakldr.
                     </div>
                 </div>
             </footer>
@@ -273,9 +273,9 @@ const HomePage = () => {
     );
 };
 
-/* ═══════════════════════════════════════════════════════════
+/* 
    STYLES
-   ═══════════════════════════════════════════════════════════ */
+    */
 const S = {
     page: {
         minHeight: "100vh",
@@ -283,7 +283,7 @@ const S = {
         color: "#f1f5f9",
         fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
     },
-    // ── Hero ──
+    //  Hero 
     hero: {
         padding: "80px 24px 60px",
         textAlign: "center",
@@ -373,7 +373,7 @@ const S = {
     heroStatLabel: { fontSize: 13, color: "#64748b", marginTop: 2 },
     heroStatDivider: { width: 1, height: 40, background: "rgba(99,102,241,0.15)" },
 
-    // ── Section ──
+    //  Section 
     section: {
         padding: "80px 24px",
     },
@@ -399,7 +399,7 @@ const S = {
         margin: "0 0 48px",
     },
 
-    // ── Features ──
+    //  Features 
     featuresGrid: {
         display: "grid",
         gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
@@ -437,7 +437,7 @@ const S = {
         margin: 0,
     },
 
-    // ── Pricing ──
+    //  Pricing 
     pricingSection: {
         padding: "80px 24px",
         background: "linear-gradient(180deg, transparent 0%, rgba(99,102,241,0.04) 50%, transparent 100%)",
@@ -619,7 +619,7 @@ const S = {
         marginLeft: "auto",
     },
 
-    // ── CTA ──
+    //  CTA 
     ctaSection: {
         padding: "80px 24px",
         textAlign: "center",
@@ -637,7 +637,7 @@ const S = {
         margin: "0 0 32px",
     },
 
-    // ── Footer ──
+    //  Footer 
     footer: {
         padding: "40px 24px",
         borderTop: "1px solid rgba(99,102,241,0.08)",
@@ -690,3 +690,4 @@ const S = {
 };
 
 export default HomePage;
+

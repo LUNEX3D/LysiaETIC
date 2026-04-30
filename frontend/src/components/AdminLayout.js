@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+﻿import React, { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import {
     FaChartPie, FaUsers, FaBoxOpen, FaClipboardList, FaServer,
@@ -14,7 +14,7 @@ const AdminLayout = ({ title, subtitle, actions, children }) => {
     const navigate = useNavigate();
 
     const name = localStorage.getItem("userName") || "Admin";
-    const email = localStorage.getItem("userEmail") || "admin@lysiaetic.local";
+    const email = localStorage.getItem("userEmail") || "admin@pazaryonetim.local";
     const rawRole = (localStorage.getItem("userRole") || "admin").toLowerCase();
     const loginTime = localStorage.getItem("adminLoginTime");
 
@@ -96,7 +96,7 @@ const AdminLayout = ({ title, subtitle, actions, children }) => {
                     <div className="ap-brand">
                         <div className="ap-brand-icon">LE</div>
                         <div>
-                            <div className="ap-brand-name">LysiaETIC</div>
+                            <div className="ap-brand-name">Pazaryönetim</div>
                             <div className="ap-brand-tag">SaaS Yönetim Konsolu</div>
                         </div>
                     </div>
@@ -182,3 +182,5 @@ const AdminLayout = ({ title, subtitle, actions, children }) => {
 };
 
 export default AdminLayout;
+
+
