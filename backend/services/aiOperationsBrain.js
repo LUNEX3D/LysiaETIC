@@ -38,6 +38,7 @@
  * ═══════════════════════════════════════════════════════════════════════════════
  */
 
+const User = require("../models/User");
 const Recommendation = require("../models/Recommendation");
 const AIGoal = require("../models/AIGoal");
 const Order = require("../models/Order");
@@ -64,8 +65,11 @@ function calculateBusinessHealth(analyzedProducts, data, aiScore) {
     const productsWithCost = analyzedProducts.filter(p => p.costPrice > 0);
     const avgMargin = productsWithCost.length > 0
         ? productsWithCost.reduce((s, p) => s + p.profitMargin, 0) / productsWithCost.length : -1;
-    const lossProducts = analyzedProducts.filter(p => p.profit < 0 && p.costPrice > 0);
-    const totalLoss = lossProducts.reduce((s, p) => s + Math.abs(p.profit) * p.totalSold, 0);
+    const lossProducts = analyzedProducts.filter(p => (p.profit < 0 || p.avgSnapshotProfit < 0) && p.costPrice > 0);
+    const totalLoss = lossProducts.reduce((s, p) => {
+        const unitLoss = p.avgSnapshotProfit < 0 ? Math.abs(p.avgSnapshotProfit) : Math.abs(p.profit);
+        return s + (unitLoss * p.totalSold);
+    }, 0);
 
     let profitHealth = 50;
     if (avgMargin === -1) profitHealth = 50;
@@ -89,6 +93,7 @@ function calculateBusinessHealth(analyzedProducts, data, aiScore) {
 
     // Sales health
     let salesHealth = 50;
+    let revenueTrend = 0;
     if (hasOrderData) {
         if (todayRevenue > avgDailyRevenue * 1.2) salesHealth += 25;
         else if (todayRevenue > avgDailyRevenue * 0.8) salesHealth += 15;
@@ -98,11 +103,11 @@ function calculateBusinessHealth(analyzedProducts, data, aiScore) {
         const weeklyAvg = weekRevenue / 7;
         const monthlyAvg = avgDailyRevenue;
         if (monthlyAvg > 0) {
-            const trend = ((weeklyAvg - monthlyAvg) / monthlyAvg) * 100;
-            if (trend > 10) salesHealth += 15;
-            else if (trend > 0) salesHealth += 5;
-            else if (trend < -15) salesHealth -= 15;
-            else if (trend < 0) salesHealth -= 5;
+            revenueTrend = Math.round(((weeklyAvg - monthlyAvg) / monthlyAvg) * 100);
+            if (revenueTrend > 10) salesHealth += 15;
+            else if (revenueTrend > 0) salesHealth += 5;
+            else if (revenueTrend < -15) salesHealth -= 15;
+            else if (revenueTrend < 0) salesHealth -= 5;
         }
     }
     salesHealth = clamp(salesHealth, 0, 100);
@@ -132,6 +137,7 @@ function calculateBusinessHealth(analyzedProducts, data, aiScore) {
             weekRevenue: round2(weekRevenue),
             monthRevenue: round2(monthRevenue),
             avgDailyRevenue: round2(avgDailyRevenue),
+            revenueTrend, // ✅ Trend ekledik
             avgMargin: avgMargin >= 0 ? round2(avgMargin) : null,
             totalProducts: total,
             inStock, outOfStock, lowStock, deadProducts,
@@ -155,9 +161,10 @@ function huntLosses(analyzedProducts, data) {
     let totalMissedRevenue = 0;
 
     // 1. Zararda satılan ürünler
-    const lossProducts = analyzedProducts.filter(p => p.profit < 0 && p.totalSold > 0 && p.costPrice > 0);
+    const lossProducts = analyzedProducts.filter(p => (p.profit < 0 || p.avgSnapshotProfit < 0) && p.totalSold > 0 && p.costPrice > 0);
     for (const p of lossProducts) {
-        const lost = Math.abs(p.profit) * p.totalSold;
+        const unitLoss = p.avgSnapshotProfit < 0 ? Math.abs(p.avgSnapshotProfit) : Math.abs(p.profit);
+        const lost = unitLoss * p.totalSold;
         totalLostProfit += lost;
         losses.push({
             type: "negative_profit",
@@ -166,7 +173,7 @@ function huntLosses(analyzedProducts, data) {
             product: p.name,
             barcode: p.barcode,
             amount: round2(lost),
-            description: `${p.name.slice(0, 40)} satış başına ${Math.abs(p.profit).toFixed(0)}₺ zarar — toplam ${lost.toFixed(0)}₺`,
+            description: `${p.name.slice(0, 40)} satış başına ${unitLoss.toFixed(0)}₺ zarar — toplam ${lost.toFixed(0)}₺`,
             action: `Fiyatı en az ${Math.ceil(p.costPrice * 1.15)}₺ yapın`,
         });
     }
@@ -253,9 +260,12 @@ function generateFocusItems(analyzedProducts, data, businessHealth, lossHunter) 
     }
 
     // Loss products
-    const lossProducts = analyzedProducts.filter(p => p.profit < 0 && p.totalSold > 0 && p.costPrice > 0);
+    const lossProducts = analyzedProducts.filter(p => (p.profit < 0 || p.avgSnapshotProfit < 0) && p.totalSold > 0 && p.costPrice > 0);
     if (lossProducts.length > 0) {
-        const totalDailyLoss = lossProducts.reduce((s, p) => s + Math.abs(p.profit) * p.avgDailySales, 0);
+        const totalDailyLoss = lossProducts.reduce((s, p) => {
+            const unitLoss = p.avgSnapshotProfit < 0 ? Math.abs(p.avgSnapshotProfit) : Math.abs(p.profit);
+            return s + (unitLoss * p.avgDailySales);
+        }, 0);
         items.push({
             priority: 2,
             icon: "🔴",
@@ -1891,6 +1901,9 @@ async function getFullBrainDashboard(userId, aiEngine, strategyMode) {
     const moneyTracker = trackMoney(analyzed, data);
     const redAlerts = generateRedAlerts(analyzed, data, businessHealth);
 
+    // Agentic Thought Process — Proaktif AI Akıl Yürütme
+    const thoughtProcess = generateThoughtProcess(analyzed, data, businessHealth, lossHunterResult, predictions, redAlerts);
+
     // DB queries — TÜM statülerdeki önerileri getir (pending, approved, executed, rejected)
     const [allRecs, pendingCount, executedCount, approvedCount, rejectedCount, selfEval, decisionHistory] = await Promise.all([
         Recommendation.find({ userId, status: { $in: ["pending", "approved", "executed", "rejected"] } })
@@ -1991,6 +2004,7 @@ async function getFullBrainDashboard(userId, aiEngine, strategyMode) {
         diagnosis: diagnosisResult,
         moneyTracker,
         redAlerts,
+        thoughtProcess,
 
         // Notifications
         notifications,
@@ -2001,6 +2015,73 @@ async function getFullBrainDashboard(userId, aiEngine, strategyMode) {
 // ═════════════════════════════════════════════════════════════════════════════
 // EXPORTS
 // ═════════════════════════════════════════════════════════════════════════════
+
+// ═════════════════════════════════════════════════════════════════════════════
+// #50 AGENTIC THOUGHT PROCESS
+// ═════════════════════════════════════════════════════════════════════════════
+
+function generateThoughtProcess(analyzed, data, health, loss, predictions, redAlerts) {
+    const steps = [];
+    const now = new Date();
+
+    // 1. Data Perception (Veri Algılama)
+    steps.push({
+        stage: "perception",
+        title: "Veri Kanallarını Tarıyorum",
+        content: `${analyzed.length} ürün ve ${data.orders30.length} son siparişi analiz ettim. Pazaryeri API'lerinden gelen sinyalleri işledim.`,
+        status: "completed",
+        icon: "📡"
+    });
+
+    // 2. Anomaly Detection (Anomali Tespiti)
+    if (redAlerts.criticalCount > 0) {
+        steps.push({
+            stage: "anomaly",
+            title: "Kritik Anomaliler Tespit Edildi",
+            content: `${redAlerts.criticalCount} ürün acil müdahale gerektiriyor. Özellikle stok ve kârlılık dengesinde sapmalar var.`,
+            status: "warning",
+            icon: "🚨"
+        });
+    } else {
+        steps.push({
+            stage: "anomaly",
+            title: "Sistem Stabil",
+            content: "Operasyonel verilerde büyük bir anomali rastlanmadı. İyileştirme fırsatlarına odaklanıyorum.",
+            status: "success",
+            icon: "✅"
+        });
+    }
+
+    // 3. Reasoning (Akıl Yürütme)
+    const topRisk = redAlerts.alerts?.find(a => a.severity === "critical");
+    const reasoningContent = topRisk 
+        ? `Önceliğim ${topRisk.title}. Bu durum çözülmezse tahmini ${topRisk.amount || 0}₺'lik bir risk oluşabilir.`
+        : "Satış ivmesini artırmak için envanter devir hızını optimize etmeye çalışıyorum.";
+    
+    steps.push({
+        stage: "reasoning",
+        title: "Stratejik Akıl Yürütme",
+        content: reasoningContent,
+        status: "processing",
+        icon: "🧠"
+    });
+
+    // 4. Decision Formulation (Karar Formülasyonu)
+    steps.push({
+        stage: "decision",
+        title: "Aksiyon Planı Hazır",
+        content: "Onayınızı bekleyen öneriler ve otonom kararlar hazırlandı. Stratejinizi 'Kârlılık Odaklı' olarak güncellemenizi öneririm.",
+        status: "pending",
+        icon: "⚡"
+    });
+
+    return {
+        timestamp: now,
+        steps,
+        summary: topRisk ? `Dikkat: ${topRisk.title} için acil aksiyon planladım.` : "Her şey yolunda, optimizasyon devam ediyor.",
+        agentStatus: redAlerts.criticalCount > 0 ? "busy" : "idle"
+    };
+}
 
 module.exports = {
     calculateBusinessHealth,
@@ -2023,5 +2104,6 @@ module.exports = {
     generateDiagnosis,
     trackMoney,
     generateRedAlerts,
+    generateThoughtProcess,
     getFullBrainDashboard,
 };

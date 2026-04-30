@@ -301,7 +301,7 @@ export const appLifecycle = {
             return;
         }
         try {
-            const { App: CapApp } = await import("@capacitor/app");
+            await import("@capacitor/app");
             // Capacitor doesn't have openUrl on App, use Browser plugin or window
             window.open(url, "_blank");
         } catch (e) {

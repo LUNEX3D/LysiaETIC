@@ -13,6 +13,7 @@
  */
 
 const logger = require("../config/logger");
+const n11Service = require("./n11Service");
 
 // ─────────────────────────────────────────────────────────────────────────────
 // YARDIMCI: Fiyat normalize
@@ -28,6 +29,63 @@ const parsePrice = (val) => {
         return parseFloat(str.replace(",", ".")) || 0;
     }
     return parseFloat(str) || 0;
+};
+
+const pickDefaultCustomValue = (attributeName, master) => {
+    const name = (attributeName || "").toLowerCase();
+    if (name.includes("cinsiyet")) {
+        return master?.attributes?.gender || "Unisex";
+    }
+    if (name.includes("renk")) {
+        return master?.attributes?.color || "Diğer";
+    }
+    if (name.includes("model")) {
+        return master?.attributes?.model || "Standart";
+    }
+    return "Standart";
+};
+
+const buildN11Attributes = (master, categoryAttributes = []) => {
+    const BRAND_ATTRIBUTE_ID = 1;
+    const attrs = [];
+    const brand = (master.brand || "Genel").toString().trim();
+
+    // Marka attribute'u her zaman gönder.
+    attrs.push({
+        id: BRAND_ATTRIBUTE_ID,
+        valueId: null,
+        customValue: brand
+    });
+
+    for (const attr of categoryAttributes) {
+        const attrId = Number(attr.attributeId || attr.id);
+        if (!attrId || attrId === BRAND_ATTRIBUTE_ID) continue;
+        if (!attr.isMandatory) continue;
+
+        const values = Array.isArray(attr.attributeValues) ? attr.attributeValues : [];
+        const name = attr.attributeName || attr.name || "";
+        const isCustom = Boolean(attr.isCustomValue);
+
+        if (isCustom) {
+            attrs.push({
+                id: attrId,
+                valueId: null,
+                customValue: pickDefaultCustomValue(name, master)
+            });
+            continue;
+        }
+
+        const firstVal = values.find((v) => Number(v.id || v.valueId) > 0);
+        if (firstVal) {
+            attrs.push({
+                id: attrId,
+                valueId: Number(firstVal.id || firstVal.valueId),
+                customValue: "null"
+            });
+        }
+    }
+
+    return attrs;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -84,7 +142,7 @@ const fromTrendyol = (raw) => {
         price:     salePrice,
         listPrice: listPrice,
         stock:     parseInt(raw.quantity || 0),
-        vatRate:   parseInt(raw.vatRate || 10),
+        vatRate:   parseInt(raw.vatRate || 20),
 
         // Kategori & Marka
         category:  raw.categoryName || raw.category?.name || "",
@@ -204,9 +262,16 @@ const toN11 = async (master, userId, credentials) => {
 
     const shipmentTemplate = (
         credentials.shipmentTemplate ||
-        master.shipmentTemplate      ||
-        "STANDART"
+        master.shipmentTemplate ||
+        ""
     ).toString().trim();
+
+    if (!shipmentTemplate) {
+        throw new Error(
+            "N11 shipmentTemplate zorunlu. N11 Paneli > Hesabım > Teslimat Bilgilerim'den " +
+            "kargo şablon adını entegrasyon ayarlarına kaydedin."
+        );
+    }
 
     const stockCode     = (master.sku || master.barcode || "").toString().trim();
     const productMainId = stockCode;
@@ -216,6 +281,16 @@ const toN11 = async (master, userId, credentials) => {
         `[ADAPTER] toN11 tamamlandı — "${master.title}" | ` +
         `kategori: ${categoryId} | marka: "${brand}"`
     );
+
+    let mappedAttributes = [];
+    try {
+        const attrRes = await n11Service.getCategoryAttributes(credentials, categoryId);
+        if (attrRes?.success && Array.isArray(attrRes.attributes)) {
+            mappedAttributes = buildN11Attributes(master, attrRes.attributes);
+        }
+    } catch (err) {
+        logger.warn(`[ADAPTER] N11 category attributes alınamadı (${categoryId}): ${err.message}`);
+    }
 
     return {
         // Zorunlu alanlar
@@ -230,10 +305,10 @@ const toN11 = async (master, userId, credentials) => {
         quantity:         parseInt(master.stock) || 0,
         salePrice:        master.price,
         listPrice:        master.listPrice,
-        vatRate:          parseInt(master.vatRate) || 10,
+        vatRate:          parseInt(master.vatRate) || 20,
         images:           master.images.map((url, i) => ({ url, order: i })),
         brand,
-        attributes:       [], // Attribute mapping kaldırıldı
+        attributes:       mappedAttributes,
 
         // Opsiyonel
         ...(master.barcode ? { barcode: master.barcode.toString().trim() } : {})

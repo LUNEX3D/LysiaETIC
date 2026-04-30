@@ -33,6 +33,7 @@ const logger = require("../config/logger");
 const AutoInvoiceConfig = require("../models/AutoInvoiceConfig");
 const Invoice = require("../models/Invoice");
 const Order = require("../models/Order");
+const User = require("../models/User");
 const qnbService = require("./qnbEInvoiceService");
 
 // Ardışık hata limiti — bu kadar hatadan sonra otomatik fatura devre dışı kalır
@@ -96,6 +97,21 @@ const MARKETPLACE_STATUS_MAP = {
     PttAVM: ["New", "Approved", "Shipped", "Delivered", "Processing"],
     Teknosa: ["New", "Approved", "Shipped", "Delivered", "Processing"],
     ePttAVM: ["New", "Approved", "Shipped", "Delivered", "Processing"],
+};
+
+/**
+ * Ülke adının Türkiye olup olmadığını kontrol et
+ * Farklı yazım biçimlerini destekler (TR, Turkey, Türkiye, Turkiye vb.)
+ * @param {string} country
+ * @returns {boolean} Türkiye ise true
+ */
+const isTurkeyCountry = (country) => {
+    if (!country) return true; // Ülke bilgisi yoksa Türkiye varsay
+    const c = country.toLowerCase().trim();
+    return [
+        "tr", "tur", "turkey", "turkiye", "türkiye", "turkei",
+        "republic of turkey", "republic of türkiye",
+    ].includes(c);
 };
 
 /**
@@ -222,14 +238,25 @@ const processAutoInvoice = async (userId, marketplaceName, newOrderIds) => {
         }
 
         // ── 2. Siparişleri getir ─────────────────────────────────────────
-        const orders = await Order.find({
+        // ✅ FIX: "pending" siparişleri de hariç tut (başka işlem tarafından kilitli)
+        const orderFilter = {
             _id: { $in: newOrderIds },
             invoiceId: { $exists: false },
-            invoiceStatus: { $ne: "created" },
+            invoiceStatus: { $nin: ["created", "pending"] },
             isCancelled: false,
             isReturned: false,
-            totalPrice: { $gt: 0 }, // ✅ FIX: 0 TL siparişleri atla (KDV validasyon hatası önlenir)
-        }).lean();
+            totalPrice: { $gt: 0 },
+        };
+
+        // ── Mükerrer fatura koruması: autoInvoiceStartDate ──────────────
+        // Bu tarihten önce oluşan siparişler otomatik faturalanmaz.
+        // Kullanıcı sistemi aktif etmeden önce manuel kestiği faturaların
+        // tekrar kesilmesini engeller.
+        if (config.autoInvoiceStartDate) {
+            orderFilter.orderDate = { $gte: config.autoInvoiceStartDate };
+        }
+
+        const orders = await Order.find(orderFilter).lean();
 
         if (orders.length === 0) {
             logger.info("[AutoInvoice] Fatura kesilecek sipariş yok — userId=" + userId);
@@ -254,33 +281,58 @@ const processAutoInvoice = async (userId, marketplaceName, newOrderIds) => {
 
         // ── 3. QNB Login (e-Arşiv + e-Fatura ayrı oturumlar) ────────────
         // ⚠️ QNB'de e-Fatura ve e-Arşiv FARKLI ortamlar — FARKLI credentials!
-        //   e-Arşiv:  connectortest   → VKN.portaltest / ayrı şifre
-        //   e-Fatura: erpefaturatest1 → VKN / ayrı şifre
-        //
-        // ⚠️ ÖNEMLİ: Eski config.qnbCredentials.username alanı e-Fatura credential'ıdır!
-        //   Bu alan e-Arşiv için KULLANILMAMALI — ayrı ortam, ayrı şifre.
-        //   e-Arşiv fallback: earsivUsername > .env QNB_EARSIV_USERNAME
-        //   e-Fatura fallback: efaturaUsername > eski username > supplier.vkn > .env QNB_EFATURA_USERNAME
+        //   Her kullanıcı QNB'den aldığı kullanıcı adı/şifreyi olduğu gibi girer.
+        //   .env fallback KULLANILMAZ — başka kullanıcının credential'ı ile login önlenir.
         let earsivSessionId = null;
         let efaturaSessionId = null;
         const env = config.qnbCredentials.env || "test";
 
         if (config.provider === "qnb") {
-            // e-Arşiv credentials — earsiv-specific alanlardan al, yoksa eski username/password'e fallback yap
-            const earsivUsername = config.qnbCredentials.earsivUsername || config.qnbCredentials.username || process.env.QNB_EARSIV_USERNAME;
-            const earsivPassword = config.qnbCredentials.earsivPassword || config.qnbCredentials.password || process.env.QNB_EARSIV_PASSWORD;
+            // ⚠️ e-Arşiv ve e-Fatura FARKLI ortamlar — FARKLI credentials!
+            //   Her kullanıcı QNB'den aldığı kullanıcı adı/şifreyi olduğu gibi girer.
+            //   Öncelik: AutoInvoiceConfig.qnbCredentials > User.companyInfo.qnb
+            //   .env fallback KULLANILMAZ — credential yoksa hata verilir.
+
+            // User.companyInfo.qnb'den de oku (tek kaynak fallback)
+            let userQnb = {};
+            try {
+                const user = await User.findById(userId).select("companyInfo.qnb").lean();
+                userQnb = user?.companyInfo?.qnb || {};
+            } catch (e) { /* ignore */ }
+
+            // ── Credential çözümleme ──────────────────────────────────────
+            // Öncelik: config.qnbCredentials > User.companyInfo.qnb
+            // Her kaynak loglanır — debug kolaylığı için
+            let earsivUsername = "";
+            let earsivPassword = "";
+            let credSource = "";
+
+            if (config.qnbCredentials.earsivUsername && config.qnbCredentials.earsivPassword) {
+                earsivUsername = config.qnbCredentials.earsivUsername;
+                earsivPassword = config.qnbCredentials.earsivPassword;
+                credSource = "AutoInvoiceConfig";
+            } else if (userQnb.earsivUsername && userQnb.earsivPassword) {
+                earsivUsername = userQnb.earsivUsername;
+                earsivPassword = userQnb.earsivPassword;
+                credSource = "User.companyInfo.qnb";
+            }
 
             // e-Fatura credentials — eski username alanı e-Fatura'ya ait
-            const efaturaUsername = config.qnbCredentials.efaturaUsername || config.qnbCredentials.username || config.supplier.vkn || process.env.QNB_EFATURA_USERNAME;
-            const efaturaPassword = config.qnbCredentials.efaturaPassword || config.qnbCredentials.password || process.env.QNB_EFATURA_PASSWORD;
+            const efaturaUsername = config.qnbCredentials.efaturaUsername || userQnb.efaturaUsername || config.qnbCredentials.username || config.supplier.vkn || "";
+            const efaturaPassword = config.qnbCredentials.efaturaPassword || userQnb.efaturaPassword || config.qnbCredentials.password || "";
 
             if (!earsivUsername || !earsivPassword) {
-                logger.error("[AutoInvoice] QNB e-Arşiv credentials eksik — userId=" + userId);
-                config.stats.lastError = "QNB e-Arşiv kullanıcı adı veya şifre eksik";
+                logger.error("[AutoInvoice] QNB e-Arşiv credentials eksik — userId=" + userId +
+                    " — config.earsivUsername=" + (config.qnbCredentials.earsivUsername ? "'" + config.qnbCredentials.earsivUsername + "'" : "(boş)") +
+                    " user.earsivUsername=" + (userQnb.earsivUsername ? "'" + userQnb.earsivUsername + "'" : "(boş)"));
+                config.stats.lastError = "QNB e-Arşiv kullanıcı adı veya şifre eksik. Lütfen Faturalandırma ayarlarından QNB bağlantı bilgilerinizi girin.";
                 config.stats.lastErrorDate = new Date();
                 await config.save();
                 return stats;
             }
+
+            logger.info("[AutoInvoice] QNB credentials — kaynak: " + credSource +
+                " earsivUser=" + earsivUsername + " env=" + env);
 
             // e-Arşiv login (her zaman gerekli — çoğu pazaryeri müşterisi bireysel)
             const earsivLogin = await qnbService.login({
@@ -291,8 +343,9 @@ const processAutoInvoice = async (userId, marketplaceName, newOrderIds) => {
             });
 
             if (!earsivLogin.success) {
-                logger.error("[AutoInvoice] QNB e-Arşiv login başarısız: " + earsivLogin.error);
-                config.stats.lastError = "QNB e-Arşiv login başarısız: " + earsivLogin.error;
+                logger.error("[AutoInvoice] QNB e-Arşiv login başarısız: " + earsivLogin.error +
+                    " — user=" + earsivUsername + " kaynak=" + credSource);
+                config.stats.lastError = "QNB e-Arşiv login başarısız (" + earsivUsername + "): " + earsivLogin.error;
                 config.stats.lastErrorDate = new Date();
                 config.stats.consecutiveErrors += 1;
                 await config.save();
@@ -332,12 +385,34 @@ const processAutoInvoice = async (userId, marketplaceName, newOrderIds) => {
 
             try {
                 // ── ÇOKLU KORUMA: Aynı faturayı 2 kere kesmeyelim ──────────
+                // 0. Pazaryerinde zaten fatura kesilmiş mi kontrolü
+                if (order.marketplaceInvoiced) {
+                    logger.info("[AutoInvoice] ⏭️ Pazaryerinde zaten faturalı — orderNumber=" + order.trackingNumber + " marketplace=" + normalizedMp);
+                    stats.skipped++;
+                    continue;
+                }
+
                 // 1. Invoice tablosunda orderId kontrolü
                 const existingInvoice = await Invoice.findOne({ orderId: order._id });
                 if (existingInvoice) {
                     logger.info("[AutoInvoice] ⏭️ Sipariş zaten faturalandı (Invoice var) — orderNumber=" + order.trackingNumber + " faturaNo=" + existingInvoice.invoiceNumber);
                     stats.skipped++;
                     continue;
+                }
+
+                // 1.5. Aynı sipariş numarası + marketplace ile başka fatura var mı?
+                // (farklı Order _id ama aynı sipariş numarası olabilir)
+                if (order.trackingNumber) {
+                    const dupInvoice = await Invoice.findOne({
+                        userId: userId,
+                        orderNumber: order.trackingNumber,
+                        marketplaceName: { $regex: new RegExp("^" + normalizedMp + "$", "i") },
+                    });
+                    if (dupInvoice) {
+                        logger.info("[AutoInvoice] ⏭️ Aynı sipariş numarası ile fatura mevcut — orderNumber=" + order.trackingNumber + " faturaNo=" + dupInvoice.invoiceNumber);
+                        stats.skipped++;
+                        continue;
+                    }
                 }
 
                 // 2. Order'da invoiceId veya invoiceStatus=created kontrolü
@@ -363,18 +438,39 @@ const processAutoInvoice = async (userId, marketplaceName, newOrderIds) => {
                 // Pazaryerine özel ayarları al
                 const mpSpecific = getMarketplaceSpecificSettings(config, normalizedMp);
 
+                // ── Mikro İhracat Tespiti ──────────────────────────────────
+                // Teslimat ülkesi Türkiye dışı ise → İhracat Kayıtlı fatura
+                // KDV %0, invoiceTypeCode: IHRACKAYITLI
+                const shipCountry = (order.shippingCountry || order.customerAddress?.country || "Turkiye").trim();
+                const isMicroExport = shipCountry && !isTurkeyCountry(shipCountry);
+
+                if (isMicroExport) {
+                    logger.info("[AutoInvoice] 🌍 Mikro ihracat tespit edildi — ülke: " + shipCountry +
+                        " orderNumber=" + order.trackingNumber + " marketplace=" + normalizedMp);
+                }
+
                 // Fatura kalemlerini oluştur (pazaryerine özel KDV oranı)
-                const invoiceLines = buildInvoiceLinesFromOrder(order, config, normalizedMp);
+                // Mikro ihracat ise KDV %0 zorla
+                const invoiceLines = isMicroExport
+                    ? buildInvoiceLinesFromOrder(order, config, normalizedMp).map(l => ({ ...l, vatRate: 0 }))
+                    : buildInvoiceLinesFromOrder(order, config, normalizedMp);
 
                 // Müşteri bilgilerini hazırla (pazaryerine özel VKN çıkarma)
                 const customer = buildCustomerFromOrder(order, config, normalizedMp);
 
+                // Mikro ihracat ise müşteri ülkesini güncelle
+                if (isMicroExport) {
+                    customer.country = shipCountry;
+                }
+
                 // invoiceData oluştur
-                const invoiceNote = mpSpecific.note
-                    || ("Otomatik fatura — " + normalizedMp + " Sipariş: " + (order.trackingNumber || ""));
+                const baseInvoiceTypeCode = isMicroExport ? "IHRACKAYITLI" : (config.invoiceTypeCode || "SATIS");
+                const invoiceNote = isMicroExport
+                    ? ("Mikro İhracat — " + normalizedMp + " Sipariş: " + (order.trackingNumber || "") + " — Ülke: " + shipCountry)
+                    : (mpSpecific.note || ("Otomatik fatura — " + normalizedMp + " Sipariş: " + (order.trackingNumber || "")));
                 const invoiceData = {
                     faturaKodu: mpSpecific.invoiceSeriesCode,
-                    invoiceTypeCode: config.invoiceTypeCode || "SATIS",
+                    invoiceTypeCode: baseInvoiceTypeCode,
                     issueDate: new Date().toISOString().split("T")[0],
                     currency: config.currency || "TRY",
                     note: invoiceNote,
@@ -422,6 +518,18 @@ const processAutoInvoice = async (userId, marketplaceName, newOrderIds) => {
                         }
                     } catch (checkErr) {
                         logger.warn("[AutoInvoice] e-Fatura mükellef sorgusu başarısız, e-Arşiv ile devam: " + checkErr.message);
+                    }
+                } else if (!isNihaiTuketici && !efaturaSessionId) {
+                    // ⚠️ Alıcının VKN'si var ama e-Fatura oturumu yok
+                    // e-Arşiv'e düşecek — QNB, e-Fatura mükellefi olan VKN'ye e-Arşiv kestirmez
+                    // Güvenlik: müşteri VKN'sini 11111111111 (Nihai Tüketici) yap
+                    logger.warn("[AutoInvoice] Alıcı VKN=" + customerVkn +
+                        " ama e-Fatura oturumu yok — Nihai Tüketici (11111111111) olarak e-Arşiv kesilecek");
+                    customer.vkn = "11111111111";
+                    customer.firstName = customer.firstName || "Nihai";
+                    customer.lastName = customer.lastName || "Tuketici";
+                    if (invoiceData.customer) {
+                        invoiceData.customer.vkn = "11111111111";
                     }
                 }
 
@@ -492,7 +600,7 @@ const processAutoInvoice = async (userId, marketplaceName, newOrderIds) => {
                         invoiceNumber: result.invoiceNumber,
                         uuid: result.uuid,
                         profileId: resolvedProfileId,
-                        invoiceTypeCode: config.invoiceTypeCode || "SATIS",
+                        invoiceTypeCode: baseInvoiceTypeCode,
                         issueDate: new Date(),
                         currency: config.currency || "TRY",
                         provider: "qnb",
@@ -798,7 +906,12 @@ const buildCustomerFromOrder = (order, config, marketplaceName) => {
     }
 
     // VKN belirleme: çıkarılan VKN > defaultCustomer VKN > Nihai Tüketici
-    const finalVkn = extractedVkn || defaultCustomer.vkn || "11111111111";
+    // ⚠️ Eski schema default "12345678901" QNB test ortamında e-Fatura mükellefi olarak kayıtlı
+    //    Bu yüzden defaultCustomer.vkn olarak gelirse Nihai Tüketici'ye düş
+    const defaultVkn = defaultCustomer.vkn && defaultCustomer.vkn !== "12345678901"
+        ? defaultCustomer.vkn
+        : "11111111111";
+    const finalVkn = extractedVkn || defaultVkn;
 
     // Firma adı varsa müşteri adı olarak kullan (B2B)
     const customerName = extractedCompany
@@ -901,18 +1014,53 @@ const processManualBatchInvoice = async (userId, orderIds) => {
  * Faturası olmayan TÜM siparişler için toplu fatura kes
  * (Frontend "Tümünü Faturala" butonu için)
  *
+ * ✅ FIX: "error" durumundaki siparişleri önce sıfırla (tekrar denenebilsin)
+ *         "pending" siparişleri hariç tut (başka işlem tarafından kilitli)
+ *         totalPrice > 0 filtresi ekle (0 TL siparişler faturalanmaz)
+ *
  * @param {string} userId
  * @param {number} limit - Tek seferde max sipariş (güvenlik)
  * @returns {Object} { processed, invoiced, skipped, errors, totalEligible }
  */
 const processAllUninvoiced = async (userId, limit = 50) => {
-    const orders = await Order.find({
+    // ── 0. Kullanıcının auto-invoice config'ini yükle ────────────────────
+    const config = await AutoInvoiceConfig.findOne({ userId }).lean();
+
+    // ── 1. Daha önce hata almış siparişleri sıfırla (tekrar denenebilsin) ──
+    // "error" durumundaki siparişlerin invoiceStatus'unu "" yap
+    const resetResult = await Order.updateMany(
+        {
+            user: userId,
+            invoiceId: { $exists: false },
+            invoiceStatus: "error",
+            isCancelled: false,
+            isReturned: false,
+            totalPrice: { $gt: 0 },
+        },
+        { invoiceStatus: "" }
+    );
+    if (resetResult.modifiedCount > 0) {
+        logger.info("[AutoInvoice] " + resetResult.modifiedCount + " hatalı sipariş sıfırlandı — userId=" + userId);
+    }
+
+    // ── 2. Faturasız siparişleri getir ──────────────────────────────────────
+    const allFilter = {
         user: userId,
         invoiceId: { $exists: false },
-        invoiceStatus: { $ne: "created" },
+        invoiceStatus: { $nin: ["created", "pending"] },
         isCancelled: false,
         isReturned: false,
-    }).sort({ orderDate: -1 }).limit(limit).lean();
+        totalPrice: { $gt: 0 },
+    };
+
+    // ── Mükerrer fatura koruması: autoInvoiceStartDate ──────────────────
+    // "Tümünü Faturala" butonunda da bu tarihten önceki siparişleri atla.
+    if (config && config.autoInvoiceStartDate) {
+        allFilter.orderDate = { $gte: config.autoInvoiceStartDate };
+    }
+
+    const orders = await Order.find(allFilter)
+        .sort({ orderDate: -1 }).limit(limit).lean();
 
     if (orders.length === 0) {
         return { processed: 0, invoiced: 0, skipped: 0, errors: 0, totalEligible: 0 };

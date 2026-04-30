@@ -85,15 +85,29 @@ const runInvoiceCron = async () => {
                 const lookbackDate = new Date();
                 lookbackDate.setDate(lookbackDate.getDate() - LOOKBACK_DAYS);
 
-                const uninvoicedOrders = await Order.find({
+                // ✅ FIX: "error" durumundaki siparişleri cron'da tekrar deneme
+                // Hatalı siparişler sürekli tekrar denenip aynı hatayı alıyordu
+                // Sadece henüz hiç denenmemiş (invoiceStatus: "") siparişleri al
+                const cronFilter = {
                     user: userId,
                     invoiceId: { $exists: false },
-                    invoiceStatus: { $nin: ["created", "pending"] },
+                    invoiceStatus: { $nin: ["created", "pending", "error"] },
                     isCancelled: false,
                     isReturned: false,
                     totalPrice: { $gt: 0 },
                     createdAt: { $gte: lookbackDate },  // ⚠️ Sadece son 7 gün
-                }).sort({ orderDate: -1 }).limit(MAX_INVOICES_PER_USER).lean();
+                };
+
+                // ── Mükerrer fatura koruması: autoInvoiceStartDate ──────
+                // Bu tarihten önce oluşan siparişler otomatik faturalanmaz.
+                // Kullanıcı sistemi aktif etmeden önce manuel kestiği
+                // faturaların tekrar kesilmesini engeller.
+                if (config.autoInvoiceStartDate) {
+                    cronFilter.orderDate = { $gte: config.autoInvoiceStartDate };
+                }
+
+                const uninvoicedOrders = await Order.find(cronFilter)
+                    .sort({ orderDate: -1 }).limit(MAX_INVOICES_PER_USER).lean();
 
                 if (uninvoicedOrders.length === 0) {
                     continue; // Bu kullanıcıda faturasız sipariş yok

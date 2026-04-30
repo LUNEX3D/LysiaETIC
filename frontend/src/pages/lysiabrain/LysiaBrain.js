@@ -19,7 +19,7 @@ import API from "../../services/api";
 import { useApp } from "../../context/AppContext";
 import { T, useResponsive } from "./styles";
 import { getBrainT } from "./i18n";
-import { ScoreRing, Badge, Btn, LoadingState, Modal, ModalHeader } from "./components/shared/SharedUI";
+import { ScoreRing, LoadingState, Modal, ModalHeader } from "./components/shared/SharedUI";
 
 import BrainDashboard from "./components/BrainDashboard";
 import BrainRecommendations from "./components/BrainRecommendations";
@@ -68,57 +68,54 @@ const LysiaBrain = () => {
     /* ═══ TAB GROUPS — Memoized, sadece language değişince yeniden oluşur ═══ */
     const TAB_GROUPS = useMemo(() => [
         {
-            id: "main", label: t("tabgroup.main"), icon: "◈",
+            id: "main", label: t("tabgroup.main"), icon: "⚡",
             tabs: [
                 { id: "dashboard", icon: "◈", label: t("tab.dashboard") },
-                { id: "advisor", icon: "◇", label: t("tab.advisor") },
                 { id: "recommendations", icon: "◆", label: t("tab.recommendations") },
                 { id: "operator", icon: "⬡", label: t("tab.operator") },
             ],
         },
         {
-            id: "analysis", label: t("tabgroup.analysis"), icon: "🔬",
+            id: "intelligence", label: t("tabgroup.analysis"), icon: "🧠",
             tabs: [
+                { id: "advisor", icon: "◇", label: t("tab.advisor") },
                 { id: "mistakes", icon: "△", label: t("tab.mistakes") },
-                { id: "profit_map", icon: "📊", label: t("tab.profit_map") },
-                { id: "segmentation", icon: "🧬", label: t("tab.segmentation") },
-                { id: "causes", icon: "🔍", label: t("tab.causes") },
                 { id: "health", icon: "🏥", label: t("tab.health") },
-                { id: "platforms", icon: "▣", label: t("tab.platforms") },
-            ],
-        },
-        {
-            id: "finance", label: t("tabgroup.finance"), icon: "💰",
-            tabs: [
-                { id: "costs", icon: "💰", label: t("tab.costs") },
+                { id: "profit_map", icon: "📊", label: t("tab.profit_map") },
                 { id: "losses", icon: "💸", label: t("tab.losses") },
-                { id: "roi", icon: "📈", label: t("tab.roi") },
-                { id: "risks", icon: "⚠️", label: t("tab.risks") },
             ],
         },
         {
-            id: "predict", label: t("tabgroup.predict"), icon: "🔮",
+            id: "strategy", label: t("tabgroup.predict"), icon: "🎯",
             tabs: [
+                { id: "goals", icon: "🥅", label: t("tab.goals") },
+                { id: "simulation", icon: "🧪", label: t("tab.simulation") },
                 { id: "predictions", icon: "🔮", label: t("tab.predictions") },
                 { id: "timing", icon: "⏰", label: t("tab.timing") },
-                { id: "opportunities", icon: "🎯", label: t("tab.opportunities") },
-                { id: "retro", icon: "🔄", label: t("tab.retro") },
             ],
         },
         {
-            id: "ai", label: t("tabgroup.ai"), icon: "🤖",
+            id: "ecosystem", label: t("tabgroup.ai"), icon: "🌐",
             tabs: [
-                { id: "simulation", icon: "🧪", label: t("tab.simulation") },
-                { id: "goals", icon: "🎯", label: t("tab.goals") },
+                { id: "platforms", icon: "▣", label: t("tab.platforms") },
+                { id: "opportunities", icon: "🎯", label: t("tab.opportunities") },
+                { id: "risks", icon: "⚠️", label: t("tab.risks") },
                 { id: "learning", icon: "📚", label: t("tab.learning") },
-                { id: "alerts", icon: "🔔", label: t("tab.alerts") },
+            ],
+        },
+        {
+            id: "history", label: "Geçmiş", icon: "⏳",
+            tabs: [
                 { id: "decisions", icon: "📜", label: t("tab.decisions") },
+                { id: "retro", icon: "🔄", label: t("tab.retro") },
                 { id: "self_eval", icon: "🤖", label: t("tab.self_eval") },
             ],
         },
     ], [t]);
 
     const [openGroup, setOpenGroup] = useState(null);
+    const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+    const menuRef = useRef(null);
 
     const STRATEGIES = useMemo(() => [
         { id: "balanced", label: t("strategy.balanced"), icon: "⚖️", color: T.accent },
@@ -139,7 +136,7 @@ const LysiaBrain = () => {
     const [refreshing, setRefreshing] = useState(false);
     const [error, setError] = useState(null);
     const [rateLimitToast, setRateLimitToast] = useState(null);
-    const pollRef = useRef(null);
+
     const visibleRef = useRef(true);
 
     const [brain, setBrain] = useState(null);
@@ -150,6 +147,7 @@ const LysiaBrain = () => {
     const [cycleLoading, setCycleLoading] = useState(false);
     const [autoDecideLoading, setAutoDecideLoading] = useState(false);
     const [autoDecisions, setAutoDecisions] = useState(null);
+    const [autonomousStatus, setAutonomousStatus] = useState("Standby");
     const [diagnosisData, setDiagnosisData] = useState(null);
     const [diagnosisLoading, setDiagnosisLoading] = useState(false);
     const [showDiagnosis, setShowDiagnosis] = useState(false);
@@ -163,13 +161,15 @@ const LysiaBrain = () => {
     useEffect(() => { try { localStorage.setItem(STORAGE_TAB, activeTab); } catch { /* */ } }, [activeTab]);
     useEffect(() => { try { localStorage.setItem(STORAGE_STRATEGY, selectedStrategy); } catch { /* */ } }, [selectedStrategy]);
 
-    /* ═══ OUTSIDE CLICK — Strategy Picker ═══ */
+    /* ═══ OUTSIDE CLICK — Strategy Picker & Menu ═══ */
     useEffect(() => {
-        if (!showStrategyPicker) return;
-        const handler = (e) => { if (strategyRef.current && !strategyRef.current.contains(e.target)) setShowStrategyPicker(false); };
+        const handler = (e) => {
+            if (showStrategyPicker && strategyRef.current && !strategyRef.current.contains(e.target)) setShowStrategyPicker(false);
+            if (openGroup && menuRef.current && !menuRef.current.contains(e.target)) setOpenGroup(null);
+        };
         document.addEventListener("mousedown", handler);
         return () => document.removeEventListener("mousedown", handler);
-    }, [showStrategyPicker]);
+    }, [showStrategyPicker, openGroup]);
 
     /* ═══ PAGE VISIBILITY — Sayfa görünmezken polling'i durdur ═══ */
     useEffect(() => {
@@ -348,6 +348,13 @@ const LysiaBrain = () => {
     const healthScore = brain?.businessHealth?.overallScore || 0;
     const curStrategy = STRATEGIES.find(s => s.id === selectedStrategy) || STRATEGIES[0];
 
+    const getStatusInfo = () => {
+        if (autoDecideLoading) return { label: "Thinking", color: T.yellow };
+        if (brain?.thoughtProcess?.agentStatus === "busy") return { label: "Analyzing", color: T.blue };
+        return { label: "Neural Standby", color: T.green };
+    };
+    const sInfo = getStatusInfo();
+
     /* ═══ LOADING SCREEN ═══ */
     if (loading) {
         return (
@@ -369,366 +376,216 @@ const LysiaBrain = () => {
     }
 
     return (
-        <div style={{ display: "flex", flexDirection: "column", width: "100%", height: "100vh", fontFamily: T.font, background: T.bg, color: T.text, overflow: "hidden" }}>
+        <div style={{ display: "flex", width: "100%", height: "100vh", fontFamily: T.font, background: T.bg, color: T.text, overflow: "hidden" }}>
 
-            {/* ═══ TOP HEADER BAR ═══ */}
-            <header style={{
-                background: T.bgCard, backdropFilter: T.glass, WebkitBackdropFilter: T.glass,
-                borderBottom: `1px solid ${T.border}`,
-                padding: isMobile ? "0 0.75rem" : "0 1.75rem",
-                height: isMobile ? 56 : 64, minHeight: isMobile ? 56 : 64,
-                display: "flex", alignItems: "center", justifyContent: "space-between",
-                position: "relative", zIndex: 10,
-            }}>
-                {/* Left — Brand + Mobile Menu */}
-                <div style={{ display: "flex", alignItems: "center", gap: "0.65rem" }}>
-                    {isMobile && (
-                        <button onClick={() => setShowMobileMenu(p => !p)} aria-label="Menu" style={{
-                            width: 36, height: 36, borderRadius: T.rSm,
-                            background: showMobileMenu ? T.accentDim : T.bgGlass,
-                            border: `1px solid ${showMobileMenu ? T.accent + "30" : T.border}`,
-                            color: showMobileMenu ? T.accent : T.textDim,
-                            cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center",
-                            fontSize: "1rem", fontFamily: "inherit",
-                        }}>{showMobileMenu ? "✕" : "☰"}</button>
-                    )}
-                    <div style={{
-                        width: isMobile ? 32 : 40, height: isMobile ? 32 : 40, borderRadius: T.rSm,
-                        background: T.accentDim, border: `1px solid ${T.accent}30`,
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                        fontSize: isMobile ? "1rem" : "1.25rem",
-                        boxShadow: `0 0 12px ${T.accent}15`,
-                    }}>🧠</div>
-                    {!isMobile && (
-                        <div>
-                            <div style={{ fontSize: "1.15rem", fontWeight: 800, letterSpacing: "-0.03em", background: T.gradientText, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>LysiaBrain</div>
-                            <div style={{ fontSize: "0.6rem", color: T.textDim, fontWeight: 600, letterSpacing: "0.12em", textTransform: "uppercase", marginTop: 1 }}>{t("header.subtitle")}</div>
+            {/* ═══ MAIN CONTENT AREA ═══ */}
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", height: "100vh", overflow: "hidden", position: "relative" }}>
+                
+                {/* ═══ TOP BAR — NEW INTEGRATED NAV ═══ */}
+                <header style={{
+                    height: 80, minHeight: 80,
+                    background: "rgba(8, 11, 22, 0.8)", backdropFilter: "blur(20px)",
+                    borderBottom: `1px solid ${T.border}`,
+                    display: "flex", alignItems: "center", justifyContent: "space-between",
+                    padding: "0 1.5rem", zIndex: 100
+                }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "2rem" }}>
+                        {/* Logo */}
+                        <div onClick={() => handleTabChange("dashboard")} style={{ display: "flex", alignItems: "center", gap: "0.85rem", cursor: "pointer" }}>
+                            <div style={{
+                                width: 42, height: 42, borderRadius: T.rSm,
+                                background: T.accentDim, border: `1px solid ${T.accent}40`,
+                                display: "flex", alignItems: "center", justifyContent: "center",
+                                fontSize: "1.5rem", boxShadow: T.shadowGlow, flexShrink: 0
+                            }}>🧠</div>
+                            {!isMobile && (
+                                <div>
+                                    <div style={{ fontSize: "1.25rem", fontWeight: 900, background: T.gradientText, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", letterSpacing: "-0.03em" }}>LysiaBrain</div>
+                                    <div style={{ fontSize: "0.6rem", color: T.textDim, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.1em" }}>Neural Command</div>
+                                </div>
+                            )}
                         </div>
-                    )}
-                </div>
 
-                {/* Center — Grouped Tabs (desktop only) */}
-                {!isTablet && (
-                    <nav role="tablist" aria-label="LysiaBrain tabs" style={{ display: "flex", alignItems: "center", gap: 3, position: "absolute", left: "50%", transform: "translateX(-50%)", maxWidth: "calc(100% - 420px)" }}>
-                        {TAB_GROUPS.map((group) => {
-                            const groupActive = group.tabs.some(t2 => t2.id === activeTab);
-                            const isOpen = openGroup === group.id;
-                            return (
-                                <div key={group.id} style={{ position: "relative" }}
-                                    onMouseEnter={() => setOpenGroup(group.id)}
-                                    onMouseLeave={() => setOpenGroup(null)}>
-                                    {/* Group Button */}
-                                    <button
-                                        onClick={() => { if (group.tabs.length === 1) handleTabChange(group.tabs[0].id); else setOpenGroup(isOpen ? null : group.id); }}
-                                        style={{
-                                            background: groupActive ? T.accentDim : "transparent",
-                                            border: groupActive ? `1px solid ${T.accent}30` : "1px solid transparent",
-                                            borderRadius: T.rSm, padding: "7px 12px", cursor: "pointer",
-                                            display: "flex", alignItems: "center", gap: 6,
-                                            fontFamily: "inherit", transition: "all 0.2s ease", position: "relative",
-                                        }}>
-                                        <span style={{ fontSize: "0.82rem", flexShrink: 0, color: groupActive ? T.accent : T.textDim }} aria-hidden="true">{group.icon}</span>
-                                        <span style={{ fontSize: "0.74rem", fontWeight: groupActive ? 700 : 500, color: groupActive ? T.text : T.textSec, whiteSpace: "nowrap" }}>{group.label}</span>
-                                        {group.id === "main" && recSummary.pending > 0 && (
-                                            <span style={{ fontSize: "0.55rem", fontWeight: 800, padding: "1px 5px", borderRadius: T.rFull, background: T.yellowDim, color: T.yellow, border: `1px solid ${T.yellow}30`, lineHeight: 1.4 }}>{recSummary.pending}</span>
-                                        )}
-                                        <span style={{ fontSize: "0.55rem", color: T.textDim, transition: "transform 0.2s", transform: isOpen ? "rotate(180deg)" : "rotate(0)" }}>▾</span>
-                                        {groupActive && <div style={{ position: "absolute", bottom: -1, left: "20%", right: "20%", height: 2, borderRadius: T.rFull, background: T.gradient, boxShadow: `0 0 8px ${T.accent}40` }} />}
-                                    </button>
+                        {/* Top Navigation */}
+                        {!isTablet && (
+                            <nav style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                                {TAB_GROUPS.map(group => (
+                                    <div key={group.id} style={{ position: "relative" }}>
+                                        <button 
+                                            onClick={() => setOpenGroup(openGroup === group.id ? null : group.id)}
+                                            style={{
+                                                padding: "0.5rem 0.85rem",
+                                                background: group.tabs.some(t => t.id === activeTab) ? T.accentDim : "transparent",
+                                                border: "none",
+                                                borderRadius: T.rSm,
+                                                color: group.tabs.some(t => t.id === activeTab) ? T.accent : T.textSec,
+                                                fontSize: "0.85rem",
+                                                fontWeight: 700,
+                                                cursor: "pointer",
+                                                display: "flex",
+                                                alignItems: "center",
+                                                gap: "0.5rem",
+                                                transition: "all 0.2s"
+                                            }}
+                                        >
+                                            <span>{group.icon}</span>
+                                            <span>{group.label}</span>
+                                            <span style={{ fontSize: "0.6rem", opacity: 0.5 }}>{openGroup === group.id ? "▲" : "▼"}</span>
+                                        </button>
 
-                                    {/* Dropdown */}
-                                    {isOpen && (
-                                        <div style={{
-                                            position: "absolute", top: "calc(100% + 4px)", left: "50%", transform: "translateX(-50%)",
-                                            zIndex: 100, background: T.bgCardSolid, border: `1px solid ${T.borderGlow}`,
-                                            borderRadius: T.rSm, padding: 5, minWidth: 180,
-                                            boxShadow: T.shadowLg, backdropFilter: T.glass,
-                                        }}>
-                                            {group.tabs.map((tab) => {
-                                                const isActive = activeTab === tab.id;
-                                                return (
-                                                    <button key={tab.id} role="tab" aria-selected={isActive}
+                                        {openGroup === group.id && (
+                                            <div ref={menuRef} style={{
+                                                position: "absolute", top: "100%", left: 0, marginTop: "0.5rem",
+                                                width: 220, background: T.bgCardSolid, border: `1px solid ${T.border}`,
+                                                borderRadius: T.rSm, boxShadow: T.shadowLg, padding: "0.5rem",
+                                                zIndex: 1000, backdropFilter: "blur(20px)"
+                                            }}>
+                                                {group.tabs.map(tab => (
+                                                    <button 
+                                                        key={tab.id} 
                                                         onClick={() => { handleTabChange(tab.id); setOpenGroup(null); }}
                                                         style={{
-                                                            width: "100%", padding: "8px 12px", border: "none",
-                                                            borderRadius: T.rSm, cursor: "pointer", fontFamily: "inherit",
-                                                            display: "flex", alignItems: "center", gap: 8,
-                                                            background: isActive ? T.accentDim : "transparent",
-                                                            color: isActive ? T.accent : T.textSec,
-                                                            fontSize: "0.78rem", fontWeight: isActive ? 700 : 500,
-                                                            transition: "all 0.15s", textAlign: "left",
+                                                            width: "100%", textAlign: "left", padding: "0.65rem 0.75rem",
+                                                            background: activeTab === tab.id ? T.accentDim : "transparent",
+                                                            border: "none", borderRadius: T.rSm,
+                                                            color: activeTab === tab.id ? T.accent : T.text,
+                                                            fontSize: "0.8rem", fontWeight: activeTab === tab.id ? 800 : 500,
+                                                            cursor: "pointer", display: "flex", alignItems: "center", gap: "0.75rem"
                                                         }}
-                                                        onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = T.bgGlassHover; }}
-                                                        onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = "transparent"; }}>
-                                                        <span style={{ fontSize: "0.82rem", width: 20, textAlign: "center" }}>{tab.icon}</span>
+                                                    >
+                                                        <span style={{ opacity: 0.7 }}>{tab.icon}</span>
                                                         <span>{tab.label}</span>
-                                                        {tab.id === "recommendations" && recSummary.pending > 0 && (
-                                                            <span style={{ marginLeft: "auto", fontSize: "0.6rem", fontWeight: 800, padding: "1px 6px", borderRadius: T.rFull, background: T.yellowDim, color: T.yellow }}>{recSummary.pending}</span>
-                                                        )}
-                                                        {isActive && <span style={{ marginLeft: "auto", fontSize: "0.65rem", color: T.accent }}>✓</span>}
                                                     </button>
-                                                );
-                                            })}
-                                        </div>
-                                    )}
-                                </div>
-                            );
-                        })}
-                    </nav>
-                )}
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
+                            </nav>
+                        )}
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+                        {isMobile && <button onClick={() => setShowMobileMenu(!showMobileMenu)} style={{ background: "none", border: "none", color: T.text, fontSize: "1.5rem" }}>☰</button>}
+                        <h2 style={{ fontSize: "1.25rem", fontWeight: 800, margin: 0 }}>{TAB_GROUPS.flatMap(g => g.tabs).find(t => t.id === activeTab)?.label}</h2>
+                    </div>
 
-                {/* Right — Status */}
-                <div style={{ display: "flex", alignItems: "center", gap: isMobile ? "0.4rem" : "0.75rem" }}>
-                    {!isMobile && <ScoreRing score={healthScore} size={38} thickness={2.5} />}
-                    {!isMobile && (
-                        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
-                            <span style={{ fontSize: "0.72rem", fontWeight: 700, color: T.text, fontFamily: T.fontMono }}>{healthScore}</span>
-                            <span style={{ fontSize: "0.55rem", color: T.textDim, letterSpacing: "0.06em", textTransform: "uppercase" }}>{t("header.health")}</span>
+                    <div style={{ display: "flex", alignItems: "center", gap: "1.5rem" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", background: T.bgGlass, padding: "0.5rem 1rem", borderRadius: T.rFull, border: `1px solid ${T.border}` }}>
+                            <div style={{ width: 8, height: 8, borderRadius: "50%", background: T.green, boxShadow: `0 0 8px ${T.green}` }} />
+                            <span style={{ fontSize: "0.75rem", fontWeight: 800, color: T.textSec }}>AI CORE ACTIVE</span>
                         </div>
-                    )}
-                    {!isMobile && <div style={{ width: 1, height: 28, background: T.border, margin: "0 4px" }} />}
 
-                    {/* Strategy Picker */}
-                    <div style={{ position: "relative" }} ref={strategyRef}>
-                        <button onClick={() => setShowStrategyPicker(p => !p)} aria-haspopup="listbox" aria-expanded={showStrategyPicker}
-                            style={{
-                                height: 36, borderRadius: T.rSm,
-                                background: `${curStrategy.color}12`,
-                                border: `1px solid ${curStrategy.color}30`,
-                                color: curStrategy.color,
-                                cursor: "pointer", padding: isMobile ? "0 8px" : "0 12px",
-                                display: "flex", alignItems: "center", gap: 5,
-                                fontSize: "0.72rem", fontWeight: 700, fontFamily: "inherit",
-                                transition: "all 0.2s",
+                        <div style={{ position: "relative" }} ref={strategyRef}>
+                            <button onClick={() => setShowStrategyPicker(!showStrategyPicker)} style={{
+                                background: `${curStrategy.color}15`, border: `1px solid ${curStrategy.color}40`,
+                                color: curStrategy.color, padding: "0.5rem 1rem", borderRadius: T.rSm,
+                                fontSize: "0.75rem", fontWeight: 800, cursor: "pointer", display: "flex", alignItems: "center", gap: "0.5rem"
                             }}>
-                            {curStrategy.icon} {!isMobile && curStrategy.label}
-                        </button>
-                        {showStrategyPicker && (
-                            <div role="listbox" style={{
-                                position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 100,
-                                background: T.bgCardSolid, border: `1px solid ${T.borderGlow}`,
-                                borderRadius: T.rSm, padding: 6, minWidth: 160,
-                                boxShadow: T.shadowLg,
-                            }}>
-                                {STRATEGIES.map(s => (
-                                    <button key={s.id} role="option" aria-selected={selectedStrategy === s.id}
-                                        onClick={() => handleStrategyChange(s.id)}
-                                        style={{
-                                            width: "100%", padding: "8px 12px", border: "none",
-                                            borderRadius: T.rSm, cursor: "pointer", fontFamily: "inherit",
-                                            display: "flex", alignItems: "center", gap: 8,
-                                            background: selectedStrategy === s.id ? `${s.color}15` : "transparent",
-                                            color: selectedStrategy === s.id ? s.color : T.textSec,
-                                            fontSize: "0.78rem", fontWeight: selectedStrategy === s.id ? 700 : 500,
-                                            transition: "all 0.15s",
-                                        }}>
-                                        <span>{s.icon}</span> {s.label}
-                                        {selectedStrategy === s.id && <span style={{ marginLeft: "auto", fontSize: "0.7rem" }}>✓</span>}
+                                {curStrategy.icon} {curStrategy.label} ▾
+                            </button>
+                            {showStrategyPicker && (
+                                <div style={{ position: "absolute", top: "100%", right: 0, marginTop: 8, background: T.bgCardSolid, border: `1px solid ${T.border}`, borderRadius: T.rSm, padding: 4, zIndex: 100, minWidth: 160, boxShadow: T.shadowLg }}>
+                                    {STRATEGIES.map(s => (
+                                        <button key={s.id} onClick={() => handleStrategyChange(s.id)} style={{ width: "100%", padding: "0.75rem", border: "none", background: selectedStrategy === s.id ? T.bgGlass : "transparent", color: selectedStrategy === s.id ? T.accent : T.textSec, textAlign: "left", cursor: "pointer", borderRadius: T.rSm, display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.8rem", fontWeight: 600 }}>
+                                            {s.icon} {s.label}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
+                        <button onClick={() => loadBrain(true)} style={{ width: 40, height: 40, borderRadius: T.rSm, background: T.bgGlass, border: `1px solid ${T.border}`, color: T.textDim, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>↻</button>
+                    </div>
+                </header>
+
+                {/* ═══ SCROLLABLE CONTENT ═══ */}
+                <main style={{ flex: 1, overflowY: "auto", padding: isMobile ? "1.5rem 1rem" : "2.5rem", position: "relative" }}>
+                    {renderTab()}
+                </main>
+
+                {/* ═══ DIAGNOSIS MODAL ═══ */}
+                <Modal open={showDiagnosis} onClose={() => setShowDiagnosis(false)}>
+                    <ModalHeader icon="🩺" iconColor={T.purple} title={t("diag.title")} subtitle={t("diag.subtitle")} onClose={() => setShowDiagnosis(false)} />
+                    <div style={{ padding: "1.5rem" }}>
+                        {diagnosisLoading ? <LoadingState message={t("loading.analyzing")} /> : diagnosisData ? (
+                            <>
+                                <div style={{ textAlign: "center", padding: "2rem", borderRadius: T.r, border: `1px solid ${T.borderGlow}`, marginBottom: "1.5rem", background: T.gradientCard }}>
+                                    <div style={{ width: 72, height: 72, borderRadius: "50%", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: "2.2rem", marginBottom: "0.85rem", background: T.bgGlass, border: `1px solid ${T.border}`, boxShadow: T.shadowGlow }}>{diagnosisData.verdictEmoji}</div>
+                                    <div style={{ fontSize: "1.5rem", fontWeight: 900, background: T.gradientText, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>{t("diag.grade")}: {diagnosisData.healthGrade}</div>
+                                    <p style={{ fontSize: "0.88rem", color: T.textSec, marginTop: "0.5rem", maxWidth: 420, marginLeft: "auto", marginRight: "auto", lineHeight: 1.65 }}>{diagnosisData.verdict}</p>
+                                </div>
+                                {[
+                                    { items: diagnosisData.mistakes, title: `🔴 ${t("diag.mistakes")}`, color: T.red, bg: T.redDim, fixKey: "fix" },
+                                    { items: diagnosisData.leaks, title: `💸 ${t("diag.leaks")}`, color: T.yellow, bg: T.yellowDim, fixKey: "fix" },
+                                    { items: diagnosisData.opportunities, title: `💰 ${t("diag.opportunities")}`, color: T.green, bg: T.greenDim, fixKey: "action" },
+                                ].map(({ items, title, color, bg, fixKey }) => items?.length > 0 && (
+                                    <div key={title} style={{ marginBottom: "1.25rem" }}>
+                                        <h4 style={{ fontSize: "0.88rem", fontWeight: 700, color, marginBottom: "0.6rem" }}>{title}</h4>
+                                        {items.map((item, i) => (
+                                            <div key={i} style={{ padding: "0.85rem 1rem", marginBottom: "0.4rem", borderLeft: `3px solid ${color}`, borderRadius: `0 ${T.rSm}px ${T.rSm}px 0`, background: bg }}>
+                                                <div style={{ fontWeight: 700, fontSize: "0.86rem", color: T.text }}>{item.icon} {item.title}</div>
+                                                <div style={{ fontSize: "0.8rem", color: T.textSec, marginTop: 4, lineHeight: 1.65 }}>{item.detail}</div>
+                                                {item[fixKey] && <div style={{ fontSize: "0.76rem", color: T.accent, marginTop: 6, fontWeight: 600 }}>💊 {item[fixKey]}</div>}
+                                            </div>
+                                        ))}
+                                    </div>
+                                ))}
+                            </>
+                        ) : <div style={{ textAlign: "center", padding: "2.5rem", color: T.textDim }}>{t("diag.no_data")}</div>}
+                    </div>
+                </Modal>
+
+                {/* ═══ EXPLAIN MODAL ═══ */}
+                <Modal open={!!explainModal} onClose={() => setExplainModal(null)}>
+                    <ModalHeader icon="👁️" iconColor={T.accent} title={t("explain.title")} subtitle={t("explain.subtitle")} onClose={() => setExplainModal(null)} />
+                    <div style={{ padding: "1.5rem" }}>
+                        <h4 style={{ margin: "0 0 0.35rem", fontSize: "1.05rem", color: T.text, fontWeight: 700 }}>{explainModal?.recommendation?.title}</h4>
+                        <p style={{ fontSize: "0.86rem", color: T.textSec, margin: "0 0 1.25rem", lineHeight: 1.65 }}>{explainModal?.recommendation?.description}</p>
+                        {(explainModal?.explanation || []).map((step, i) => (
+                            <div key={i} style={{ display: "flex", gap: "0.85rem", padding: "1rem 0", borderTop: i > 0 ? `1px solid ${T.border}` : "none" }}>
+                                <div style={{
+                                    width: 34, height: 34, borderRadius: "50%",
+                                    background: T.accentDim, border: `2px solid ${T.accent}40`,
+                                    display: "flex", alignItems: "center", justifyContent: "center",
+                                    fontWeight: 800, fontSize: "0.8rem", color: T.accent, flexShrink: 0,
+                                    fontFamily: T.fontMono,
+                                }}>{step.step}</div>
+                                <div>
+                                    <div style={{ fontSize: "0.88rem", color: T.text, fontWeight: 700 }}>{step.title}</div>
+                                    <p style={{ fontSize: "0.8rem", color: T.textSec, margin: "4px 0 0", lineHeight: 1.65 }}>{step.description}</p>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </Modal>
+
+                {/* ═══ AI CHAT WIDGET ═══ */}
+                <Suspense fallback={null}>
+                    <BrainChat t={t} />
+                </Suspense>
+            </div>
+            
+            {/* ═══ MOBILE OVERLAY MENU ═══ */}
+            {isMobile && showMobileMenu && (
+                <div style={{ position: "fixed", inset: 0, background: T.bgOverlay, zIndex: 1000, display: "flex", flexDirection: "column" }}>
+                    <div style={{ padding: "1.5rem", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: `1px solid ${T.border}` }}>
+                        <div style={{ fontSize: "1.5rem", fontWeight: 900 }}>LysiaBrain</div>
+                        <button onClick={() => setShowMobileMenu(false)} style={{ background: "none", border: "none", color: T.text, fontSize: "1.5rem" }}>✕</button>
+                    </div>
+                    <div style={{ flex: 1, overflowY: "auto", padding: "1rem" }}>
+                        {TAB_GROUPS.map(group => (
+                            <div key={group.id} style={{ marginBottom: "2rem" }}>
+                                <div style={{ fontSize: "0.75rem", fontWeight: 800, color: T.textMuted, marginBottom: "1rem" }}>{group.label}</div>
+                                {group.tabs.map(tab => (
+                                    <button key={tab.id} onClick={() => handleTabChange(tab.id)} style={{ width: "100%", padding: "1rem", textAlign: "left", background: activeTab === tab.id ? T.accentDim : "transparent", border: "none", color: activeTab === tab.id ? T.accent : T.text, borderRadius: T.rSm, marginBottom: 4 }}>
+                                        {tab.icon} {tab.label}
                                     </button>
                                 ))}
                             </div>
-                        )}
+                        ))}
                     </div>
-
-                    <button onClick={() => loadBrain(true)} disabled={refreshing} aria-label={t("header.refresh")}
-                        style={{
-                            width: 36, height: 36, borderRadius: T.rSm,
-                            background: refreshing ? T.accentDim : T.bgGlass,
-                            border: `1px solid ${refreshing ? T.accent + "40" : T.border}`,
-                            color: refreshing ? T.accent : T.textDim,
-                            cursor: refreshing ? "wait" : "pointer",
-                            display: "flex", alignItems: "center", justifyContent: "center",
-                            fontSize: "0.95rem", transition: "all 0.2s", fontFamily: "inherit",
-                        }}>
-                        {refreshing ? "⏳" : "↻"}
-                    </button>
-                </div>
-            </header>
-
-            {/* ═══ MOBILE TAB MENU ═══ */}
-            {isTablet && showMobileMenu && (
-                <nav role="tablist" aria-label="LysiaBrain tabs" style={{
-                    background: T.bgCardSolid, borderBottom: `1px solid ${T.border}`,
-                    padding: "0.5rem", maxHeight: "70vh", overflowY: "auto", zIndex: 9,
-                }}>
-                    {TAB_GROUPS.map((group) => (
-                        <div key={group.id} style={{ marginBottom: "0.5rem" }}>
-                            <div style={{ fontSize: "0.65rem", fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.08em", padding: "6px 8px", display: "flex", alignItems: "center", gap: 6 }}>
-                                <span>{group.icon}</span> {group.label}
-                            </div>
-                            <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                                {group.tabs.map((tab) => {
-                                    const isActive = activeTab === tab.id;
-                                    return (
-                                        <button key={tab.id} role="tab" aria-selected={isActive}
-                                            onClick={() => handleTabChange(tab.id)}
-                                            style={{
-                                                background: isActive ? T.accentDim : T.bgGlass,
-                                                border: `1px solid ${isActive ? T.accent + "30" : T.border}`,
-                                                borderRadius: T.rSm, padding: "7px 11px", cursor: "pointer",
-                                                display: "flex", alignItems: "center", gap: 5,
-                                                fontFamily: "inherit", fontSize: "0.76rem",
-                                                color: isActive ? T.accent : T.textSec,
-                                                fontWeight: isActive ? 700 : 500,
-                                            }}>
-                                            <span aria-hidden="true">{tab.icon}</span> {tab.label}
-                                            {tab.id === "recommendations" && recSummary.pending > 0 && (
-                                                <span style={{ fontSize: "0.55rem", fontWeight: 800, padding: "1px 5px", borderRadius: T.rFull, background: T.yellowDim, color: T.yellow }}>{recSummary.pending}</span>
-                                            )}
-                                        </button>
-                                    );
-                                })}
-                            </div>
-                        </div>
-                    ))}
-                </nav>
-            )}
-
-            {/* ═══ TABLET TAB BAR (always visible, grouped horizontal scroll) ═══ */}
-            {isTablet && !isMobile && !showMobileMenu && (
-                <nav role="tablist" aria-label="LysiaBrain tabs" style={{
-                    background: T.bgCard, borderBottom: `1px solid ${T.border}`,
-                    padding: "0 0.75rem", display: "flex", gap: 0, overflowX: "auto",
-                    WebkitOverflowScrolling: "touch", msOverflowStyle: "none", scrollbarWidth: "none",
-                }}>
-                    {TAB_GROUPS.map((group, gi) => (
-                        <React.Fragment key={group.id}>
-                            {gi > 0 && <div style={{ width: 1, height: 24, background: T.border, margin: "auto 4px", flexShrink: 0 }} />}
-                            {group.tabs.map((tab) => {
-                                const isActive = activeTab === tab.id;
-                                return (
-                                    <button key={tab.id} role="tab" aria-selected={isActive}
-                                        onClick={() => handleTabChange(tab.id)}
-                                        style={{
-                                            background: "transparent", border: "none", borderBottom: isActive ? `2px solid ${T.accent}` : "2px solid transparent",
-                                            padding: "8px 10px", cursor: "pointer",
-                                            display: "flex", alignItems: "center", gap: 5,
-                                            fontFamily: "inherit", fontSize: "0.73rem",
-                                            color: isActive ? T.accent : T.textSec,
-                                            fontWeight: isActive ? 700 : 500, whiteSpace: "nowrap",
-                                            transition: "all 0.2s",
-                                        }}>
-                                        <span aria-hidden="true" style={{ fontSize: "0.72rem" }}>{tab.icon}</span> {tab.label}
-                                    </button>
-                                );
-                            })}
-                        </React.Fragment>
-                    ))}
-                </nav>
-            )}
-
-            {/* ═══ ERROR BANNER ═══ */}
-            {error && (
-                <div role="alert" style={{
-                    background: T.redDim, borderBottom: `1px solid ${T.red}20`,
-                    padding: isMobile ? "0.5rem 0.75rem" : "0.6rem 1.75rem",
-                    display: "flex", justifyContent: "space-between", alignItems: "center",
-                }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flex: 1, minWidth: 0 }}>
-                        <span style={{ fontSize: "0.85rem" }} aria-hidden="true">⚠</span>
-                        <span style={{ color: T.red, fontSize: "0.82rem", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{error}</span>
-                    </div>
-                    <button onClick={() => setError(null)} aria-label={t("common.close")} style={{
-                        background: "none", border: "none", color: T.red,
-                        cursor: "pointer", fontSize: "0.95rem", padding: 4, fontFamily: "inherit", flexShrink: 0,
-                    }}>✕</button>
                 </div>
             )}
-
-            {/* ═══ RATE LIMIT TOAST ═══ */}
-            {rateLimitToast && (
-                <div style={{
-                    background: `linear-gradient(135deg, rgba(0,180,216,0.12), rgba(0,212,170,0.08))`,
-                    borderBottom: `1px solid ${T.blue}25`,
-                    padding: isMobile ? "0.45rem 0.75rem" : "0.5rem 1.75rem",
-                    display: "flex", alignItems: "center", gap: "0.6rem",
-                    animation: "v9pulse 2s ease-in-out infinite",
-                }}>
-                    <span style={{ fontSize: "0.9rem", animation: "spin 1s linear infinite" }}>⏳</span>
-                    <span style={{ color: T.blue, fontSize: "0.8rem", fontWeight: 600 }}>
-                        {language === "en"
-                            ? `Server busy — retrying in ${rateLimitToast.retryAfter}s (attempt ${rateLimitToast.attempt}/3)...`
-                            : `Sunucu yoğun — ${rateLimitToast.retryAfter} saniye içinde tekrar deneniyor (deneme ${rateLimitToast.attempt}/3)...`
-                        }
-                    </span>
-                    <button onClick={() => setRateLimitToast(null)} style={{
-                        background: "none", border: "none", color: T.blue,
-                        cursor: "pointer", fontSize: "0.85rem", padding: 4, fontFamily: "inherit", marginLeft: "auto",
-                    }}>✕</button>
-                </div>
-            )}
-
-            {/* ═══ SCROLLABLE CONTENT ═══ */}
-            <main style={{
-                flex: 1, overflow: "auto",
-                padding: isMobile ? "1rem 0.75rem" : "1.5rem 2rem",
-                background: `radial-gradient(ellipse at 20% 0%, rgba(0,212,170,0.04) 0%, transparent 50%),
-                             radial-gradient(ellipse at 80% 100%, rgba(0,180,216,0.03) 0%, transparent 50%),
-                             ${T.bg}`,
-            }}>
-                {renderTab()}
-            </main>
-
-            {/* ═══ DIAGNOSIS MODAL ═══ */}
-            <Modal open={showDiagnosis} onClose={() => setShowDiagnosis(false)}>
-                <ModalHeader icon="🩺" iconColor={T.purple} title={t("diag.title")} subtitle={t("diag.subtitle")} onClose={() => setShowDiagnosis(false)} />
-                <div style={{ padding: "1.5rem" }}>
-                    {diagnosisLoading ? <LoadingState message={t("loading.analyzing")} /> : diagnosisData ? (
-                        <>
-                            <div style={{ textAlign: "center", padding: "2rem", borderRadius: T.r, border: `1px solid ${T.borderGlow}`, marginBottom: "1.5rem", background: T.gradientCard }}>
-                                <div style={{ width: 72, height: 72, borderRadius: "50%", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: "2.2rem", marginBottom: "0.85rem", background: T.bgGlass, border: `1px solid ${T.border}`, boxShadow: T.shadowGlow }}>{diagnosisData.verdictEmoji}</div>
-                                <div style={{ fontSize: "1.5rem", fontWeight: 900, background: T.gradientText, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>{t("diag.grade")}: {diagnosisData.healthGrade}</div>
-                                <p style={{ fontSize: "0.88rem", color: T.textSec, marginTop: "0.5rem", maxWidth: 420, marginLeft: "auto", marginRight: "auto", lineHeight: 1.65 }}>{diagnosisData.verdict}</p>
-                            </div>
-                            {[
-                                { items: diagnosisData.mistakes, title: `🔴 ${t("diag.mistakes")}`, color: T.red, bg: T.redDim, fixKey: "fix" },
-                                { items: diagnosisData.leaks, title: `💸 ${t("diag.leaks")}`, color: T.yellow, bg: T.yellowDim, fixKey: "fix" },
-                                { items: diagnosisData.opportunities, title: `💰 ${t("diag.opportunities")}`, color: T.green, bg: T.greenDim, fixKey: "action" },
-                            ].map(({ items, title, color, bg, fixKey }) => items?.length > 0 && (
-                                <div key={title} style={{ marginBottom: "1.25rem" }}>
-                                    <h4 style={{ fontSize: "0.88rem", fontWeight: 700, color, marginBottom: "0.6rem" }}>{title}</h4>
-                                    {items.map((item, i) => (
-                                        <div key={i} style={{ padding: "0.85rem 1rem", marginBottom: "0.4rem", borderLeft: `3px solid ${color}`, borderRadius: `0 ${T.rSm}px ${T.rSm}px 0`, background: bg }}>
-                                            <div style={{ fontWeight: 700, fontSize: "0.86rem", color: T.text }}>{item.icon} {item.title}</div>
-                                            <div style={{ fontSize: "0.8rem", color: T.textSec, marginTop: 4, lineHeight: 1.65 }}>{item.detail}</div>
-                                            {item[fixKey] && <div style={{ fontSize: "0.76rem", color: T.accent, marginTop: 6, fontWeight: 600 }}>💊 {item[fixKey]}</div>}
-                                        </div>
-                                    ))}
-                                </div>
-                            ))}
-                        </>
-                    ) : <div style={{ textAlign: "center", padding: "2.5rem", color: T.textDim }}>{t("diag.no_data")}</div>}
-                </div>
-            </Modal>
-
-            {/* ═══ EXPLAIN MODAL ═══ */}
-            <Modal open={!!explainModal} onClose={() => setExplainModal(null)}>
-                <ModalHeader icon="👁️" iconColor={T.accent} title={t("explain.title")} subtitle={t("explain.subtitle")} onClose={() => setExplainModal(null)} />
-                <div style={{ padding: "1.5rem" }}>
-                    <h4 style={{ margin: "0 0 0.35rem", fontSize: "1.05rem", color: T.text, fontWeight: 700 }}>{explainModal?.recommendation?.title}</h4>
-                    <p style={{ fontSize: "0.86rem", color: T.textSec, margin: "0 0 1.25rem", lineHeight: 1.65 }}>{explainModal?.recommendation?.description}</p>
-                    {(explainModal?.explanation || []).map((step, i) => (
-                        <div key={i} style={{ display: "flex", gap: "0.85rem", padding: "1rem 0", borderTop: i > 0 ? `1px solid ${T.border}` : "none" }}>
-                            <div style={{
-                                width: 34, height: 34, borderRadius: "50%",
-                                background: T.accentDim, border: `2px solid ${T.accent}40`,
-                                display: "flex", alignItems: "center", justifyContent: "center",
-                                fontWeight: 800, fontSize: "0.8rem", color: T.accent, flexShrink: 0,
-                                fontFamily: T.fontMono,
-                            }}>{step.step}</div>
-                            <div>
-                                <div style={{ fontSize: "0.88rem", color: T.text, fontWeight: 700 }}>{step.title}</div>
-                                <p style={{ fontSize: "0.8rem", color: T.textSec, margin: "4px 0 0", lineHeight: 1.65 }}>{step.description}</p>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            </Modal>
-
-            {/* ═══ AI CHAT WIDGET ═══ */}
-            <Suspense fallback={null}>
-                <BrainChat t={t} />
-            </Suspense>
         </div>
     );
 };

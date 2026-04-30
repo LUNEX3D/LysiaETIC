@@ -12,7 +12,7 @@ import { T, useResponsive } from "../styles";
 import { Card, CardHeader, Badge, EmptyState, LoadingState, ErrorState } from "./shared/SharedUI";
 
 const BrainCauses = ({ t, onError }) => {
-    const { isMobile } = useResponsive();
+    useResponsive();
     const [loading, setLoading] = useState(true);
     const [data, setData] = useState(null);
 

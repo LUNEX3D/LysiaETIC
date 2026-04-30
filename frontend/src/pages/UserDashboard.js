@@ -29,7 +29,7 @@ import {
     FaChevronDown, FaBox, FaCrown,
     FaBrain, FaChartBar, FaBell, FaRocket, FaCrosshairs,
     FaCubes, FaSitemap, FaSignOutAlt, FaUserShield,
-    FaExclamationTriangle, FaCloudUploadAlt, FaHeadset
+    FaCloudUploadAlt, FaHeadset
 } from "react-icons/fa";
 import { motion, AnimatePresence } from "framer-motion";
 import Particles from "react-tsparticles";
@@ -206,12 +206,14 @@ const UserDashboard = () => {
     const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
     const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
     const userRole = localStorage.getItem("userRole") || "user";
-    const userName = localStorage.getItem("userName") || "";
+
 
     const [marketplaces, setMarketplaces] = useState([]);
     const [dashboardData, setDashboardData] = useState(null);
     const [dashboardLoading, setDashboardLoading] = useState(false);
     const [dashboardError, setDashboardError] = useState("");
+    const [subscriptionExpired, setSubscriptionExpired] = useState(false);
+    const [subscriptionMessage, setSubscriptionMessage] = useState("");
     const [pmDashboard, setPmDashboard] = useState(null);
 
     // Tek bir state ile tüm submenu'leri yönet — aynı anda sadece 1 submenu açık
@@ -226,10 +228,20 @@ const UserDashboard = () => {
     const [showNotifPanel, setShowNotifPanel] = useState(false);
     const [notifSoundEnabled, setNotifSoundEnabled] = useState(true);
     const [notifFilter, setNotifFilter] = useState("all"); // all, order, admin, ai
-    const prevNotifCountRef = useRef(0);
+
     const lastCheckRef = useRef(null);
 
     const userId = localStorage.getItem("userId");
+
+    // ── Abonelik süresi dolmuş global event dinleyicisi ──
+    useEffect(() => {
+        const handler = (e) => {
+            setSubscriptionExpired(true);
+            setSubscriptionMessage(e.detail?.message || "Abonelik süreniz dolmuştur.");
+        };
+        window.addEventListener("api:subscription-expired", handler);
+        return () => window.removeEventListener("api:subscription-expired", handler);
+    }, []);
 
     // ── Responsive ──
     useEffect(() => {
@@ -335,7 +347,14 @@ const UserDashboard = () => {
                 syncOrderNotifications(data);
             } catch (e) {
                 console.error("Dashboard verileri yüklenirken hata:", e);
-                setDashboardError("Veriler yüklenemedi.");
+                // ✅ Abonelik süresi dolmuşsa özel uyarı göster
+                if (e.subscriptionExpired || (e.response?.status === 403 && e.response?.data?.subscriptionExpired)) {
+                    setSubscriptionExpired(true);
+                    setSubscriptionMessage(e.response?.data?.message || e.message || "Abonelik süreniz dolmuştur.");
+                    setDashboardError("");
+                } else {
+                    setDashboardError("Veriler yüklenemedi.");
+                }
             } finally { setDashboardLoading(false); }
         };
         load();
@@ -691,7 +710,43 @@ const UserDashboard = () => {
                     <div style={{ position: "fixed", inset: 0, zIndex: 99 }} onClick={() => setShowNotifPanel(false)} />
                 )}
 
-                {dashboardError && (
+                {/* ✅ Abonelik süresi dolmuş uyarısı */}
+                {subscriptionExpired && (
+                    <div style={{
+                        background: `linear-gradient(135deg, ${C.yellow}15, ${C.orange || "#f97316"}15)`,
+                        border: `1px solid ${C.yellow}50`,
+                        padding: isMobile ? "1rem" : "1.25rem 2rem",
+                        display: "flex", flexDirection: isMobile ? "column" : "row",
+                        alignItems: isMobile ? "flex-start" : "center",
+                        gap: "1rem", justifyContent: "space-between"
+                    }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                            <span style={{ fontSize: "1.5rem" }}>⏰</span>
+                            <div>
+                                <div style={{ color: C.text, fontWeight: 700, fontSize: "0.9rem", marginBottom: "0.2rem" }}>
+                                    Abonelik Süreniz Dolmuş
+                                </div>
+                                <div style={{ color: C.muted, fontSize: "0.8rem" }}>
+                                    {subscriptionMessage || "Devam etmek için lütfen bir paket satın alın."}
+                                </div>
+                            </div>
+                        </div>
+                        <button
+                            onClick={() => handlePanelChange("subscription")}
+                            style={{
+                                background: `linear-gradient(135deg, ${C.accent}, ${C.purple})`,
+                                color: "#fff", border: "none", borderRadius: 10,
+                                padding: "0.6rem 1.5rem", fontWeight: 700, fontSize: "0.85rem",
+                                cursor: "pointer", whiteSpace: "nowrap",
+                                boxShadow: `0 4px 12px ${C.accent}40`
+                            }}
+                        >
+                            🚀 Paketleri İncele
+                        </button>
+                    </div>
+                )}
+
+                {dashboardError && !subscriptionExpired && (
                     <div style={{ background: `${C.red}15`, border: `1px solid ${C.red}40`, padding: "0.6rem 2rem", color: C.red, fontSize: "0.8rem" }}>
                         ⚠️ {dashboardError}
                     </div>
@@ -1319,7 +1374,7 @@ const UserDashboard = () => {
             case "users": return <UserProfilePage userId={userId} marketplaces={marketplaces} />;
             case "advanced-analytics": return <AdvancedAnalytics userId={userId} />;
             case "lysia-brain": return <LysiaBrain userId={userId} />;
-            case "pm-center": return <ProductManagementCenter userId={userId} />;
+            case "pm-center": return <ProductManagementCenter userId={userId} initialTab="products" />;
             case "product-upload": return <ProductUploadWizard userId={userId} />;
             case "category-center": return <CategoryCenterPage userId={userId} />;
             case "settings": return <SettingsPage userId={userId} />;

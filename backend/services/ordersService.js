@@ -44,7 +44,7 @@ const fetchTrendyolOrders = async (sellerId, apiKey, apiSecret, startDate, endDa
 
                     return {
                         orderNumber: pkg.orderNumber,
-                        customerName: pkg.shipmentAddress?.fullName || pkg.customerFirstName && pkg.customerLastName ? (pkg.customerFirstName + " " + pkg.customerLastName).trim() : "Unknown",
+                        customerName: pkg.shipmentAddress?.fullName || (pkg.customerFirstName && pkg.customerLastName ? (pkg.customerFirstName + " " + pkg.customerLastName).trim() : (pkg.customerFirstName || "Unknown")),
                         customerFirstName: pkg.customerFirstName || "",
                         customerLastName: pkg.customerLastName || "",
                         customerEmail: pkg.customerEmail || "",
@@ -70,16 +70,22 @@ const fetchTrendyolOrders = async (sellerId, apiKey, apiSecret, startDate, endDa
                             taxOffice: pkg.invoiceAddress.taxOffice || "",
                             company: pkg.invoiceAddress.company || "",
                         } : {},
-                        products: pkg.lines.map(line => ({
-                            productName: line.productName,
-                            quantity: line.quantity,
-                            price: line.amount || line.price || line.lineGrossAmount || 0,
-                            barcode: line.barcode || line.productBarcode || "",
-                            merchantSku: line.merchantSku || line.sku || "",
-                            productCode: line.productCode || "",
-                            imageUrl: line.imageUrl || "/default-product.jpg",
-                            commissionAmount: line.commissionFee || 0
-                        }))
+                        products: pkg.lines.map(line => {
+                            let img = line.imageUrl || line.productImageUrl || "";
+                            if (!img || img.includes("default-product.jpg")) {
+                                img = "https://placehold.co/400x400/1e293b/4ecdc4?text=Urun";
+                            }
+                            return {
+                                productName: line.productName,
+                                quantity: line.quantity,
+                                price: line.amount || line.price || line.lineGrossAmount || 0,
+                                barcode: line.barcode || line.productBarcode || "",
+                                merchantSku: line.merchantSku || line.sku || "",
+                                productCode: line.productCode || "",
+                                imageUrl: img,
+                                commissionAmount: line.commissionFee || 0
+                            };
+                        })
                     };
                 }));
 
@@ -220,7 +226,9 @@ const fetchHepsiburadaOrders = async (merchantId, serviceKey, startDate, endDate
                             productName: sub.productName || sub.name || 'Ürün',
                             quantity: Number(sub.quantity || 1),
                             price: Number(sub.totalPrice?.amount || sub.totalPrice || sub.price?.amount || sub.price || sub.merchantTotalPrice || 0),
-                            imageUrl: sub.imageUrl || sub.productImageUrl || '/default-product.jpg',
+                            imageUrl: (sub.imageUrl || sub.productImageUrl || "").includes("default-product.jpg")
+                                ? "https://placehold.co/400x400/1e293b/4ecdc4?text=Urun"
+                                : (sub.imageUrl || sub.productImageUrl || "https://placehold.co/400x400/1e293b/4ecdc4?text=Urun"),
                             sku: sub.hbSku || sub.sku || sub.merchantSku || '',
                             barcode: sub.merchantSku || sub.productBarcode || sub.sku || '',
                             commissionAmount: Number(sub.commission?.amount || 0)
@@ -233,7 +241,9 @@ const fetchHepsiburadaOrders = async (merchantId, serviceKey, startDate, endDate
                         productName: item.productName || item.name || 'Ürün',
                         quantity: qty,
                         price: lineTotal > 0 ? lineTotal.toFixed(2) : itemUnitPrice.toFixed(2),
-                        imageUrl: item.imageUrl || item.productImageUrl || '/default-product.jpg',
+                        imageUrl: (item.imageUrl || item.productImageUrl || "").includes("default-product.jpg")
+                            ? "https://placehold.co/400x400/1e293b/4ecdc4?text=Urun"
+                            : (item.imageUrl || item.productImageUrl || "https://placehold.co/400x400/1e293b/4ecdc4?text=Urun"),
                         sku: item.sku || item.merchantSku || '',
                         barcode: item.merchantSku || item.productBarcode || item.sku || '',
                         commissionAmount: Number(item.commission?.amount || 0)
@@ -243,11 +253,12 @@ const fetchHepsiburadaOrders = async (merchantId, serviceKey, startDate, endDate
         };
 
         // ── Yardımcı: Pagination ile bir endpoint'ten tüm item'ları çek ──
+        // ✅ FIX: İlk sayfadan sonra return yerine tüm sayfaları çekip birleştir
         const fetchAllFromEndpoint = async (endpointUrl, label, maxLimit) => {
             let offset = 0;
             const limit = maxLimit || 100;
             let hasMore = true;
-            let totalFetched = 0;
+            const allItems = [];
 
             while (hasMore) {
                 try {
@@ -266,8 +277,13 @@ const fetchHepsiburadaOrders = async (merchantId, serviceKey, startDate, endDate
                             break;
                         }
 
-                        totalFetched += items.length;
-                        return { items, totalCount: data?.totalCount || totalFetched };
+                        allItems.push(...items);
+                        if (items.length < limit) {
+                            hasMore = false;
+                        } else {
+                            offset += items.length;
+                        }
+                        await new Promise(r => setTimeout(r, 300));
                     } else {
                         hasMore = false;
                     }
@@ -284,7 +300,7 @@ const fetchHepsiburadaOrders = async (merchantId, serviceKey, startDate, endDate
                     hasMore = false;
                 }
             }
-            return { items: [], totalCount: 0 };
+            return { items: allItems, totalCount: allItems.length };
         };
 
         // Tarih formatı: YYYY-MM-DD HH:mm:ss
@@ -325,6 +341,40 @@ const fetchHepsiburadaOrders = async (merchantId, serviceKey, startDate, endDate
                 }
             }
         } catch (e) { logger.warn(`[Hepsiburada Orders] Genel hata: ${e.message}`); }
+
+        // ═══════════════════════════════════════════════════════════════
+        // 1.5) İşlemde Siparişler (Unpacked) — satıcı tarafından kabul edilmiş ama
+        //      henüz paketlenmemiş siparişler. HB panelinde "İşlemde" olarak görünür.
+        //      Endpoint: GET /packages/merchantid/{id}/unpacked
+        //      ✅ FIX: Bu adım eksikti — işlemde siparişler gelmiyor sorunu
+        // ═══════════════════════════════════════════════════════════════
+        logger.info(`🔍 [Hepsiburada] Adım 1.5: İşlemde (Unpacked) siparişler çekiliyor...`);
+        try {
+            let offset = 0;
+            const limit = 50;
+            let hasMore = true;
+            const unpStart = encodeURIComponent(moment().subtract(30, 'days').format('YYYY-MM-DD HH:mm:ss'));
+            const unpEnd = encodeURIComponent(moment().format('YYYY-MM-DD HH:mm:ss'));
+            while (hasMore) {
+                const url = `${BASE_URL}/packages/merchantid/${merchantId}/unpacked?begindate=${unpStart}&enddate=${unpEnd}&offset=${offset}&limit=${limit}`;
+                try {
+                    const resp = await axios.get(url, { headers, timeout: 30000 });
+                    const items = resp.data?.items || resp.data || [];
+                    const arr = Array.isArray(items) ? items : [];
+                    if (arr.length === 0) { hasMore = false; break; }
+                    logger.info(`✅ [Hepsiburada Unpacked] ${arr.length} sipariş (offset=${offset})`);
+                    addItemsToMap(arr, 'Unpacked');
+                    if (arr.length < limit) { hasMore = false; } else { offset += arr.length; }
+                    await new Promise(r => setTimeout(r, 300));
+                } catch (err) {
+                    if (err.response?.status === 404 || err.response?.status === 401) { hasMore = false; }
+                    else {
+                        logger.warn(`⚠️ [Hepsiburada Unpacked] Hata: ${err.response?.status || err.message}`);
+                        hasMore = false;
+                    }
+                }
+            }
+        } catch (e) { logger.warn(`[Hepsiburada Unpacked] Genel hata: ${e.message}`); }
 
         // ═══════════════════════════════════════════════════════════════
         // 2) Paketlenmiş Siparişler (Packages) — timespan=720 (30 gün saat)
@@ -540,17 +590,23 @@ const fetchN11Orders = async (apiKey, secretKey, startDate, endDate) => {
                         taxOffice: pkg.invoiceAddress.taxOffice || "",
                         company: pkg.invoiceAddress.company || "",
                     } : {},
-                    products: pkg.lines.map(line => ({
-                        productName: line.productName,
-                        quantity: line.quantity,
-                        price: Number(line.sellerInvoiceAmount || line.price || 0),
-                        barcode: line.barcode || line.productBarcode || "",
-                        merchantSku: line.merchantSku || line.sku || "",
-                        productCode: line.productCode || "",
-                        imageUrl: "/default-product.jpg"
-                    }))
+                    products: pkg.lines.map(line => {
+                        let img = line.imageUrl || line.productImageUrl || line.productImage || "";
+                        if (!img || img.includes("default-product.jpg")) {
+                            img = "https://placehold.co/400x400/1e293b/4ecdc4?text=Urun";
+                        }
+                        return {
+                            productName: line.productName,
+                            quantity: line.quantity,
+                            price: Number(line.sellerInvoiceAmount || line.price || 0),
+                            barcode: line.barcode || line.productBarcode || "",
+                            merchantSku: line.merchantSku || line.sku || "",
+                            productCode: line.productCode || "",
+                            imageUrl: img
+                        };
+                    })
+                    });
                 });
-            });
 
             totalPages = response.data.totalPages;
             page++;
@@ -659,7 +715,9 @@ const fetchCicekSepetiOrders = async (apiKey, sellerId, integratorName) => {
                         productName: order.name || "Ürün",
                         quantity: order.quantity || 1,
                         price: (order.itemPrice || 0).toFixed(2),
-                        imageUrl: "/default-product.jpg",
+                        imageUrl: (order.imageUrl || order.productImageUrl || "").includes("default-product.jpg") 
+                            ? "https://placehold.co/400x400/1e293b/4ecdc4?text=Urun" 
+                            : (order.imageUrl || order.productImageUrl || "https://placehold.co/400x400/1e293b/4ecdc4?text=Urun"),
                         barcode: order.barcode || "",
                         productCode: order.productCode || order.code || ""
                     }]

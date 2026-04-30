@@ -519,19 +519,21 @@ const fetchHepsiburadaCategories = async (merchantId, secretKey, userAgent, opts
         const TYPES = ["HB", "HX", "HC"];
 
         if (onlyLeaf) {
-            // Sadece yaprak — leaf=true & available=true
+            // Sadece yaprak — leaf=true (available filtresi KALDIRILDI — tüm leaf'ler gelsin)
             for (const type of TYPES) {
                 try {
-                    const cats = await fetchPaginated({ leaf: true, available: true, type }, ` ${type}`);
+                    const cats = await fetchPaginated({ leaf: true, type }, ` ${type}`);
                     if (cats.length > 0) allCategories.push(...cats);
                 } catch (e) { logger.warn(`[Hepsiburada CAT] ${type} hatası: ${e.message}`); }
             }
             // Fallback
             if (allCategories.length === 0) {
-                allCategories = await fetchPaginated({ leaf: true, available: true }, " fallback");
+                allCategories = await fetchPaginated({ leaf: true }, " fallback");
             }
         } else {
             // Tüm kategoriler — leaf=true + leaf=false ayrı ayrı
+            // ✅ FIX: available filtresi KALDIRILDI — "kolye ucu" gibi kategoriler
+            //    available=false olsa bile listeye dahil edilmeli
             for (const type of TYPES) {
                 try {
                     const leafCats = await fetchPaginated({ leaf: true, type }, ` ${type}-leaf`);

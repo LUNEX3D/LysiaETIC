@@ -8,11 +8,11 @@
  */
 import React, { useState } from "react";
 import API from "../../../services/api";
-import { T, fmt, fmtN, useResponsive } from "../styles";
+import { T, fmt, useResponsive } from "../styles";
 import { Card, CardHeader, Badge, Btn, StatCard, EmptyState, LoadingState, ErrorState, Input } from "./shared/SharedUI";
 
 const BrainSimulation = ({ t, onError }) => {
-    const { isMobile, isTablet } = useResponsive();
+    const { isMobile } = useResponsive();
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
     const [result, setResult] = useState(null);

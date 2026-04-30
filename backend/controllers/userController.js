@@ -6,6 +6,7 @@ const User = require("../models/User");
 const bcrypt = require("bcryptjs");
 const crypto = require("crypto");
 const Marketplace = require("../models/Marketplace");
+const AutoInvoiceConfig = require("../models/AutoInvoiceConfig");
 const logger = require("../config/logger");
 
 // Get user profile
@@ -113,11 +114,47 @@ exports.updateUserProfile = async (req, res) => {
             };
         }
 
+        // ── companyInfo senkronizasyonu (tek kaynak) ────────────────────
+        // Profil sayfasından girilen firma bilgileri User.companyInfo'ya da yazılır
+        // Böylece fatura ayarları açıldığında otomatik dolar.
+        if (!user.companyInfo) user.companyInfo = {};
+        if (company) user.companyInfo.companyName = company;
+        if (phone) user.companyInfo.phone = phone;
+        if (taxInfo) {
+            if (taxInfo.taxNumber) user.companyInfo.vkn = taxInfo.taxNumber;
+            if (taxInfo.taxOffice) user.companyInfo.taxOffice = taxInfo.taxOffice;
+        }
+        if (address) {
+            if (address.street) user.companyInfo.street = address.street;
+            if (address.city) user.companyInfo.city = address.city;
+            if (address.state) user.companyInfo.district = address.state;
+            if (address.country) user.companyInfo.country = address.country;
+        }
+        user.markModified('companyInfo');
+
         // Mark modified for nested objects
         user.markModified('profile');
 
         // Save with validation, but skip role validation if it's already set
         await user.save({ validateModifiedOnly: true });
+
+        // ── AutoInvoiceConfig.supplier senkronizasyonu ─────────────────
+        // Profil sayfasından firma bilgisi değiştiyse, fatura config'ini de güncelle
+        try {
+            const supplierUpdate = {};
+            if (company) supplierUpdate["supplier.name"] = company;
+            if (taxInfo?.taxNumber) supplierUpdate["supplier.vkn"] = taxInfo.taxNumber;
+            if (taxInfo?.taxOffice) supplierUpdate["supplier.taxOffice"] = taxInfo.taxOffice;
+            if (address?.street) supplierUpdate["supplier.street"] = address.street;
+            if (address?.city) supplierUpdate["supplier.city"] = address.city;
+            if (address?.state) supplierUpdate["supplier.district"] = address.state;
+            if (phone) supplierUpdate["supplier.phone"] = phone;
+            if (Object.keys(supplierUpdate).length > 0) {
+                await AutoInvoiceConfig.updateOne({ userId }, { $set: supplierUpdate });
+            }
+        } catch (syncErr) {
+            logger.warn("Profil → AutoInvoiceConfig senkronizasyon hatası: " + syncErr.message);
+        }
 
         logger.info("✅ Profil başarıyla güncellendi:", userId);
 

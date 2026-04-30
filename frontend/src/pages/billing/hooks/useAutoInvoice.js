@@ -39,7 +39,12 @@ const useAutoInvoice = () => {
             if (configRes.data.success) setConfig(configRes.data.data);
             if (statsRes.data.success) setStats(statsRes.data.data);
         } catch (err) {
-            setError("Veriler yüklenemedi: " + (err.response?.data?.message || err.message));
+            // Subscription expired durumunda özel mesaj
+            if (err.response?.status === 403 && (err.response?.data?.subscriptionExpired || err.response?.data?.subscriptionSuspended)) {
+                setError(err.response.data.message || "Abonelik süreniz dolmuş. Lütfen paketinizi yenileyin.");
+            } else {
+                setError("Veriler yüklenemedi: " + (err.response?.data?.message || err.message));
+            }
         } finally {
             setLoading(false);
         }
@@ -67,7 +72,11 @@ const useAutoInvoice = () => {
                 setError(res.data.message || "QNB fatura listesi alınamadı");
             }
         } catch (err) {
-            setError("QNB fatura listesi hatası: " + (err.response?.data?.message || err.message));
+            if (err.response?.status === 403 && (err.response?.data?.subscriptionExpired || err.response?.data?.subscriptionSuspended)) {
+                setError(err.response.data.message || "Abonelik süreniz dolmuş.");
+            } else {
+                setError("QNB fatura listesi hatası: " + (err.response?.data?.message || err.message));
+            }
         } finally {
             setQnbLoading(false);
         }
@@ -166,7 +175,13 @@ const useAutoInvoice = () => {
             );
             const text = typeof res.data === "string" ? res.data : JSON.stringify(res.data);
             if (text.includes("<html") || text.includes("<HTML") || text.includes("<!DOCTYPE")) {
-                const blob = new Blob([text], { type: "text/html; charset=utf-8" });
+                // QNB HTML'i relative URL'ler içerebilir — <base> tag ekle
+                let html = text;
+                if (!html.includes("<base")) {
+                    const baseTag = '<base href="https://earsivtest.qnbesolutions.com.tr/" />';
+                    html = html.replace(/(<head[^>]*>)/i, "$1" + baseTag);
+                }
+                const blob = new Blob([html], { type: "text/html; charset=utf-8" });
                 const url = window.URL.createObjectURL(blob);
                 window.open(url, "_blank");
                 setTimeout(() => window.URL.revokeObjectURL(url), 60000);
@@ -201,11 +216,29 @@ const useAutoInvoice = () => {
      */
     const downloadInvoicePdf = useCallback(async (invoiceId, invoiceNumber) => {
         try {
+            // UUID formatı ise önce preview endpoint'ini dene (daha güvenilir)
+            const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(invoiceId);
+            if (isUuid) {
+                const previewResult = await previewQnbInvoice(invoiceId);
+                if (previewResult?.success) return previewResult;
+            }
+
             const res = await API.get("/auto-invoice/invoices/" + invoiceId + "/pdf", {
                 responseType: "blob",
             });
             const contentType = res.headers["content-type"] || "";
             const blob = res.data;
+
+            // ⚠️ responseType: "blob" ile JSON hata yanıtları da blob olarak gelir
+            if (contentType.includes("json")) {
+                const text = await blob.text();
+                try {
+                    const data = JSON.parse(text);
+                    return { error: data.message || "Fatura indirilemedi" };
+                } catch {
+                    return { error: "Beklenmeyen yanıt" };
+                }
+            }
 
             if (contentType.includes("zip") || contentType.includes("octet")) {
                 const url = window.URL.createObjectURL(blob);
@@ -217,7 +250,11 @@ const useAutoInvoice = () => {
                 a.remove();
                 window.URL.revokeObjectURL(url);
             } else if (contentType.includes("html")) {
-                const text = await blob.text();
+                let text = await blob.text();
+                // QNB HTML'i relative URL'ler içerebilir — <base> tag ekle
+                if (!text.includes("<base")) {
+                    text = text.replace(/(<head[^>]*>)/i, '$1<base href="https://earsivtest.qnbesolutions.com.tr/" />');
+                }
                 const htmlBlob = new Blob([text], { type: "text/html; charset=utf-8" });
                 const url = window.URL.createObjectURL(htmlBlob);
                 window.open(url, "_blank");
@@ -227,8 +264,12 @@ const useAutoInvoice = () => {
                 window.open(url, "_blank");
                 setTimeout(() => window.URL.revokeObjectURL(url), 60000);
             } else {
-                const text = await blob.text();
+                let text = await blob.text();
                 if (text.includes("<html") || text.includes("<!DOCTYPE")) {
+                    // QNB HTML'i relative URL'ler içerebilir — <base> tag ekle
+                    if (!text.includes("<base")) {
+                        text = text.replace(/(<head[^>]*>)/i, '$1<base href="https://earsivtest.qnbesolutions.com.tr/" />');
+                    }
                     const htmlBlob = new Blob([text], { type: "text/html; charset=utf-8" });
                     const url = window.URL.createObjectURL(htmlBlob);
                     window.open(url, "_blank");
@@ -239,9 +280,17 @@ const useAutoInvoice = () => {
             }
             return { success: true };
         } catch (err) {
+            // Axios blob hatalarında response.data bir Blob olabilir
+            if (err.response?.data instanceof Blob) {
+                try {
+                    const text = await err.response.data.text();
+                    const data = JSON.parse(text);
+                    return { error: data.message || "Fatura indirilemedi" };
+                } catch { /* ignore */ }
+            }
             return { error: "PDF indirme hatası: " + (err.response?.data?.message || err.message) };
         }
-    }, []);
+    }, [previewQnbInvoice]);
 
     /**
      * Hata mesajını temizle
@@ -265,6 +314,9 @@ const useAutoInvoice = () => {
         return {
             enabled: cfg.enabled || false,
             provider: cfg.provider || "qnb",
+            autoInvoiceStartDate: cfg.autoInvoiceStartDate
+                ? new Date(cfg.autoInvoiceStartDate).toISOString().split("T")[0]
+                : new Date().toISOString().split("T")[0],
             enabledMarketplaces: cfg.enabledMarketplaces || [],
             triggerStatuses: cfg.triggerStatuses || ["Shipped", "Delivered"],
             documentType: cfg.documentType || "EARSIVFATURA",
@@ -296,10 +348,13 @@ const useAutoInvoice = () => {
                 country: cfg.defaultCustomer?.country || "Turkiye",
             },
             qnbCredentials: {
+                // Eski alanlar (geriye uyumluluk — e-Fatura formatında)
                 username: cfg.qnbCredentials?.username || "",
                 password: cfg.qnbCredentials?.password || "",
-                earsivUsername: cfg.qnbCredentials?.earsivUsername || cfg.qnbCredentials?.username || "",
-                earsivPassword: cfg.qnbCredentials?.earsivPassword || cfg.qnbCredentials?.password || "",
+                // e-Arşiv credential'ları — eski "username" (e-Fatura) ile KARIŞTIRILMAMALI!
+                earsivUsername: cfg.qnbCredentials?.earsivUsername || "",
+                earsivPassword: cfg.qnbCredentials?.earsivPassword || "",
+                // e-Fatura: VKN formatı
                 efaturaUsername: cfg.qnbCredentials?.efaturaUsername || "",
                 efaturaPassword: cfg.qnbCredentials?.efaturaPassword || "",
                 env: cfg.qnbCredentials?.env || "test",

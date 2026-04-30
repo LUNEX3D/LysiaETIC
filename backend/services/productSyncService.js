@@ -853,7 +853,7 @@ const syncProductsFromMarketplace = async (userId, marketplaceId, marketplaceNam
 };
 
 // Ürünü tüm pazaryerlerine dağıt
-const distributeProductToMarketplaces = async (userId, productMappingId, targetMarketplaces) => {
+const distributeProductToMarketplaces = async (userId, productMappingId, targetMarketplaces, category = null) => {
     try {
         const mapping = await ProductMapping.findOne({ _id: productMappingId, userId });
         if (!mapping) {
@@ -884,11 +884,36 @@ const distributeProductToMarketplaces = async (userId, productMappingId, targetM
                     m => normalizeMarketplaceName(m.marketplaceName) === marketplaceName
                 );
 
+                // Kategori bilgisi geldiyse mapping'e işle (yükleme öncesi)
+                if (category && category.id) {
+                    const mpDataForUpload = {
+                        categoryId: category.id.toString(),
+                        categoryName: category.name,
+                        categoryPath: category.path ? category.path.split(" > ") : [category.name]
+                    };
+
+                    if (existingMapping) {
+                        Object.assign(existingMapping, mpDataForUpload);
+                    } else {
+                        mapping.marketplaceMappings.push({
+                            marketplaceName,
+                            marketplaceSku: mapping.masterProduct.sku,
+                            marketplaceBarcode: mapping.masterProduct.barcode,
+                            price: mapping.masterProduct.price,
+                            listPrice: mapping.masterProduct.listPrice,
+                            stock: mapping.masterProduct.stock,
+                            ...mpDataForUpload,
+                            syncStatus: "pending"
+                        });
+                    }
+                }
+
                 // Sadece başarıyla yüklenmiş (syncStatus: "synced") ürünleri atla
                 // syncStatus: "error" veya "skipped" olanlar yeniden denenebilir
                 const alreadySynced = existingMapping &&
                     existingMapping.marketplaceProductId &&
-                    existingMapping.syncStatus === "synced";
+                    existingMapping.syncStatus === "synced" &&
+                    !category; // Kategori değişikliği varsa zorla yükle
 
                 if (alreadySynced) {
                     results.push({
@@ -914,20 +939,42 @@ const distributeProductToMarketplaces = async (userId, productMappingId, targetM
                 );
 
                 if (uploadResult.success) {
-                    // ✅ pending kontrolü — N11 task henüz kesinleşmediyse "synced" değil "pending" yaz
-                    // ESKİ: pending durumda bile "synced" yazılıyordu → ürün N11'de yok ama sistemde "senkron" görünüyordu
+                    // ✅ pending kontrolü — N11 task / Trendyol batch henüz kesinleşmediyse "synced" değil "pending" yaz
                     const isPending = uploadResult.pending === true;
+                    const normMp = normalizeMarketplaceName(marketplaceName);
+                    let pendingNote;
+                    if (isPending) {
+                        if (normMp === "N11" && uploadResult.taskId) {
+                            pendingNote = "N11 task henüz işleniyor — otomatik kontrol edilecek";
+                        } else if (normMp === "Trendyol" && uploadResult.batchId) {
+                            pendingNote = "Trendyol ürün oluşturma kuyruğunda (batch) — sonuç otomatik kontrol edilecek";
+                        } else {
+                            pendingNote = uploadResult.message || "Yükleme kuyruğa alındı — sonuç bekleniyor";
+                        }
+                    }
                     const mpData = {
                         marketplaceProductId: uploadResult.productId,
                         isSynced:             !isPending,
                         lastSyncDate:         new Date(),
                         syncStatus:           isPending ? "pending" : "synced",
-                        syncError:            isPending ? "N11 task henüz işleniyor — otomatik kontrol edilecek" : undefined
+                        syncError:            isPending ? pendingNote : undefined
                     };
+
+                    // Kategori bilgisini de kalıcı olarak güncelle (eğer yükleme sırasında geldiyse)
+                    if (category && category.id) {
+                        mpData.categoryId = category.id.toString();
+                        mpData.categoryName = category.name;
+                        mpData.categoryPath = category.path ? category.path.split(" > ") : [category.name];
+                    }
                     // N11 task ID varsa kaydet
                     if (uploadResult.taskId) {
                         mpData.n11TaskId     = uploadResult.taskId;
                         mpData.n11TaskStatus = isPending ? "IN_QUEUE" : "COMPLETED";
+                    }
+                    // Trendyol batch (ürün create) — sonucu ayrı endpoint ile doğrulanır
+                    if (normMp === "Trendyol" && uploadResult.batchId) {
+                        mpData.trendyolBatchRequestId = String(uploadResult.batchId);
+                        mpData.trendyolBatchStatus = "SUBMITTED";
                     }
 
                     if (existingMapping) {
@@ -943,17 +990,30 @@ const distributeProductToMarketplaces = async (userId, productMappingId, targetM
                             ...mpData
                         });
                     }
+                    
+                    // ✅ FIX: "Ürün zaten var" hatasını önlemek için mapping içindeki 
+                    // aynı pazaryerine ait eski (error/skipped) kayıtları temizle (opsiyonel ama güvenli)
+                    if (!existingMapping) {
+                        mapping.marketplaceMappings = mapping.marketplaceMappings.filter((m, idx) => {
+                            if (idx === mapping.marketplaceMappings.length - 1) return true;
+                            return normalizeMarketplaceName(m.marketplaceName) !== marketplaceName;
+                        });
+                    }
 
                     await mapping.save();
 
+                    let pendingMsg = "Yükleme kuyruğunda — henüz kesinleşmedi, otomatik kontrol edilecek";
+                    if (isPending) {
+                        if (normMp === "N11") pendingMsg = "Ürün N11 kuyruğunda — henüz kesinleşmedi, otomatik kontrol edilecek";
+                        else if (normMp === "Trendyol") pendingMsg = "Trendyol batch kuyruğunda — ürün Trendyol tarafında işleniyor; sonuç otomatik kontrol edilecek";
+                    }
                     results.push({
                         marketplace: marketplaceName,
                         status:      isPending ? "pending" : "success",
                         productId:   uploadResult.productId,
                         taskId:      uploadResult.taskId,
-                        message:     isPending
-                            ? "Ürün N11 kuyruğunda — henüz kesinleşmedi, otomatik kontrol edilecek"
-                            : (uploadResult.message || "Ürün başarıyla yüklendi")
+                        batchId:     uploadResult.batchId,
+                        message:     isPending ? pendingMsg : (uploadResult.message || "Ürün başarıyla yüklendi")
                     });
 
                     // Log oluştur
@@ -1020,14 +1080,14 @@ const distributeProductToMarketplaces = async (userId, productMappingId, targetM
 // ✅ FIX: UnifiedCategoryMap'ten Trendyol categoryId fallback
 // ✅ FIX: Hata logu detaylı — raw response yazdırılıyor
 const uploadProductToTrendyol = async (credentials, product) => {
+    const productName = product.name || product.title || "İsimsiz Ürün";
     const { apiKey, apiSecret, sellerId, supplierId } = credentials;
     const actualSellerId = sellerId || supplierId;
     if (!apiKey || !apiSecret || !actualSellerId) {
+        logger.warn(`[UPLOAD TRENDYOL] Atlandı — credentials eksik | ürün: "${productName}"`);
         return { success: false, error: "Trendyol credentials eksik" };
     }
     const authHeader = Buffer.from(`${apiKey}:${apiSecret}`).toString("base64");
-
-    const productName = product.name || product.title || "İsimsiz Ürün";
 
     // ── categoryId çözümleme ──
     let categoryId = null;
@@ -1055,12 +1115,12 @@ const uploadProductToTrendyol = async (credentials, product) => {
 
 
     if (!categoryId) {
-        return {
-            success: false,
-            error: `Trendyol yükleme başarısız: "${productName}" için categoryId bulunamadı. ` +
-                   `Lütfen ürünün Trendyol categoryId bilgisini kontrol edin. ` +
-                   `(Mevcut kategori: "${product.category || "yok"}")`
-        };
+        const msg =
+            `Trendyol yükleme başarısız: "${productName}" için categoryId bulunamadı. ` +
+            `Lütfen ürünün Trendyol categoryId bilgisini kontrol edin. ` +
+            `(Mevcut kategori: "${product.category || "yok"}")`;
+        logger.warn(`[UPLOAD TRENDYOL] ${msg}`);
+        return { success: false, error: msg };
     }
 
     // ── brandId çözümleme ──
@@ -1092,7 +1152,9 @@ const uploadProductToTrendyol = async (credentials, product) => {
         .filter(Boolean);
 
     if (images.length === 0) {
-        return { success: false, error: `Trendyol yükleme başarısız: "${productName}" için en az 1 görsel gerekli` };
+        const msg = `Trendyol yükleme başarısız: "${productName}" için en az 1 görsel gerekli`;
+        logger.warn(`[UPLOAD TRENDYOL] ${msg}`);
+        return { success: false, error: msg };
     }
 
     try {
@@ -1110,7 +1172,7 @@ const uploadProductToTrendyol = async (credentials, product) => {
                 currencyType:     "TRY",
                 listPrice:        parseFloat(product.listPrice || product.price) || 0,
                 salePrice:        parseFloat(product.price) || 0,
-                vatRate:          18,
+                vatRate:          parseInt(product.vatRate) || 20,
                 cargoCompanyId:   10,
                 images:           images,
                 attributes:       []
@@ -1139,9 +1201,17 @@ const uploadProductToTrendyol = async (credentials, product) => {
         const batchId = response.data?.batchRequestId;
         if (batchId) {
             logger.info(`[UPLOAD TRENDYOL] ✅ Ürün kuyruğa alındı — "${productName}" | batchId: ${batchId}`);
+            return {
+                success: true,
+                pending: true,
+                productId: product.barcode,
+                batchId,
+                message: "Trendyol urunu kuyruga aldi; kesin sonuc icin batch sonucu beklenmeli",
+                response: response.data
+            };
         }
 
-        return { success: true, productId: product.barcode, batchId, response: response.data };
+        return { success: true, productId: product.barcode, response: response.data };
     } catch (error) {
         const errData = error.response?.data;
         const errCode = error.response?.status;
@@ -1374,11 +1444,21 @@ const uploadProductToN11 = async (credentials, product, userId = null) => {
         price:       product.price  || product.salePrice || 0,
         listPrice:   product.listPrice || product.price || 0,
         stock:       product.stock  || product.quantity || 0,
-        vatRate:     product.vatRate || 10,
+        vatRate:     product.vatRate || 20,
         category:    product.category || product.categoryName || "",
         brand:       product.brand || "",
         images:      validImages,   // zaten filtrelenmiş
-        attributes:  product.attributes || {}
+        attributes:  product.attributes || {},
+        // N11 category mapping bilgisini adapter katmanına taşı
+        marketplaceMappings: Array.isArray(product.marketplaceMappings) ? product.marketplaceMappings : [],
+        categoryId: (() => {
+            const n11Map = Array.isArray(product.marketplaceMappings)
+                ? product.marketplaceMappings.find(
+                    (m) => normalizeMarketplaceName(m.marketplaceName) === "N11" && m.categoryId
+                )
+                : null;
+            return n11Map?.categoryId || product.categoryId || null;
+        })()
     };
 
     // autoFix: fiyat değiştirilmez — kaynak platformdaki orijinal fiyat korunur.
@@ -1408,51 +1488,75 @@ const uploadProductToN11 = async (credentials, product, userId = null) => {
         `görsel: ${validImages.length} adet | attribute: ${n11Payload.attributes.length} adet`
     );
 
-    // ── 7. N11 API'ye gönder ─────────────────────────────────────────────────
-    try {
-        const result = await n11Service.createProduct(credentials, [n11Payload], "LysiaETIC");
+    const isCatalogSuggestionMismatch = (msg = "") =>
+        /kataloğa ürün önerme başarısız/i.test(msg) ||
+        /ürün grubu bilgisiyle uyumlu değil/i.test(msg);
 
+    const submitN11Payload = async (payload, attemptLabel = "ilk deneme") => {
+        const result = await n11Service.createProduct(credentials, [payload], "LysiaETIC");
         if (!result.success) {
-            logger.error(`[UPLOAD N11] ❌ createProduct başarısız — "${productName}": ${result.error}`);
             return { success: false, error: result.error || "N11 ürün yükleme başarısız" };
         }
 
         const taskId = result.taskId;
-
         if (result.status === "REJECT") {
             const reason = Array.isArray(result.reasons) && result.reasons.length > 0
                 ? result.reasons.join(", ")
                 : "Ürün reddedildi";
-            logger.warn(`[UPLOAD N11] ⚠️ Task anında reddedildi — "${productName}": ${reason}`);
             return { success: false, taskId, error: reason };
         }
 
         if (result.status === "IN_QUEUE" || result.status === "PROCESSING") {
-            logger.info(`[UPLOAD N11] ⏳ Task kuyruğa alındı — taskId: ${taskId}, ürün: "${productName}"`);
+            logger.info(`[UPLOAD N11] ⏳ Task kuyruğa alındı (${attemptLabel}) — taskId: ${taskId}, ürün: "${productName}"`);
             const pollResult = await pollN11TaskResult(credentials, taskId);
-
             if (pollResult.success && !pollResult.pending) {
-                // ✅ Kesinleşmiş başarı — N11'de ürün oluşturuldu
-                logger.info(`[UPLOAD N11] ✅ Başarıyla yüklendi — "${productName}" | taskId: ${taskId}`);
                 return { success: true, productId: stockCode, taskId, message: "Ürün N11'e başarıyla yüklendi" };
-            } else if (pollResult.success && pollResult.pending) {
-                // ⏳ Task hâlâ işleniyor — pending olarak döndür
-                // distributeProductToMarketplaces "pending" syncStatus yazacak ("synced" DEĞİL)
-                logger.warn(`[UPLOAD N11] ⏳ Task henüz kesinleşmedi — "${productName}" | taskId: ${taskId} | status: ${pollResult.status}`);
-                return { success: true, pending: true, productId: stockCode, taskId, message: pollResult.message || "N11 task işleniyor" };
-            } else {
-                logger.error(`[UPLOAD N11] ❌ Yüklenemedi — "${productName}" | taskId: ${taskId} | sebep: ${pollResult.error}`);
-                return { success: false, taskId, error: pollResult.error || "N11 task başarısız", status: pollResult.status };
             }
+            if (pollResult.success && pollResult.pending) {
+                return { success: true, pending: true, productId: stockCode, taskId, message: pollResult.message || "N11 task işleniyor" };
+            }
+            return { success: false, taskId, error: pollResult.error || "N11 task başarısız", status: pollResult.status };
         }
 
         if (result.status === "COMPLETED") {
-            logger.info(`[UPLOAD N11] ✅ Anında tamamlandı — "${productName}" | taskId: ${taskId}`);
             return { success: true, productId: stockCode, taskId, message: "Ürün N11'e başarıyla yüklendi" };
         }
 
-        logger.warn(`[UPLOAD N11] ⚠️ Beklenmedik task status: ${result.status} — "${productName}" | taskId: ${taskId}`);
         return { success: false, taskId, error: `Beklenmedik N11 task durumu: ${result.status}`, status: result.status };
+    };
+
+    // ── 7. N11 API'ye gönder ─────────────────────────────────────────────────
+    try {
+        const firstAttempt = await submitN11Payload(n11Payload, "ilk deneme");
+        if (firstAttempt.success || firstAttempt.pending) {
+            logger.info(`[UPLOAD N11] ✅ Başarıyla yüklendi — "${productName}" | taskId: ${firstAttempt.taskId}`);
+            return firstAttempt;
+        }
+
+        if (isCatalogSuggestionMismatch(firstAttempt.error) && n11Payload.catalogId) {
+            logger.warn(
+                `[UPLOAD N11] ⚠️ Katalog eşleştirme uyumsuzluğu — catalogId kaldırılarak tekrar deneniyor: "${productName}" | ` +
+                `eski catalogId: ${n11Payload.catalogId}`
+            );
+            const retryPayload = { ...n11Payload };
+            delete retryPayload.catalogId;
+
+            const secondAttempt = await submitN11Payload(retryPayload, "catalogId fallback");
+            if (secondAttempt.success || secondAttempt.pending) {
+                logger.info(`[UPLOAD N11] ✅ Fallback ile yüklendi — "${productName}" | taskId: ${secondAttempt.taskId}`);
+                return secondAttempt;
+            }
+            logger.error(
+                `[UPLOAD N11] ❌ Fallback sonrası da başarısız — "${productName}" | ` +
+                `sebep: ${secondAttempt.error}`
+            );
+            return secondAttempt;
+        }
+
+        logger.error(
+            `[UPLOAD N11] ❌ Yüklenemedi — "${productName}" | taskId: ${firstAttempt.taskId || "-"} | sebep: ${firstAttempt.error}`
+        );
+        return firstAttempt;
 
     } catch (error) {
         logger.error(`[UPLOAD N11] ❌ Beklenmedik hata — "${productName}":`, error.message);
@@ -1677,6 +1781,208 @@ const uploadProductToMarketplace = async (marketplace, product, userId = null) =
     } catch (error) {
         logger.error(`[UPLOAD] ${marketplaceName} yükleme hatası:`, error.message);
         return { success: false, error: error.message };
+    }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TRENDYOL BATCH SONUÇ KONTROLÜ
+// Ürün create sonrası dönen batchRequestId ile GET batch-requests/{id} — kesin başarı / red
+// Dokümantasyon: storeFrontCode header + Accept-Language
+// ─────────────────────────────────────────────────────────────────────────────
+const extractTrendyolBatchItemBarcode = (item) => {
+    const ri = item?.requestItem;
+    if (!ri) return "";
+    if (ri.product?.barcode) return String(ri.product.barcode).trim();
+    if (ri.barcode) return String(ri.barcode).trim();
+    if (ri.updateRequest?.barcode) return String(ri.updateRequest.barcode).trim();
+    return "";
+};
+
+/** @param {string|object|null} userId - null ise tüm kullanıcılar */
+const checkPendingTrendyolBatches = async (userId = null) => {
+    try {
+        const elemMatch = {
+            marketplaceName: { $regex: /^trendyol$/i },
+            syncStatus: "pending",
+            trendyolBatchRequestId: { $exists: true, $nin: [null, ""] }
+        };
+        const query = userId
+            ? { userId, marketplaceMappings: { $elemMatch: elemMatch } }
+            : { marketplaceMappings: { $elemMatch: elemMatch } };
+
+        const pendingProducts = await ProductMapping.find(query);
+
+        if (pendingProducts.length === 0) {
+            logger.info("[TY BATCH CHECK] Bekleyen Trendyol batch yok");
+            return { checked: 0, updated: 0, failed: 0, inProgress: 0 };
+        }
+
+        logger.info(`[TY BATCH CHECK] ${pendingProducts.length} ürün kontrol ediliyor...`);
+
+        const credCache = new Map();
+        let updated = 0;
+        let failed = 0;
+        let inProgress = 0;
+
+        const getTyCreds = async (uid) => {
+            const key = uid.toString();
+            if (credCache.has(key)) return credCache.get(key);
+            const mp = await Marketplace.findOne({
+                userId: uid,
+                marketplaceName: { $regex: /^trendyol$/i }
+            });
+            if (!mp) {
+                credCache.set(key, null);
+                return null;
+            }
+            const c = decryptCredentials(mp.credentials);
+            credCache.set(key, c);
+            return c;
+        };
+
+        for (const product of pendingProducts) {
+            const tyMapping = product.marketplaceMappings.find(
+                (m) =>
+                    normalizeMarketplaceName(m.marketplaceName) === "Trendyol" &&
+                    m.syncStatus === "pending" &&
+                    m.trendyolBatchRequestId
+            );
+            if (!tyMapping) continue;
+
+            const creds = await getTyCreds(product.userId);
+            if (!creds) {
+                logger.warn(`[TY BATCH CHECK] Trendyol entegrasyonu yok — userId=${product.userId}`);
+                continue;
+            }
+
+            const { apiKey, apiSecret, sellerId, supplierId } = creds;
+            const actualSellerId = sellerId || supplierId;
+            if (!apiKey || !apiSecret || !actualSellerId) continue;
+
+            const authHeader = Buffer.from(`${apiKey}:${apiSecret}`).toString("base64");
+            const headers = {
+                Authorization: `Basic ${authHeader}`,
+                "User-Agent": `${actualSellerId} - LysiaETIC`,
+                "Content-Type": "application/json",
+                storeFrontCode: process.env.TRENDYOL_STOREFRONT_CODE || "TR",
+                "Accept-Language": "tr"
+            };
+
+            try {
+                const batchId = tyMapping.trendyolBatchRequestId;
+                const url =
+                    `https://apigw.trendyol.com/integration/product/sellers/${actualSellerId}` +
+                    `/products/batch-requests/${encodeURIComponent(batchId)}`;
+                const resp = await axios.get(url, { headers, timeout: 20000 });
+                const data = resp.data || {};
+                const batchStatus = (data.status || "").toString().toUpperCase();
+                tyMapping.trendyolBatchStatus = data.status;
+
+                const btype = data.batchRequestType || "";
+
+                if (["PRODUCTINVENTORYUPDATE", "PRODUCTUNLOCKUPDATE", "PRODUCTDELETION", "PRODUCTARCHIVEUPDATE"].includes(String(btype).replace(/\s/g, "").toUpperCase())) {
+                    tyMapping.trendyolBatchRequestId = undefined;
+                    await product.save();
+                    await new Promise((r) => setTimeout(r, 150));
+                    continue;
+                }
+
+                if (batchStatus === "IN_PROGRESS" || batchStatus === "INPROGRESS") {
+                    inProgress++;
+                    await product.save();
+                    await new Promise((r) => setTimeout(r, 150));
+                    continue;
+                }
+
+                if (batchStatus === "COMPLETED") {
+                    const targetBarcode = String(product.masterProduct?.barcode || "").trim();
+                    const items = Array.isArray(data.items) ? data.items : [];
+                    let relevant = items.filter((it) => extractTrendyolBatchItemBarcode(it) === targetBarcode);
+                    if (relevant.length === 0 && items.length === 1) relevant = items;
+
+                    const isProductCreateBatch =
+                        /onboard|productv2|create|onboarding/i.test(btype) ||
+                        items.some((it) => it?.requestItem?.product);
+
+                    if (!isProductCreateBatch) {
+                        logger.info(
+                            `[TY BATCH CHECK] Batch ürün oluşturma değil (${btype}) — atlandı: ${product.masterProduct?.name}`
+                        );
+                        tyMapping.trendyolBatchRequestId = undefined;
+                        await product.save();
+                        await new Promise((r) => setTimeout(r, 150));
+                        continue;
+                    }
+
+                    if (relevant.length === 0) {
+                        tyMapping.syncStatus = "error";
+                        tyMapping.syncError =
+                            `Trendyol batch tamamlandı ancak barkod eşleşmedi (batchRequestType=${btype}). Trendyol panelinden kontrol edin.`;
+                        tyMapping.isSynced = false;
+                        failed++;
+                        await product.save();
+                        await new Promise((r) => setTimeout(r, 150));
+                        continue;
+                    }
+
+                    const failedItems = relevant.filter((it) => String(it.status || "").toUpperCase() === "FAILED");
+                    const successItems = relevant.filter((it) => String(it.status || "").toUpperCase() === "SUCCESS");
+                    const stillWorking = relevant.some((it) => {
+                        const s = String(it.status || "").toUpperCase();
+                        return s === "IN_PROGRESS" || s === "INPROGRESS";
+                    });
+
+                    if (stillWorking) {
+                        inProgress++;
+                        await product.save();
+                        await new Promise((r) => setTimeout(r, 150));
+                        continue;
+                    }
+
+                    if (failedItems.length > 0) {
+                        const reasons = failedItems
+                            .map((it) => (Array.isArray(it.failureReasons) ? it.failureReasons.join("; ") : "") || "Bilinmeyen")
+                            .join(" | ");
+                        tyMapping.syncStatus = "error";
+                        tyMapping.syncError = `Trendyol reddetti: ${reasons}`;
+                        tyMapping.isSynced = false;
+                        tyMapping.lastSyncDate = new Date();
+                        failed++;
+                        logger.warn(`[TY BATCH CHECK] ❌ "${product.masterProduct?.name}" — ${reasons}`);
+                    } else if (successItems.length > 0) {
+                        tyMapping.syncStatus = "synced";
+                        tyMapping.syncError = undefined;
+                        tyMapping.isSynced = true;
+                        tyMapping.marketplaceProductId = tyMapping.marketplaceProductId || targetBarcode;
+                        tyMapping.trendyolBatchRequestId = undefined;
+                        tyMapping.lastSyncDate = new Date();
+                        updated++;
+                        logger.info(`[TY BATCH CHECK] ✅ "${product.masterProduct?.name}" Trendyol'da kesinleşti`);
+                    }
+                    await product.save();
+                } else {
+                    tyMapping.syncStatus = "error";
+                    tyMapping.syncError = `Trendyol batch durumu: ${data.status || "bilinmiyor"}`;
+                    tyMapping.isSynced = false;
+                    failed++;
+                    await product.save();
+                }
+            } catch (err) {
+                const st = err.response?.status;
+                const body = err.response?.data;
+                const msg = body?.errors?.[0]?.message || body?.message || err.message;
+                logger.warn(`[TY BATCH CHECK] API hatası (${st}) batch=${tyMapping.trendyolBatchRequestId}: ${msg}`);
+            }
+            await new Promise((r) => setTimeout(r, 200));
+        }
+
+        logger.info(
+            `[TY BATCH CHECK] Bitti — kontrol: ${pendingProducts.length}, kesinleşen: ${updated}, başarısız: ${failed}, işlemde: ${inProgress}`
+        );
+        return { checked: pendingProducts.length, updated, failed, inProgress };
+    } catch (error) {
+        logger.error("[TY BATCH CHECK] Genel hata:", error.message);
+        return { checked: 0, updated: 0, failed: 0, inProgress: 0, error: error.message };
     }
 };
 
@@ -2156,5 +2462,6 @@ module.exports = {
     uploadProductToMarketplace,
     normalizeMarketplaceName,
     checkPendingN11Tasks,
+    checkPendingTrendyolBatches,
     deleteProductFromMarketplaces
 };

@@ -27,6 +27,7 @@
  * ═══════════════════════════════════════════════════════════════════════════════
  */
 
+const User = require("../models/User");
 const Product = require("../models/Product");
 const ProductMapping = require("../models/ProductMapping");
 const Order = require("../models/Order");
@@ -38,9 +39,17 @@ const logger = require("../config/logger");
 
 const dayMs = 24 * 60 * 60 * 1000;
 
-function calcProfit(price, costPrice, commissionRate, shippingCost, packagingCost, otherCost) {
+function calcProfit(price, costPrice, commissionRate, shippingCost, packagingCost, otherCost, taxRate = 20) {
+    // Brüt satış fiyatı üzerinden KDV'yi çıkar (KDV hariç fiyat)
+    const priceExcludingTax = price / (1 + (taxRate / 100));
+    
+    // Komisyon brüt fiyat üzerinden hesaplanır (Pazaryeri kuralı)
     const commission = price * ((commissionRate || 0) / 100);
-    return price - (costPrice || 0) - commission - (shippingCost || 0) - (packagingCost || 0) - (otherCost || 0);
+    
+    // Net Kâr = (KDV Hariç Fiyat) - Maliyet - Komisyon - Diğer Giderler
+    // Not: Maliyetler KDV dahil girildiği varsayıldığı için (piyasa standardı) 
+    // karşılaştırma elma-elma olsun diye maliyetten KDV çıkarılmaz, net gelirden düşülür.
+    return priceExcludingTax - (costPrice || 0) - commission - (shippingCost || 0) - (packagingCost || 0) - (otherCost || 0);
 }
 
 function pct(a, b) { return b > 0 ? ((a / b) * 100) : 0; }
@@ -67,6 +76,9 @@ async function collectData(userId) {
     const d90 = new Date(now - 90 * dayMs);
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const yesterdayStart = new Date(todayStart - dayMs);
+
+    const user = await User.findById(userId).select("preferences").lean();
+    const userTaxRate = user?.preferences?.defaultVatRate !== undefined ? user.preferences.defaultVatRate : 20;
 
     const [
         productMappings,
@@ -120,6 +132,7 @@ async function collectData(userId) {
             shippingCost: mp.shippingCost || 0,
             packagingCost: mp.packagingCost || 0,
             otherCost: 0,
+            taxRate: userTaxRate, // ✅ Kullanıcının varsayılan KDV'si
             status: st.isOutOfStock ? "passive" : "active",
             _marketplaceCount: activeMappings.length,
             _syncedCount: syncedMappings.length,
@@ -154,28 +167,68 @@ function analyzeProducts(products, orders90) {
     // Build sales map from persisted orders: barcode → stats
     const salesMap = {};
     for (const order of orders90) {
+        // Sipariş seviyesindeki iadeleri kontrol et
+        const isActuallyReturned = order.isReturned || order.status?.toLowerCase().includes("iade");
+
         for (const item of (order.items || [])) {
             const bc = item.barcode;
             if (!bc) continue;
-            if (!salesMap[bc]) salesMap[bc] = { totalSold: 0, totalRevenue: 0, totalCost: 0, totalCommission: 0, lastSoldAt: null, dailySales: {}, returnCount: 0 };
+            if (!salesMap[bc]) salesMap[bc] = { 
+                totalSold: 0, 
+                totalRevenue: 0, 
+                totalCost: 0, 
+                totalCommission: 0, 
+                totalShipping: 0,
+                lastSoldAt: null, 
+                dailySales: {}, 
+                returnCount: 0,
+                snapshotProfit: 0 // Sipariş anındaki gerçek kârların toplamı
+            };
+            
             const s = salesMap[bc];
-            s.totalSold += (item.quantity || 1);
-            s.totalRevenue += (item.price || 0) * (item.quantity || 1);
-            s.totalCost += (item.costPrice || 0) * (item.quantity || 1);
-            s.totalCommission += (item.commissionAmount || 0);
+            const qty = (item.quantity || 1);
+            
+            s.totalSold += qty;
+            s.totalRevenue += (item.price || 0) * qty;
+            
+            // ✅ Siparişteki maliyet snapshot'larını kullan (yoksa fallback yap)
+            s.totalCost += (item.costPrice || 0) * qty;
+            s.totalCommission += (item.commissionAmount || (item.price * qty * (item.commissionRate / 100)) || 0);
+            s.totalShipping += (item.shippingCost || 0) * qty;
+            
+            // Sipariş anında hesaplanan netProfit varsa onu ekle
+            if (item.netProfit !== undefined) {
+                s.snapshotProfit += item.netProfit;
+            } else {
+                // Fallback kâr hesabı (KDV düşerek)
+                s.snapshotProfit += calcProfit(item.price, item.costPrice, item.commissionRate, item.shippingCost, 0, 0);
+            }
+
             const dateKey = new Date(order.orderDate).toISOString().slice(0, 10);
-            s.dailySales[dateKey] = (s.dailySales[dateKey] || 0) + (item.quantity || 1);
+            s.dailySales[dateKey] = (s.dailySales[dateKey] || 0) + qty;
+            
             if (!s.lastSoldAt || new Date(order.orderDate) > new Date(s.lastSoldAt)) {
                 s.lastSoldAt = order.orderDate;
             }
-            if (order.isReturned) s.returnCount += (item.quantity || 1);
+            
+            if (isActuallyReturned) s.returnCount += qty;
         }
     }
 
     const hasOrderData = orders90.length > 0;
 
     return products.map(p => {
-        const sales = salesMap[p.barcode] || { totalSold: 0, totalRevenue: 0, totalCost: 0, totalCommission: 0, lastSoldAt: null, dailySales: {}, returnCount: 0 };
+        const sales = salesMap[p.barcode] || { 
+            totalSold: 0, 
+            totalRevenue: 0, 
+            totalCost: 0, 
+            totalCommission: 0, 
+            totalShipping: 0,
+            lastSoldAt: null, 
+            dailySales: {}, 
+            returnCount: 0,
+            snapshotProfit: 0
+        };
 
         // Fallback: use ProductMapping salesStats when no order data
         if (sales.totalSold === 0 && p._totalSales > 0) {
@@ -185,8 +238,13 @@ function analyzeProducts(products, orders90) {
         }
 
         const price = p.salePrice || p.price || 0;
-        const profit = calcProfit(price, p.costPrice, p.commissionRate, p.shippingCost, p.packagingCost, p.otherCost);
-        const profitMargin = price > 0 ? (profit / price) * 100 : 0;
+        
+        // ŞU ANKİ Kâr (Maliyetler değişmiş olabilir)
+        const currentProfit = calcProfit(price, p.costPrice, p.commissionRate, p.shippingCost, p.packagingCost, p.otherCost, p.taxRate);
+        const profitMargin = price > 0 ? (currentProfit / price) * 100 : 0;
+        
+        // GEÇMİŞ Kâr (Snapshotlardan gelen ortalama)
+        const avgSnapshotProfit = sales.totalSold > 0 ? (sales.snapshotProfit / sales.totalSold) : currentProfit;
 
         const dailyKeys = Object.keys(sales.dailySales);
         const activeDays = Math.max(dailyKeys.length, 1);
@@ -206,7 +264,9 @@ function analyzeProducts(products, orders90) {
         else if (hasOrderData) healthScore -= 15;
 
         // Profitability (+25)
-        if (profitMargin > 20) healthScore += 25;
+        // Snapshot kârı negatifse puanı ciddi düşür
+        if (avgSnapshotProfit < 0) healthScore -= 25;
+        else if (profitMargin > 20) healthScore += 25;
         else if (profitMargin > 10) healthScore += 15;
         else if (profitMargin > 0) healthScore += 5;
         else if (p.costPrice > 0) healthScore -= 15;
@@ -247,7 +307,8 @@ function analyzeProducts(products, orders90) {
             commissionRate: p.commissionRate || 0,
             shippingCost: p.shippingCost || 0,
             stock: p.stock || 0,
-            profit: round2(profit),
+            profit: round2(currentProfit),
+            avgSnapshotProfit: round2(avgSnapshotProfit),
             profitMargin: round2(profitMargin),
             totalSold: sales.totalSold,
             totalRevenue: round2(sales.totalRevenue),
@@ -278,16 +339,21 @@ function generateRecommendations(analyzedProducts, data, strategyMode) {
 
     for (const p of analyzedProducts) {
         // ── PRICE OPTIMIZATION (low margin) ──
-        if (p.profitMargin < 5 && p.costPrice > 0 && p.totalSold > 0) {
-            const suggestedIncrease = Math.max(5, Math.ceil((10 - p.profitMargin) / 100 * p.price));
+        if ((p.profitMargin < 5 || p.avgSnapshotProfit < 0) && p.costPrice > 0 && p.totalSold > 0) {
+            const currentMargin = p.avgSnapshotProfit < 0 ? (p.avgSnapshotProfit / p.price * 100) : p.profitMargin;
+            const targetMargin = 12; // Hedef %12 net kâr
+            const suggestedIncrease = Math.max(5, Math.ceil((targetMargin - currentMargin) / 100 * p.price));
             const newPrice = p.price + suggestedIncrease;
             const newProfit = calcProfit(newPrice, p.costPrice, p.commissionRate, p.shippingCost, 0, 0);
+            
             recs.push({
                 type: "price_optimization",
                 title: `Fiyat Artışı Önerisi: ${p.name.slice(0, 50)}`,
-                description: `Kâr marjı çok düşük (%${p.profitMargin.toFixed(1)}). Fiyatı ${p.price.toFixed(0)}₺ → ${newPrice.toFixed(0)}₺ yaparak marjı artırın.`,
+                description: p.avgSnapshotProfit < 0 
+                    ? `Ürün şu an zararda satılıyor (Birim zarar: ${Math.abs(p.avgSnapshotProfit)}₺). Fiyatı ${p.price.toFixed(0)}₺ → ${newPrice.toFixed(0)}₺ yaparak kâra geçin.`
+                    : `Kâr marjı çok düşük (%${p.profitMargin.toFixed(1)}). Fiyatı ${p.price.toFixed(0)}₺ → ${newPrice.toFixed(0)}₺ yaparak marjı artırın.`,
                 category: "pricing",
-                priority: p.profitMargin < 0 ? "critical" : "high",
+                priority: (p.avgSnapshotProfit < 0 || p.profitMargin < 0) ? "critical" : "high",
                 confidenceScore: clamp(Math.round(70 + (p.totalSold * 0.5) * sw.priceWeight), 40, 95),
                 impact: {
                     profitChange: round2((newProfit - p.profit) * Math.max(p.avgDailySales * 30, 1)),
@@ -525,6 +591,21 @@ function generateRecommendations(analyzedProducts, data, strategyMode) {
                 }
             }
         }
+        // ── KDV ve Kar Marjı Uyarısı ──
+        if (p.price > 0 && p.costPrice > 0) {
+            const taxEffect = p.price - (p.price / 1.20);
+            if (p.profitMargin < 2 && p.profitMargin >= 0) {
+                recs.push({
+                    type: "tax_warning",
+                    title: `Vergi Yükü Uyarısı: ${p.name.slice(0, 40)}`,
+                    description: `Bu üründe KDV yükü (${taxEffect.toFixed(0)}₺) kâr marjınızı neredeyse sıfırlıyor. Fiyatı %3-5 artırarak güvenli bölgeye geçebilirsiniz.`,
+                    category: "pricing",
+                    priority: "medium",
+                    confidenceScore: 85,
+                    impact: { profitChange: round2(p.price * 0.05 * 30), revenueChange: 0, salesChange: 0, riskLevel: "low" }
+                });
+            }
+        }
     }
 
     // Sort by priority then confidence
@@ -552,7 +633,7 @@ function calculateAIScore(analyzedProducts, data) {
     const avgMargin = productsWithCost.length > 0
         ? productsWithCost.reduce((s, p) => s + p.profitMargin, 0) / productsWithCost.length
         : -1;
-    const lossProducts = products.filter(p => p.profit < 0 && p.costPrice > 0).length;
+    const lossProducts = products.filter(p => (p.profit < 0 || p.avgSnapshotProfit < 0) && p.costPrice > 0).length;
 
     let pricingScore = 50;
     if (avgMargin === -1) {
@@ -847,7 +928,7 @@ function generateDailyReport(analyzedProducts, data, aiScore) {
     const problems = [];
     const outOfStock = analyzedProducts.filter(p => p.stock === 0 || p.isOutOfStock);
     if (outOfStock.length > 0) problems.push({ icon: "🚨", text: `${outOfStock.length} ürün stokta yok — satış kaybı riski`, severity: "critical" });
-    const lossProducts = analyzedProducts.filter(p => p.profit < 0 && p.costPrice > 0);
+    const lossProducts = analyzedProducts.filter(p => (p.profit < 0 || p.avgSnapshotProfit < 0) && p.costPrice > 0);
     if (lossProducts.length > 0) problems.push({ icon: "🔴", text: `${lossProducts.length} ürün zararda satılıyor`, severity: "critical" });
     const lowStockProducts = analyzedProducts.filter(p => p.isLowStock && p.stock > 0);
     if (lowStockProducts.length > 0) problems.push({ icon: "⚠️", text: `${lowStockProducts.length} ürün düşük stokta`, severity: "high" });
@@ -970,14 +1051,15 @@ function retroAnalysis(analyzedProducts, data) {
     const mistakes = [];
     let totalLostProfit = 0;
 
-    const lossProducts = analyzedProducts.filter(p => p.profit < 0 && p.totalSold > 0);
+    const lossProducts = analyzedProducts.filter(p => (p.profit < 0 || p.avgSnapshotProfit < 0) && p.totalSold > 0);
     for (const p of lossProducts) {
-        const lost = Math.abs(p.profit) * p.totalSold;
+        const unitLoss = p.avgSnapshotProfit < 0 ? Math.abs(p.avgSnapshotProfit) : Math.abs(p.profit);
+        const lost = unitLoss * p.totalSold;
         totalLostProfit += lost;
         mistakes.push({
             type: "pricing_mistake", product: p.name, barcode: p.barcode,
             lostAmount: round2(lost),
-            description: `${p.name.slice(0, 40)} zararda satıldı — ${p.totalSold} adet × ${Math.abs(p.profit).toFixed(0)}₺ = ${lost.toFixed(0)}₺ kayıp`
+            description: `${p.name.slice(0, 40)} zararda satıldı — ${p.totalSold} adet × ${unitLoss.toFixed(0)}₺ = ${lost.toFixed(0)}₺ kayıp`
         });
     }
 

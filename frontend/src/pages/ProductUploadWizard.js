@@ -19,7 +19,7 @@ import {
     FaSitemap, FaGlobe, FaExclamationTriangle, FaCubes
 } from "react-icons/fa";
 import {
-    createAndDistribute, suggestCodes, generateDescription
+    createAndDistribute, suggestCodes, generateDescription, uploadProductImage
 } from "../services/productManagementApi";
 import { getUserMarketplaces } from "../services/marketplaceApi";
 import { getCategoryTree, searchCategories } from "../services/categoryCenterApi";
@@ -166,24 +166,34 @@ const PlatformCategoryPanel = memo(({ platformName, ps, onSearch, onSelect, onCl
                     onChange={e => onSearch(platformName, e.target.value)}
                     placeholder={`${platformName} kategorilerinde ara...`}
                 />
-                {searchLoading && <FaSpinner className="puw-spin" style={{ position: "absolute", right: 10, top: 10, fontSize: 11, color: "var(--puw-text-dim)" }} />}
+                <span className="puw-cat-search-spinner">
+                    {searchLoading && <FaSpinner className="puw-spin" />}
+                </span>
             </div>
 
             {/* Search Results */}
             {searchQ.trim().length >= 2 && searchResults.length > 0 ? (
                 <div className="puw-cat-results">
                     {searchResults.slice(0, 50).map((c, i) => {
-                        const cId = String(c.id || c.categoryId || i);
+                        const rawId = c.id || c.categoryId;
+                        const cId = rawId !== undefined && rawId !== null ? String(rawId) : "";
+                        const selectable = cId !== "" && cId !== "0";
                         const cName = c.name || c.categoryName || "";
                         const cPath = c.path || c.fullPath || "";
                         const isSel = selected?.id === cId;
                         return (
-                            <div key={cId} className={`puw-cat-result-item ${isSel ? "selected" : ""}`}
-                                onClick={() => onSelect(platformName, { id: cId, name: cName, path: cPath })}>
+                            <div
+                                key={`${platformName}-sr-${cId || i}`}
+                                className={`puw-cat-result-item ${isSel ? "selected" : ""}`}
+                                onClick={() => selectable && onSelect(platformName, { id: cId, name: cName, path: cPath })}
+                                style={selectable ? {} : { opacity: 0.6, cursor: "not-allowed" }}
+                                title={selectable ? "Kategoriyi seç" : "Bu sonuçta geçerli categoryId yok"}
+                            >
                                 <FaTag style={{ fontSize: 10, color: isSel ? "var(--puw-green)" : "var(--puw-text-dim)", flexShrink: 0 }} />
                                 <div style={{ flex: 1, minWidth: 0 }}>
                                     <div style={{ fontSize: 11, fontWeight: 600, color: "var(--puw-text)" }}>{cName}</div>
                                     {cPath && <div style={{ fontSize: 9, color: "var(--puw-text-dim)", marginTop: 1 }}>{cPath}</div>}
+                                    {!selectable && <div style={{ fontSize: 9, color: "var(--puw-yellow)", marginTop: 1 }}>Bu kayitta categoryId yok</div>}
                                 </div>
                                 {isSel && <FaCheckCircle style={{ color: "var(--puw-green)", fontSize: 11, flexShrink: 0 }} />}
                             </div>
@@ -247,6 +257,7 @@ const ProductUploadWizard = ({ userId }) => {
     const [codeSugg, setCodeSugg] = useState(null);
     const [codeLoading, setCodeLoading] = useState(false);
     const [descLoading, setDescLoading] = useState(false);
+    const [imgUploading, setImgUploading] = useState(false);
     const [descTone, setDescTone] = useState("professional");
     const [imgFiles, setImgFiles] = useState([]);
     const [imgUrlInput, setImgUrlInput] = useState("");
@@ -271,11 +282,9 @@ const ProductUploadWizard = ({ userId }) => {
 
     // ── Load Marketplaces ──
     useEffect(() => {
-        if (userId) {
-            getUserMarketplaces()
-                .then(d => setMarketplaces(d.map(m => ({ ...m, name: m.marketplaceName }))))
-                .catch(() => {});
-        }
+        getUserMarketplaces()
+            .then(d => setMarketplaces((d || []).map(m => ({ ...m, name: m.marketplaceName }))))
+            .catch(() => { setMarketplaces([]); });
     }, [userId]);
 
     /* ═══════════════════════════════════════════════════════════
@@ -308,10 +317,35 @@ const ProductUploadWizard = ({ userId }) => {
         finally { setDescLoading(false); }
     };
 
-    const handleFileSelect = (e) => {
-        const f = Array.from(e.target.files || []);
-        setImgFiles(p => [...p, ...f.map(file => ({ file, preview: URL.createObjectURL(file), name: file.name }))].slice(0, 8));
+    const handleFileSelect = async (e) => {
+        const files = Array.from(e.target.files || []);
         if (fileRef.current) fileRef.current.value = "";
+        if (files.length === 0) return;
+        const remain = Math.max(0, 8 - (uf.imageUrls.length + imgFiles.length));
+        const toUpload = files.slice(0, remain);
+        if (toUpload.length === 0) {
+            showToast("Maksimum 8 gorsel ekleyebilirsiniz", "error");
+            return;
+        }
+        setImgUploading(true);
+        try {
+            const uploadedUrls = [];
+            for (const file of toUpload) {
+                const r = await uploadProductImage(file);
+                if (r?.url) uploadedUrls.push(r.url);
+            }
+            if (uploadedUrls.length > 0) {
+                ufSet("imageUrls", [...uf.imageUrls, ...uploadedUrls].slice(0, 8));
+                showToast(`${uploadedUrls.length} gorsel yuklendi`);
+            }
+            if (uploadedUrls.length < toUpload.length) {
+                showToast("Bazi gorseller yuklenemedi", "error");
+            }
+        } catch (err) {
+            showToast(err?.response?.data?.error || "Gorsel yukleme hatasi", "error");
+        } finally {
+            setImgUploading(false);
+        }
     };
     const handleAddImgUrl = () => {
         const u = imgUrlInput.trim();
@@ -433,18 +467,17 @@ const ProductUploadWizard = ({ userId }) => {
 
     // Step 4'e geçince aktif platformların kategorilerini yükle
     useEffect(() => {
-        if (step === 4) {
-            const activePlatforms = uf.targetMarketplaces.length > 0
-                ? uf.targetMarketplaces
-                : marketplaces.map(m => m.marketplaceName);
+        if (step !== 4) return;
+        const activePlatforms = uf.targetMarketplaces.length > 0
+            ? uf.targetMarketplaces
+            : marketplaces.map(m => m.marketplaceName);
 
-            activePlatforms.forEach(pName => {
-                if (!catState[pName]?.tree?.length && !catState[pName]?.loading) {
-                    loadCategoryTree(pName);
-                }
-            });
-        }
-    }, [step]); // eslint-disable-line
+        activePlatforms.forEach(pName => {
+            if (!catState[pName]?.tree?.length && !catState[pName]?.loading) {
+                loadCategoryTree(pName);
+            }
+        });
+    }, [step, uf.targetMarketplaces, marketplaces, catState, loadCategoryTree]);
 
     /* ═══════════════════════════════════════════════════════════
        ÜRÜN OLUŞTUR & DAĞIT
@@ -454,15 +487,33 @@ const ProductUploadWizard = ({ userId }) => {
         setUploadLoading(true);
         setUploadResult(null);
         try {
-            const imgs = [...uf.imageUrls, ...imgFiles.map(f => f.preview)].filter(Boolean);
+            const remoteUrls = [...uf.imageUrls]
+                .map((u) => (typeof u === "string" ? u.trim() : ""))
+                .filter((u) => /^https?:\/\//i.test(u));
+            const hasOnlyLocalFiles = remoteUrls.length === 0 && imgFiles.length > 0;
+            if (hasOnlyLocalFiles && uf.targetMarketplaces.length > 0) {
+                return showToast(
+                    "Yerel dosya görselleri pazaryerine gönderilemez. Lütfen Adım 2'de en az 1 adet https:// görsel URL ekleyin.",
+                    "error"
+                );
+            }
+            const imgs = remoteUrls;
 
             // Platform kategori bilgilerini ekle
             const platformCategories = {};
             for (const pName of (uf.targetMarketplaces.length > 0 ? uf.targetMarketplaces : [])) {
                 const cs = catState[pName];
                 if (cs?.selected) {
+                    const selectedId = String(cs.selected.id || "").trim();
+                    const validCategoryId = /^\d+$/.test(selectedId) && Number(selectedId) > 0;
+                    if (!validCategoryId) {
+                        return showToast(
+                            `${pName} icin secilen kategori gecersiz (categoryId yok). Lutfen agactan baska bir kategori secin.`,
+                            "error"
+                        );
+                    }
                     platformCategories[pName] = {
-                        categoryId: cs.selected.id,
+                        categoryId: selectedId,
                         categoryName: cs.selected.name,
                         categoryPath: cs.selected.path
                     };
@@ -483,8 +534,24 @@ const ProductUploadWizard = ({ userId }) => {
                 platformCategories
             });
 
-            setUploadResult({ success: true, message: r.message || "Ürün oluşturuldu!" });
-            showToast(r.message || "Ürün oluşturuldu!");
+            const dist = r.distributeResults || [];
+            const distFailed = dist.filter((x) => x.success === false);
+            const allMarketplacesFailed =
+                uf.targetMarketplaces.length > 0 && dist.length > 0 && distFailed.length === dist.length;
+            const partialFail = distFailed.length > 0 && !allMarketplacesFailed;
+
+            const msg = r.message || "Ürün oluşturuldu!";
+
+            if (allMarketplacesFailed) {
+                setUploadResult({ success: false, message: msg });
+                showToast(msg, "error");
+            } else if (partialFail) {
+                setUploadResult({ success: true, message: msg, distributeWarning: true });
+                showToast(msg, "error");
+            } else {
+                setUploadResult({ success: true, message: msg });
+                showToast(msg);
+            }
         } catch (e) {
             const errData = e.response?.data;
             if (e.response?.status === 409 && errData?.type) {
@@ -516,6 +583,9 @@ const ProductUploadWizard = ({ userId }) => {
        ═══════════════════════════════════════════════════════════ */
     const totalImgs = uf.imageUrls.length + imgFiles.length;
     const canSubmit = uf.name && uf.barcode && uf.sku && uf.price;
+    const selectedPlatforms = uf.targetMarketplaces.length > 0 ? uf.targetMarketplaces : [];
+    const missingCategories = selectedPlatforms.filter((pName) => !catState[pName]?.selected);
+    const canDistributeNow = canSubmit && (selectedPlatforms.length === 0 || missingCategories.length === 0);
     const allImages = [...uf.imageUrls.map((u, i) => ({ type: "url", src: u, idx: i })), ...imgFiles.map((f, i) => ({ type: "file", src: f.preview, idx: i }))];
 
     /* ═══════════════════════════════════════════════════════════
@@ -666,13 +736,21 @@ const ProductUploadWizard = ({ userId }) => {
                                 </div>
                                 <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
                                     <input ref={fileRef} type="file" accept="image/*" multiple onChange={handleFileSelect} style={{ display: "none" }} />
-                                    <button className="puw-btn sm purple" onClick={() => fileRef.current?.click()} disabled={totalImgs >= 8}><FaFolderOpen /> Dosya</button>
+                                    <button className="puw-btn sm purple" onClick={() => fileRef.current?.click()} disabled={totalImgs >= 8 || imgUploading}>
+                                        {imgUploading ? <span className="spinner" /> : <FaFolderOpen />} Dosya
+                                    </button>
                                     <div style={{ display: "flex", gap: 4, flex: 1, minWidth: 180 }}>
                                         <input className="puw-input" value={imgUrlInput} onChange={e => setImgUrlInput(e.target.value)}
                                             placeholder="https://... görsel URL" onKeyDown={e => e.key === "Enter" && handleAddImgUrl()} />
                                         <button className="puw-btn sm green" onClick={handleAddImgUrl} disabled={!imgUrlInput.trim() || totalImgs >= 8}><FaPlus /></button>
                                     </div>
                                 </div>
+                                {imgFiles.length > 0 && (
+                                    <div style={{ color: "var(--puw-yellow)", fontSize: 10, marginBottom: 8 }}>
+                                        <FaInfoCircle style={{ marginRight: 4 }} />
+                                        Yerel dosyalar sadece on izleme icindir. Pazaryeri yuklemesi icin https:// gorsel URL ekleyin.
+                                    </div>
+                                )}
                                 {totalImgs > 0 ? (
                                     <div className="puw-img-grid">
                                         {allImages.map((img, i) => (
@@ -858,8 +936,17 @@ const ProductUploadWizard = ({ userId }) => {
                             {/* Başarılı sonuç */}
                             {uploadResult?.success ? (
                                 <div className="puw-card" style={{ textAlign: "center", padding: "2rem" }}>
-                                    <FaCheckCircle style={{ fontSize: 48, color: "var(--puw-green)", marginBottom: 12 }} />
-                                    <h2 style={{ color: "var(--puw-text)", fontSize: 18, fontWeight: 800, margin: "0 0 8px" }}>Ürün Başarıyla Oluşturuldu!</h2>
+                                    {uploadResult.distributeWarning ? (
+                                        <>
+                                            <FaExclamationTriangle style={{ fontSize: 48, color: "var(--puw-yellow)", marginBottom: 12 }} />
+                                            <h2 style={{ color: "var(--puw-text)", fontSize: 18, fontWeight: 800, margin: "0 0 8px" }}>Ürün kaydedildi — pazaryeri kısmen başarısız</h2>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <FaCheckCircle style={{ fontSize: 48, color: "var(--puw-green)", marginBottom: 12 }} />
+                                            <h2 style={{ color: "var(--puw-text)", fontSize: 18, fontWeight: 800, margin: "0 0 8px" }}>Ürün Başarıyla Oluşturuldu!</h2>
+                                        </>
+                                    )}
                                     <p style={{ color: "var(--puw-text-dim)", fontSize: 12, marginBottom: 20 }}>{uploadResult.message}</p>
                                     <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
                                         <button className="puw-btn accent" onClick={resetWizard}><FaPlus /> Yeni Ürün Ekle</button>
@@ -900,6 +987,13 @@ const ProductUploadWizard = ({ userId }) => {
                                         </div>
                                     </div>
 
+                                    {/* Kategori eksik uyarısı */}
+                                    {missingCategories.length > 0 && (
+                                        <div style={{ color: "var(--puw-yellow)", fontSize: 11, display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", background: "rgba(245,158,11,0.06)", borderRadius: 8, border: "1px solid rgba(245,158,11,0.15)" }}>
+                                            <FaExclamationTriangle /> Dağıtım için kategori seçimi eksik: {missingCategories.join(", ")}
+                                        </div>
+                                    )}
+
                                     {/* Hata mesajı */}
                                     {uploadResult?.success === false && (
                                         <div style={{ color: "var(--puw-red)", fontSize: 12, display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", background: "rgba(239,68,68,0.06)", borderRadius: 8, border: "1px solid rgba(239,68,68,0.15)" }}>
@@ -910,7 +1004,7 @@ const ProductUploadWizard = ({ userId }) => {
                                     {/* Gönder Butonu */}
                                     <div className="puw-nav">
                                         <button className="puw-btn muted" onClick={() => setStep(3)}><FaArrowLeft /> Geri</button>
-                                        <button className="puw-btn accent puw-submit-btn" onClick={handleCreate} disabled={!canSubmit || uploadLoading}>
+                                        <button className="puw-btn accent puw-submit-btn" onClick={handleCreate} disabled={!canDistributeNow || uploadLoading}>
                                             {uploadLoading ? <span className="spinner" /> : uf.targetMarketplaces.length > 0 ? <FaRocket /> : <FaSave />}
                                             {uf.targetMarketplaces.length > 0 ? `Oluştur & ${uf.targetMarketplaces.length} Platforma Dağıt` : "Kaydet"}
                                         </button>

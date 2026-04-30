@@ -20,20 +20,20 @@ export const T = {
     bgOverlay: "rgba(4,6,18,0.85)",
 
     // ── Borders ──
-    border: "rgba(255,255,255,0.08)",
-    borderLight: "rgba(255,255,255,0.04)",
-    borderGlow: "rgba(0,212,170,0.25)",
+    border: "rgba(255,255,255,0.06)",
+    borderLight: "rgba(255,255,255,0.03)",
+    borderGlow: "rgba(0,212,170,0.35)",
     borderFocus: "#00d4aa",
 
     // ── Primary — Cyan/Emerald Gradient ──
-    accent: "#00d4aa",
-    accentAlt: "#00b4d8",
-    accentDim: "rgba(0,212,170,0.15)",
-    accentGlow: "rgba(0,212,170,0.3)",
-    gradient: "linear-gradient(135deg, #00d4aa, #00b4d8)",
-    gradientText: "linear-gradient(135deg, #00d4aa, #00e5ff)",
-    gradientCard: "linear-gradient(135deg, rgba(0,212,170,0.08), rgba(0,180,216,0.04))",
-    gradientHero: "linear-gradient(135deg, rgba(0,212,170,0.12), rgba(0,180,216,0.06), rgba(15,18,35,0))",
+    accent: "#00f5d4",
+    accentAlt: "#00bbf9",
+    accentDim: "rgba(0,245,212,0.12)",
+    accentGlow: "rgba(0,245,212,0.3)",
+    gradient: "linear-gradient(135deg, #00f5d4, #00bbf9)",
+    gradientText: "linear-gradient(135deg, #00f5d4, #00e5ff)",
+    gradientCard: "linear-gradient(135deg, rgba(0,245,212,0.1), rgba(0,187,249,0.05))",
+    gradientHero: "linear-gradient(135deg, rgba(0,245,212,0.15), rgba(0,187,249,0.08), rgba(15,18,35,0))",
 
     // ── Semantic Colors ──
     green: "#34d399",
@@ -71,14 +71,14 @@ export const T = {
     rFull: 9999,
 
     // ── Shadows ──
-    shadow: "0 2px 8px rgba(0,0,0,0.3), 0 1px 3px rgba(0,0,0,0.2)",
-    shadowMd: "0 8px 24px rgba(0,0,0,0.35), 0 2px 8px rgba(0,0,0,0.2)",
-    shadowLg: "0 16px 48px rgba(0,0,0,0.4), 0 4px 12px rgba(0,0,0,0.25)",
-    shadowGlow: "0 0 20px rgba(0,212,170,0.15), 0 0 60px rgba(0,212,170,0.05)",
+    shadow: "0 4px 12px rgba(0,0,0,0.4)",
+    shadowMd: "0 12px 32px rgba(0,0,0,0.5)",
+    shadowLg: "0 24px 64px rgba(0,0,0,0.6)",
+    shadowGlow: "0 0 30px rgba(0,245,212,0.2), 0 0 80px rgba(0,245,212,0.08)",
 
     // ── Glass ──
-    glass: "blur(16px) saturate(180%)",
-    glassSm: "blur(8px) saturate(150%)",
+    glass: "blur(20px) saturate(200%)",
+    glassSm: "blur(12px) saturate(160%)",
 };
 
 /* ── Responsive Breakpoints ── */

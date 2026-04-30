@@ -44,6 +44,33 @@ const UserSchema = new mongoose.Schema({
         }
     },
 
+    // ── Firma Bilgileri (Tek Kaynak — Tüm Servisler Buradan Okur) ────────
+    // Fatura kesme, profil sayfası, dashboard vb. hepsi bu alanı kullanır.
+    // AutoInvoiceConfig.supplier ile otomatik senkronize edilir.
+    companyInfo: {
+        vkn: { type: String, default: "" },              // VKN veya TCKN (10 veya 11 hane)
+        companyName: { type: String, default: "" },       // Firma ünvanı
+        taxOffice: { type: String, default: "" },         // Vergi dairesi
+        firstName: { type: String, default: "" },         // Şahıs şirketi ise ad
+        lastName: { type: String, default: "" },          // Şahıs şirketi ise soyad
+        street: { type: String, default: "" },            // Adres (cadde/sokak)
+        district: { type: String, default: "" },          // İlçe
+        city: { type: String, default: "" },              // İl
+        country: { type: String, default: "Turkiye" },    // Ülke
+        phone: { type: String, default: "" },             // Firma telefonu
+        email: { type: String, default: "" },             // Firma e-postası
+        // QNB eSolutions Bağlantı Bilgileri
+        // Her kullanıcı kendi QNB credential'larını girer — .env fallback KULLANILMAZ
+        qnb: {
+            earsivUsername: { type: String, default: "" },   // e-Arşiv kullanıcı adı (QNB tarafından verilir)
+            earsivPassword: { type: String, default: "" },   // e-Arşiv şifre
+            efaturaUsername: { type: String, default: "" },   // e-Fatura: VKN
+            efaturaPassword: { type: String, default: "" },   // e-Fatura şifre
+            env: { type: String, enum: ["test", "production"], default: "test" },
+        },
+    },
+
+
     // User Preferences
     preferences: {
         language: { type: String, default: "tr" },

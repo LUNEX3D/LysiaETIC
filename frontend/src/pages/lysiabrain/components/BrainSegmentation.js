@@ -20,7 +20,7 @@ const SEG_CFG = {
 };
 
 const BrainSegmentation = ({ t, onError }) => {
-    const { isMobile, isTablet } = useResponsive();
+    const { isMobile } = useResponsive();
     const [loading, setLoading] = useState(true);
     const [data, setData] = useState(null);
     const [activeSegment, setActiveSegment] = useState("stars");

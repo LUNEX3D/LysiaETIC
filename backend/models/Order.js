@@ -24,6 +24,27 @@ const OrderSchema = new mongoose.Schema({
         phone: { type: String, default: "" },
         email: { type: String, default: "" },
     },
+    // ── Ham fatura adresi (B2B bilgileri için) ──────────────────────────────
+    // Pazaryerlerinden gelen invoiceAddress raw verisi (VKN, vergi dairesi, firma adı)
+    // buildCustomerFromOrder bu alandan VKN çıkarır
+    _rawInvoiceAddress: {
+        fullName: { type: String, default: "" },
+        company: { type: String, default: "" },
+        taxNumber: { type: String, default: "" },
+        taxOffice: { type: String, default: "" },
+        city: { type: String, default: "" },
+        district: { type: String, default: "" },
+        fullAddress: { type: String, default: "" },
+    },
+
+    // ── Pazaryeri fatura durumu ───────────────────────────────────────────────
+    // Pazaryerinde zaten fatura kesilmiş mi? (Trendyol "Invoiced" status vb.)
+    // Mükerrer fatura engeli için kullanılır
+    marketplaceInvoiced: { type: Boolean, default: false },
+
+    // ── Uluslararası sipariş bilgisi (mikro ihracat) ─────────────────────────
+    // Teslimat ülkesi Türkiye dışı ise mikro ihracat faturası kesilir
+    shippingCountry: { type: String, default: "Turkiye" },
 
     items: [
         {

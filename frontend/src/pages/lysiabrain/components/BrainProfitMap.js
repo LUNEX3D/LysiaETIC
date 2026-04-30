@@ -54,7 +54,7 @@ const BrainProfitMap = ({ t, onError }) => {
 
     const maxCatProfit = Math.max(...(data.byCategory || []).map(c => Math.abs(c.totalProfit)), 1);
     const maxMpProfit = Math.max(...(data.byMarketplace || []).map(m => Math.abs(m.totalProfit)), 1);
-    const maxProdProfit = Math.max(...(data.byProduct || []).map(p => Math.abs(p.totalProfit)), 1);
+    // maxProdProfit removed — unused
 
     return (
         <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>

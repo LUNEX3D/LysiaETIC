@@ -3,6 +3,8 @@ const StockSyncLog = require("../models/StockSyncLog");
 const Marketplace = require("../models/Marketplace");
 const Order = require("../models/Order");
 const logger = require("../config/logger");
+const NoonService = require("./noonService");
+const AliexpressService = require("./aliexpressService");
 const axios = require("axios");
 const n11Service = require("./n11Service");
 // ✅ FIX H5: Credential'ları decrypt ederek kullan
@@ -103,8 +105,21 @@ const reserveStock = async (userId, barcode, quantity) => {
         };
     }
 
-    mapping.updateStockStatus();
-    await mapping.save();
+    // ✅ FIX: save() yerine atomik update'e dahil et
+    // mapping.updateStockStatus() içindeki mantığı direkt DB'ye yansıtmak daha güvenli
+    // mapping.save() race condition yaratabilir (başka bir process o sırada güncellerse eskisini yazar)
+    
+    // Stok durumunu güncelle (out_of_stock, low_stock vb.)
+    const totalStock = mapping.stockTracking.totalStock;
+    const threshold = mapping.stockTracking.lowStockThreshold || 10;
+    let status = "in_stock";
+    if (totalStock <= 0) status = "out_of_stock";
+    else if (totalStock <= threshold) status = "low_stock";
+
+    await ProductMapping.updateOne(
+        { _id: mapping._id },
+        { $set: { "stockTracking.status": status } }
+    );
 
     const marketplaceStock = mapping.getMarketplaceStock();
 
@@ -433,6 +448,10 @@ const updateStockOnMarketplace = async (marketplace, productId, newStock, priceU
                 return await updateCicekSepetiStock(credentials, productId, newStock, priceUpdate);
             case "Amazon":
                 return await updateAmazonStock(credentials, productId, newStock, priceUpdate);
+            case "Noon":
+                return await updateNoonStock(credentials, productId, newStock, priceUpdate);
+            case "AliExpress":
+                return await updateAliexpressStock(credentials, productId, newStock, priceUpdate);
             default:
                 logger.warn(`[STOCK UPDATE] ${marketplaceName} için stok güncelleme API'si henüz eklenmedi`);
                 return { success: true, simulated: true, message: `${marketplaceName} stok güncelleme simüle edildi` };
@@ -785,6 +804,36 @@ const updateAmazonStock = async (credentials, sku, newStock, priceUpdate = null)
         const errMsg = error.response?.data?.errors?.[0]?.message || error.message;
         logger.error(`[AMAZON STOCK] ❌ Hata — sku: ${sku}, error: ${errMsg}`);
         return { success: false, error: errMsg };
+    }
+};
+
+/**
+ * Noon stok güncelleme
+ */
+const updateNoonStock = async (credentials, sku, newStock, priceUpdate = null) => {
+    try {
+        const noon = new NoonService(credentials);
+        const result = await noon.updateStock(sku, newStock);
+        return { success: true, result };
+    } catch (error) {
+        logger.error(`[NOON STOCK] ❌ Hata — sku: ${sku}, error: ${error.message}`);
+        return { success: false, error: error.message };
+    }
+};
+
+/**
+ * AliExpress stok güncelleme
+ */
+const updateAliexpressStock = async (credentials, productId, newStock, priceUpdate = null) => {
+    try {
+        const aliexpress = new AliexpressService(credentials);
+        // AliExpress için productId ve skuId (merchant_sku_code) gerekebilir. 
+        // Burada productId alanını sku olarak kullanıyoruz (mapping yapısına göre)
+        const result = await aliexpress.updateStock(productId, productId, newStock);
+        return { success: true, result };
+    } catch (error) {
+        logger.error(`[ALIEXPRESS STOCK] ❌ Hata — productId: ${productId}, error: ${error.message}`);
+        return { success: false, error: error.message };
     }
 };
 

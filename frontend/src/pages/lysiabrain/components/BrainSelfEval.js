@@ -9,7 +9,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import API from "../../../services/api";
 import { T, fmt, fmtN, useResponsive } from "../styles";
-import { Card, CardHeader, Badge, StatCard, ScoreRing, HealthBar, EmptyState, LoadingState, ErrorState } from "./shared/SharedUI";
+import { Card, CardHeader, StatCard, ScoreRing, HealthBar, LoadingState, ErrorState } from "./shared/SharedUI";
 
 const BrainSelfEval = ({ t, onError }) => {
     const { isMobile } = useResponsive();

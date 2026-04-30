@@ -58,7 +58,7 @@ const StockManagement = ({ userId, marketplaceId, marketplace }) => {
         } finally {
             setIsLoading(false);
         }
-    }, [userId, marketplaceId, t]);
+    }, [marketplaceId, t]); // eslint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         if (marketplaceId) {

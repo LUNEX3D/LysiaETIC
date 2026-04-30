@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { FaCrown, FaPlus, FaEdit, FaSearch, FaExclamationTriangle } from "react-icons/fa";
+import { FaPlus, FaEdit, FaSearch, FaExclamationTriangle } from "react-icons/fa";
 import AdminLayout from "../components/AdminLayout";
 import { getSubscriptions, createSubscription, updateSubscription } from "../services/saasAdminApi";
 
@@ -127,7 +127,14 @@ const SaasSubscriptions = () => {
                                             {sub.startDate ? new Date(sub.startDate).toLocaleDateString("tr-TR") : "—"}
                                         </td>
                                         <td className="mono" style={{ fontSize: 11 }}>
-                                            {sub.endDate ? new Date(sub.endDate).toLocaleDateString("tr-TR") : "—"}
+                                            {sub.endDate ? (
+                                                <>
+                                                    {new Date(sub.endDate).toLocaleDateString("tr-TR")}
+                                                    {new Date(sub.endDate) < new Date() && (
+                                                        <div style={{ color: "#f87171", fontSize: 10, fontWeight: 600 }}>⚠️ Süresi dolmuş</div>
+                                                    )}
+                                                </>
+                                            ) : "—"}
                                         </td>
                                         <td>
                                             <button
@@ -197,6 +204,24 @@ const SaasSubscriptions = () => {
                                         <option value="cancelled">İptal</option>
                                         <option value="expired">Süresi Dolmuş</option>
                                     </select>
+                                </div>
+                                <div>
+                                    <label className="ap-label">Başlangıç Tarihi</label>
+                                    <input
+                                        type="date"
+                                        className="ap-input"
+                                        value={formData.startDate ? new Date(formData.startDate).toISOString().slice(0, 10) : ""}
+                                        onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="ap-label">Bitiş Tarihi</label>
+                                    <input
+                                        type="date"
+                                        className="ap-input"
+                                        value={formData.endDate ? new Date(formData.endDate).toISOString().slice(0, 10) : ""}
+                                        onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
+                                    />
                                 </div>
                                 <div>
                                     <label className="ap-label">Fiyat (₺)</label>

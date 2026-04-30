@@ -14,7 +14,7 @@ import {
 import { colors } from "../styles";
 import { fmtCurrency } from "../utils";
 import { StatusBadge, Pill } from "./SharedUI";
-import { PROVIDERS, DOC_TYPES } from "../constants";
+// PROVIDERS, DOC_TYPES removed — unused
 
 const TC = { "e-arsiv": colors.accent, "e-fatura": colors.orange, "e-fatura-gelen": colors.purple, "e-irsaliye": colors.pink };
 const TL = { "e-arsiv": "e-Arşiv", "e-fatura": "e-Fatura", "e-fatura-gelen": "Gelen e-Fatura", "e-irsaliye": "e-İrsaliye" };
@@ -189,8 +189,7 @@ const AdvancedAnalysis = React.memo(({ invoices, onInvoiceClick }) => {
     const maxTypeTotal = Math.max(...Object.values(data.byType).map((d) => d.total), 1);
     const maxMonthTotal = data.monthly.length > 0 ? Math.max(...data.monthly.map((d) => d.total), 1) : 1;
     const maxCustTotal = data.topCustomers.length > 0 ? data.topCustomers[0].total : 1;
-    const maxDayCount = Math.max(...data.dayData.map((d) => d.count), 1);
-    const maxRangeCount = Math.max(...data.ranges.map((r) => r.count), 1);
+    // maxDayCount, maxRangeCount removed — unused
 
     const ACard = ({ children, style: s }) => (
         <div style={{ background: colors.cardGradient, border: "1px solid " + colors.border, borderRadius: 16, marginBottom: "1rem", overflow: "hidden", ...s }}>{children}</div>

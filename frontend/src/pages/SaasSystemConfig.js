@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback } from "react";
 import {
     FaCog, FaServer, FaDatabase, FaCrown, FaCheckCircle,
     FaTimesCircle, FaExclamationTriangle, FaSync, FaSave,
-    FaEdit, FaTimes, FaInfoCircle, FaDollarSign, FaBoxOpen,
+    FaEdit, FaTimes, FaInfoCircle, FaBoxOpen,
     FaClipboardList, FaPlug, FaCode, FaUsers, FaClock,
     FaShieldAlt, FaChartBar
 } from "react-icons/fa";

@@ -9,7 +9,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import API from "../../../services/api";
 import { T, fmt, fmtN, useResponsive } from "../styles";
-import { Card, CardHeader, Badge, StatCard, ScoreRing, EmptyState, LoadingState, ErrorState } from "./shared/SharedUI";
+import { Card, Badge, StatCard, ScoreRing, EmptyState, LoadingState, ErrorState } from "./shared/SharedUI";
 
 const LEVEL_CFG = {
     high: { color: T.red, bg: T.redDim, icon: "🔴" },

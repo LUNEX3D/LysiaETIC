@@ -17,6 +17,7 @@ const PendingDeletion = require("../models/PendingDeletion");
 const User = require("../models/User");
 const logger = require("../config/logger");
 const { syncStockToAllMarketplaces, reserveStock, releaseStock } = require("./stockSyncService");
+const { checkPendingTrendyolBatches } = require("./productSyncService");
 // ✅ FIX: Credential'ları decrypt ederek kullan
 const { decryptCredentials } = require("../utils/encryption");
 
@@ -999,6 +1000,22 @@ const runStockSync = async () => {
             }
         } catch (pdErr) {
             logger.error(`[STOCK CRON] Trendyol bekleyen silme hatası: ${pdErr.message}`);
+        }
+
+        // ═══════════════════════════════════════════════════════
+        // ADIM 4: TRENDYOL ÜRÜN YÜKLEME BATCH SONUÇLARI
+        // createProducts sonrası batchRequestId ile kesin başarı / red
+        // ═══════════════════════════════════════════════════════
+        try {
+            const tyBatch = await checkPendingTrendyolBatches();
+            if (tyBatch.checked > 0 && (tyBatch.updated > 0 || tyBatch.failed > 0 || tyBatch.inProgress > 0)) {
+                logger.info(
+                    `[STOCK CRON] 📋 Trendyol batch — kontrol: ${tyBatch.checked}, kesinleşen: ${tyBatch.updated}, ` +
+                    `başarısız: ${tyBatch.failed}, işlemde: ${tyBatch.inProgress}`
+                );
+            }
+        } catch (tyErr) {
+            logger.warn(`[STOCK CRON] Trendyol batch kontrolü: ${tyErr.message}`);
         }
 
         // ✅ FIX #7: Timestamp bazlı LRU bellek temizliği

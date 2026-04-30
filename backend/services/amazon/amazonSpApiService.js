@@ -69,6 +69,34 @@ const MARKETPLACE_REGION_MAP = {
 
 const REQUEST_TIMEOUT = 30000;
 const RATE_LIMIT_DELAY = 1000; // 1 saniye bekleme (burst rate koruması)
+const MAX_RETRY_ATTEMPTS = 3;
+const RETRY_BASE_DELAY_MS = 800;
+
+// LWA token cache (aynı credential ile her çağrıda token istemeyelim)
+const lwaTokenCache = new Map();
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const buildLwaCacheKey = (clientId, refreshToken) => `${clientId}::${refreshToken}`;
+
+const parseAmazonErrorMessage = (error) => {
+    const status = error.response?.status;
+    const data = error.response?.data;
+    const errors = Array.isArray(data?.errors) ? data.errors : [];
+    const detail = errors.map((e) => `${e.code || "UNKNOWN"}: ${e.message || ""}`).join(" | ");
+
+    if (status === 401 || status === 403) {
+        return `Amazon yetkilendirme hatası (${status}). LWA/AWS kimlik bilgilerini kontrol edin.${detail ? ` ${detail}` : ""}`;
+    }
+    if (status === 429) {
+        return `Amazon rate limit aşıldı (429).${detail ? ` ${detail}` : ""}`;
+    }
+    if (status >= 500) {
+        return `Amazon servis hatası (${status}).${detail ? ` ${detail}` : ""}`;
+    }
+    if (detail) return detail;
+    return error.message || "Amazon isteği başarısız";
+};
 
 // ═══════════════════════════════════════════════════════════════════════
 // 🔐 AUTH — Login with Amazon (LWA) Token
@@ -84,6 +112,12 @@ const RATE_LIMIT_DELAY = 1000; // 1 saniye bekleme (burst rate koruması)
  */
 const getLwaAccessToken = async (clientId, clientSecret, refreshToken) => {
     try {
+        const cacheKey = buildLwaCacheKey(clientId, refreshToken);
+        const cached = lwaTokenCache.get(cacheKey);
+        if (cached && cached.token && cached.expiresAt > Date.now()) {
+            return cached.token;
+        }
+
         const body = qs.stringify({
             grant_type: "refresh_token",
             refresh_token: refreshToken,
@@ -99,6 +133,13 @@ const getLwaAccessToken = async (clientId, clientSecret, refreshToken) => {
         if (!response.data?.access_token) {
             throw new Error("LWA token yanıtında access_token bulunamadı");
         }
+
+        const expiresInSec = Number(response.data.expires_in || 3600);
+        const expiresAt = Date.now() + Math.max(60, expiresInSec - 60) * 1000; // 60sn buffer
+        lwaTokenCache.set(cacheKey, {
+            token: response.data.access_token,
+            expiresAt
+        });
 
         return response.data.access_token;
     } catch (error) {
@@ -177,16 +218,39 @@ const signedRequest = async ({ credentials, path, method = "GET", data = null, q
         sessionToken
     });
 
-    // 4. İstek at
-    const response = await axios({
-        url: `https://${host}${fullPath}`,
-        method,
-        headers: signed.headers,
-        data: data ? JSON.stringify(data) : undefined,
-        timeout: REQUEST_TIMEOUT
-    });
+    // 4. İstek at (rate limit / transient error retry ile)
+    let lastError;
+    for (let attempt = 1; attempt <= MAX_RETRY_ATTEMPTS; attempt++) {
+        try {
+            const response = await axios({
+                url: `https://${host}${fullPath}`,
+                method,
+                headers: signed.headers,
+                data: data ? JSON.stringify(data) : undefined,
+                timeout: REQUEST_TIMEOUT
+            });
+            return response.data;
+        } catch (error) {
+            lastError = error;
+            const status = error.response?.status;
+            const retriable = status === 429 || status === 500 || status === 502 || status === 503 || status === 504;
+            if (!retriable || attempt === MAX_RETRY_ATTEMPTS) {
+                break;
+            }
+            const jitter = Math.floor(Math.random() * 200);
+            const delay = RETRY_BASE_DELAY_MS * (2 ** (attempt - 1)) + jitter;
+            logger.warn("[Amazon] Geçici hata, retry uygulanıyor", {
+                path,
+                method,
+                attempt,
+                status,
+                delayMs: delay
+            });
+            await sleep(delay);
+        }
+    }
 
-    return response.data;
+    throw new Error(parseAmazonErrorMessage(lastError));
 };
 
 /**

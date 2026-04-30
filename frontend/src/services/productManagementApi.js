@@ -52,8 +52,15 @@ export const syncFromMarketplace = async (marketplaceId, marketplaceName) => {
     return res.data;
 };
 
-export const distributeProduct = async (productMappingId, targetMarketplaces) => {
-    const res = await API.post(`${BASE}/sync/distribute`, { productMappingId, targetMarketplaces });
+export const distributeProduct = async (productMappingId, targetMarketplaces, categoryData = null) => {
+    const category = categoryData
+        ? {
+            id: categoryData.id || categoryData.categoryId || categoryData.externalCategoryId,
+            name: categoryData.name || categoryData.categoryName || categoryData.externalCategoryName,
+            path: categoryData.path || categoryData.categoryPath || categoryData.externalCategoryPath
+        }
+        : null;
+    const res = await API.post(`${BASE}/sync/distribute`, { productMappingId, targetMarketplaces, category });
     return res.data;
 };
 
@@ -315,6 +322,15 @@ export const n11DebugRawProducts = async () => {
  */
 export const createAndDistribute = async (productData) => {
     const res = await API.post(`${BASE}/products/create-and-distribute`, productData);
+    return res.data;
+};
+
+export const uploadProductImage = async (file) => {
+    const formData = new FormData();
+    formData.append("image", file);
+    const res = await API.post(`${BASE}/products/upload-image`, formData, {
+        headers: { "Content-Type": "multipart/form-data" }
+    });
     return res.data;
 };
 

@@ -40,6 +40,16 @@ router.post("/sync/check-pending",   controller.checkPendingTasks);
 // 🚀 ÜRÜN YÜKLE & DAĞIT
 // ═══════════════════════════════════════════════════════════════
 router.post("/products/create-and-distribute", controller.createAndDistribute);
+router.post(
+    "/products/upload-image",
+    (req, res, next) => {
+        controller.imageUploadMiddleware(req, res, (err) => {
+            if (err) return res.status(400).json({ error: err.message });
+            next();
+        });
+    },
+    controller.uploadProductImage
+);
 router.post("/products/suggest-codes",         controller.suggestBarcodeAndSku);
 router.post("/products/generate-description",  controller.generateAIDescription);
 

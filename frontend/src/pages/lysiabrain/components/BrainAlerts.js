@@ -20,7 +20,7 @@ const LEVEL_CFG = {
 };
 
 const BrainAlerts = ({ t, onError }) => {
-    const { isMobile } = useResponsive();
+    useResponsive();
     const [loading, setLoading] = useState(true);
     const [data, setData] = useState(null);
     const [filter, setFilter] = useState("all");

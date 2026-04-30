@@ -39,6 +39,14 @@ const getBaseUrl = (isTestMode = false) => {
     return isTestMode ? CICEKSEPETI_TEST_URL : CICEKSEPETI_PROD_URL;
 };
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const parseRateLimitWaitMs = (message = "") => {
+    const m = String(message).match(/Kalan Süre:\s*(\d+)\s*saniye/i);
+    if (!m) return 5000;
+    return (Number(m[1]) + 1) * 1000;
+};
+
 // ═══════════════════════════════════════════════════════════════════════
 // 📦 SİPARİŞ YÖNETİMİ
 // ═══════════════════════════════════════════════════════════════════════
@@ -85,11 +93,28 @@ const getOrders = async (credentials, params = {}) => {
             page: requestBody.page
         });
 
-        const response = await axios.post(
-            `${baseUrl}/Order/GetOrders`,
-            requestBody,
-            { headers, timeout: 30000 }
-        );
+        let response;
+        try {
+            response = await axios.post(
+                `${baseUrl}/Order/GetOrders`,
+                requestBody,
+                { headers, timeout: 30000 }
+            );
+        } catch (firstErr) {
+            const msg = firstErr.response?.data?.Message || firstErr.response?.data?.message || "";
+            if (firstErr.response?.status === 400 && /Limit aşımı/i.test(msg)) {
+                const waitMs = parseRateLimitWaitMs(msg);
+                logger.warn(`[ÇiçekSepeti] GetOrders rate-limit, ${waitMs}ms sonra tekrar denenecek`);
+                await sleep(waitMs);
+                response = await axios.post(
+                    `${baseUrl}/Order/GetOrders`,
+                    requestBody,
+                    { headers, timeout: 30000 }
+                );
+            } else {
+                throw firstErr;
+            }
+        }
 
         if (response.data && response.data.supplierOrderListWithBranch) {
             logger.info(`[ÇiçekSepeti] ${response.data.orderListCount} sipariş bulundu`);

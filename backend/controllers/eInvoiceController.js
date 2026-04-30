@@ -3,6 +3,8 @@ const qnbService = require("../services/qnbEInvoiceService");
 const sovosService = require("../services/sovosEInvoiceService");
 const parasutService = require("../services/parasutEInvoiceService");
 const odealService = require("../services/odealEInvoiceService");
+const AutoInvoiceConfig = require("../models/AutoInvoiceConfig");
+const User = require("../models/User");
 const logger = require("../config/logger");
 
 /**
@@ -227,6 +229,8 @@ exports.searchDocuments = async (req, res) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 // ─── QNB Login (SOAP wsLogin) ───────────────────────────────────────────────
+// ✅ Başarılı login sonrası credential'lar AutoInvoiceConfig + User.companyInfo.qnb'ye kaydedilir.
+//    Böylece kullanıcı frontend'den bağlandığında otomatik fatura da aynı credential'ı kullanır.
 exports.qnbLogin = async (req, res) => {
     try {
         const { username, password, env, service } = req.body;
@@ -237,6 +241,46 @@ exports.qnbLogin = async (req, res) => {
         const result = await qnbService.login({ username, password, env, service });
         if (!result.success) {
             return res.status(result.status || 401).json({ success: false, message: result.error });
+        }
+
+        // ── Başarılı login → credential'ları DB'ye kaydet ────────────────
+        // Kullanıcı frontend'den QNB'ye bağlandığında, aynı credential'lar
+        // otomatik fatura (AutoInvoiceConfig) tarafından da kullanılsın.
+        if (req.user?._id) {
+            const userId = req.user._id;
+            const svc = service || "efatura";
+            try {
+                // 1. AutoInvoiceConfig güncelle
+                const configUpdate = { "qnbCredentials.env": env || "test" };
+                if (svc === "earsiv") {
+                    configUpdate["qnbCredentials.earsivUsername"] = username;
+                    configUpdate["qnbCredentials.earsivPassword"] = password;
+                } else {
+                    configUpdate["qnbCredentials.efaturaUsername"] = username;
+                    configUpdate["qnbCredentials.efaturaPassword"] = password;
+                }
+                await AutoInvoiceConfig.updateOne(
+                    { userId },
+                    { $set: configUpdate },
+                    { upsert: true }
+                );
+
+                // 2. User.companyInfo.qnb güncelle
+                const userUpdate = { "companyInfo.qnb.env": env || "test" };
+                if (svc === "earsiv") {
+                    userUpdate["companyInfo.qnb.earsivUsername"] = username;
+                    userUpdate["companyInfo.qnb.earsivPassword"] = password;
+                } else {
+                    userUpdate["companyInfo.qnb.efaturaUsername"] = username;
+                    userUpdate["companyInfo.qnb.efaturaPassword"] = password;
+                }
+                await User.updateOne({ _id: userId }, { $set: userUpdate });
+
+                logger.info("[QNB Controller] Login credential'ları DB'ye kaydedildi — userId=" + userId + " service=" + svc + " user=" + username);
+            } catch (dbErr) {
+                // DB kayıt hatası login'i engellemez — sadece logla
+                logger.warn("[QNB Controller] Credential DB kayıt hatası: " + dbErr.message);
+            }
         }
 
         res.json({ success: true, data: result });

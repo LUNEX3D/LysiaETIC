@@ -8,7 +8,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import API from "../../../services/api";
 import { T, fmt, useResponsive } from "../styles";
-import { Card, CardHeader, Badge, EmptyState, LoadingState, ErrorState, GlowLine, IconBox } from "./shared/SharedUI";
+import { Card, CardHeader, Badge, LoadingState, ErrorState, GlowLine, IconBox } from "./shared/SharedUI";
 
 const BrainMistakes = ({ t, onError }) => {
     const { isMobile } = useResponsive();

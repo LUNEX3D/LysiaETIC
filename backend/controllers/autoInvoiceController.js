@@ -4,12 +4,164 @@
  * Otomatik fatura kesme ayarları CRUD + manuel tetikleme + fatura listesi
  */
 
+const mongoose = require("mongoose");
 const AutoInvoiceConfig = require("../models/AutoInvoiceConfig");
 const Invoice = require("../models/Invoice");
 const Order = require("../models/Order");
+const User = require("../models/User");
 const { processManualBatchInvoice, processAllUninvoiced, normalizeMarketplaceName, MARKETPLACE_STATUS_MAP } = require("../services/autoInvoiceService");
 const qnbService = require("../services/qnbEInvoiceService");
 const logger = require("../config/logger");
+
+/**
+ * QNB HTML'ine <base> tag ekle — blob: URL'den açıldığında relative kaynaklar çözülsün
+ * @param {string} html - QNB'den gelen HTML string
+ * @param {string} env - "test" veya "production"
+ * @returns {string} <base> tag eklenmiş HTML
+ */
+const injectBaseTag = (html, env) => {
+    if (!html || typeof html !== "string" || html.includes("<base")) return html;
+    const baseUrl = env === "production"
+        ? "https://earsiv.qnbesolutions.com.tr/"
+        : "https://earsivtest.qnbesolutions.com.tr/";
+    return html.replace(/(<head[^>]*>)/i, '$1<base href="' + baseUrl + '" />');
+};
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  YARDIMCI: User.companyInfo ↔ AutoInvoiceConfig senkronizasyonu
+//  Firma bilgileri ve QNB credential'ları User.companyInfo'da TEK KAYNAK
+//  olarak tutulur. AutoInvoiceConfig kaydedilirken User'a da yazılır,
+//  config okunurken User'dan da doldurulur.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * AutoInvoiceConfig'deki supplier + qnbCredentials → User.companyInfo'ya yaz
+ */
+const syncConfigToUser = async (userId, supplier, qnbCredentials) => {
+    try {
+        const update = {};
+        if (supplier) {
+            if (supplier.vkn) update["companyInfo.vkn"] = supplier.vkn;
+            if (supplier.name) update["companyInfo.companyName"] = supplier.name;
+            if (supplier.taxOffice) update["companyInfo.taxOffice"] = supplier.taxOffice;
+            if (supplier.firstName) update["companyInfo.firstName"] = supplier.firstName;
+            if (supplier.lastName) update["companyInfo.lastName"] = supplier.lastName;
+            if (supplier.street) update["companyInfo.street"] = supplier.street;
+            if (supplier.district) update["companyInfo.district"] = supplier.district;
+            if (supplier.city) update["companyInfo.city"] = supplier.city;
+            if (supplier.country) update["companyInfo.country"] = supplier.country;
+            if (supplier.phone) update["companyInfo.phone"] = supplier.phone;
+            if (supplier.email) update["companyInfo.email"] = supplier.email;
+            // Eski profile alanlarını da güncelle (geriye uyumluluk)
+            if (supplier.name) update["profile.company"] = supplier.name;
+            if (supplier.vkn) update["profile.taxInfo.taxNumber"] = supplier.vkn;
+            if (supplier.taxOffice) update["profile.taxInfo.taxOffice"] = supplier.taxOffice;
+        }
+        if (qnbCredentials) {
+            if (qnbCredentials.earsivUsername) update["companyInfo.qnb.earsivUsername"] = qnbCredentials.earsivUsername;
+            if (qnbCredentials.earsivPassword) update["companyInfo.qnb.earsivPassword"] = qnbCredentials.earsivPassword;
+            if (qnbCredentials.efaturaUsername) update["companyInfo.qnb.efaturaUsername"] = qnbCredentials.efaturaUsername;
+            if (qnbCredentials.efaturaPassword) update["companyInfo.qnb.efaturaPassword"] = qnbCredentials.efaturaPassword;
+            if (qnbCredentials.env) update["companyInfo.qnb.env"] = qnbCredentials.env;
+        }
+        if (Object.keys(update).length > 0) {
+            await User.updateOne({ _id: userId }, { $set: update });
+            logger.info("[AutoInvoice] User.companyInfo senkronize edildi — userId=" + userId);
+        }
+    } catch (err) {
+        logger.warn("[AutoInvoice] User.companyInfo senkronizasyon hatası: " + err.message);
+    }
+};
+
+/**
+ * User.companyInfo'dan AutoInvoiceConfig'e eksik alanları doldur
+ * Kullanıcı daha önce profil sayfasından firma bilgisi girdiyse,
+ * fatura ayarlarına ilk girişte otomatik dolar.
+ */
+const fillConfigFromUser = async (userId, config) => {
+    try {
+        const user = await User.findById(userId).select("companyInfo profile").lean();
+        if (!user) return;
+
+        const ci = user.companyInfo || {};
+        const profile = user.profile || {};
+
+        // supplier alanlarını doldur (boş olanları)
+        if (!config.supplier.vkn && ci.vkn) config.supplier.vkn = ci.vkn;
+        if (!config.supplier.name && ci.companyName) config.supplier.name = ci.companyName;
+        if (!config.supplier.taxOffice && ci.taxOffice) config.supplier.taxOffice = ci.taxOffice;
+        if (!config.supplier.firstName && ci.firstName) config.supplier.firstName = ci.firstName;
+        if (!config.supplier.lastName && ci.lastName) config.supplier.lastName = ci.lastName;
+        if (!config.supplier.street && ci.street) config.supplier.street = ci.street;
+        if (!config.supplier.district && ci.district) config.supplier.district = ci.district;
+        if (!config.supplier.city && ci.city) config.supplier.city = ci.city;
+        if (!config.supplier.country && ci.country) config.supplier.country = ci.country;
+        if (!config.supplier.phone && (ci.phone || profile.phone)) config.supplier.phone = ci.phone || profile.phone;
+        if (!config.supplier.email && ci.email) config.supplier.email = ci.email;
+
+        // Eski profile.taxInfo'dan da doldur (geriye uyumluluk)
+        if (!config.supplier.vkn && profile.taxInfo?.taxNumber) config.supplier.vkn = profile.taxInfo.taxNumber;
+        if (!config.supplier.taxOffice && profile.taxInfo?.taxOffice) config.supplier.taxOffice = profile.taxInfo.taxOffice;
+        if (!config.supplier.name && profile.company) config.supplier.name = profile.company;
+
+        // qnbCredentials doldur (boş olanları)
+        const qnb = ci.qnb || {};
+        if (!config.qnbCredentials.earsivUsername && qnb.earsivUsername) config.qnbCredentials.earsivUsername = qnb.earsivUsername;
+        if (!config.qnbCredentials.earsivPassword && qnb.earsivPassword) config.qnbCredentials.earsivPassword = qnb.earsivPassword;
+        if (!config.qnbCredentials.efaturaUsername && qnb.efaturaUsername) config.qnbCredentials.efaturaUsername = qnb.efaturaUsername;
+        if (!config.qnbCredentials.efaturaPassword && qnb.efaturaPassword) config.qnbCredentials.efaturaPassword = qnb.efaturaPassword;
+        if (qnb.env) config.qnbCredentials.env = qnb.env;
+    } catch (err) {
+        logger.warn("[AutoInvoice] fillConfigFromUser hatası: " + err.message);
+    }
+};
+
+/**
+ * e-Arşiv credential çözümleme — tüm endpoint'ler için ortak
+ * Öncelik: config.qnbCredentials > User.companyInfo.qnb
+ * Kullanıcı adı QNB'den verildiği formatta olduğu gibi kullanılır
+ *
+ * @returns {{ earsivUsername, earsivPassword, env, vkn, credSource } | null}
+ */
+const resolveEarsivCredentials = async (userId, configOverride) => {
+    const config = configOverride || await AutoInvoiceConfig.findOne({ userId }).lean();
+    const configCreds = config?.qnbCredentials || {};
+    const env = configCreds.env || "test";
+
+    let userQnb = {};
+    try {
+        const user = await User.findById(userId).select("companyInfo.qnb").lean();
+        userQnb = user?.companyInfo?.qnb || {};
+    } catch (e) { /* ignore */ }
+
+    let earsivUsername = "";
+    let earsivPassword = "";
+    let credSource = "";
+
+    if (configCreds.earsivUsername && configCreds.earsivPassword) {
+        earsivUsername = configCreds.earsivUsername;
+        earsivPassword = configCreds.earsivPassword;
+        credSource = "AutoInvoiceConfig";
+    } else if (userQnb.earsivUsername && userQnb.earsivPassword) {
+        earsivUsername = userQnb.earsivUsername;
+        earsivPassword = userQnb.earsivPassword;
+        credSource = "User.companyInfo.qnb";
+    }
+
+    if (!earsivUsername || !earsivPassword) {
+        logger.warn("[AutoInvoice] e-Arşiv credentials eksik — userId=" + userId +
+            " config.earsivUsername=" + (configCreds.earsivUsername ? "'" + configCreds.earsivUsername + "'" : "(boş)") +
+            " user.earsivUsername=" + (userQnb.earsivUsername ? "'" + userQnb.earsivUsername + "'" : "(boş)"));
+        return null;
+    }
+
+    const vkn = config?.supplier?.vkn || earsivUsername.split(".")[0] || "";
+
+    logger.info("[AutoInvoice] e-Arşiv credentials çözümlendi — kaynak: " + credSource +
+        " user=" + earsivUsername + " vkn=" + vkn + " env=" + env);
+
+    return { earsivUsername, earsivPassword, env, vkn, credSource };
+};
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  AYAR YÖNETİMİ (Config CRUD)
@@ -38,7 +190,7 @@ exports.getConfig = async (req, res) => {
                 sendingType: "ELEKTRONIK",
                 supplier: { vkn: "", name: "", taxOffice: "", street: "", district: "", city: "", country: "Turkiye", phone: "", email: "" },
                 defaultCustomer: { vkn: "11111111111", name: "Nihai Tüketici", firstName: "Nihai", lastName: "Tüketici", city: "Istanbul", district: "Merkez", country: "Turkiye" },
-                qnbCredentials: { username: "", password: "", env: "test" },
+                qnbCredentials: { username: "", password: "", earsivUsername: "", earsivPassword: "", efaturaUsername: "", efaturaPassword: "", env: "test" },
                 defaultVatRate: 20,
                 pricesIncludeVat: true,
                 defaultNote: "",
@@ -46,6 +198,11 @@ exports.getConfig = async (req, res) => {
                 stats: { totalInvoicesCreated: 0, consecutiveErrors: 0 },
             };
         }
+
+        // User.companyInfo'dan eksik alanları otomatik doldur
+        // Kullanıcı daha önce profil sayfasından firma bilgisi girdiyse,
+        // fatura ayarlarına ilk girişte otomatik dolar.
+        await fillConfigFromUser(userId, config);
 
         res.json({ success: true, data: config });
     } catch (error) {
@@ -66,7 +223,7 @@ exports.saveConfig = async (req, res) => {
             documentType, invoiceTypeCode, invoiceSeriesCode, currency, sendingType,
             supplier, defaultCustomer, qnbCredentials,
             defaultVatRate, pricesIncludeVat, defaultNote,
-            marketplaceSettings
+            marketplaceSettings, autoInvoiceStartDate
         } = req.body;
 
         // Validasyon
@@ -97,10 +254,14 @@ exports.saveConfig = async (req, res) => {
         if (defaultCustomer) config.defaultCustomer = { ...config.defaultCustomer.toObject?.() || config.defaultCustomer, ...defaultCustomer };
         if (qnbCredentials) {
             const merged = { ...config.qnbCredentials.toObject?.() || config.qnbCredentials, ...qnbCredentials };
-            // Kullanıcı sadece username/password girdiyse, earsiv alanlarına da kopyala (boşsa)
-            if (merged.username && !merged.earsivUsername) merged.earsivUsername = merged.username;
-            if (merged.password && !merged.earsivPassword) merged.earsivPassword = merged.password;
+            // ⚠️ ÖNEMLİ: e-Arşiv ve e-Fatura FARKLI ortamlar — FARKLI credentials!
+            //   Her kullanıcı QNB'den aldığı kullanıcı adı/şifreyi olduğu gibi girer.
+            //   Eski "username" alanı e-Fatura'ya aittir — e-Arşiv'e kopyalanMAMALI!
             config.qnbCredentials = merged;
+
+            // Credentials değiştiğinde login cooldown'ını temizle
+            // Böylece yeni şifre ile hemen tekrar login denenebilir
+            qnbService.clearLoginCooldown();
         }
         if (defaultVatRate !== undefined) config.defaultVatRate = defaultVatRate;
         if (pricesIncludeVat !== undefined) config.pricesIncludeVat = pricesIncludeVat;
@@ -118,7 +279,26 @@ exports.saveConfig = async (req, res) => {
             config.stats.consecutiveErrors = 0;
         }
 
+        // ── autoInvoiceStartDate yönetimi ────────────────────────────────
+        // Kullanıcı ayarlardan özel bir başlangıç tarihi belirleyebilir.
+        // Belirlemediyse ve ilk kez kayıt yapılıyorsa şu anı set et.
+        // Bu tarihten önceki siparişler otomatik faturalanmaz (mükerrer engeli).
+        if (autoInvoiceStartDate) {
+            const parsed = new Date(autoInvoiceStartDate);
+            if (!isNaN(parsed.getTime())) {
+                config.autoInvoiceStartDate = parsed;
+            }
+        } else if (!config.autoInvoiceStartDate) {
+            config.autoInvoiceStartDate = new Date();
+            logger.info("[AutoInvoice] 📅 autoInvoiceStartDate ilk kayıtta set edildi — userId=" + userId);
+        }
+
         await config.save();
+
+        // ── User.companyInfo'yu senkronize et (tek kaynak) ────────────────
+        // Fatura ayarlarından girilen firma bilgileri ve QNB credential'ları
+        // User modeline de yazılır — böylece tüm servisler tutarlı veri okur.
+        await syncConfigToUser(userId, supplier, qnbCredentials);
 
         logger.info("[AutoInvoice] Config güncellendi — userId=" + userId + " enabled=" + config.enabled);
         res.json({ success: true, data: config, message: "Ayarlar kaydedildi." });
@@ -152,6 +332,18 @@ exports.toggleEnabled = async (req, res) => {
         config.enabled = !config.enabled;
         if (config.enabled) {
             config.stats.consecutiveErrors = 0; // Açılırken hata sayacını sıfırla
+            // Aktif edilirken login cooldown'ını da temizle
+            qnbService.clearLoginCooldown();
+
+            // ── Mükerrer fatura koruması ──────────────────────────────────
+            // İlk kez aktif ediliyorsa autoInvoiceStartDate'i şu ana set et.
+            // Bu tarihten önceki siparişler otomatik faturalanmaz.
+            // Böylece kullanıcının daha önce manuel kestiği faturalar
+            // tekrar kesilmez.
+            if (!config.autoInvoiceStartDate) {
+                config.autoInvoiceStartDate = new Date();
+                logger.info("[AutoInvoice] 📅 autoInvoiceStartDate set edildi — userId=" + userId + " tarih=" + config.autoInvoiceStartDate.toISOString());
+            }
         }
         await config.save();
 
@@ -159,6 +351,7 @@ exports.toggleEnabled = async (req, res) => {
         res.json({
             success: true,
             enabled: config.enabled,
+            autoInvoiceStartDate: config.autoInvoiceStartDate,
             message: config.enabled ? "Otomatik fatura aktif edildi." : "Otomatik fatura devre dışı bırakıldı."
         });
     } catch (error) {
@@ -456,19 +649,53 @@ exports.getStats = async (req, res) => {
             ]),
         ]);
 
-        // Faturasız sipariş sayısı (sadece son 30 gün — eski tarihsel siparişler hariç)
+        // Faturasız sipariş sayısı
+        // autoInvoiceStartDate varsa o tarihten itibaren, yoksa son 30 gün
         const thirtyDaysAgo = new Date();
         thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        const startDateFilter = config && config.autoInvoiceStartDate
+            ? config.autoInvoiceStartDate
+            : thirtyDaysAgo;
 
-        const uninvoicedOrders = await Order.countDocuments({
-            user: userId,
-            invoiceId: { $exists: false },
-            invoiceStatus: { $nin: ["created", "pending"] },
-            isCancelled: false,
-            isReturned: false,
-            totalPrice: { $gt: 0 },
-            createdAt: { $gte: thirtyDaysAgo },
-        });
+        // ✅ FIX: "error" durumundaki siparişleri "faturasız" olarak sayma
+        // Bunlar ayrı "errorOrders" olarak gösterilecek
+        const [uninvoicedOrders, errorOrders] = await Promise.all([
+            Order.countDocuments({
+                user: userId,
+                invoiceId: { $exists: false },
+                invoiceStatus: { $nin: ["created", "pending", "error"] },
+                isCancelled: false,
+                isReturned: false,
+                totalPrice: { $gt: 0 },
+                orderDate: { $gte: startDateFilter },
+            }),
+            Order.countDocuments({
+                user: userId,
+                invoiceId: { $exists: false },
+                invoiceStatus: "error",
+                isCancelled: false,
+                isReturned: false,
+                totalPrice: { $gt: 0 },
+                orderDate: { $gte: startDateFilter },
+            }),
+        ]);
+
+        // ✅ FIX: Otomatik fatura neden çalışmıyor bilgisi
+        // Kullanıcıya "50 faturasız sipariş var" deyip neden faturalanmadığını açıkla
+        let autoInvoiceWarning = "";
+        if ((uninvoicedOrders > 0 || errorOrders > 0) && config) {
+            if (!config.enabled) {
+                autoInvoiceWarning = "Otomatik fatura devre dışı. Ayarlardan aktif edin.";
+            } else if (config.stats && config.stats.consecutiveErrors >= 5) {
+                autoInvoiceWarning = "Ardışık hata limiti aşıldı (" + config.stats.consecutiveErrors + " hata). Hata sayacını sıfırlayın.";
+            } else if (!config.supplier || !config.supplier.vkn) {
+                autoInvoiceWarning = "Satıcı VKN bilgisi eksik. Ayarlardan firma bilgilerinizi girin.";
+            } else if (!config.qnbCredentials || (!config.qnbCredentials.earsivUsername && !config.qnbCredentials.username)) {
+                autoInvoiceWarning = "QNB e-Arşiv kullanıcı bilgileri eksik. Ayarlardan QNB bağlantı bilgilerinizi girin.";
+            }
+        } else if ((uninvoicedOrders > 0 || errorOrders > 0) && !config) {
+            autoInvoiceWarning = "Otomatik fatura ayarları yapılmamış. Lütfen önce ayarları yapın.";
+        }
 
         res.json({
             success: true,
@@ -482,6 +709,8 @@ exports.getStats = async (req, res) => {
                 todayInvoices,
                 totalAmount: totalAmount.length > 0 ? totalAmount[0].total : 0,
                 uninvoicedOrders,
+                errorOrders,
+                autoInvoiceWarning,
                 byMarketplace: byMarketplace.map(m => ({ marketplace: m._id || "Diğer", count: m.count })),
                 byStatus: byStatus.map(s => ({ status: s._id, count: s.count })),
             }
@@ -602,15 +831,27 @@ exports.getQnbInvoices = async (req, res) => {
         const filter = { userId };
 
         // Tarih filtresi
+        // Frontend "20260318" (YYYYMMDD) veya "2026-03-18" (ISO) formatında gönderebilir
         if (req.query.startDate || req.query.endDate) {
             filter.issueDate = {};
             if (req.query.startDate) {
-                filter.issueDate.$gte = new Date(req.query.startDate);
+                const sd = req.query.startDate.replace(/^(\d{4})(\d{2})(\d{2})$/, "$1-$2-$3");
+                const parsed = new Date(sd);
+                if (!isNaN(parsed.getTime())) {
+                    filter.issueDate.$gte = parsed;
+                }
             }
             if (req.query.endDate) {
-                const end = new Date(req.query.endDate);
-                end.setHours(23, 59, 59, 999);
-                filter.issueDate.$lte = end;
+                const ed = req.query.endDate.replace(/^(\d{4})(\d{2})(\d{2})$/, "$1-$2-$3");
+                const parsed = new Date(ed);
+                if (!isNaN(parsed.getTime())) {
+                    parsed.setHours(23, 59, 59, 999);
+                    filter.issueDate.$lte = parsed;
+                }
+            }
+            // Her iki tarih de geçersizse filtreyi kaldır
+            if (Object.keys(filter.issueDate).length === 0) {
+                delete filter.issueDate;
             }
         }
 
@@ -700,31 +941,26 @@ exports.getQnbInvoicePreview = async (req, res) => {
             return res.status(400).json({ success: false, message: "Fatura UUID gerekli." });
         }
 
-        const config = await AutoInvoiceConfig.findOne({ userId }).lean();
-        const configCreds = config?.qnbCredentials || {};
-        const env = configCreds.env || "test";
-
-        // ⚠️ e-Arşiv credentials — eski "username" alanı e-Fatura'ya ait, e-Arşiv için KULLANMA!
-        const earsivUsername = configCreds.earsivUsername || process.env.QNB_EARSIV_USERNAME || "";
-        const earsivPassword = configCreds.earsivPassword || process.env.QNB_EARSIV_PASSWORD || "";
-        const vkn = config?.supplier?.vkn || earsivUsername.split(".")[0] || "";
-
-        if (!earsivUsername || !earsivPassword) {
-            return res.status(400).json({ success: false, message: "e-Arşiv bağlantı bilgileri eksik." });
+        // ── Credential çözümleme (ortak helper) ─────────────────────────
+        const creds = await resolveEarsivCredentials(userId);
+        if (!creds) {
+            return res.status(400).json({ success: false, message: "e-Arşiv bağlantı bilgileri eksik. Lütfen Faturalandırma ayarlarından QNB kullanıcı adı ve şifrenizi girin." });
         }
 
         const loginResult = await qnbService.login({
-            username: earsivUsername,
-            password: earsivPassword,
-            env,
+            username: creds.earsivUsername,
+            password: creds.earsivPassword,
+            env: creds.env,
             service: "earsiv"
         });
 
         if (!loginResult.success) {
-            return res.status(502).json({ success: false, message: "e-Arşiv oturumu açılamadı: " + loginResult.error });
+            return res.status(502).json({ success: false, message: "e-Arşiv oturumu açılamadı (" + creds.earsivUsername + "): " + loginResult.error });
         }
 
         const sessionId = loginResult.sessionId;
+        const vkn = creds.vkn;
+        const env = creds.env;
 
         try {
             // faturaOnizleme ile HTML çek
@@ -739,16 +975,53 @@ exports.getQnbInvoicePreview = async (req, res) => {
             try { await qnbService.logout({ sessionId, env, service: "earsiv" }); } catch (e) { /* ignore */ }
 
             if (previewResult.success && previewResult.data) {
-                const htmlData = previewResult.data;
+                let htmlData = previewResult.data;
+
+                // Object ise JSON string'e çevir (debug amaçlı)
+                if (typeof htmlData === "object") {
+                    // Object içinde belgeIcerigi veya HTML alanı olabilir
+                    const possibleHtml = htmlData.belgeIcerigi || htmlData.content || htmlData.htmlContent || htmlData.data;
+                    if (typeof possibleHtml === "string" && possibleHtml.length > 0) {
+                        // Base64 dene
+                        try {
+                            const decoded = Buffer.from(possibleHtml, "base64").toString("utf-8");
+                            if (decoded.includes("<html") || decoded.includes("<HTML") || decoded.includes("<!DOCTYPE")) {
+                                htmlData = decoded;
+                            }
+                        } catch (e) { /* ignore */ }
+                        if (typeof htmlData === "object" && (possibleHtml.includes("<html") || possibleHtml.includes("<HTML"))) {
+                            htmlData = possibleHtml;
+                        }
+                    }
+                    // Hâlâ object ise — JSON olarak logla ve hata dön
+                    if (typeof htmlData === "object") {
+                        logger.warn("[AutoInvoice] Preview data object döndü, HTML değil: " + JSON.stringify(htmlData).substring(0, 300));
+                        return res.status(404).json({ success: false, message: "Fatura önizlemesi HTML formatında alınamadı. QNB yanıtı beklenmeyen formatta." });
+                    }
+                }
+
                 if (typeof htmlData === "string" &&
                     (htmlData.includes("<html") || htmlData.includes("<HTML") || htmlData.includes("<!DOCTYPE"))) {
                     res.setHeader("Content-Type", "text/html; charset=utf-8");
                     res.setHeader("Content-Disposition", "inline; filename=\"fatura-" + uuid.substring(0, 8) + ".html\"");
-                    return res.send(htmlData);
+                    return res.send(injectBaseTag(htmlData, env));
+                }
+
+                // HTML tag yok ama string — base64 encoded olabilir
+                if (typeof htmlData === "string" && htmlData.length > 100) {
+                    try {
+                        const decoded = Buffer.from(htmlData, "base64").toString("utf-8");
+                        if (decoded.includes("<html") || decoded.includes("<HTML") || decoded.includes("<!DOCTYPE")) {
+                            res.setHeader("Content-Type", "text/html; charset=utf-8");
+                            res.setHeader("Content-Disposition", "inline; filename=\"fatura-" + uuid.substring(0, 8) + ".html\"");
+                            logger.info("[AutoInvoice] ✅ Base64 decode ile HTML preview döndürüldü");
+                            return res.send(injectBaseTag(decoded, env));
+                        }
+                    } catch (e) { /* ignore */ }
                 }
             }
 
-            return res.status(404).json({ success: false, message: "Fatura önizlemesi alınamadı." });
+            return res.status(404).json({ success: false, message: "Fatura önizlemesi alınamadı. QNB'de bu UUID ile fatura bulunamadı olabilir." });
 
         } catch (err) {
             try { await qnbService.logout({ sessionId, env, service: "earsiv" }); } catch (e) { /* ignore */ }
@@ -818,8 +1091,69 @@ exports.getInvoicePdf = async (req, res) => {
         const userId = req.user._id;
         const { invoiceId } = req.params;
 
-        // Faturayı bul
-        const invoice = await Invoice.findOne({ _id: invoiceId, userId }).lean();
+        // ── Faturayı bul — MongoDB _id VEYA UUID ile ────────────────────
+        // Frontend'den gelen invoiceId, DB'deki _id olabilir (ObjectId)
+        // veya QNB arama sonuçlarından gelen UUID olabilir (GUID formatı)
+        let invoice = null;
+        const isObjectId = mongoose.Types.ObjectId.isValid(invoiceId);
+
+        if (isObjectId) {
+            invoice = await Invoice.findOne({ _id: invoiceId, userId }).lean();
+        }
+        // ObjectId değilse veya ObjectId ile bulunamadıysa → UUID ile dene
+        if (!invoice) {
+            invoice = await Invoice.findOne({ uuid: invoiceId, userId }).lean();
+        }
+
+        // DB'de hiç kayıt yok ama invoiceId UUID formatında →
+        // Doğrudan QNB'den faturaOnizleme ile çek (DB kaydı olmadan)
+        const isUuidFormat = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(invoiceId);
+        if (!invoice && isUuidFormat) {
+            logger.info("[AutoInvoice] DB'de fatura bulunamadı, UUID ile doğrudan QNB'den çekilecek — uuid=" + invoiceId);
+
+            const creds = await resolveEarsivCredentials(userId);
+            if (!creds) {
+                return res.status(400).json({ success: false, message: "e-Arşiv bağlantı bilgileri eksik." });
+            }
+
+            const loginResult = await qnbService.login({
+                username: creds.earsivUsername,
+                password: creds.earsivPassword,
+                env: creds.env,
+                service: "earsiv"
+            });
+            if (!loginResult.success) {
+                return res.status(502).json({ success: false, message: "e-Arşiv oturumu açılamadı: " + loginResult.error });
+            }
+
+            try {
+                const previewResult = await qnbService.previewEArchiveInvoice({
+                    sessionId: loginResult.sessionId,
+                    vkn: creds.vkn,
+                    uuid: invoiceId,
+                    env: creds.env
+                });
+
+                try { await qnbService.logout({ sessionId: loginResult.sessionId, env: creds.env, service: "earsiv" }); } catch (e) { /* ignore */ }
+
+                if (previewResult.success && previewResult.data) {
+                    const htmlData = previewResult.data;
+                    if (typeof htmlData === "string" &&
+                        (htmlData.includes("<html") || htmlData.includes("<HTML") || htmlData.includes("<!DOCTYPE"))) {
+                        res.setHeader("Content-Type", "text/html; charset=utf-8");
+                        res.setHeader("Content-Disposition", "inline; filename=\"fatura-" + invoiceId.substring(0, 8) + ".html\"");
+                        logger.info("[AutoInvoice] ✅ UUID ile doğrudan QNB preview döndürüldü");
+                        return res.send(injectBaseTag(htmlData, creds.env));
+                    }
+                }
+
+                return res.status(404).json({ success: false, message: "Fatura önizlemesi QNB'den alınamadı." });
+            } catch (err) {
+                try { await qnbService.logout({ sessionId: loginResult.sessionId, env: creds.env, service: "earsiv" }); } catch (e) { /* ignore */ }
+                throw err;
+            }
+        }
+
         if (!invoice) {
             return res.status(404).json({ success: false, message: "Fatura bulunamadı." });
         }
@@ -828,18 +1162,9 @@ exports.getInvoicePdf = async (req, res) => {
             return res.status(400).json({ success: false, message: "Fatura UUID veya numarası eksik." });
         }
 
-        // ── Credential'ları belirle ─────────────────────────────────────
-        const env = invoice.env || "test";
-
-        // Önce kullanıcının kendi config'inden al
-        const config = await AutoInvoiceConfig.findOne({ userId }).lean();
-        const configCreds = config?.qnbCredentials || {};
-
-        // ⚠️ e-Arşiv credentials — eski "username" alanı e-Fatura'ya ait, e-Arşiv için KULLANMA!
-        const earsivUsername = configCreds.earsivUsername || process.env.QNB_EARSIV_USERNAME || "";
-        const earsivPassword = configCreds.earsivPassword || process.env.QNB_EARSIV_PASSWORD || "";
-
-        if (!earsivUsername || !earsivPassword) {
+        // ── Credential çözümleme (ortak helper) ─────────────────────────
+        const creds = await resolveEarsivCredentials(userId);
+        if (!creds) {
             return res.status(400).json({
                 success: false,
                 message: "e-Arşiv bağlantı bilgileri eksik. Lütfen Faturalandırma ayarlarından QNB kullanıcı adı ve şifrenizi girin."
@@ -848,18 +1173,19 @@ exports.getInvoicePdf = async (req, res) => {
 
         // ── QNB Login ───────────────────────────────────────────────────
         const loginResult = await qnbService.login({
-            username: earsivUsername,
-            password: earsivPassword,
-            env,
+            username: creds.earsivUsername,
+            password: creds.earsivPassword,
+            env: creds.env,
             service: "earsiv"
         });
 
         if (!loginResult.success) {
-            return res.status(502).json({ success: false, message: "e-Arşiv oturumu açılamadı: " + loginResult.error });
+            return res.status(502).json({ success: false, message: "e-Arşiv oturumu açılamadı (" + creds.earsivUsername + "): " + loginResult.error });
         }
 
         const sessionId = loginResult.sessionId;
-        const vkn = invoice.supplier?.vkn || config?.supplier?.vkn || earsivUsername.split(".")[0] || "";
+        const vkn = invoice.supplier?.vkn || creds.vkn;
+        const env = creds.env;
 
         try {
             // ── Strateji 1: faturaOnizleme (HTML Preview) — EN GÜVENİLİR ──
@@ -886,7 +1212,7 @@ exports.getInvoicePdf = async (req, res) => {
                     res.setHeader("Content-Type", "text/html; charset=utf-8");
                     res.setHeader("Content-Disposition", "inline; filename=\"" + (invoice.invoiceNumber || "fatura") + ".html\"");
                     logger.info("[AutoInvoice] ✅ HTML preview başarıyla döndürüldü");
-                    return res.send(htmlData);
+                    return res.send(injectBaseTag(htmlData, env));
                 }
             }
 
@@ -907,7 +1233,7 @@ exports.getInvoicePdf = async (req, res) => {
                         res.setHeader("Content-Type", "text/html; charset=utf-8");
                         res.setHeader("Content-Disposition", "inline; filename=\"" + (invoice.invoiceNumber || "fatura") + ".html\"");
                         logger.info("[AutoInvoice] ✅ faturaURL başarıyla döndürüldü");
-                        return res.send(htmlResp.data);
+                        return res.send(injectBaseTag(htmlResp.data, env));
                     }
                 } catch (urlErr) {
                     logger.warn("[AutoInvoice] faturaURL erişim hatası: " + (urlErr.response?.status || urlErr.message));
@@ -974,7 +1300,7 @@ exports.getInvoicePdf = async (req, res) => {
                         res.setHeader("Content-Type", "text/html; charset=utf-8");
                         res.setHeader("Content-Disposition", "inline; filename=\"" + (invoice.invoiceNumber || "fatura") + ".html\"");
                         logger.info("[AutoInvoice] ✅ Oluşturulan URL başarıyla döndürüldü");
-                        return res.send(htmlResp.data);
+                        return res.send(injectBaseTag(htmlResp.data, env));
                     }
                 } catch (urlErr) {
                     logger.warn("[AutoInvoice] Oluşturulan faturaURL erişim hatası: " + (urlErr.response?.status || urlErr.message));

@@ -8,7 +8,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import API from "../../../services/api";
 import { T, fmt, fmtP, useResponsive } from "../styles";
-import { Card, CardHeader, Badge, Btn, ScoreRing, StatCard, EmptyState, LoadingState, ErrorState, IconBox, Input } from "./shared/SharedUI";
+import { Card, Badge, Btn, ScoreRing, StatCard, EmptyState, LoadingState, ErrorState, IconBox, Input } from "./shared/SharedUI";
 
 const SEV_COLOR = { critical: T.red, high: T.yellow, medium: T.blue, low: T.textDim };
 const SEV_DIM = { critical: T.redDim, high: T.yellowDim, medium: T.blueDim, low: T.bgGlass };
@@ -16,7 +16,7 @@ const SEV_DIM = { critical: T.redDim, high: T.yellowDim, medium: T.blueDim, low:
 const PAGE_SIZE = 30;
 
 const BrainAdvisor = ({ t, onError }) => {
-    const { isMobile, isTablet } = useResponsive();
+    const { isMobile } = useResponsive();
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [products, setProducts] = useState([]);

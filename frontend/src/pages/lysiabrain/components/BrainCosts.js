@@ -9,7 +9,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import API from "../../../services/api";
 import { T, fmt, fmtN, fmtP, useResponsive } from "../styles";
-import { Card, CardHeader, Badge, Btn, StatCard, EmptyState, LoadingState, ErrorState, Input, GlowLine } from "./shared/SharedUI";
+import { Card, CardHeader, Badge, Btn, StatCard, EmptyState, LoadingState, ErrorState, Input } from "./shared/SharedUI";
 
 const PAGE_SIZE = 30;
 
@@ -21,7 +21,7 @@ const BrainCosts = ({ t, onError }) => {
     const [error, setError] = useState(null);
     const [products, setProducts] = useState([]);
     const [stats, setStats] = useState({ total: 0, withCost: 0, withoutCost: 0 });
-    const [totalCount, setTotalCount] = useState(0);
+    const [, setTotalCount] = useState(0);
 
     // Filters
     const [search, setSearch] = useState("");

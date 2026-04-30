@@ -17,6 +17,9 @@ const Payment = require("../../models/Payment");
 const Ticket = require("../../models/Ticket");
 const AuditLog = require("../../models/AuditLog");
 const Announcement = require("../../models/Announcement");
+const AutoInvoiceConfig = require("../../models/AutoInvoiceConfig");
+const Invoice = require("../../models/Invoice");
+const AutoOrderConfig = require("../../models/AutoOrderConfig");
 const logger = require("../../config/logger");
 
 /* ═══════════════════════════════════════════════════════════
@@ -207,6 +210,7 @@ exports.getDashboardMetrics = async (req, res) => {
 exports.getTenants = async (req, res) => {
     try {
         const users = await User.find().select("-password").sort({ createdAt: -1 });
+        const now = new Date();
 
         // Her kullanıcı için ek bilgiler
         const enriched = await Promise.all(users.map(async (user) => {
@@ -234,6 +238,33 @@ exports.getTenants = async (req, res) => {
                 u.stats = { marketplaces: 0, products: 0, orders: 0, revenue: 0 };
                 u.activeSubscription = null;
             }
+
+            // ✅ Gerçek abonelik durumunu hesapla — DB'deki status güncel olmayabilir
+            const sub = u.subscription || {};
+            let computedStatus = sub.status || "none";
+            if (["admin", "dev"].includes(u.role)) {
+                computedStatus = "active"; // Admin/dev her zaman aktif
+            } else if (sub.status === "trial" || sub.plan === "trial") {
+                const trialEnd = sub.trialEndDate ? new Date(sub.trialEndDate) : null;
+                if (!trialEnd || trialEnd <= now) computedStatus = "expired";
+                else computedStatus = "trial";
+            } else if (sub.status === "active") {
+                const endDate = sub.endDate ? new Date(sub.endDate) : null;
+                if (endDate && endDate <= now) computedStatus = "expired";
+            } else if (!sub.status || sub.status === "none") {
+                computedStatus = "expired";
+            }
+            u.computedSubscriptionStatus = computedStatus;
+
+            // Kalan gün hesapla
+            const relevantEnd = sub.endDate || sub.trialEndDate;
+            if (relevantEnd) {
+                const endMs = new Date(relevantEnd).getTime();
+                u.subscriptionDaysLeft = Math.ceil((endMs - now.getTime()) / (1000 * 60 * 60 * 24));
+            } else {
+                u.subscriptionDaysLeft = 0;
+            }
+
             return u;
         }));
 
@@ -246,32 +277,137 @@ exports.getTenants = async (req, res) => {
 
 exports.getTenantDetail = async (req, res) => {
     try {
-        const user = await User.findById(req.params.id).select("-password");
+        const user = await User.findById(req.params.id).select("-password -refreshTokens -security.twoFactorSecret -security.twoFactorBackupCodes");
         if (!user) return res.status(404).json({ success: false, message: "Kullanıcı bulunamadı" });
 
-        const [marketplaces, products, orders, subscription, payments, tickets] = await Promise.all([
-            Marketplace.find({ userId: user._id }),
-            ProductMapping.countDocuments({ userId: user._id }),
-            Order.find({ user: user._id }).sort({ createdAt: -1 }).limit(20),
-            Subscription.findOne({ userId: user._id }).sort({ createdAt: -1 }),
-            Payment.find({ userId: user._id }).sort({ createdAt: -1 }).limit(10),
-            Ticket.find({ userId: user._id }).sort({ createdAt: -1 }).limit(10),
+        const uid = user._id;
+
+        // Tüm verileri paralel çek
+        const [
+            marketplaces, productCount, orders, subscription, payments, tickets,
+            autoInvoiceConfig, invoiceCount, recentInvoices, autoOrderConfigs
+        ] = await Promise.all([
+            Marketplace.find({ userId: uid }).lean(),
+            ProductMapping.countDocuments({ userId: uid }),
+            Order.find({ user: uid }).sort({ createdAt: -1 }).limit(20).lean(),
+            Subscription.findOne({ userId: uid }).sort({ createdAt: -1 }).lean(),
+            Payment.find({ userId: uid }).sort({ createdAt: -1 }).limit(10).lean(),
+            Ticket.find({ userId: uid }).sort({ createdAt: -1 }).limit(10).lean(),
+            AutoInvoiceConfig.findOne({ userId: uid }).lean(),
+            Invoice.countDocuments({ userId: uid }),
+            Invoice.find({ userId: uid }).sort({ createdAt: -1 }).limit(10).lean(),
+            AutoOrderConfig.find({ user: uid }).lean(),
         ]);
 
+        // Sipariş istatistikleri
         const orderRevenue = await Order.aggregate([
-            { $match: { user: user._id } },
+            { $match: { user: uid } },
             { $group: { _id: null, total: { $sum: "$totalPrice" }, count: { $sum: 1 } } }
         ]);
 
+        // Pazaryeri bazında sipariş dağılımı
+        const ordersByMarketplace = await Order.aggregate([
+            { $match: { user: uid } },
+            { $group: { _id: "$marketplaceName", count: { $sum: 1 }, revenue: { $sum: "$totalPrice" } } },
+            { $sort: { count: -1 } }
+        ]);
+
+        // Fatura istatistikleri
+        const invoiceStats = await Invoice.aggregate([
+            { $match: { userId: uid } },
+            { $group: { _id: "$status", count: { $sum: 1 }, total: { $sum: "$totals.payableAmount" } } }
+        ]);
+
+        // ── Entegrasyon detayları (credential'ları maskele) ────────────
+        const safeMarketplaces = marketplaces.map(mp => {
+            const creds = mp.credentials || {};
+            const maskedCreds = {};
+            for (const [key, val] of Object.entries(creds)) {
+                if (typeof val === "string" && (key.toLowerCase().includes("secret") || key.toLowerCase().includes("password"))) {
+                    maskedCreds[key] = val ? "••••" + val.slice(-4) : "";
+                } else {
+                    maskedCreds[key] = val;
+                }
+            }
+            return { ...mp, credentials: maskedCreds };
+        });
+
+        // ── QNB credential'ları maskele ─────────────────────────
+        let safeInvoiceConfig = null;
+        if (autoInvoiceConfig) {
+            const qnb = autoInvoiceConfig.qnbCredentials || {};
+            safeInvoiceConfig = {
+                ...autoInvoiceConfig,
+                qnbCredentials: {
+                    earsivUsername: qnb.earsivUsername || "",
+                    earsivPassword: qnb.earsivPassword ? "••••" + qnb.earsivPassword.slice(-3) : "",
+                    efaturaUsername: qnb.efaturaUsername || "",
+                    efaturaPassword: qnb.efaturaPassword ? "••••" + qnb.efaturaPassword.slice(-3) : "",
+                    env: qnb.env || "test",
+                    // Eski alanlar
+                    username: qnb.username || "",
+                    password: qnb.password ? "••••" : "",
+                },
+            };
+        }
+
+        // ── User.companyInfo QNB maskele ───────────────────────
+        const tenantObj = user.toObject();
+        if (tenantObj.companyInfo?.qnb) {
+            const q = tenantObj.companyInfo.qnb;
+            tenantObj.companyInfo.qnb = {
+                earsivUsername: q.earsivUsername || "",
+                earsivPassword: q.earsivPassword ? "••••" + q.earsivPassword.slice(-3) : "",
+                efaturaUsername: q.efaturaUsername || "",
+                efaturaPassword: q.efaturaPassword ? "••••" + q.efaturaPassword.slice(-3) : "",
+                env: q.env || "test",
+            };
+        }
+
         res.json({
             success: true,
-            tenant: user.toObject(),
-            marketplaces,
-            productCount: products,
+            tenant: tenantObj,
+            // Entegrasyonlar
+            marketplaces: safeMarketplaces,
+            // Ürünler
+            productCount,
+            // Siparişler
             recentOrders: orders,
-            orderStats: { total: orderRevenue[0]?.count || 0, revenue: orderRevenue[0]?.total || 0 },
+            orderStats: {
+                total: orderRevenue[0]?.count || 0,
+                revenue: orderRevenue[0]?.total || 0,
+                byMarketplace: ordersByMarketplace.map(m => ({ marketplace: m._id || "Diğer", count: m.count, revenue: m.revenue })),
+            },
+            // Abonelik & Ödeme
             subscription: subscription || null,
             payments,
+            // Faturalama
+            invoiceConfig: safeInvoiceConfig,
+            invoiceStats: {
+                total: invoiceCount,
+                byStatus: invoiceStats.map(s => ({ status: s._id, count: s.count, total: s.total })),
+            },
+            recentInvoices: recentInvoices.map(inv => ({
+                _id: inv._id,
+                invoiceNumber: inv.invoiceNumber || "",
+                uuid: inv.uuid || "",
+                profileId: inv.profileId || "",
+                status: inv.status || "",
+                issueDate: inv.issueDate,
+                customer: inv.customer?.name || "",
+                total: inv.totals?.payableAmount || 0,
+                marketplace: inv.marketplaceName || "",
+                createdBy: inv.createdBy || "",
+            })),
+            // Otomatik Sipariş Ayarları
+            autoOrderConfigs: autoOrderConfigs.map(c => ({
+                marketplace: c.marketplaceName,
+                enabled: c.enabled,
+                primaryCargo: c.primaryCargo?.name || "",
+                fallbackCargo: c.fallbackCargo?.name || "",
+                stats: c.stats || {},
+            })),
+            // Destek
             tickets,
         });
     } catch (error) {
@@ -348,6 +484,87 @@ exports.activateTenant = async (req, res) => {
     } catch (error) {
         logger.error(`Firma aktifleştirme hatası: ${error.message}`);
         res.status(500).json({ success: false, message: "İşlem başarısız" });
+    }
+};
+
+/**
+ * Admin: Kullanıcı abonelik süresini uzat / plan değiştir
+ * POST /saas-admin/tenants/:id/extend-subscription
+ * Body: { plan, days, endDate, status }
+ */
+exports.extendSubscription = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { plan, days, endDate, status } = req.body;
+
+        const user = await User.findById(id);
+        if (!user) return res.status(404).json({ success: false, message: "Kullanıcı bulunamadı" });
+
+        const now = new Date();
+        user.subscription = user.subscription || {};
+
+        // Yeni bitiş tarihi hesapla
+        let newEndDate;
+        if (endDate) {
+            // Doğrudan tarih verilmişse
+            newEndDate = new Date(endDate);
+        } else if (days) {
+            // Mevcut bitiş tarihinden veya şu andan itibaren gün ekle
+            const currentEnd = user.subscription.endDate ? new Date(user.subscription.endDate) : now;
+            const base = currentEnd > now ? currentEnd : now;
+            newEndDate = new Date(base.getTime() + days * 24 * 60 * 60 * 1000);
+        } else {
+            // Varsayılan: 30 gün
+            newEndDate = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+        }
+
+        // Plan güncelle
+        const newPlan = plan || user.subscription.plan || "trial";
+        const newStatus = status || "active";
+
+        user.subscription.plan = newPlan;
+        user.subscription.status = newStatus;
+        user.subscription.startDate = user.subscription.startDate || now;
+        user.subscription.endDate = newEndDate;
+        // Trial alanlarını da güncelle (subscriptionMiddleware ikisini de kontrol ediyor)
+        if (newPlan === "trial") {
+            user.subscription.trialEndDate = newEndDate;
+        }
+        user.markModified("subscription");
+        await user.save();
+
+        // Subscription koleksiyonunu da güncelle (varsa)
+        const existingSub = await Subscription.findOne({ userId: id }).sort({ createdAt: -1 });
+        if (existingSub) {
+            existingSub.plan = newPlan;
+            existingSub.status = newStatus;
+            existingSub.endDate = newEndDate;
+            await existingSub.save();
+        }
+
+        // Audit log
+        const daysLeft = Math.ceil((newEndDate - now) / (1000 * 60 * 60 * 24));
+        await AuditLog.create({
+            userId: id,
+            adminId: req.user._id,
+            action: "subscription_extended",
+            category: "subscription",
+            severity: "info",
+            description: `Abonelik uzatıldı: ${user.name} (${user.email}) — Plan: ${newPlan}, Bitiş: ${newEndDate.toISOString().slice(0, 10)}, Kalan: ${daysLeft} gün`,
+            metadata: { plan: newPlan, endDate: newEndDate, days: daysLeft },
+            ipAddress: req.ip,
+        });
+
+        logger.info(`✅ [Admin] Abonelik uzatıldı: ${user.email} — ${newPlan} / ${newEndDate.toISOString().slice(0, 10)} (${daysLeft} gün)`);
+
+        res.json({
+            success: true,
+            message: `Abonelik uzatıldı — ${daysLeft} gün kaldı`,
+            subscription: user.subscription,
+        });
+    } catch (error) {
+        logger.error(`Abonelik uzatma hatası: ${error.message}`);
+        res.status(500).json({ success: false, message: "Abonelik uzatılamadı" });
     }
 };
 

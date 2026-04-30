@@ -432,9 +432,12 @@ const HBCategoryTreeNode = ({ node, depth = 0, searchQuery, C, expandAll }) => {
                 <span style={{
                     color: isLeaf ? C.green : hasChildren ? C.text : C.dim,
                     fontSize: "0.78rem", fontWeight: isLeaf ? 600 : hasChildren ? 500 : 400,
-                    flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                    flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis",
+                    whiteSpace: "normal", wordBreak: "break-word",
+                    display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
+                    lineHeight: "1.35",
                 }}>
-                    {node.name}
+                    {node.displayName || node.name}
                 </span>
 
                 {/* Category ID Badge */}
@@ -787,7 +790,10 @@ const CategoryCenterPage = ({ userId }) => {
                 }}>
                     <span style={{
                         color: C.text, fontSize: "0.7rem", fontWeight: 600,
-                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                        overflow: "hidden", textOverflow: "ellipsis",
+                        whiteSpace: "normal", wordBreak: "break-word",
+                        display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical",
+                        lineHeight: "1.35",
                     }}>
                         {path || mapping.masterPath || "—"}
                     </span>
@@ -829,7 +835,10 @@ const CategoryCenterPage = ({ userId }) => {
                     <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{
                             color: C.text, fontSize: "0.68rem", fontWeight: 500,
-                            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                            overflow: "hidden", textOverflow: "ellipsis",
+                            whiteSpace: "normal", wordBreak: "break-word",
+                            display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical",
+                            lineHeight: "1.35",
                         }}>
                             {path || "—"}
                         </div>
@@ -1091,7 +1100,7 @@ const CategoryCenterPage = ({ userId }) => {
                                 {/* Tablo Başlığı */}
                                 <div style={{
                                     display: "grid",
-                                    gridTemplateColumns: "50px 1fr 1fr 1fr 1fr 1fr",
+                                    gridTemplateColumns: "50px 1.2fr 1fr 1fr 1.2fr 1fr",
                                     background: isDark
                                         ? "linear-gradient(135deg, #1e2337 0%, #171b2e 100%)"
                                         : "linear-gradient(135deg, #f8f9fb 0%, #eef0f4 100%)",
@@ -1157,7 +1166,7 @@ const CategoryCenterPage = ({ userId }) => {
                                             key={row._id}
                                             style={{
                                                 display: "grid",
-                                                gridTemplateColumns: "50px 1fr 1fr 1fr 1fr 1fr",
+                                                gridTemplateColumns: "50px 1.2fr 1fr 1fr 1.2fr 1fr",
                                                 borderBottom: `1px solid ${C.border}`,
                                                 background: idx % 2 === 0
                                                     ? "transparent"

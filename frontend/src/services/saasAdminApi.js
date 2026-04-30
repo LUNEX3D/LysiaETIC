@@ -16,6 +16,7 @@ export const updateTenantProfile = (id, data) => API.put(`${BASE}/tenants/${id}/
 export const updateUserRole = (id, role) => API.put(`${BASE}/tenants/${id}/role`, { role });
 export const suspendTenant = (id, reason) => API.post(`${BASE}/tenants/${id}/suspend`, { reason });
 export const activateTenant = (id) => API.post(`${BASE}/tenants/${id}/activate`);
+export const extendSubscription = (id, data) => API.post(`${BASE}/tenants/${id}/extend-subscription`, data);
 export const banTenant = (id, reason) => API.post(`${BASE}/tenants/${id}/ban`, { reason });
 export const adminResetPassword = (id, newPassword) => API.post(`${BASE}/tenants/${id}/reset-password`, { newPassword });
 export const deleteTenant = (id) => API.delete(`${BASE}/tenants/${id}`);

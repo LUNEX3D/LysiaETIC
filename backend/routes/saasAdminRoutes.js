@@ -26,6 +26,7 @@ router.put("/tenants/:id/profile", saas.updateTenantProfile);
 router.put("/tenants/:id/role", saas.updateUserRole);
 router.post("/tenants/:id/suspend", saas.suspendTenant);
 router.post("/tenants/:id/activate", saas.activateTenant);
+router.post("/tenants/:id/extend-subscription", saas.extendSubscription);
 router.post("/tenants/:id/ban", saas.banTenant);
 router.post("/tenants/:id/reset-password", saas.adminResetPassword);
 router.delete("/tenants/:id", saas.deleteTenant);

@@ -201,8 +201,8 @@ const InvoiceDetailModal = ({
                                     { label: "Pazaryeri", value: dbOrder.marketplaceName || "—" },
                                     { label: "Durum", value: dbOrder.status || "—" },
                                     { label: "Tutar", value: dbOrder.totalPrice ? fmtCurrency(dbOrder.totalPrice) : "—" },
-                                    { label: "Müşteri", value: [dbOrder.customerFirstName, dbOrder.customerLastName].filter(Boolean).join(" ") || "—" },
-                                    { label: "Sipariş Tarihi", value: fmtDate(dbOrder.createdAt) },
+                                    { label: "Müşteri", value: dbOrder.customerName || "—" },
+                                    { label: "Sipariş Tarihi", value: fmtDate(dbOrder.orderDate || dbOrder.createdAt) },
                                 ].map((f, i) => (
                                     <div key={i}>
                                         <p style={{ color: colors.dim, fontSize: "0.65rem", margin: "0 0 0.1rem", fontWeight: 600 }}>{f.label}</p>
@@ -314,9 +314,10 @@ const InvoiceDetailModal = ({
                         {(faturaURL || (hasDbData && dbInv.uuid)) && (
                             <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
                                 onClick={() => {
-                                    if (hasDbData && dbInv._id) onDownload(dbInv._id, invNo);
-                                    else if (faturaURL) window.open(faturaURL, "_blank");
+                                    // faturaURL varsa doğrudan aç — en güvenilir yöntem
+                                    if (faturaURL) window.open(faturaURL, "_blank");
                                     else if (invUuid) onPreview(invUuid);
+                                    else if (hasDbData && dbInv._id) onDownload(dbInv._id, invNo);
                                 }}
                                 disabled={!!pdfLoading}
                                 style={{ flex: 1, minWidth: 120, background: colors.accent + "15", border: "1px solid " + colors.accent + "30", borderRadius: 10, padding: "0.65rem", cursor: pdfLoading ? "not-allowed" : "pointer", color: colors.accent, fontSize: "0.82rem", fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: "0.4rem", opacity: pdfLoading ? 0.6 : 1 }}>

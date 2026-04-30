@@ -24,6 +24,7 @@ const hpp            = require("hpp");
 const mongoSanitize  = require("express-mongo-sanitize");
 const dns            = require("dns");
 const os             = require("os");
+const path           = require("path");
 const logger         = require("./config/logger");
 const { apiLimiter }        = require("./middlewares/rateLimiter");
 const { sanitizeBody }      = require("./middlewares/sanitize");
@@ -94,14 +95,20 @@ const allowedOrigins = [
     "http://localhost:5000",
     // Production — hem HTTP hem HTTPS (SSL sertifikası eklenene kadar HTTP de gerekli)
     "http://13.51.158.124",
-    "http://13.51.158.124:3000",
-    "http://13.51.158.124:5000",
-    "https://13.51.158.124",
-    "https://13.51.158.124:3000",
-    "https://lunexetic.com",
-    "https://www.lunexetic.com",
-    "http://lunexetic.com",
-    "http://www.lunexetic.com"
+ 
+    // Yeni domain — pazaryonetim.com (IDN + punycode güvenli ekleme)
+    "https://pazaryönetim.com",
+    "https://www.pazaryönetim.com",
+    "http://pazaryönetim.com",
+    "http://www.pazaryönetim.com",
+    "https://pazaryonetim.com",
+    "https://www.pazaryonetim.com",
+    "http://pazaryonetim.com",
+    "http://www.pazaryonetim.com",
+    "https://xn--pazarynetim-wfb.com",
+    "https://www.xn--pazarynetim-wfb.com",
+    "http://xn--pazarynetim-wfb.com",
+    "http://www.xn--pazarynetim-wfb.com"
 ];
 
 app.use(cors({
@@ -272,6 +279,7 @@ app.use("/api/inventory",      inventoryRoutes);
 app.use("/api/brands",         brandRoutes);
 app.use("/api/variants",       variantRoutes);
 app.use("/api/upload",         uploadRoutes);
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 // ─── 10. SUNUCU DURUM ENDPOINTİ (/api/status) ────────────────────────────────
 // ✅ SEC: Public endpoint — sadece temel durum bilgisi döner

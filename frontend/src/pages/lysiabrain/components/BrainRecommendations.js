@@ -197,6 +197,9 @@ const BrainRecommendations = ({ recommendations, recSummary, refreshing, onAppro
                                         </div>
                                     )}
                                     <div style={{ display: "flex", gap: 7, marginTop: 12, flexWrap: "wrap", alignItems: "center" }}>
+                                        <Btn color={T.blue} variant="ghost" size="sm" onClick={() => onExplain(rec)} style={{ border: `1px dashed ${T.blue}40` }}>
+                                            🔍 {t("rec.explain") || "Açıkla"}
+                                        </Btn>
                                         {/* Aksiyon sonrası anlık geri bildirim */}
                                         {lastAction?.recId === rec._id && (
                                             <Badge color={lastAction.action === "approved" ? T.green : lastAction.action === "executed" ? T.accent : T.red} size="sm">
@@ -204,17 +207,17 @@ const BrainRecommendations = ({ recommendations, recSummary, refreshing, onAppro
                                             </Badge>
                                         )}
                                         {rec.status === "pending" && !lastAction?.recId?.includes?.(rec._id) && (
-                                            <>
-                                                <Btn color={T.green} size="sm" onClick={() => handleApproveWithFeedback(rec._id)} disabled={actionLoading === rec._id}>
-                                                    {actionLoading === rec._id ? "⏳" : "✅"} {t("rec.approve")}
+                                            <div style={{ display: "flex", gap: "0.5rem", width: isMobile ? "100%" : "auto" }}>
+                                                <Btn color={T.green} onClick={() => handleApproveWithFeedback(rec._id)} disabled={actionLoading === rec._id} style={{ flex: 1 }}>
+                                                    {actionLoading === rec._id ? "⏳" : "✔️"} {t("rec.approve")}
                                                 </Btn>
-                                                <Btn color={T.red} size="sm" onClick={() => handleRejectWithFeedback(rec._id)} disabled={actionLoading === rec._id}>
-                                                    {actionLoading === rec._id ? "⏳" : "❌"} {t("rec.reject")}
+                                                <Btn color={T.red} variant="ghost" onClick={() => handleRejectWithFeedback(rec._id)} disabled={actionLoading === rec._id} style={{ flex: 1 }}>
+                                                    {actionLoading === rec._id ? "⏳" : "✕"} {t("rec.reject")}
                                                 </Btn>
-                                            </>
+                                            </div>
                                         )}
                                         {rec.status === "approved" && (
-                                            <Btn color={T.accent} variant="solid" size="sm" onClick={() => handleExecuteWithFeedback(rec._id)} disabled={actionLoading === rec._id}>
+                                            <Btn color={T.accent} variant="solid" onClick={() => handleExecuteWithFeedback(rec._id)} disabled={actionLoading === rec._id} style={{ width: isMobile ? "100%" : "auto" }}>
                                                 {actionLoading === rec._id ? "⏳" : "⚡"} {t("rec.execute")}
                                             </Btn>
                                         )}

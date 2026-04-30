@@ -49,8 +49,16 @@ async function syncOrdersBackground(userId, marketplaceName, rawOrders) {
     const syncedOrderIds = [];
 
     // Urun maliyet bilgilerini onceden cek (kar hesabi icin)
-    const products = await Product.find({ userId }).select("barcode costPrice commissionRate shippingCost packagingCost otherCost category").lean();
-    const productMap = new Map(products.map(p => [p.barcode, p]));
+    const products = await Product.find({ userId }).select("barcode sku images costPrice commissionRate shippingCost packagingCost otherCost category mainImage").lean();
+    const productMap = new Map();
+    const skuMap = new Map();
+
+    products.forEach(p => {
+        const barcode = String(p.barcode || "").trim();
+        const sku = String(p.sku || "").trim();
+        if (barcode) productMap.set(barcode, p);
+        if (sku) skuMap.set(sku, p);
+    });
 
     for (const order of rawOrders) {
         try {
@@ -63,17 +71,51 @@ async function syncOrdersBackground(userId, marketplaceName, rawOrders) {
                 marketplaceName: marketplaceName,
                 trackingNumber: String(orderNumber)
             });
-            if (exists) { skipped++; continue; }
+            if (exists) { 
+                // ✅ MEVCUT SİPARİŞİ GÜNCELLE: Eksik görsel varsa Product modelinden zenginleştir
+                let needsUpdate = false;
+                const updatedItems = exists.items.map(item => {
+                    const barcode = String(item.barcode || "").trim();
+                    const sku = String(item.sku || "").trim();
+                    const name = String(item.name || item.title || "").trim().toLowerCase();
+
+                    const productInfo = productMap.get(barcode) || skuMap.get(sku) || skuMap.get(barcode) || productMap.get(sku) || Array.from(products).find(p => String(p.name || "").trim().toLowerCase() === name);
+                    
+                    if (productInfo) {
+                        const stockImage = productInfo.mainImage || (productInfo.images && productInfo.images[0]);
+                        // Eğer mevcut görsel placeholder ise veya boş ise veya stoktaki görsel farklı ise güncelle
+                        const isInvalid = !item.imageUrl || item.imageUrl.includes("default-product.jpg") || item.imageUrl.includes("placehold.co");
+                        if (stockImage && (isInvalid || item.imageUrl !== stockImage)) {
+                            needsUpdate = true;
+                            item.imageUrl = stockImage;
+                        }
+                    }
+                    return item;
+                });
+
+                if (needsUpdate) {
+                    exists.items = updatedItems;
+                    await exists.save();
+                    logger.info(`[OrderSync] ${marketplaceName}: ${orderNumber} görseli güncellendi`);
+                }
+
+                skipped++; 
+                continue; 
+            }
 
             // Siparis kalemlerini normalize et
             const rawItems = order.products || order.items || order.lines || [];
             const orderTotalPrice = parseFloat(order.totalPrice || 0);
             const totalItemCount = rawItems.length || 1;
             const items = rawItems.map(function(item, itemIdx) {
-                const barcode = item.barcode || item.sku || item.merchantSku || item.productCode || item.productId || "";
+                const barcode = String(item.barcode || item.sku || item.merchantSku || item.productCode || item.productId || "").trim();
+                const sku = String(item.sku || item.merchantSku || item.productCode || "").trim();
+                
                 // Barcode bos ise fallback olustur (Order modeli barcode required)
                 const finalBarcode = barcode || ("SYNC-" + orderNumber + "-" + itemIdx);
-                const productInfo = productMap.get(barcode) || {};
+                const itemName = String(item.productName || item.name || item.title || "").trim().toLowerCase();
+                const productInfo = productMap.get(barcode) || skuMap.get(sku) || skuMap.get(barcode) || productMap.get(sku) || Array.from(products).find(p => String(p.name || "").trim().toLowerCase() === itemName) || {};
+                
                 // Fiyat: item.price > 0 ise onu kullan, yoksa siparis toplamini kalemlere bol
                 let price = parseFloat(item.price || item.unitPrice || 0);
                 if (price === 0 && orderTotalPrice > 0) {
@@ -82,6 +124,26 @@ async function syncOrdersBackground(userId, marketplaceName, rawOrders) {
                 const quantity = parseInt(item.quantity || 1);
                 const costPrice = productInfo.costPrice || 0;
                 const commissionRate = productInfo.commissionRate || 0;
+                
+            // ✅ GÖRSEL: Pazar yerinden gelmediyse sistemdeki üründen al
+                let imageUrl = item.imageUrl || item.image || "";
+                
+                // Stoktaki görseli her zaman pazar yeri görseline tercih et (Kalite ve doğruluk için)
+                const stockImage = productInfo.mainImage || (productInfo.images && productInfo.images[0]);
+                
+                if (stockImage) {
+                    imageUrl = stockImage;
+                } else {
+                    // Hatalı yerel dosya referanslarını temizle
+                    if (imageUrl.includes("default-product.jpg") || imageUrl.includes("placehold.co")) {
+                        imageUrl = "";
+                    }
+
+                    if (!imageUrl) {
+                        imageUrl = "https://placehold.co/400x400/1e293b/4ecdc4?text=Urun";
+                    }
+                }
+
                 const apiCommission = parseFloat(item.commissionAmount || 0);
                 const commissionAmount = apiCommission > 0 ? apiCommission : (price * quantity * (commissionRate / 100));
                 const shippingCost = productInfo.shippingCost || 0;
@@ -92,7 +154,7 @@ async function syncOrdersBackground(userId, marketplaceName, rawOrders) {
                     productName: item.productName || item.name || item.title || "Bilinmeyen",
                     quantity: quantity,
                     barcode: finalBarcode,
-                    imageUrl: item.imageUrl || item.image || "https://via.placeholder.com/150",
+                    imageUrl: imageUrl,
                     price: price,
                     category: item.category || productInfo.category || "Bilinmiyor",
                     costPrice: costPrice,
@@ -133,6 +195,23 @@ async function syncOrdersBackground(userId, marketplaceName, rawOrders) {
             const status = String(order.status || "Created");
             const isReturned = /cancel|return|refund|iade|iptal/i.test(status);
             const isCancelled = /cancel|iptal/i.test(status);
+
+            // ── Pazaryeri fatura durumu kontrolü ──────────────────────────
+            // Trendyol: status "Invoiced" ise pazaryerinde fatura kesilmiş
+            // Hepsiburada/N11/ÇiçekSepeti: status'a göre kontrol
+            const statusLower = status.toLowerCase();
+            const marketplaceInvoiced = statusLower === "invoiced"
+                || statusLower === "faturalandı"
+                || statusLower === "faturalandi"
+                || (order.invoiceNumber && order.invoiceNumber !== "")
+                || false;
+
+            // ── Teslimat ülkesi (mikro ihracat tespiti) ──────────────────
+            const rawShipAddrForCountry = order.shipmentAddress || order.shippingAddress || order.address || {};
+            const shippingCountry = rawShipAddrForCountry.country
+                || rawShipAddrForCountry.countryCode
+                || order.shippingCountry
+                || "Turkiye";
 
             // Siparis tarihini parse et
             // orderDateRaw: epoch ms (Trendyol) veya ISO string
@@ -188,6 +267,16 @@ async function syncOrdersBackground(userId, marketplaceName, rawOrders) {
                     phone: rawShipAddr.phone || addrSource.phone || rawShipAddr.phoneNumber || order.customerPhone || "",
                     email: rawShipAddr.email || order.customerEmail || "",
                 },
+                // ── Ham fatura adresi (B2B VKN/vergi dairesi bilgileri) ──
+                _rawInvoiceAddress: {
+                    fullName: rawInvAddr.fullName || rawInvAddr.name || "",
+                    company: rawInvAddr.company || rawInvAddr.companyName || "",
+                    taxNumber: rawInvAddr.taxNumber || rawInvAddr.vkn || "",
+                    taxOffice: rawInvAddr.taxOffice || "",
+                    city: rawInvAddr.city || "",
+                    district: rawInvAddr.district || "",
+                    fullAddress: rawInvAddr.fullAddress || rawInvAddr.address || "",
+                },
                 items: items,
                 costSummary: {
                     totalCost: totalCost,
@@ -200,7 +289,9 @@ async function syncOrdersBackground(userId, marketplaceName, rawOrders) {
                     profitMargin: parseFloat(profitMargin.toFixed(2))
                 },
                 isReturned: isReturned,
-                isCancelled: isCancelled
+                isCancelled: isCancelled,
+                marketplaceInvoiced: marketplaceInvoiced,
+                shippingCountry: shippingCountry,
             });
 
             await newOrder.save();
@@ -359,16 +450,57 @@ exports.getAllOrders = async (req, res) => {
                 });
         }
 
+        // ✅ FIX: totalPrice "0.00" veya boş ise ürün fiyatlarından hesapla
+        // Ürün görsel haritası oluştur (barkod/sku/isim -> görsel)
+        const productImageMap = new Map();
+        const productNameImageMap = new Map(); // İsim bazlı eşleşme için
+        
+        // Stoktan ürünleri çek
+        const userProducts = await Product.find({ userId }).select("barcode sku images name mainImage").lean();
+
+        userProducts.forEach(p => {
+            const img = p.mainImage || (p.images && p.images.length > 0 ? p.images[0] : null);
+            if (img) {
+                if (p.barcode) productImageMap.set(String(p.barcode).trim(), img);
+                if (p.sku) productImageMap.set(String(p.sku).trim(), img);
+                if (p.name) {
+                    const normalizedName = String(p.name).trim().toLowerCase();
+                    if (!productNameImageMap.has(normalizedName)) {
+                        productNameImageMap.set(normalizedName, img);
+                    }
+                }
+            }
+        });
+
         orders = rawOrders.map(order => {
-            // ✅ FIX: totalPrice "0.00" veya boş ise ürün fiyatlarından hesapla
             let total = parseFloat(order.totalPrice) || 0;
-            if (total === 0 && Array.isArray(order.products) && order.products.length > 0) {
-                total = order.products.reduce((sum, p) => {
+            const processedProducts = (order.products || []).map(p => {
+                const barcode = String(p.barcode || "").trim();
+                const sku = String(p.sku || "").trim();
+                const name = String(p.productName || p.name || p.title || "").trim().toLowerCase();
+                
+                // Öncelik: Barkod/SKU eşleşmesi -> İsim eşleşmesi
+                const stockImg = productImageMap.get(barcode) || productImageMap.get(sku) || productNameImageMap.get(name);
+                
+                // Stoktaki görseli her zaman pazar yeri görseline tercih et
+                if (stockImg) {
+                    p.imageUrl = stockImg;
+                } else if (!p.imageUrl || p.imageUrl.includes("default-product.jpg") || p.imageUrl.includes("placehold.co")) {
+                    p.imageUrl = "https://placehold.co/400x400/1e293b/4ecdc4?text=Urun";
+                }
+                return p;
+            });
+
+            if (total === 0 && processedProducts.length > 0) {
+                total = processedProducts.reduce((sum, p) => {
                     const price = parseFloat(p.price || p.unitPrice || p.amount || 0);
                     const qty = parseInt(p.quantity || 1);
                     return sum + (price * qty);
                 }, 0);
             }
+
+            const firstImg = processedProducts[0]?.imageUrl || order.imageUrl;
+
             return {
                 orderNumber: order.orderNumber,
                 orderDate: order.orderDate,
@@ -377,7 +509,8 @@ exports.getAllOrders = async (req, res) => {
                 status: order.status,
                 trackingNumber: order.trackingNumber || "Yok",
                 cargoCompany: order.cargoCompany || "Bilinmiyor",
-                products: order.products
+                imageUrl: firstImg,
+                products: processedProducts
             };
         });
 
@@ -459,7 +592,7 @@ exports.getDbOrders = async (req, res) => {
             filter.orderDate.$lte = new Date(req.query.endDate + "T23:59:59.999Z");
         }
 
-        const [orders, total] = await Promise.all([
+        const [orders, total, userProducts] = await Promise.all([
             Order.find(filter)
                 .select("trackingNumber marketplaceName customerName totalPrice orderDate status invoiceId invoiceNumber invoiceStatus items isReturned isCancelled")
                 .populate("invoiceId", "invoiceNumber uuid status faturaURL issueDate")
@@ -467,14 +600,37 @@ exports.getDbOrders = async (req, res) => {
                 .skip(skip)
                 .limit(limit)
                 .lean(),
-            Order.countDocuments(filter)
+            Order.countDocuments(filter),
+            Product.find({ userId }).select("barcode sku images name mainImage").lean()
         ]);
 
+        // Ürün görsel haritası oluştur (barkod/sku/isim -> görsel)
+        const productImageMap = new Map();
+        const productNameImageMap = new Map();
+
+        userProducts.forEach(p => {
+            const img = p.mainImage || (p.images && p.images.length > 0 ? p.images[0] : null);
+            if (img) {
+                if (p.barcode) productImageMap.set(String(p.barcode).trim(), img);
+                if (p.sku) productImageMap.set(String(p.sku).trim(), img);
+                if (p.name) {
+                    const normalizedName = String(p.name).trim().toLowerCase();
+                    if (!productNameImageMap.has(normalizedName)) {
+                        productNameImageMap.set(normalizedName, img);
+                    }
+                }
+            }
+        });
+
+        // ✅ CANLI API GÖRSEL ZENGİNLEŞTİRME: getAllOrders'dan gelen veriler için de haritayı kullanabiliriz
+        // Ancak bu fonksiyon req/res döner, biz burada sadece DB'dekileri döndürüyoruz.
+
         // Fatura istatistikleri
+        // ✅ FIX: "error" ve "pending" durumundaki siparişleri "faturasız" olarak sayma
         const [totalOrders, invoicedCount, uninvoicedCount, errorCount] = await Promise.all([
             Order.countDocuments({ user: userId }),
             Order.countDocuments({ user: userId, invoiceId: { $exists: true } }),
-            Order.countDocuments({ user: userId, invoiceId: { $exists: false }, invoiceStatus: { $nin: ["created"] }, isCancelled: false, isReturned: false }),
+            Order.countDocuments({ user: userId, invoiceId: { $exists: false }, invoiceStatus: { $nin: ["created", "pending", "error"] }, isCancelled: false, isReturned: false, totalPrice: { $gt: 0 } }),
             Order.countDocuments({ user: userId, invoiceStatus: "error" }),
         ]);
 
@@ -495,6 +651,31 @@ exports.getDbOrders = async (req, res) => {
                 invoiceInfo = { _id: o.invoiceId, invoiceNumber: o.invoiceNumber || "" };
             }
 
+            // Sipariş kalemlerini görsel açısından zenginleştir
+            const enrichedItems = (o.items || []).map(item => {
+                const barcode = String(item.barcode || "").trim();
+                const sku = String(item.sku || "").trim();
+                const name = String(item.productName || item.name || item.title || "").trim().toLowerCase();
+                
+                // Öncelik: Barkod/SKU eşleşmesi -> İsim eşleşmesi
+                const stockImg = productImageMap.get(barcode) || productImageMap.get(sku) || productNameImageMap.get(name);
+                
+                let itemImg = item.imageUrl;
+                if (stockImg) {
+                    itemImg = stockImg;
+                } else if (!itemImg || itemImg.includes("default-product.jpg") || itemImg.includes("placehold.co")) {
+                    itemImg = "https://placehold.co/400x400/1e293b/4ecdc4?text=Urun";
+                }
+
+                return {
+                    ...item,
+                    imageUrl: itemImg
+                };
+            });
+
+            // İlk ürün görselini ana görsel olarak belirle
+            const imageUrl = enrichedItems[0]?.imageUrl || "https://placehold.co/400x400/1e293b/4ecdc4?text=Urun";
+
             return {
                 _id: o._id,
                 orderNumber: o.trackingNumber || "",
@@ -505,8 +686,10 @@ exports.getDbOrders = async (req, res) => {
                 status: o.status || "",
                 invoiceStatus: o.invoiceStatus || (invoiceInfo ? "created" : ""),
                 invoice: invoiceInfo,
-                productCount: (o.items || []).length,
-                firstProduct: (o.items && o.items[0]) ? o.items[0].productName : "",
+                items: enrichedItems,
+                productCount: enrichedItems.length,
+                firstProduct: enrichedItems[0]?.productName || "",
+                imageUrl: imageUrl,
                 isReturned: o.isReturned || false,
                 isCancelled: o.isCancelled || false,
             };

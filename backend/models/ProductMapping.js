@@ -84,6 +84,10 @@ const ProductMappingSchema = new mongoose.Schema({
         n11TaskId:     { type: String },   // IN_QUEUE sonrası dönen task ID
         n11TaskStatus: { type: String },   // COMPLETED / REJECT / FAILED / IN_QUEUE
 
+        // Trendyol ürün yükleme batch takibi (batchRequestId — kuyruk sonucu ayrı sorgulanır)
+        trendyolBatchRequestId: { type: String },
+        trendyolBatchStatus: { type: String }, // IN_PROGRESS / COMPLETED / API'den gelen ham status
+
         // Pazaryerinden çekilme tarihi
         pulledFromMarketplace: { type: Boolean, default: false },
         pullDate: { type: Date }

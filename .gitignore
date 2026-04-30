@@ -44,6 +44,9 @@ tmp/
 temp/
 *.tmp
 
+# Büyük kategori ağaçları (HB vb.) — disk cache
+backend/cache/
+
 # Test credential dosyaları
 test-*-credentials*
 test_scraper*

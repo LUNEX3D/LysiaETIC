@@ -3,12 +3,13 @@ import {
     FaBuilding, FaSearch, FaBan, FaCheckCircle, FaPause, FaKey,
     FaEye, FaExclamationTriangle, FaTrash, FaUserCog, FaSave,
     FaTimes, FaSync, FaEdit, FaPlug, FaBoxOpen, FaClipboardList,
-    FaDollarSign, FaFilter
+    FaDollarSign, FaFilter, FaClock, FaCalendarPlus
 } from "react-icons/fa";
 import AdminLayout from "../components/AdminLayout";
 import {
     getTenants, suspendTenant, activateTenant, banTenant,
-    adminResetPassword, deleteTenant, updateUserRole, updateTenantProfile
+    adminResetPassword, deleteTenant, updateUserRole, updateTenantProfile,
+    extendSubscription
 } from "../services/saasAdminApi";
 
 const SaasTenants = () => {
@@ -31,6 +32,10 @@ const SaasTenants = () => {
     const [newPassword, setNewPassword] = useState("");
     const [actionLoading, setActionLoading] = useState(false);
 
+    // Süre uzatma modal
+    const [extendModal, setExtendModal] = useState({ show: false, tenant: null });
+    const [extendForm, setExtendForm] = useState({ plan: "trial", days: 30, endDate: "", useCustomDate: false });
+
     useEffect(() => { loadTenants(); }, []);
 
     const loadTenants = async () => {
@@ -44,6 +49,29 @@ const SaasTenants = () => {
             setError("Firma listesi alınamadı.");
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleExtendSubscription = async () => {
+        if (!extendModal.tenant) return;
+        setActionLoading(true);
+        setMessage({ text: "", type: "" });
+        try {
+            const payload = { plan: extendForm.plan, status: "active" };
+            if (extendForm.useCustomDate && extendForm.endDate) {
+                payload.endDate = extendForm.endDate;
+            } else {
+                payload.days = extendForm.days;
+            }
+            const res = await extendSubscription(extendModal.tenant._id, payload);
+            setMessage({ text: res.data.message || "Abonelik uzatıldı", type: "success" });
+            setExtendModal({ show: false, tenant: null });
+            setExtendForm({ plan: "trial", days: 30, endDate: "", useCustomDate: false });
+            loadTenants();
+        } catch (err) {
+            setMessage({ text: err.response?.data?.message || "Abonelik uzatılamadı", type: "error" });
+        } finally {
+            setActionLoading(false);
         }
     };
 
@@ -126,10 +154,12 @@ const SaasTenants = () => {
     const filtered = useMemo(() => {
         return tenants.filter(t => {
             const matchSearch = !search || t.name?.toLowerCase().includes(search.toLowerCase()) || t.email?.toLowerCase().includes(search.toLowerCase());
+            const cs = t.computedSubscriptionStatus || t.subscription?.status || "none";
             const matchFilter = filter === "all" ||
-                (filter === "active" && t.subscription?.status === "active") ||
-                (filter === "trial" && t.subscription?.plan === "free") ||
-                (filter === "suspended" && t.subscription?.status === "cancelled");
+                (filter === "active" && cs === "active") ||
+                (filter === "trial" && cs === "trial") ||
+                (filter === "expired" && cs === "expired") ||
+                (filter === "suspended" && (cs === "suspended" || cs === "cancelled"));
             const matchRole = roleFilter === "all" || t.role === roleFilter;
             return matchSearch && matchFilter && matchRole;
         });
@@ -140,8 +170,10 @@ const SaasTenants = () => {
 
     const stats = useMemo(() => ({
         total: tenants.length,
-        active: tenants.filter(t => t.subscription?.status === "active").length,
-        suspended: tenants.filter(t => t.subscription?.status === "cancelled").length,
+        active: tenants.filter(t => t.computedSubscriptionStatus === "active").length,
+        expired: tenants.filter(t => t.computedSubscriptionStatus === "expired").length,
+        trial: tenants.filter(t => t.computedSubscriptionStatus === "trial").length,
+        suspended: tenants.filter(t => ["suspended", "cancelled"].includes(t.computedSubscriptionStatus)).length,
         admins: tenants.filter(t => t.role === "admin" || t.role === "dev").length,
     }), [tenants]);
 
@@ -169,7 +201,7 @@ const SaasTenants = () => {
             {error && <div className="ap-alert ap-alert--error"><FaExclamationTriangle /> {error}</div>}
 
             {/* KPI Cards */}
-            <div className="ap-kpi-grid" style={{ gridTemplateColumns: "repeat(4, 1fr)" }}>
+            <div className="ap-kpi-grid" style={{ gridTemplateColumns: "repeat(5, 1fr)" }}>
                 <div className="ap-kpi">
                     <div className="ap-kpi-icon ap-kpi-icon--purple"><FaBuilding /></div>
                     <div className="ap-kpi-label">Toplam Firma</div>
@@ -181,9 +213,14 @@ const SaasTenants = () => {
                     <div className="ap-kpi-val">{stats.active}</div>
                 </div>
                 <div className="ap-kpi">
-                    <div className="ap-kpi-icon ap-kpi-icon--red"><FaBan /></div>
-                    <div className="ap-kpi-label">Askıda / Banlı</div>
-                    <div className="ap-kpi-val">{stats.suspended}</div>
+                    <div className="ap-kpi-icon ap-kpi-icon--yellow"><FaClock /></div>
+                    <div className="ap-kpi-label">Deneme</div>
+                    <div className="ap-kpi-val">{stats.trial}</div>
+                </div>
+                <div className="ap-kpi">
+                    <div className="ap-kpi-icon ap-kpi-icon--red"><FaExclamationTriangle /></div>
+                    <div className="ap-kpi-label">Süresi Dolmuş</div>
+                    <div className="ap-kpi-val">{stats.expired}</div>
                 </div>
                 <div className="ap-kpi">
                     <div className="ap-kpi-icon ap-kpi-icon--cyan"><FaUserCog /></div>
@@ -202,7 +239,8 @@ const SaasTenants = () => {
                     <select className="ap-select" value={filter} onChange={(e) => setFilter(e.target.value)}>
                         <option value="all">Tüm Durumlar</option>
                         <option value="active">Aktif</option>
-                        <option value="trial">Trial / Ücretsiz</option>
+                        <option value="trial">Deneme</option>
+                        <option value="expired">Süresi Dolmuş</option>
                         <option value="suspended">Askıya Alınmış</option>
                     </select>
                     <select className="ap-select" value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)}>
@@ -243,8 +281,11 @@ const SaasTenants = () => {
                             </thead>
                             <tbody>
                                 {filtered.map(tenant => {
-                                    const status = tenant.subscription?.status || "active";
+                                    const cs = tenant.computedSubscriptionStatus || tenant.subscription?.status || "none";
                                     const plan = tenant.subscription?.plan || "free";
+                                    const daysLeft = tenant.subscriptionDaysLeft || 0;
+                                    const statusLabel = cs === "active" ? "Aktif" : cs === "trial" ? "Deneme" : cs === "expired" ? "Süresi Dolmuş" : cs === "suspended" ? "Askıda" : cs === "cancelled" ? "İptal" : "Belirsiz";
+                                    const statusColor = cs === "active" ? "green" : cs === "trial" ? "cyan" : cs === "expired" ? "red" : cs === "suspended" ? "yellow" : "neutral";
                                     return (
                                         <tr key={tenant._id}>
                                             <td>
@@ -262,9 +303,15 @@ const SaasTenants = () => {
                                                 </span>
                                             </td>
                                             <td>
-                                                <span className={`ap-badge ap-badge--${statusColors[status] || "neutral"}`}>
-                                                    {status === "active" ? "Aktif" : status === "cancelled" ? "Askıda" : "Süresi Dolmuş"}
+                                                <span className={`ap-badge ap-badge--${statusColor}`}>
+                                                    {statusLabel}
                                                 </span>
+                                                {cs !== "expired" && daysLeft > 0 && daysLeft <= 7 && (
+                                                    <div style={{ fontSize: 10, color: "var(--ap-yellow)", marginTop: 2 }}>⚠️ {daysLeft} gün kaldı</div>
+                                                )}
+                                                {cs === "expired" && (
+                                                    <div style={{ fontSize: 10, color: "var(--ap-red)", marginTop: 2 }}>{Math.abs(daysLeft)} gün önce doldu</div>
+                                                )}
                                             </td>
                                             <td style={{ textAlign: "center" }}>{tenant.stats?.marketplaces || 0}</td>
                                             <td style={{ textAlign: "center" }}>{fmt(tenant.stats?.products)}</td>
@@ -278,7 +325,14 @@ const SaasTenants = () => {
                                                     <button className="ap-btn ap-btn--sm ap-btn--ghost" onClick={() => openDetail(tenant)} title="Detay & Düzenle">
                                                         <FaEye />
                                                     </button>
-                                                    {status === "active" ? (
+                                                    <button className="ap-btn ap-btn--sm" style={{ background: "var(--ap-purple-soft, rgba(139,92,246,0.1))", color: "var(--ap-purple, #8b5cf6)" }}
+                                                        onClick={() => {
+                                                            setExtendModal({ show: true, tenant });
+                                                            setExtendForm({ plan: plan || "trial", days: 30, endDate: "", useCustomDate: false });
+                                                        }} title="Süre Uzat">
+                                                        <FaCalendarPlus />
+                                                    </button>
+                                                    {cs === "active" || cs === "trial" ? (
                                                         <button className="ap-btn ap-btn--sm" style={{ background: "var(--ap-yellow-soft)", color: "var(--ap-yellow)" }}
                                                             onClick={() => setActionModal({ show: true, type: "suspend", tenant })} title="Askıya Al">
                                                             <FaPause />
@@ -505,6 +559,97 @@ const SaasTenants = () => {
                                 disabled={actionLoading}
                             >
                                 {actionLoading ? "İşleniyor..." : "Onayla"}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {/* ═══ SÜRE UZAT MODAL ═══ */}
+            {extendModal.show && (
+                <div className="ap-modal-overlay" onClick={() => setExtendModal({ show: false, tenant: null })}>
+                    <div className="ap-modal ap-modal--sm" onClick={(e) => e.stopPropagation()}>
+                        <div className="ap-modal-header">
+                            <h3>📅 Abonelik Süre Uzat</h3>
+                            <button className="ap-modal-close" onClick={() => setExtendModal({ show: false, tenant: null })}>×</button>
+                        </div>
+                        <div className="ap-modal-body" style={{ padding: 22 }}>
+                            <div style={{ padding: "12px 16px", borderRadius: 10, background: "rgba(99,102,241,0.06)", marginBottom: 16 }}>
+                                <div style={{ fontWeight: 700 }}>{extendModal.tenant?.name}</div>
+                                <div style={{ fontSize: 12, color: "var(--ap-muted)" }}>{extendModal.tenant?.email}</div>
+                                {extendModal.tenant?.computedSubscriptionStatus === "expired" && (
+                                    <div style={{ fontSize: 11, color: "var(--ap-red)", marginTop: 4, fontWeight: 600 }}>⚠️ Abonelik süresi dolmuş</div>
+                                )}
+                            </div>
+
+                            <div style={{ marginBottom: 14 }}>
+                                <label style={{ fontSize: 12, fontWeight: 600, color: "var(--ap-muted)", display: "block", marginBottom: 6 }}>Plan</label>
+                                <select
+                                    className="ap-select"
+                                    value={extendForm.plan}
+                                    onChange={(e) => setExtendForm(prev => ({ ...prev, plan: e.target.value }))}
+                                >
+                                    <option value="trial">Trial</option>
+                                    <option value="basic">Basic</option>
+                                    <option value="pro">Pro</option>
+                                    <option value="enterprise">Enterprise</option>
+                                </select>
+                            </div>
+
+                            <div style={{ marginBottom: 14 }}>
+                                <label style={{ fontSize: 12, fontWeight: 600, color: "var(--ap-muted)", display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                                    <input
+                                        type="checkbox"
+                                        checked={extendForm.useCustomDate}
+                                        onChange={(e) => setExtendForm(prev => ({ ...prev, useCustomDate: e.target.checked }))}
+                                    />
+                                    Özel bitiş tarihi belirle
+                                </label>
+                            </div>
+
+                            {extendForm.useCustomDate ? (
+                                <div style={{ marginBottom: 14 }}>
+                                    <label style={{ fontSize: 12, fontWeight: 600, color: "var(--ap-muted)", display: "block", marginBottom: 6 }}>Bitiş Tarihi</label>
+                                    <input
+                                        type="date"
+                                        className="ap-input"
+                                        value={extendForm.endDate}
+                                        onChange={(e) => setExtendForm(prev => ({ ...prev, endDate: e.target.value }))}
+                                        style={{ width: "100%", padding: "10px 14px", background: "rgba(12,15,26,0.9)", border: "1px solid rgba(99,102,241,0.2)", borderRadius: 8, color: "#f1f5f9", fontSize: 13, fontFamily: "inherit", outline: "none" }}
+                                    />
+                                </div>
+                            ) : (
+                                <div style={{ marginBottom: 14 }}>
+                                    <label style={{ fontSize: 12, fontWeight: 600, color: "var(--ap-muted)", display: "block", marginBottom: 6 }}>Süre (gün)</label>
+                                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                        {[7, 14, 30, 90, 180, 365].map(d => (
+                                            <button
+                                                key={d}
+                                                className={`ap-btn ap-btn--sm ${extendForm.days === d ? "ap-btn--primary" : "ap-btn--ghost"}`}
+                                                onClick={() => setExtendForm(prev => ({ ...prev, days: d }))}
+                                            >
+                                                {d} gün
+                                            </button>
+                                        ))}
+                                    </div>
+                                    <input
+                                        type="number"
+                                        min="1"
+                                        className="ap-input"
+                                        value={extendForm.days}
+                                        onChange={(e) => setExtendForm(prev => ({ ...prev, days: parseInt(e.target.value) || 1 }))}
+                                        style={{ width: "100%", marginTop: 8, padding: "10px 14px", background: "rgba(12,15,26,0.9)", border: "1px solid rgba(99,102,241,0.2)", borderRadius: 8, color: "#f1f5f9", fontSize: 13, fontFamily: "inherit", outline: "none" }}
+                                    />
+                                </div>
+                            )}
+                        </div>
+                        <div className="ap-modal-footer" style={{ padding: "16px 22px", borderTop: "1px solid var(--ap-border)", display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                            <button className="ap-btn ap-btn--ghost" onClick={() => setExtendModal({ show: false, tenant: null })}>İptal</button>
+                            <button
+                                className="ap-btn ap-btn--primary"
+                                onClick={handleExtendSubscription}
+                                disabled={actionLoading}
+                            >
+                                {actionLoading ? "İşleniyor..." : "✅ Süreyi Uzat"}
                             </button>
                         </div>
                     </div>

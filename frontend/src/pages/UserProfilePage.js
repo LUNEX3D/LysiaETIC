@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
     FaUser, FaLock, FaPlug, FaChartLine, FaBell, FaKey,
-    FaFileInvoice, FaSave, FaCamera, FaShoppingCart, FaMoneyBillWave,
+    FaSave, FaCamera, FaShoppingCart, FaMoneyBillWave,
     FaBox, FaStore, FaCheckCircle, FaExclamationTriangle,
     FaCopy, FaTrash, FaEye, FaEyeSlash, FaQrcode, FaShieldAlt,
     FaGlobe, FaClock, FaMapMarkerAlt, FaPhone, FaBuilding,
@@ -89,6 +89,7 @@ const UserProfilePage = ({ userId, marketplaces }) => {
     useEffect(() => {
         loadUserProfile();
         loadUserStats();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [userId]);
 
     const loadUserProfile = async () => {

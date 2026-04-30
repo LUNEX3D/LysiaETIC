@@ -8,8 +8,8 @@
  */
 import React, { useState, useEffect, useCallback } from "react";
 import API from "../../../services/api";
-import { T, fmt, fmtN, fmtP, useResponsive } from "../styles";
-import { Card, CardHeader, Badge, StatCard, ScoreRing, HealthBar, EmptyState, LoadingState, ErrorState } from "./shared/SharedUI";
+import { T, fmtN, fmtP, useResponsive } from "../styles";
+import { Card, CardHeader, Badge, StatCard, ScoreRing, EmptyState, LoadingState, ErrorState } from "./shared/SharedUI";
 
 const SEG_CFG = {
     critical: { color: T.red, icon: "🔴", label: "Kritik" },
@@ -19,7 +19,7 @@ const SEG_CFG = {
 };
 
 const BrainHealth = ({ t, onError }) => {
-    const { isMobile, isTablet } = useResponsive();
+    const { isMobile } = useResponsive();
     const [loading, setLoading] = useState(true);
     const [data, setData] = useState(null);
     const [filter, setFilter] = useState("all");

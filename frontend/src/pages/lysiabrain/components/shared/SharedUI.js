@@ -16,15 +16,15 @@ export const Card = ({ children, style, onClick, noPad, glow, role, ariaLabel })
     <div onClick={onClick} role={role || (onClick ? "button" : undefined)} aria-label={ariaLabel} tabIndex={onClick ? 0 : undefined}
         onKeyDown={onClick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(e); } } : undefined}
         style={{
-            background: T.bgCard,
+            background: glow ? "rgba(10, 15, 30, 0.8)" : T.bgCard,
             backdropFilter: T.glass,
             WebkitBackdropFilter: T.glass,
             border: `1px solid ${glow ? T.borderGlow : T.border}`,
             borderRadius: T.r,
-            padding: noPad ? 0 : "1.35rem 1.5rem",
-            boxShadow: glow ? T.shadowGlow : T.shadow,
+            padding: noPad ? 0 : "1.5rem 1.75rem",
+            boxShadow: glow ? T.shadowGlow : T.shadowMd,
             cursor: onClick ? "pointer" : "default",
-            transition: "all 0.3s cubic-bezier(0.4,0,0.2,1)",
+            transition: "all 0.4s cubic-bezier(0.16, 1, 0.3, 1)",
             position: "relative",
             overflow: "hidden",
             ...style,
@@ -37,23 +37,24 @@ export const Card = ({ children, style, onClick, noPad, glow, role, ariaLabel })
    CARD HEADER — icon + title + optional badge/action
    ═══════════════════════════════════════════ */
 export const CardHeader = ({ icon, title, subtitle, badge, action, color = T.accent }) => (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.1rem", gap: "0.75rem", flexWrap: "wrap" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flex: 1, minWidth: 0 }}>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem", gap: "1rem", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "1rem", flex: 1, minWidth: 0 }}>
             {icon && (
                 <div style={{
-                    width: 42, height: 42, borderRadius: T.rSm,
-                    background: `${color}15`,
-                    border: `1px solid ${color}25`,
+                    width: 48, height: 48, borderRadius: T.rSm,
+                    background: `${color}10`,
+                    border: `1px solid ${color}20`,
                     display: "flex", alignItems: "center", justifyContent: "center",
-                    fontSize: "1.2rem", flexShrink: 0,
+                    fontSize: "1.4rem", flexShrink: 0,
+                    boxShadow: `inset 0 0 12px ${color}10`,
                 }} aria-hidden="true">{icon}</div>
             )}
             <div style={{ minWidth: 0 }}>
-                <h3 style={{ fontSize: "0.98rem", fontWeight: 700, color: T.text, margin: 0, letterSpacing: "-0.01em" }}>{title}</h3>
-                {subtitle && <p style={{ fontSize: "0.73rem", color: T.textDim, margin: "3px 0 0", letterSpacing: "0.01em" }}>{subtitle}</p>}
+                <h3 style={{ fontSize: "1.1rem", fontWeight: 800, color: T.text, margin: 0, letterSpacing: "-0.02em" }}>{title}</h3>
+                {subtitle && <p style={{ fontSize: "0.78rem", color: T.textDim, margin: "4px 0 0", letterSpacing: "0.01em", fontWeight: 500 }}>{subtitle}</p>}
             </div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexShrink: 0, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexShrink: 0, flexWrap: "wrap" }}>
             {badge && <Badge color={color}>{badge}</Badge>}
             {action}
         </div>
@@ -63,38 +64,56 @@ export const CardHeader = ({ icon, title, subtitle, badge, action, color = T.acc
 /* ═══════════════════════════════════════════
    STAT CARD — metric display with icon (responsive)
    ═══════════════════════════════════════════ */
-export const StatCard = ({ icon, label, value, color = T.accent, suffix }) => (
+export const StatCard = ({ icon, label, value, color = T.accent, suffix, trend }) => (
     <div style={{
         background: T.bgCard,
         backdropFilter: T.glassSm,
         WebkitBackdropFilter: T.glassSm,
         border: `1px solid ${T.border}`,
         borderRadius: T.r,
-        padding: "1.1rem 1.2rem",
-        flex: "1 1 140px", minWidth: 140,
+        padding: "1.25rem 1.5rem",
+        flex: "1 1 180px", minWidth: 180,
         position: "relative",
         overflow: "hidden",
+        transition: "transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.3s",
+        boxShadow: T.shadow,
     }}>
         <div style={{
-            position: "absolute", top: -20, right: -20,
-            width: 70, height: 70, borderRadius: "50%",
-            background: `${color}08`,
-            filter: "blur(12px)",
+            position: "absolute", top: -30, right: -30,
+            width: 100, height: 100, borderRadius: "50%",
+            background: `${color}12`,
+            filter: "blur(24px)",
         }} aria-hidden="true" />
-        <div style={{ display: "flex", alignItems: "center", gap: "0.85rem", position: "relative", zIndex: 1 }}>
-            <div style={{
-                width: 44, height: 44, borderRadius: T.rSm,
-                background: `${color}12`,
-                border: `1px solid ${color}20`,
-                display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: "1.2rem", flexShrink: 0,
-            }} aria-hidden="true">{icon}</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: "1rem", position: "relative", zIndex: 1 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div style={{
+                    width: 42, height: 42, borderRadius: T.rSm,
+                    background: `${color}15`,
+                    border: `1px solid ${color}25`,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    fontSize: "1.25rem", flexShrink: 0,
+                }} aria-hidden="true">{icon}</div>
+                {trend !== undefined && (
+                    <span style={{ 
+                        fontSize: "0.75rem", 
+                        fontWeight: 800, 
+                        color: trend >= 0 ? T.green : T.red,
+                        background: trend >= 0 ? T.greenDim : T.redDim,
+                        padding: "4px 8px",
+                        borderRadius: 6,
+                        fontFamily: T.fontMono,
+                        border: `1px solid ${trend >= 0 ? T.green : T.red}30`,
+                    }}>
+                        {trend >= 0 ? "↑" : "↓"}{Math.abs(trend)}%
+                    </span>
+                )}
+            </div>
             <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: "0.75rem", color: T.textDim, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", marginBottom: 6 }}>{label}</div>
                 <div style={{ display: "flex", alignItems: "baseline" }}>
-                    <span style={{ fontSize: "1.35rem", fontWeight: 800, color: T.text, letterSpacing: "-0.03em", lineHeight: 1.1 }}>{value}</span>
-                    {suffix && <span style={{ fontSize: "0.7rem", color: T.textDim, fontWeight: 600, marginLeft: 4 }}>{suffix}</span>}
+                    <span style={{ fontSize: "1.75rem", fontWeight: 900, color: T.text, letterSpacing: "-0.04em", lineHeight: 1 }}>{value}</span>
+                    {suffix && <span style={{ fontSize: "0.85rem", color: T.textDim, fontWeight: 700, marginLeft: 6 }}>{suffix}</span>}
                 </div>
-                <div style={{ fontSize: "0.72rem", color: T.textDim, fontWeight: 600, marginTop: 4, letterSpacing: "0.02em", textTransform: "uppercase", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{label}</div>
             </div>
         </div>
     </div>
@@ -162,7 +181,7 @@ export const HealthBar = ({ value = 0, label, color: c }) => {
 /* ═══════════════════════════════════════════
    BADGE — pill-shaped label
    ═══════════════════════════════════════════ */
-export const Badge = ({ color: c = T.accent, children, size = "md" }) => {
+export const Badge = ({ color: c = T.accent, children, size = "md", style = {} }) => {
     const pad = size === "sm" ? "3px 8px" : size === "lg" ? "6px 14px" : "4px 10px";
     const fs = size === "sm" ? "0.63rem" : size === "lg" ? "0.78rem" : "0.7rem";
     return (
@@ -175,6 +194,7 @@ export const Badge = ({ color: c = T.accent, children, size = "md" }) => {
             display: "inline-flex", alignItems: "center", gap: 4,
             whiteSpace: "nowrap", lineHeight: 1.4,
             letterSpacing: "0.01em",
+            ...style
         }}>
             {children}
         </span>
@@ -294,6 +314,42 @@ export const SeverityDot = ({ severity }) => {
     const c = severity === "critical" ? T.red : severity === "high" ? T.yellow : severity === "medium" ? T.blue : T.green;
     return <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: "50%", background: c, display: "inline-block", flexShrink: 0, boxShadow: `0 0 6px ${c}40` }} />;
 };
+
+/* ═══════════════════════════════════════════
+   INSIGHT CARD — Focus on a single observation
+   ═══════════════════════════════════════════ */
+export const InsightCard = ({ icon, title, value, status, description, action }) => (
+    <div style={{
+        background: T.bgCard,
+        border: `1px solid ${T.border}`,
+        borderRadius: T.r,
+        padding: "1.25rem",
+        display: "flex",
+        flexDirection: "column",
+        gap: "0.75rem",
+        transition: "all 0.3s",
+        position: "relative",
+        overflow: "hidden"
+    }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+            <span style={{ fontSize: "1.2rem" }}>{icon}</span>
+            <span style={{ fontSize: "0.8rem", fontWeight: 800, color: T.textSec, textTransform: "uppercase", letterSpacing: "0.05em" }}>{title}</span>
+        </div>
+        <div style={{ fontSize: "1.5rem", fontWeight: 900, color: status === "danger" ? T.red : status === "warning" ? T.yellow : T.text }}>
+            {value}
+        </div>
+        <p style={{ fontSize: "0.75rem", color: T.textDim, margin: 0, lineHeight: 1.4 }}>{description}</p>
+        {action && (
+            <div style={{ marginTop: "0.5rem", borderTop: `1px solid ${T.borderLight}`, paddingTop: "0.75rem" }}>
+                {action}
+            </div>
+        )}
+        <div style={{ 
+            position: "absolute", top: 0, right: 0, width: 4, height: "100%", 
+            background: status === "danger" ? T.red : status === "warning" ? T.yellow : T.accent 
+        }} />
+    </div>
+);
 
 /* ═══════════════════════════════════════════
    MODAL WRAPPER — accessible modal overlay

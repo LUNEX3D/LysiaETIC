@@ -31,7 +31,52 @@ const useInvoices = (connectedProviders) => {
     providersRef.current = connectedProviders;
 
     /**
-     * Tüm bağlı sağlayıcılardan belgeleri çek
+     * DB'den (LysiaETIC Invoice tablosu) faturaları çek.
+     * Provider DB'den algılandığında (fromDb: true) aktif QNB session olmadan
+     * faturaları gösterebilmek için kullanılır.
+     */
+    const fetchFromDb = useCallback(async () => {
+        try {
+            const now = new Date();
+            const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+            const startDate = thirtyDaysAgo.toISOString().split("T")[0].replace(/-/g, "");
+            const endDate = now.toISOString().split("T")[0].replace(/-/g, "");
+
+            const res = await API.get("/auto-invoice/qnb-invoices", {
+                params: { startDate, endDate, limit: 100 },
+            });
+
+            if (res.data.success && Array.isArray(res.data.data)) {
+                return res.data.data.map((inv) => ({
+                    id: inv.id || inv._id || inv.uuid,
+                    type: (inv.profileId || "").toLowerCase().includes("earsiv") ? "e-arsiv" : "e-fatura",
+                    number: inv.faturaNo || "",
+                    date: inv.tarih || "",
+                    customer: inv.aliciAdi || "",
+                    vkn: inv.aliciVkn || "",
+                    amount: Number(inv.kdvHaric || 0),
+                    tax: Number(inv.kdv || 0),
+                    total: Number(inv.tutar || 0) || (Number(inv.kdvHaric || 0) + Number(inv.kdv || 0)),
+                    status: inv.durum || "created",
+                    currency: inv.currency || "TRY",
+                    provider: "qnb-esolutions",
+                    raw: inv,
+                }));
+            }
+        } catch (err) {
+            // Subscription expired — özel mesaj
+            if (err.response?.status === 403 && (err.response?.data?.subscriptionExpired || err.response?.data?.subscriptionSuspended)) {
+                setFetchError(err.response.data.message || "Abonelik süreniz dolmuş. Lütfen paketinizi yenileyin.");
+            }
+            console.error("[useInvoices] DB'den fatura çekme hatası:", err);
+        }
+        return [];
+    }, []);
+
+    /**
+     * Tüm bağlı sağlayıcılardan belgeleri çek.
+     * Provider DB'den algılandıysa (fromDb: true, aktif session yok)
+     * QNB API yerine LysiaETIC DB'den faturaları çeker.
      */
     const fetchAll = useCallback(async () => {
         const providers = providersRef.current;
@@ -39,15 +84,23 @@ const useInvoices = (connectedProviders) => {
         if (isFetchingRef.current) return;
 
         const provider = providers[0];
-        const apiToken = provider.apiToken || provider.customerToken || provider.partnerToken;
-        if (!apiToken) {
-            setFetchError("Geçerli bir oturum token'ı bulunamadı. Lütfen sağlayıcıyı yeniden bağlayın.");
-            return;
-        }
 
         isFetchingRef.current = true;
         setLoading(true);
         setFetchError("");
+
+        // ── DB'den algılanan sağlayıcı (aktif session yok) ──
+        // QNB API'ye erişim için token gerekir ama DB-detected provider'da token yok.
+        // Bu durumda LysiaETIC DB'deki Invoice kayıtlarını kullanıyoruz.
+        const apiToken = provider.apiToken || provider.customerToken || provider.partnerToken;
+        if (!apiToken || provider.fromDb) {
+            const dbDocs = await fetchFromDb();
+            setInvoices(dbDocs);
+            setLastFetchTime(new Date());
+            setLoading(false);
+            isFetchingRef.current = false;
+            return;
+        }
 
         const authType = provider.authType || "trendyol";
         const docTypes = PROVIDER_DOC_TYPES[authType] || PROVIDER_DOC_TYPES.trendyol;
@@ -106,7 +159,7 @@ const useInvoices = (connectedProviders) => {
         }
         setLoading(false);
         isFetchingRef.current = false;
-    }, []);
+    }, [fetchFromDb]);
 
     /**
      * Sağlayıcı bağlandığında otomatik belge çek (tek seferlik)
@@ -178,7 +231,13 @@ const useInvoices = (connectedProviders) => {
             });
             const text = typeof res.data === "string" ? res.data : JSON.stringify(res.data);
             if (text.includes("<html") || text.includes("<HTML") || text.includes("<!DOCTYPE")) {
-                const blob = new Blob([text], { type: "text/html; charset=utf-8" });
+                // QNB HTML'i relative URL'ler içerebilir — <base> tag ekle
+                let html = text;
+                if (!html.includes("<base")) {
+                    const baseTag = '<base href="https://earsivtest.qnbesolutions.com.tr/" />';
+                    html = html.replace(/(<head[^>]*>)/i, "$1" + baseTag);
+                }
+                const blob = new Blob([html], { type: "text/html; charset=utf-8" });
                 const url = window.URL.createObjectURL(blob);
                 window.open(url, "_blank");
                 setTimeout(() => window.URL.revokeObjectURL(url), 60000);
@@ -205,6 +264,15 @@ const useInvoices = (connectedProviders) => {
      */
     const downloadPdf = useCallback(async (invoiceId, invoiceNumber) => {
         if (!invoiceId) return;
+
+        // UUID formatı ise önce preview endpoint'ini dene (daha güvenilir)
+        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(invoiceId);
+        if (isUuid) {
+            const previewResult = await previewInvoice(invoiceId);
+            if (previewResult?.success) return previewResult;
+            // Preview başarısız olursa PDF endpoint'ine düş
+        }
+
         setPdfLoading(invoiceId);
         try {
             const res = await API.get("/auto-invoice/invoices/" + invoiceId + "/pdf", {
@@ -213,6 +281,18 @@ const useInvoices = (connectedProviders) => {
 
             const contentType = res.headers["content-type"] || "";
             const blob = res.data;
+
+            // ⚠️ responseType: "blob" ile JSON hata yanıtları da blob olarak gelir
+            // Content-Type JSON ise hata mesajını çıkar
+            if (contentType.includes("json")) {
+                const text = await blob.text();
+                try {
+                    const data = JSON.parse(text);
+                    return { error: data.message || "Fatura indirilemedi" };
+                } catch {
+                    return { error: "Beklenmeyen yanıt" };
+                }
+            }
 
             if (contentType.includes("zip") || contentType.includes("octet")) {
                 const url = window.URL.createObjectURL(blob);
@@ -224,7 +304,11 @@ const useInvoices = (connectedProviders) => {
                 a.remove();
                 window.URL.revokeObjectURL(url);
             } else if (contentType.includes("html")) {
-                const text = await blob.text();
+                let text = await blob.text();
+                // QNB HTML'i relative URL'ler içerebilir — <base> tag ekle
+                if (!text.includes("<base")) {
+                    text = text.replace(/(<head[^>]*>)/i, '$1<base href="https://earsivtest.qnbesolutions.com.tr/" />');
+                }
                 const htmlBlob = new Blob([text], { type: "text/html; charset=utf-8" });
                 const url = window.URL.createObjectURL(htmlBlob);
                 window.open(url, "_blank");
@@ -235,8 +319,12 @@ const useInvoices = (connectedProviders) => {
                 setTimeout(() => window.URL.revokeObjectURL(url), 60000);
             } else {
                 // Bilinmeyen format — text olarak oku
-                const text = await blob.text();
+                let text = await blob.text();
                 if (text.includes("<html") || text.includes("<!DOCTYPE")) {
+                    // QNB HTML'i relative URL'ler içerebilir — <base> tag ekle
+                    if (!text.includes("<base")) {
+                        text = text.replace(/(<head[^>]*>)/i, '$1<base href="https://earsivtest.qnbesolutions.com.tr/" />');
+                    }
                     const htmlBlob = new Blob([text], { type: "text/html; charset=utf-8" });
                     const url = window.URL.createObjectURL(htmlBlob);
                     window.open(url, "_blank");
@@ -247,11 +335,19 @@ const useInvoices = (connectedProviders) => {
             }
             return { success: true };
         } catch (err) {
+            // Axios blob hatalarında response.data bir Blob olabilir
+            if (err.response?.data instanceof Blob) {
+                try {
+                    const text = await err.response.data.text();
+                    const data = JSON.parse(text);
+                    return { error: data.message || "Fatura indirilemedi" };
+                } catch { /* ignore */ }
+            }
             return { error: "PDF indirme hatası: " + (err.response?.data?.message || err.message) };
         } finally {
             setPdfLoading(null);
         }
-    }, []);
+    }, [previewInvoice]);
 
     /**
      * QNB üzerinden fatura oluştur (e-Arşiv)

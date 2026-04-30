@@ -15,7 +15,7 @@ import {
 } from "react-icons/fa";
 import API from "../services/api";
 
-const MARKETPLACES = ["Trendyol", "Hepsiburada", "N11", "Amazon", "ÇiçekSepeti"];
+const MARKETPLACES = ["Trendyol", "Hepsiburada", "N11", "Amazon", "ÇiçekSepeti", "Noon", "AliExpress"];
 
 const PriceSyncPage = () => {
     const [products, setProducts] = useState([]);

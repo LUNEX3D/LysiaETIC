@@ -53,6 +53,7 @@ const AdminProducts          = lazy(() => import("./pages/AdminProducts"));
 const AdminOrders            = lazy(() => import("./pages/AdminOrders"));
 const AdminServers           = lazy(() => import("./pages/AdminServers"));
 const AdminUserAccess        = lazy(() => import("./pages/AdminUserAccess"));
+const AdminUserDetail        = lazy(() => import("./pages/AdminUserDetail"));
 const ProductWizard          = lazy(() => import("./components/ProductWizard"));
 
 // SaaS Admin Panel
@@ -281,6 +282,7 @@ const AppContent = () => {
             <Route path="/admin/tenants" element={<ProtectedRoute requiredRoles={["admin","dev"]}><SaasTenants /></ProtectedRoute>} />
             <Route path="/admin/user-access" element={<ProtectedRoute requiredRoles={["admin","dev"]}><AdminUserAccess /></ProtectedRoute>} />
             <Route path="/admin/users" element={<ProtectedRoute requiredRoles={["admin","dev"]}><AdminUsers /></ProtectedRoute>} />
+            <Route path="/admin/user/:id" element={<ProtectedRoute requiredRoles={["admin","dev"]}><AdminUserDetail /></ProtectedRoute>} />
 
             {/* Finans & Abonelik */}
             <Route path="/admin/plan-manager" element={<ProtectedRoute requiredRoles={["admin","dev"]}><SaasPlanManager /></ProtectedRoute>} />

@@ -8,11 +8,13 @@ const ProductMapping = require("../models/ProductMapping");
 const StockSyncLog = require("../models/StockSyncLog");
 const Marketplace = require("../models/Marketplace");
 const logger = require("../config/logger");
-const { syncProductsFromMarketplace, distributeProductToMarketplaces, checkPendingN11Tasks, deleteProductFromMarketplaces } = require("../services/productSyncService");
+const { syncProductsFromMarketplace, distributeProductToMarketplaces, checkPendingN11Tasks, checkPendingTrendyolBatches, deleteProductFromMarketplaces } = require("../services/productSyncService");
 const { manualStockSync, autoStockSync, syncStockToAllMarketplaces } = require("../services/stockSyncService");
 const n11Service = require("../services/n11Service");
 const xlsx = require("xlsx");
 const multer = require("multer");
+const fs = require("fs");
+const path = require("path");
 const duplicateGuard = require("../utils/productDuplicateGuard");
 
 // Multer — memory storage (dosyayı diske yazmadan RAM'de tut)
@@ -33,6 +35,50 @@ const upload = multer({
     }
 });
 exports.uploadMiddleware = upload.single("file");
+
+const productImageUploadDir = path.join(__dirname, "..", "uploads", "product-images");
+const imageStorage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        try {
+            fs.mkdirSync(productImageUploadDir, { recursive: true });
+            cb(null, productImageUploadDir);
+        } catch (err) {
+            cb(err);
+        }
+    },
+    filename: (req, file, cb) => {
+        const ext = path.extname(file.originalname || "").toLowerCase();
+        const safeExt = [".jpg", ".jpeg", ".png", ".webp", ".gif"].includes(ext) ? ext : ".jpg";
+        cb(null, `${Date.now()}-${Math.random().toString(36).slice(2, 10)}${safeExt}`);
+    }
+});
+const imageUpload = multer({
+    storage: imageStorage,
+    limits: { fileSize: 8 * 1024 * 1024 },
+    fileFilter: (req, file, cb) => {
+        if (file?.mimetype?.startsWith("image/")) return cb(null, true);
+        return cb(new Error("Sadece gorsel dosyalari kabul edilir"), false);
+    }
+});
+exports.imageUploadMiddleware = imageUpload.single("image");
+
+exports.uploadProductImage = async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: "Gorsel dosyasi bulunamadi" });
+        }
+        const baseUrl = process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get("host")}`;
+        const fileUrl = `${baseUrl}/uploads/product-images/${req.file.filename}`;
+        return res.status(200).json({
+            success: true,
+            url: fileUrl,
+            filename: req.file.filename
+        });
+    } catch (error) {
+        logger.error("[PRODUCT IMAGE UPLOAD] Hata:", error.message);
+        return res.status(500).json({ error: "Gorsel yuklenemedi", details: error.message });
+    }
+};
 
 // ═══════════════════════════════════════════════════════════════
 // 📦 ÜRÜN YÜKLEME
@@ -155,7 +201,7 @@ exports.getProducts = async (req, res) => {
         const userId = toObjectId(req.user?._id || req.user?.id);
         if (!userId) return res.status(401).json({ error: "Yetkilendirme hatası" });
 
-        const { page = 0, limit = 20, search, category, marketplace, stockStatus } = req.query;
+        const { page = 0, limit = 20, search, category, marketplace, stockStatus, mpFilter, mpFilterStatus } = req.query;
 
         const filter = { userId };
 
@@ -181,6 +227,28 @@ exports.getProducts = async (req, res) => {
         if (marketplace) {
             const normalizedMP = normalizeMarketplaceName(marketplace);
             filter["marketplaceMappings.marketplaceName"] = new RegExp(`^${normalizedMP}$`, "i");
+        }
+
+        // Gelişmiş Pazaryeri Filtreleme (mpFilter: "Trendyol", mpFilterStatus: "not_listed")
+        if (mpFilter) {
+            const normalizedMP = normalizeMarketplaceName(mpFilter);
+            if (mpFilterStatus === "listed") {
+                filter.marketplaceMappings = {
+                    $elemMatch: {
+                        marketplaceName: new RegExp(`^${normalizedMP}$`, "i"),
+                        syncStatus: { $ne: "error" }
+                    }
+                };
+            } else if (mpFilterStatus === "not_listed") {
+                filter.marketplaceMappings = {
+                    $not: {
+                        $elemMatch: {
+                            marketplaceName: new RegExp(`^${normalizedMP}$`, "i"),
+                            syncStatus: { $ne: "error" }
+                        }
+                    }
+                };
+            }
         }
 
         // Stok durumu filtresi
@@ -517,13 +585,20 @@ exports.distributeProduct = async (req, res) => {
         const userId = toObjectId(req.user?._id || req.user?.id);
         if (!userId) return res.status(401).json({ error: "Yetkilendirme hatası" });
 
-        const { productMappingId, targetMarketplaces } = req.body;
+        const { productMappingId, targetMarketplaces, category, categoryData } = req.body;
+        const normalizedCategory = category || (categoryData
+            ? {
+                id: categoryData.id || categoryData.categoryId || categoryData.externalCategoryId,
+                name: categoryData.name || categoryData.categoryName || categoryData.externalCategoryName,
+                path: categoryData.path || categoryData.categoryPath || categoryData.externalCategoryPath
+            }
+            : null);
 
         if (!productMappingId || !targetMarketplaces || targetMarketplaces.length === 0) {
             return res.status(400).json({ error: "Ürün ID ve hedef pazaryerleri gerekli" });
         }
 
-        const results = await distributeProductToMarketplaces(userId, productMappingId, targetMarketplaces);
+        const results = await distributeProductToMarketplaces(userId, productMappingId, targetMarketplaces, normalizedCategory);
 
         return res.status(200).json({
             success: true,
@@ -2357,13 +2432,17 @@ exports.checkPendingTasks = async (req, res) => {
         const userId = toObjectId(req.user?._id || req.user?.id);
         if (!userId) return res.status(401).json({ error: "Yetkilendirme hatası" });
 
-        logger.info(`[CHECK PENDING] Kullanıcı ${userId} — pending task kontrolü başlatılıyor`);
-        const result = await checkPendingN11Tasks(userId);
+        logger.info(`[CHECK PENDING] Kullanıcı ${userId} — N11 + Trendyol batch kontrolü başlatılıyor`);
+        const n11 = await checkPendingN11Tasks(userId);
+        const trendyol = await checkPendingTrendyolBatches(userId);
 
         return res.status(200).json({
             success: true,
-            message: `Pending kontrol tamamlandı — ${result.checked} kontrol, ${result.updated} kesinleşen, ${result.failed} başarısız`,
-            ...result
+            message:
+                `N11: ${n11.checked} kontrol, ${n11.updated} kesinleşen, ${n11.failed} başarısız — ` +
+                `Trendyol batch: ${trendyol.checked} kontrol, ${trendyol.updated} kesinleşen, ${trendyol.failed} başarısız, ${trendyol.inProgress || 0} işlemde`,
+            n11,
+            trendyol
         });
     } catch (error) {
         logger.error("[CHECK PENDING] Hata:", error.message);
@@ -3346,7 +3425,7 @@ exports.createAndDistribute = async (req, res) => {
         const {
             name, barcode, sku, description, images,
             price, listPrice, stock, category, brand,
-            attributes, targetMarketplaces
+            attributes, targetMarketplaces, platformCategories
         } = req.body;
 
         // Zorunlu alan kontrolü
@@ -3399,16 +3478,47 @@ exports.createAndDistribute = async (req, res) => {
 
         // Platformlara dağıt (varsa)
         const distributeResults = [];
+        if (!targetMarketplaces || targetMarketplaces.length === 0) {
+            logger.info(
+                `[PRODUCT] Dağıtım atlandı — targetMarketplaces boş veya yok (create-and-distribute: ${name} / ${barcode})`
+            );
+        }
         if (targetMarketplaces && targetMarketplaces.length > 0) {
             for (const target of targetMarketplaces) {
                 try {
-                    const distResult = await distributeProductToMarketplaces(
-                        userId, productMapping._id, [target]
+                    const rawCategory = (() => {
+                        if (!platformCategories || typeof platformCategories !== "object") return null;
+                        if (platformCategories[target]) return platformCategories[target];
+                        const wanted = String(target || "").trim().toLowerCase();
+                        const matchedKey = Object.keys(platformCategories).find(
+                            (k) => String(k || "").trim().toLowerCase() === wanted
+                        );
+                        return matchedKey ? platformCategories[matchedKey] : null;
+                    })();
+                    const normalizedCategory = rawCategory && (rawCategory.categoryId || rawCategory.id)
+                        ? {
+                            id: String(rawCategory.categoryId || rawCategory.id),
+                            name: rawCategory.categoryName || rawCategory.name || "",
+                            path: rawCategory.categoryPath || rawCategory.path || rawCategory.categoryName || rawCategory.name || ""
+                        }
+                        : null;
+                    logger.info(
+                        `[PRODUCT DISTRIBUTE] ${target} kategori baglami: ` +
+                        `${normalizedCategory ? `id=${normalizedCategory.id}, name=${normalizedCategory.name || "-"}` : "YOK"}`
                     );
+
+                    const distResult = await distributeProductToMarketplaces(
+                        userId, productMapping._id, [target], normalizedCategory
+                    );
+                    const items = Array.isArray(distResult) ? distResult : [];
+                    const errItem = items.find((i) => i.status === "error");
+                    const iterationOk = items.length > 0 && !errItem;
+
                     distributeResults.push({
                         marketplace: target,
-                        success: true,
-                        result: distResult
+                        success: iterationOk,
+                        result: distResult,
+                        error: errItem ? (errItem.message || "Yükleme başarısız") : undefined
                     });
                 } catch (distErr) {
                     distributeResults.push({
@@ -3430,11 +3540,33 @@ exports.createAndDistribute = async (req, res) => {
             notification: { priority: "low" }
         });
 
+        const distOk = distributeResults.filter((r) => r.success);
+        const distBad = distributeResults.filter((r) => !r.success);
+        let summaryMessage = "Ürün oluşturuldu";
+        if (distributeResults.length === 0) {
+            summaryMessage = "Ürün oluşturuldu (pazaryeri seçilmedi — sadece programda kayıtlı)";
+        } else if (distBad.length === 0) {
+            summaryMessage = `Ürün oluşturuldu; ${distOk.length} pazaryerine yükleme tamamlandı veya kuyrukta`;
+        } else if (distOk.length === 0) {
+            summaryMessage =
+                "Ürün oluşturuldu ancak seçilen pazaryerlerine yüklenemedi: " +
+                distBad.map((b) => `${b.marketplace}: ${b.error || "bilinmeyen hata"}`).join("; ");
+        } else {
+            summaryMessage =
+                `Ürün oluşturuldu. Başarılı: ${distOk.map((o) => o.marketplace).join(", ")}. ` +
+                `Hata: ${distBad.map((b) => `${b.marketplace}: ${b.error || "?"}`).join("; ")}`;
+        }
+
         return res.status(201).json({
             success: true,
-            message: "Ürün oluşturuldu" + (distributeResults.length > 0 ? ` ve ${distributeResults.filter(r => r.success).length} platforma dağıtıldı` : ""),
+            message: summaryMessage,
             product: productMapping,
-            distributeResults
+            distributeResults,
+            distributeSummary: {
+                attempted: distributeResults.length,
+                succeeded: distOk.length,
+                failed: distBad.length
+            }
         });
 
     } catch (error) {

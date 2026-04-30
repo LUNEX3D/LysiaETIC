@@ -17,6 +17,7 @@
  * ═══════════════════════════════════════════════════════════════
  */
 const axios = require("axios");
+const moment = require("moment");
 const logger = require("../config/logger");
 
 // ═══════════════════════════════════════════════════════════════
@@ -184,11 +185,59 @@ const getCargoCompanies = async (marketplaceName, credentials) => {
  *   PUT /integration/order/sellers/{sellerId}/shipment-packages
  *   Body: { shipmentPackages: [{ id, status: "Picking", params: { cargoCompany } }] }
  */
+/**
+ * Trendyol kargo şirketi adından numeric ID'ye çözümleme
+ * Kullanıcı config'de name kaydetmiş olabilir ("Trendyol Express") — Trendyol API numeric ID bekler (10)
+ */
+const TRENDYOL_CARGO_NAME_TO_ID = {
+    "trendyol express": 10, "trendyolexpress": 10,
+    "hepsijet": 19,
+    "yurtiçi kargo": 4, "yurtici kargo": 4, "yurtici": 4,
+    "aras kargo": 7, "araskargo": 7,
+    "mng kargo": 9, "mngkargo": 9,
+    "ptt kargo": 14, "pttkargo": 14,
+    "sürat kargo": 6, "surat kargo": 6, "suratkargo": 6,
+    "sendeo": 17,
+    "kolay gelsin": 30, "kolaygelsin": 30,
+    "horoz lojistik": 20, "horozlojistik": 20,
+    "ups kargo": 8, "upskargo": 8,
+    "ceva lojistik": 5, "cevalojistik": 5,
+};
+
+/**
+ * cargoId'yi Trendyol'un beklediği numeric ID'ye çözümle
+ * Giriş: numeric string ("10"), isim ("Trendyol Express"), code ("TRENDYOLEXPRESS") olabilir
+ */
+const resolveTrendyolCargoId = (cargoId) => {
+    if (!cargoId) return null;
+    // Zaten sayıysa doğrudan kullan
+    const parsed = parseInt(cargoId);
+    if (!isNaN(parsed) && parsed > 0) return parsed;
+    // İsim/code ile eşleştir
+    const lower = String(cargoId).toLowerCase().trim();
+    if (TRENDYOL_CARGO_NAME_TO_ID[lower] !== undefined) return TRENDYOL_CARGO_NAME_TO_ID[lower];
+    // Statik listeden code ile eşleştir
+    const byCode = getTrendyolStaticCargoCompanies().find(c => c.code.toLowerCase() === lower);
+    if (byCode) return parseInt(byCode.id);
+    // Statik listeden isim ile eşleştir (kısmi)
+    const byName = getTrendyolStaticCargoCompanies().find(c => c.name.toLowerCase() === lower);
+    if (byName) return parseInt(byName.id);
+    logger.warn(`[AutoOrder] Trendyol kargo ID çözümlenemedi: "${cargoId}" — varsayılan kullanılmayacak`);
+    return null;
+};
+
 const processTrendyolOrders = async (credentials, cargoId, cargoName) => {
     const { sellerId, apiKey, apiSecret } = credentials;
     const authHeader = `Basic ${Buffer.from(`${apiKey}:${apiSecret}`).toString("base64")}`;
     const userAgent = `${sellerId} - SelfIntegration`;
     const results = [];
+
+    // ✅ FIX: Kargo ID'sini numeric'e çözümle (isim/code gelebilir)
+    const resolvedCargoId = resolveTrendyolCargoId(cargoId);
+    if (!resolvedCargoId) {
+        logger.error(`[AutoOrder] Trendyol: Kargo şirketi ID çözümlenemedi — cargoId="${cargoId}" cargoName="${cargoName}"`);
+        return { processed: 0, success: 0, failed: 0, results: [{ orderNumber: "*", status: "failed", error: `Geçersiz kargo ID: "${cargoId}". Lütfen Otomatik Sipariş ayarlarından kargo şirketini tekrar seçin.`, cargoUsed: cargoName }] };
+    }
 
     try {
         // 1) Yeni (Created) siparişleri çek
@@ -226,13 +275,10 @@ const processTrendyolOrders = async (credentials, cargoId, cargoName) => {
                 const pickUrl = `https://apigw.trendyol.com/integration/order/sellers/${sellerId}/shipment-packages/${shipmentPackageId}`;
                 const pickBody = {
                     status: "Picking",
-                    params: {}
+                    params: { cargoCompany: resolvedCargoId }
                 };
 
-                // Kargo şirketi ID'si varsa ekle
-                if (cargoId) {
-                    pickBody.params.cargoCompany = parseInt(cargoId) || cargoId;
-                }
+                logger.info(`[AutoOrder] Trendyol PUT ${orderNumber} → cargoCompany=${resolvedCargoId} (${cargoName})`);
 
                 await axios.put(pickUrl, pickBody, {
                     headers: { Authorization: authHeader, "User-Agent": userAgent, "Content-Type": "application/json" },
@@ -240,7 +286,7 @@ const processTrendyolOrders = async (credentials, cargoId, cargoName) => {
                 });
 
                 results.push({ orderNumber, status: "success", cargoUsed: cargoName });
-                logger.info(`[AutoOrder] Trendyol ✅ ${orderNumber} → Picking (${cargoName})`);
+                logger.info(`[AutoOrder] Trendyol ✅ ${orderNumber} → Picking (${cargoName}, id=${resolvedCargoId})`);
 
                 // Rate limiting
                 await new Promise(r => setTimeout(r, 200));
@@ -249,7 +295,7 @@ const processTrendyolOrders = async (credentials, cargoId, cargoName) => {
                     err.response?.data?.message ||
                     err.message;
                 results.push({ orderNumber, status: "failed", error: errMsg, cargoUsed: cargoName });
-                logger.warn(`[AutoOrder] Trendyol ❌ ${orderNumber}: ${errMsg}`);
+                logger.warn(`[AutoOrder] Trendyol ❌ ${orderNumber}: ${errMsg} (cargoId=${resolvedCargoId})`);
             }
         }
     } catch (error) {
@@ -286,36 +332,84 @@ const processHepsiburadaOrders = async (credentials, cargoId, cargoName) => {
         const ep = getEndpoints({ useSit });
         const headers = getHeaders(merchantId, secretKey, userAgent);
 
-        // 1) Open (yeni) siparişleri çek
-        const moment = require("moment");
-        const encStart = encodeURIComponent(moment().subtract(7, "days").format("YYYY-MM-DD HH:mm:ss"));
-        const encEnd = encodeURIComponent(moment().format("YYYY-MM-DD HH:mm:ss"));
+        // ✅ FIX: Ortam bilgisini logla — SIT/Production karışıklığını tespit etmek için
+        const isSit = ep.OMS.includes("-sit");
+        logger.info(`[AutoOrder] Hepsiburada ortam: ${isSit ? "SIT (test)" : "PRODUCTION"} — merchantId=${merchantId.substring(0, 8)}...`);
 
-        let offset = 0;
+        // 1) Open (yeni) sipariş kalemlerini çek
+        // Hepsiburada OMS: begindate/enddate + YYYY-MM-DD HH:mm:ss (dashboard/ordersService ile uyumlu).
+        // SIT ortamında 5–7 günlük tek istek sıklıkla GetPackageLinesBadRequestError (400) döndürüyor;
+        // günlük pencerelerle çekmek bu hatayı genelde önler (cargo/stockCron’daki 24s dilim stratejisi).
+        const ORDER_FETCH_DAYS = 7;
         const limit = 100;
         const openOrders = [];
 
-        let hasMore = true;
-        while (hasMore) {
-            try {
-                const url = `${ep.OMS}/orders/merchantid/${merchantId}?begindate=${encStart}&enddate=${encEnd}&offset=${offset}&limit=${limit}`;
-                const resp = await axios.get(url, { headers, timeout: 30000 });
-                const items = resp.data?.items || [];
-                if (!Array.isArray(items) || items.length === 0) { hasMore = false; break; }
-                openOrders.push(...items);
-                if (items.length < limit) hasMore = false;
-                else offset += items.length;
-                await new Promise(r => setTimeout(r, 300));
-            } catch (err) {
-                if (err.response?.status === 404 || err.response?.status === 401) hasMore = false;
-                else {
-                    logger.warn(`[AutoOrder] Hepsiburada sipariş çekme hatası: ${err.response?.status || err.message}`, {
-                        url: `${ep.OMS}/orders/merchantid/${merchantId}?begindate=...&enddate=...&offset=${offset}&limit=${limit}`,
-                        responseBody: JSON.stringify(err.response?.data || '').substring(0, 500)
-                    });
+        const fetchOrdersForRange = async (encStart, encEnd, label) => {
+            const chunkItems = [];
+            let offset = 0;
+            let hasMore = true;
+            while (hasMore) {
+                try {
+                    const url = `${ep.OMS}/orders/merchantid/${merchantId}?begindate=${encStart}&enddate=${encEnd}&offset=${offset}&limit=${limit}`;
+                    const resp = await axios.get(url, { headers, timeout: 30000 });
+                    const items = resp.data?.items || [];
+                    if (!Array.isArray(items) || items.length === 0) {
+                        hasMore = false;
+                        break;
+                    }
+                    chunkItems.push(...items);
+                    if (items.length < limit) hasMore = false;
+                    else offset += items.length;
+                    await new Promise(r => setTimeout(r, 300));
+                } catch (err) {
+                    const st = err.response?.status;
                     hasMore = false;
+                    if (st === 404) {
+                        return { ok: true, fatal: false, chunkItems };
+                    }
+                    if (st === 401) {
+                        logger.warn(`[AutoOrder] Hepsiburada 401 Unauthorized — ${isSit ? "SIT" : "PROD"} ortamı ile merchantId uyumsuz olabilir. useSit=${useSit}`);
+                        return { ok: false, fatal: true, chunkItems };
+                    }
+                    logger.warn(`[AutoOrder] Hepsiburada sipariş çekme hatası: ${st || err.message}`, {
+                        range: label,
+                        url: `${ep.OMS}/orders/merchantid/${merchantId}?begindate=${encStart}&enddate=${encEnd}&offset=${offset}&limit=${limit}`,
+                        env: isSit ? "SIT" : "PRODUCTION",
+                        responseBody: JSON.stringify(err.response?.data || "").substring(0, 500)
+                    });
+                    // 400 vb. — bir gün başarısız olsa bile diğer günlük pencereleri dene
+                    return { ok: false, fatal: false, chunkItems };
                 }
             }
+            return { ok: true, fatal: false, chunkItems };
+        };
+
+        let authAbort = false;
+        for (let dayOffset = 0; dayOffset < ORDER_FETCH_DAYS; dayOffset++) {
+            const dayStart = moment().subtract(dayOffset, "days").startOf("day");
+            const dayEnd = dayOffset === 0 ? moment() : moment().subtract(dayOffset, "days").endOf("day");
+            const encStart = encodeURIComponent(dayStart.format("YYYY-MM-DD HH:mm:ss"));
+            const encEnd = encodeURIComponent(dayEnd.format("YYYY-MM-DD HH:mm:ss"));
+            const label = `gün-${dayOffset} (${dayStart.format("YYYY-MM-DD")})`;
+
+            const { fatal, chunkItems } = await fetchOrdersForRange(encStart, encEnd, label);
+            if (chunkItems.length > 0) openOrders.push(...chunkItems);
+            if (fatal) {
+                authAbort = true;
+                break;
+            }
+        }
+
+        // Yedek: günlük dilimlerde kayıt yoksa dashboard ile aynı tek pencere (gece yarısı başlangıç)
+        if (openOrders.length === 0 && !authAbort) {
+            const start = new Date();
+            start.setDate(start.getDate() - ORDER_FETCH_DAYS);
+            start.setHours(0, 0, 0, 0);
+            const encStart = encodeURIComponent(moment(start).format("YYYY-MM-DD HH:mm:ss"));
+            const encEnd = encodeURIComponent(moment().format("YYYY-MM-DD HH:mm:ss"));
+            const { chunkItems, fatal } = await fetchOrdersForRange(encStart, encEnd, "fallback-tek-pencere");
+            if (chunkItems.length > 0) openOrders.push(...chunkItems);
+            if (fatal) authAbort = true;
         }
 
         if (openOrders.length === 0) {
@@ -570,8 +664,21 @@ const processN11Orders = async (credentials, cargoId, cargoName) => {
                     cargoCompanyId: cargoId || "yurtici",
                     cargoCompanyName: cargoName || "Yurtiçi Kargo"
                 };
-
-                await axios.put(approveUrl, approveBody, { headers, timeout: 15000 });
+                let approved = false;
+                let lastErr = null;
+                for (let attempt = 1; attempt <= 3; attempt++) {
+                    try {
+                        await axios.put(approveUrl, approveBody, { headers, timeout: 15000 });
+                        approved = true;
+                        break;
+                    } catch (e) {
+                        lastErr = e;
+                        const transient = e.code === "ECONNRESET" || /socket hang up/i.test(e.message || "");
+                        if (!transient || attempt === 3) break;
+                        await new Promise((r) => setTimeout(r, attempt * 700));
+                    }
+                }
+                if (!approved) throw lastErr || new Error("N11 onaylama başarısız");
 
                 results.push({ orderNumber, status: "success", cargoUsed: cargoName });
                 logger.info(`[AutoOrder] N11 ✅ ${orderNumber} → Approved (${cargoName})`);
@@ -667,6 +774,7 @@ module.exports = {
     getHepsiburadaCargoCompanies,
     getCiceksepetiCargoCompanies,
     getN11CargoCompanies,
+    resolveTrendyolCargoId,
     processOrders,
     processTrendyolOrders,
     processHepsiburadaOrders,

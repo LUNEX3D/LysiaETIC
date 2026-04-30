@@ -18,6 +18,8 @@
  *   - Amazon (SP-API) — henüz desteklenmiyor
  */
 
+const fs = require("fs").promises;
+const path = require("path");
 const axios = require("axios");
 const xlsx = require("xlsx");
 const Marketplace = require("../models/Marketplace");
@@ -65,6 +67,54 @@ const decodeObjectStrings = (obj) => {
 // ═══════════════════════════════════════════════════════════════
 const CACHE_TTL_HOURS = 24;
 const CACHE_TTL_MS = CACHE_TTL_HOURS * 60 * 60 * 1000;
+
+/** Büyük HB ağaçları tek Mongo dokümanına sığmaz (~16MB BSON); disk cache kullan */
+const CATEGORY_FILE_CACHE_DIR = path.join(__dirname, "..", "cache", "category-cache");
+const MONGO_CATEGORY_MAX_BYTES = 14 * 1024 * 1024;
+const MONGO_CATEGORY_MAX_ITEMS = 12000;
+
+const getCategoryFilePath = (userId, cacheKey) => {
+    const safeUser = String(userId).replace(/[^a-zA-Z0-9-_]/g, "_");
+    const safeKey = String(cacheKey).replace(/[^a-zA-Z0-9-_]/g, "_");
+    return path.join(CATEGORY_FILE_CACHE_DIR, `${safeUser}_${safeKey}.json`);
+};
+
+const shouldUseFileOnlyCategoryCache = (categories) => {
+    if (!categories || categories.length > MONGO_CATEGORY_MAX_ITEMS) return true;
+    try {
+        const approx = Buffer.byteLength(JSON.stringify(categories), "utf8");
+        if (approx > MONGO_CATEGORY_MAX_BYTES) return true;
+    } catch {
+        /* ignore */
+    }
+    return false;
+};
+
+const readCategoryFileCache = async (userId, cacheKey) => {
+    const fp = getCategoryFilePath(userId, cacheKey);
+    try {
+        const raw = await fs.readFile(fp, "utf8");
+        const data = JSON.parse(raw);
+        if (!data || !Array.isArray(data.categories) || data.categories.length === 0) return null;
+        const ageMs = Date.now() - new Date(data.cachedAt).getTime();
+        if (Number.isNaN(ageMs) || ageMs >= CACHE_TTL_MS) return null;
+        return { categories: data.categories, cachedAt: data.cachedAt };
+    } catch (e) {
+        if (e.code !== "ENOENT") logger.warn(`[CATEGORY CACHE] Dosya okuma hatası: ${e.message}`);
+        return null;
+    }
+};
+
+const writeCategoryFileCache = async (userId, cacheKey, categories) => {
+    await fs.mkdir(CATEGORY_FILE_CACHE_DIR, { recursive: true });
+    const fp = getCategoryFilePath(userId, cacheKey);
+    const payload = JSON.stringify({
+        cachedAt: new Date().toISOString(),
+        totalCount: categories.length,
+        categories
+    });
+    await fs.writeFile(fp, payload, "utf8");
+};
 
 // ═══════════════════════════════════════════════════════════════
 // 🔧 YARDIMCI: Flat Liste → Ağaç Dönüşümü (TEK YER — DRY)
@@ -393,23 +443,25 @@ const fetchHepsiburadaCategoryTree = async (credentials, options = {}) => {
     const TYPES = ["HB", "HX", "HC"];
 
     if (onlyLeaf) {
-        // Sadece yaprak kategoriler — leaf=true & available=true
+        // Sadece yaprak kategoriler — leaf=true (available filtresi KALDIRILDI — tüm leaf'ler gelsin)
         for (const type of TYPES) {
             try {
-                const cats = await fetchPaginated({ leaf: true, available: true, type }, ` ${type}-leaf`);
+                const cats = await fetchPaginated({ leaf: true, type }, ` ${type}-leaf`);
                 if (cats.length > 0) allCategories.push(...cats);
             } catch (e) { logger.warn(`[HB CATEGORIES] ${type} leaf hatası: ${e.message}`); }
         }
         // Hiçbir type sonuç vermediyse type'sız dene (fallback)
         if (allCategories.length === 0) {
-            allCategories = await fetchPaginated({ leaf: true, available: true }, " leaf-fallback");
+            allCategories = await fetchPaginated({ leaf: true }, " leaf-fallback");
         }
     } else {
         // Tüm kategoriler — leaf=true + leaf=false ayrı ayrı çek
         // (API varsayılanı leaf=true olduğu için parametre göndermezsen parent gelmez!)
+        // ✅ FIX: available filtresi KALDIRILDI — "kolye ucu" gibi kategoriler available=false
+        //    olsa bile listeye dahil edilmeli (kategori ağacı tam görünsün)
         for (const type of TYPES) {
             try {
-                // Yaprak kategoriler (leaf=true)
+                // Yaprak kategoriler (leaf=true) — available filtresi YOK
                 const leafCats = await fetchPaginated({ leaf: true, type }, ` ${type}-leaf`);
                 if (leafCats.length > 0) allCategories.push(...leafCats);
                 // Parent kategoriler (leaf=false)
@@ -479,8 +531,20 @@ const getOrFetchCategories = async (userId, marketplace, options = {}) => {
     const mpName = marketplace.marketplaceName;
     const cacheKey = normalizePlatformName(mpName);
 
-    // ── 1. Cache'e bak ──
+    // ── 1. Cache'e bak (dosya → Mongo; büyük listeler sadece dosyada) ──
     if (!forceRefresh) {
+        try {
+            const fromFile = await readCategoryFileCache(userId, cacheKey);
+            if (fromFile) {
+                const ageMs = Date.now() - new Date(fromFile.cachedAt).getTime();
+                logger.info(
+                    `[CATEGORY CACHE] ✅ ${mpName} — dosya cache'den okundu (${fromFile.categories.length} kategori, yaş: ${Math.round(ageMs / 60000)}dk)`
+                );
+                return fromFile.categories;
+            }
+        } catch (err) {
+            logger.warn(`[CATEGORY CACHE] Dosya cache kontrolü: ${err.message}`);
+        }
         try {
             const cached = await CategoryCache.findOne({
                 userId,
@@ -521,23 +585,40 @@ const getOrFetchCategories = async (userId, marketplace, options = {}) => {
     // ── 3. HTML entity decode uygula ──
     categories = categories.map(cat => decodeObjectStrings(cat));
 
-    // ── 4. Cache'e yaz ──
+    // ── 4. Cache'e yaz (büyük listeler Mongo BSON sınırını aşar → disk) ──
     if (categories.length > 0) {
-        try {
-            await CategoryCache.findOneAndUpdate(
-                { userId, marketplaceName: cacheKey },
-                {
-                    categories,
-                    totalCount: categories.length,
-                    cachedAt: new Date(),
-                    expiresAt: new Date(Date.now() + CACHE_TTL_MS)
-                },
-                { upsert: true, new: true }
-            );
-            logger.info(`[CATEGORY CACHE] 💾 ${mpName} — ${categories.length} kategori cache'lendi (TTL: ${CACHE_TTL_HOURS}sa)`);
-        } catch (err) {
-            logger.warn(`[CATEGORY CACHE] Cache yazma hatası: ${err.message}`);
-            // Cache yazılamazsa bile veriyi döndür
+        const fileOnly = shouldUseFileOnlyCategoryCache(categories);
+        if (fileOnly) {
+            try {
+                await writeCategoryFileCache(userId, cacheKey, categories);
+                logger.info(
+                    `[CATEGORY CACHE] 💾 ${mpName} — ${categories.length} kategori dosyaya cache'lendi (Mongo atlandı: boyut, TTL: ${CACHE_TTL_HOURS}sa)`
+                );
+            } catch (err) {
+                logger.warn(`[CATEGORY CACHE] Dosya cache yazma hatası: ${err.message}`);
+            }
+        } else {
+            try {
+                await CategoryCache.findOneAndUpdate(
+                    { userId, marketplaceName: cacheKey },
+                    {
+                        categories,
+                        totalCount: categories.length,
+                        cachedAt: new Date(),
+                        expiresAt: new Date(Date.now() + CACHE_TTL_MS)
+                    },
+                    { upsert: true, new: true }
+                );
+                logger.info(`[CATEGORY CACHE] 💾 ${mpName} — ${categories.length} kategori cache'lendi (TTL: ${CACHE_TTL_HOURS}sa)`);
+            } catch (err) {
+                logger.warn(`[CATEGORY CACHE] Cache yazma hatası: ${err.message}`);
+                try {
+                    await writeCategoryFileCache(userId, cacheKey, categories);
+                    logger.info(`[CATEGORY CACHE] 💾 ${mpName} — yedek: ${categories.length} kategori dosyaya yazıldı`);
+                } catch (e2) {
+                    logger.warn(`[CATEGORY CACHE] Dosya cache yedek yazma hatası: ${e2.message}`);
+                }
+            }
         }
     }
 

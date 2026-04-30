@@ -170,6 +170,7 @@ export const STATUS_MAP = {
     approved: { color: "#00ff88", label: "Onaylandı" },
     succeed: { color: "#00ff88", label: "Başarılı" },
     completed: { color: "#00ff88", label: "Tamamlandı" },
+    created: { color: "#00ff88", label: "Oluşturuldu" },
     sent: { color: "#3b82f6", label: "Gönderildi" },
     waiting: { color: "#ffcc00", label: "Beklemede" },
     pending: { color: "#ffcc00", label: "Beklemede" },
@@ -240,5 +241,10 @@ export const VAT_RATES = [0, 1, 10, 20];
 /* ═══════════════════════════════════════════════════════════
    PAZARYERI LİSTESİ (Otomatik Fatura)
    ═══════════════════════════════════════════════════════════ */
-export const ALL_MARKETPLACES = ["Trendyol", "Hepsiburada", "N11", "ÇiçekSepeti", "Amazon"];
-export const ALL_TRIGGER_STATUSES = ["Created", "Shipped", "Delivered", "Picking", "Invoiced"];
+export const ALL_MARKETPLACES = ["Trendyol", "Hepsiburada", "N11", "ÇiçekSepeti", "Amazon", "Amazon Türkiye", "Amazon Europe"];
+export const ALL_TRIGGER_STATUSES = [
+    "Created", "Picking", "Shipped", "Delivered", "Invoiced",
+    "New", "Approved", "Processing", "Packed", "ReadyToShip",
+    "Completed", "Yeni", "Hazırlanıyor", "Onaylandı", "Kargoda",
+    "Kargoya Verildi", "Teslim Edildi", "Tamamlandı",
+];

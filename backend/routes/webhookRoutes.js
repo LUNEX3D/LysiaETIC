@@ -32,6 +32,8 @@ const {
     n11Webhook,
     hepsiburadaWebhook,
     ciceksepetiWebhook,
+    noonWebhook,
+    amazonWebhook,
     webhookHealth
 } = require("../controllers/webhookController");
 
@@ -54,5 +56,13 @@ router.post("/hepsiburada", hepsiburadaWebhook);
 // ─── ÇiçekSepeti Webhook ──────────────────────────────────────────────────────
 // POST /api/webhooks/ciceksepeti — ÇiçekSepeti sipariş bildirimi
 router.post("/ciceksepeti", ciceksepetiWebhook);
+
+// ─── Noon Webhook ─────────────────────────────────────────────────────────────
+// POST /api/webhooks/noon — Noon (Orta Doğu) sipariş bildirimi
+router.post("/noon", noonWebhook);
+
+// ─── Amazon Webhook ───────────────────────────────────────────────────────────
+// POST /api/webhooks/amazon — Amazon SP-API bildirimi
+router.post("/amazon", amazonWebhook);
 
 module.exports = router;

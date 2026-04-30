@@ -32,7 +32,9 @@ import {
     bulkUpdatePrices, bulkUpdateStocks, bulkDeleteProducts, bulkUpdateFields,
     distributeUndistributed,
 } from "../services/productManagementApi";
+import { searchCategories, getCategoryTree } from "../services/categoryCenterApi";
 import { getUserMarketplaces } from "../services/marketplaceApi";
+import ProductUploadWizard from "./ProductUploadWizard";
 import "../styles/ProductManagementCenter.css";
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -57,9 +59,35 @@ const getPlStatus = (p, name) => { const m = getPlMap(p, name); if (!m) return {
 /* ═══════════════════════════════════════════════════════════════════
    ANA BİLEŞEN
    ═══════════════════════════════════════════════════════════════════ */
-const ProductManagementCenter = ({ userId }) => {
+const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
     // ── Core State ──
-    const [tab, setTab] = useState("products");
+    const [tab, setTab] = useState(initialTab);
+    const [uploadMpProduct, setUploadMpProduct] = useState(null);
+    const [uploadMpSearch, setUploadMpSearch] = useState("");
+    const [uploadMpPage, setUploadMpPage] = useState(0);
+    const [uploadMpLoading, setUploadMpLoading] = useState(false);
+    const [uploadMpActionLoading, setUploadMpActionLoading] = useState("");
+    const [uploadMpCatSearch, setUploadMpCatSearch] = useState("");
+    const [uploadMpCatResults, setUploadMpCatResults] = useState([]);
+    const [uploadMpCatLoading, setUploadMpCatLoading] = useState(false);
+    const [uploadMpSelectedPlatform, setUploadMpSelectedPlatform] = useState(null);
+    const [uploadMpSelectedCategory, setUploadMpSelectedCategory] = useState(null); // { id, path, name }
+    const [uploadMpCatTree, setUploadMpCatTree] = useState([]);
+    const [uploadMpCatPath, setUploadMpCatPath] = useState([]); // [{id, name}]
+    const [uploadMpCatExpanded, setUploadMpCatExpanded] = useState(new Set()); // Genişletilmiş kategori ID'leri
+    const [uploadMpCatTreeLoading, setUploadMpCatTreeLoading] = useState(false);
+
+    // Ürün değiştiğinde seçimleri sıfırla
+    useEffect(() => {
+        setUploadMpSelectedPlatform(null);
+        setUploadMpSelectedCategory(null);
+        setUploadMpCatTree([]);
+        setUploadMpCatExpanded(new Set());
+        setUploadMpCatPath([]);
+    }, [uploadMpProduct?._id]); // eslint-disable-line
+
+    const [uploadMpFilterPl, setUploadMpFilterPl] = useState(""); // Filtrelemek istenen platform
+    const [uploadMpFilterType, setUploadMpFilterType] = useState(""); // "listed" | "not_listed"
     const [products, setProducts] = useState([]);
     const [total, setTotal] = useState(0);
     const [page, setPage] = useState(0);
@@ -120,6 +148,7 @@ const ProductManagementCenter = ({ userId }) => {
     const [catSearchQ, setCatSearchQ] = useState("");
     const [catSearchResults, setCatSearchResults] = useState([]);
     const [catSearchLoading, setCatSearchLoading] = useState(false);
+    const uploadMpCatSearchTimer = useRef(null);
     const [catSelectedNode, setCatSelectedNode] = useState(null); // { id, name, path, platform }
     const [masterCategories, setMasterCategories] = useState([]);
     const [masterCatLoading, setMasterCatLoading] = useState(false);
@@ -152,6 +181,10 @@ const ProductManagementCenter = ({ userId }) => {
     const showToast = useCallback((msg, type = "success") => { setToast({ msg, type }); setTimeout(() => setToast(null), 3500); }, []);
     const ufSet = (k, v) => setUf(p => ({ ...p, [k]: v }));
 
+    useEffect(() => {
+        setTab(initialTab || "products");
+    }, [initialTab]);
+
     // ── Data Loading ──
     useEffect(() => { if (userId) getUserMarketplaces().then(d => setMarketplaces(d.map(m => ({ ...m, name: m.marketplaceName })))).catch(() => {}); }, [userId]);
 
@@ -173,6 +206,183 @@ const ProductManagementCenter = ({ userId }) => {
 
     const loadLogs = useCallback(async () => { setLogsLoading(true); try { const r = await getSyncLogs({ limit: 40 }); setSyncLogs(r.logs || []); } catch {} finally { setLogsLoading(false); } }, []);
 
+    const loadUploadMpProducts = useCallback(async (p = 0, s = uploadMpSearch, fp = uploadMpFilterPl, ft = uploadMpFilterType) => {
+        setUploadMpLoading(true);
+        try {
+            const params = { page: p, limit: LIMIT }; 
+            if (s) params.search = s;
+            if (fp && ft) {
+                params.mpFilter = fp;
+                params.mpFilterStatus = ft;
+            }
+            const res = await getProducts(params);
+            setProducts(res.products || []); setTotal(res.total || 0); setUploadMpPage(p);
+        } catch (e) { showToast("Ürünler yüklenemedi", "error"); }
+        finally { setUploadMpLoading(false); }
+    }, [uploadMpSearch, uploadMpFilterPl, uploadMpFilterType, showToast]);
+
+    const handleUploadMpCatSearch = useCallback((val, platform) => {
+        setUploadMpCatSearch(val);
+        if (uploadMpCatSearchTimer.current) clearTimeout(uploadMpCatSearchTimer.current);
+        if (!val || val.trim().length < 2) { 
+            setUploadMpCatResults([]); 
+            return; 
+        }
+        uploadMpCatSearchTimer.current = setTimeout(async () => {
+            setUploadMpCatLoading(true);
+            try {
+                const normalizedPl = normMP(platform);
+                const res = await searchCategories(normalizedPl, val.trim());
+                setUploadMpCatResults(res?.data?.results || []);
+            } catch { setUploadMpCatResults([]); }
+            finally { setUploadMpCatLoading(false); }
+        }, 400);
+    }, []);
+
+    const loadCategoryTree = async (platform, parentId = null) => {
+        setUploadMpCatTreeLoading(true);
+        try {
+            const normalizedPl = normMP(platform);
+            const res = await getCategoryTree(normalizedPl);
+            const tree = res?.data?.categories || res?.data?.tree || res?.data || [];
+            setUploadMpCatTree(tree);
+        } catch (e) {
+            showToast("Kategoriler yüklenemedi", "error");
+        } finally {
+            setUploadMpCatTreeLoading(false);
+        }
+    };
+
+    const toggleCatExpand = (catId) => {
+        setUploadMpCatExpanded(prev => {
+            const next = new Set(prev);
+            if (next.has(catId)) next.delete(catId);
+            else {
+                // Sadece tıklananı aç, diğerlerini kapatmak istenebilir ama 
+                // kullanıcı hiyerarşiyi görmek istiyor genelde.
+                next.add(catId);
+            }
+            return next;
+        });
+    };
+
+    const handleCatTreeClick = (cat, path = []) => {
+        const hasChildren = (cat.children && cat.children.length > 0) || (cat.subCategories && cat.subCategories.length > 0);
+        
+        if (hasChildren) {
+            toggleCatExpand(cat.id);
+        }
+        
+        // Hem yaprak hem de ara kategoriler seçilebilir olsun (Bazı pazar yerleri izin verir)
+        const fullPath = [...path, cat.name].join(" > ");
+        setUploadMpSelectedCategory({ id: cat.id, name: cat.name, path: fullPath });
+    };
+
+    const renderCategoryNode = (cat, level = 0, path = []) => {
+        const hasChildren = (cat.children && cat.children.length > 0) || (cat.subCategories && cat.subCategories.length > 0);
+        const children = cat.children || cat.subCategories || [];
+        const isExpanded = uploadMpCatExpanded.has(cat.id);
+        const isSelected = uploadMpSelectedCategory?.id === cat.id;
+        const currentPath = [...path, cat.name];
+
+        return (
+            <div key={cat.id} className={`ud-pm-cat-node-wrapper ${isExpanded ? "expanded" : ""}`}>
+                <div 
+                    className={`ud-pm-cat-tree-item ${isSelected ? "selected" : ""} level-${level} ${hasChildren ? "has-children" : "is-leaf"}`}
+                    style={{ paddingLeft: 12 + (level * 20) }}
+                >
+                    <div className="cat-info" onClick={() => handleCatTreeClick(cat, path)}>
+                        {hasChildren ? (
+                            <span className="expand-icon" onClick={(e) => { e.stopPropagation(); toggleCatExpand(cat.id); }}>
+                                {isExpanded ? <FaChevronDown /> : <FaChevronRight />}
+                            </span>
+                        ) : (
+                            <span className="leaf-icon"><FaTag size={10} /></span>
+                        )}
+                        <div className="cat-name">{cat.name}</div>
+                    </div>
+                    
+                    {hasChildren && (
+                        <div className="cat-meta" onClick={(e) => { e.stopPropagation(); toggleCatExpand(cat.id); }}>
+                            <span className="child-count">{children.length} alt</span>
+                        </div>
+                    )}
+                    
+                    {isSelected && <FaCheckCircle className="check-icon" />}
+                </div>
+                
+                {hasChildren && isExpanded && (
+                    <div className="cat-children-container">
+                        {children.map(child => renderCategoryNode(child, level + 1, currentPath))}
+                    </div>
+                )}
+            </div>
+        );
+    };
+
+    const handleCatPathGoBack = (index) => {
+        if (index === -1) {
+            setUploadMpCatPath([]);
+            loadCategoryTree(uploadMpSelectedPlatform);
+            return;
+        }
+        
+        const newPath = uploadMpCatPath.slice(0, index + 1);
+        const lastStep = newPath[newPath.length - 1];
+        setUploadMpCatPath(newPath);
+        
+        if (lastStep.children) {
+            setUploadMpCatTree(lastStep.children);
+        }
+    };
+
+    const resetUploadMpCategoryState = () => {
+        setUploadMpSelectedCategory(null);
+        setUploadMpCatResults([]);
+        setUploadMpCatSearch("");
+        setUploadMpCatPath([]);
+        setUploadMpCatExpanded(new Set());
+    };
+
+    const normalizeUploadCategory = (category) => {
+        if (!category) return null;
+        const id = category.id || category.categoryId || category.externalCategoryId;
+        const name = category.name || category.categoryName || category.externalCategoryName || "";
+        const path = category.path || category.categoryPath || category.externalCategoryPath || name;
+        if (!id) return null;
+        return { id: String(id), name, path };
+    };
+
+    const handleUploadToMarketplace = async (product, platform, category) => {
+        const normalizedCategory = normalizeUploadCategory(category);
+        if (!normalizedCategory) return showToast("Geçerli bir kategori seçmelisiniz (Kategori ID eksik)", "error");
+        setUploadMpActionLoading(`${product._id}-${platform}`);
+        try {
+            const response = await distributeProduct(product._id, [platform], {
+                id: normalizedCategory.id,
+                path: normalizedCategory.path,
+                name: normalizedCategory.name
+            }); 
+            const platformResult = Array.isArray(response?.results)
+                ? response.results.find((r) => normMP(r.marketplace) === normMP(platform))
+                : null;
+            const statusText = platformResult?.status === "success" || platformResult?.status === "pending"
+                ? (platformResult?.message || `${platform} gönderimi başlatıldı`)
+                : `${platform} için işlem alındı`;
+            showToast(statusText, platformResult?.status === "error" ? "error" : "success");
+            // Detayı güncelle
+            const r = await getProductDetail(product._id);
+            setUploadMpProduct(r.product);
+            loadProducts(page); // Listeyi de tazele
+        } catch (e) {
+            const err = e?.response?.data;
+            const msg = err?.details || err?.error || err?.message || `${platform} gönderim hatası`;
+            showToast(msg, "error");
+        } finally {
+            setUploadMpActionLoading("");
+        }
+    };
+
     const loadBulkProducts = useCallback(async (p = 0, s = bulkSearch) => {
         setBulkLoading(true);
         try {
@@ -183,8 +393,9 @@ const ProductManagementCenter = ({ userId }) => {
         finally { setBulkLoading(false); }
     }, [bulkSearch, showToast]);
 
-    useEffect(() => { if (tab === "sync") loadLogs(); if (tab === "products" || tab === "pricestock") loadProducts(0); if (tab === "bulk") loadBulkProducts(0); }, [tab]); // eslint-disable-line
+    useEffect(() => { if (tab === "sync") loadLogs(); if (tab === "products" || tab === "pricestock") loadProducts(0); if (tab === "bulk") loadBulkProducts(0); if (tab === "uploadMp") loadUploadMpProducts(0, uploadMpSearch, uploadMpFilterPl, uploadMpFilterType); }, [tab]); // eslint-disable-line
     useEffect(() => { if (tab === "bulk") { if (bulkSearchRef.current) clearTimeout(bulkSearchRef.current); bulkSearchRef.current = setTimeout(() => loadBulkProducts(0, bulkSearch), 400); return () => clearTimeout(bulkSearchRef.current); } }, [bulkSearch]); // eslint-disable-line
+    useEffect(() => { if (tab === "uploadMp") { const t = setTimeout(() => loadUploadMpProducts(0, uploadMpSearch, uploadMpFilterPl, uploadMpFilterType), 400); return () => clearTimeout(t); } }, [uploadMpSearch, uploadMpFilterPl, uploadMpFilterType]); // eslint-disable-line
 
     // ── Actions ──
     const openDetail = async (id) => {
@@ -316,9 +527,23 @@ const ProductManagementCenter = ({ userId }) => {
         try {
             const imgs = [...uf.imageUrls, ...imgFiles.map(f => f.preview)].filter(Boolean);
             const r = await createAndDistribute({ name: uf.name.trim(), barcode: uf.barcode.trim(), sku: uf.sku.trim(), description: uf.description.trim(), price: Number(uf.price), listPrice: uf.listPrice ? Number(uf.listPrice) : Number(uf.price), stock: Number(uf.stock) || 0, category: uf.category.trim(), brand: uf.brand.trim(), images: imgs, targetMarketplaces: uf.targetMarketplaces });
-            showToast(r.message || "Ürün oluşturuldu!");
-            setUf({ name: "", barcode: "", sku: "", description: "", price: "", listPrice: "", stock: "0", category: "", brand: "", imageUrls: [], targetMarketplaces: [] });
-            setImgFiles([]); setCodeSugg(null); setCatLevels([]); setUploadStep(1); loadProducts(0); loadDashboard();
+            const dist = r.distributeResults || [];
+            const distFailed = dist.filter((x) => x.success === false);
+            const allMarketplacesFailed =
+                uf.targetMarketplaces.length > 0 && dist.length > 0 && distFailed.length === dist.length;
+            const msg = r.message || "Ürün oluşturuldu!";
+            if (allMarketplacesFailed) {
+                showToast(msg, "error");
+            } else if (distFailed.length > 0) {
+                showToast(msg, "error");
+            } else {
+                showToast(msg);
+            }
+            if (!allMarketplacesFailed) {
+                setUf({ name: "", barcode: "", sku: "", description: "", price: "", listPrice: "", stock: "0", category: "", brand: "", imageUrls: [], targetMarketplaces: [] });
+                setImgFiles([]); setCodeSugg(null); setCatLevels([]); setUploadStep(1);
+            }
+            loadProducts(0); loadDashboard();
         } catch (e) {
             const errData = e.response?.data;
             if (e.response?.status === 409 && errData?.type) {
@@ -555,297 +780,9 @@ const ProductManagementCenter = ({ userId }) => {
        TAB 2: ÜRÜN YÜKLE (3 Adımlı Wizard)
        ═══════════════════════════════════════════════════════════════ */
     const renderUpload = () => {
-        const totalImgs = uf.imageUrls.length + imgFiles.length;
-        const canSubmit = uf.name && uf.barcode && uf.sku && uf.price;
-
         return (
-            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-                {/* Steps */}
-                <div className="ud-pm-steps">
-                    {[{ num: 1, label: "Temel Bilgiler", icon: <FaEdit /> }, { num: 2, label: "Kategori & Görseller", icon: <FaImage /> }, { num: 3, label: "Açıklama & Gönder", icon: <FaCloudUploadAlt /> }].map(s => (
-                        <button key={s.num} className={`ud-pm-step ${uploadStep === s.num ? "active" : ""} ${uploadStep > s.num ? "done" : ""}`} onClick={() => setUploadStep(s.num)}>
-                            <span className="step-num">{uploadStep > s.num ? <FaCheck /> : s.icon}</span>
-                            <div>
-                                <div className="step-label">Adım {s.num}</div>
-                                <div className="step-desc">{s.label}</div>
-                            </div>
-                        </button>
-                    ))}
-                </div>
-
-                {/* ADIM 1 */}
-                {uploadStep === 1 && (
-                    <motion.div initial={{ opacity: 0, x: 15 }} animate={{ opacity: 1, x: 0 }} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                        <div className="ud-pm-card">
-                            <div className="ud-pm-card-header">
-                                <span className="icon"><FaEdit /></span>
-                                <div><div className="title">Temel Bilgiler</div><div className="subtitle">Ürün adı, fiyat, stok ve marka</div></div>
-                            </div>
-                            <div className="ud-pm-grid-2">
-                                <div className="ud-pm-field full">
-                                    <label><FaBox style={{ fontSize: 10 }} /> Ürün Adı <span className="required">*</span></label>
-                                    <input value={uf.name} onChange={e => ufSet("name", e.target.value)} placeholder="Ürün başlığı..." />
-                                </div>
-                                <div className="ud-pm-field">
-                                    <label><FaTag style={{ fontSize: 10 }} /> Marka</label>
-                                    <input value={uf.brand} onChange={e => ufSet("brand", e.target.value)} placeholder="Marka" />
-                                </div>
-                                <div className="ud-pm-field">
-                                    <label><FaWarehouse style={{ fontSize: 10 }} /> Stok</label>
-                                    <input type="number" value={uf.stock} onChange={e => ufSet("stock", e.target.value)} placeholder="0" />
-                                </div>
-                                <div className="ud-pm-field">
-                                    <label><FaDollarSign style={{ fontSize: 10 }} /> Satış Fiyatı (₺) <span className="required">*</span></label>
-                                    <input type="number" value={uf.price} onChange={e => ufSet("price", e.target.value)} placeholder="0.00" />
-                                </div>
-                                <div className="ud-pm-field">
-                                    <label><FaTag style={{ fontSize: 10 }} /> Liste Fiyatı (₺)</label>
-                                    <input type="number" value={uf.listPrice} onChange={e => ufSet("listPrice", e.target.value)} placeholder="Boş = satış fiyatı" />
-                                </div>
-                            </div>
-                        </div>
-                        <div className="ud-pm-card">
-                            <div className="ud-pm-card-header">
-                                <span className="icon"><FaBarcode /></span>
-                                <div style={{ flex: 1 }}><div className="title">Barkod & SKU</div><div className="subtitle">Manuel girin veya öneri alın</div></div>
-                                <button className="ud-pm-btn sm purple" onClick={handleSuggestCodes} disabled={!uf.name.trim() || codeLoading}>
-                                    {codeLoading ? <span className="spinner" /> : <FaMagic />} Öneri
-                                </button>
-                            </div>
-                            <div className="ud-pm-grid-2">
-                                <div className="ud-pm-field">
-                                    <label><FaBarcode style={{ fontSize: 10 }} /> Barkod <span className="required">*</span></label>
-                                    <input value={uf.barcode} onChange={e => ufSet("barcode", e.target.value)} placeholder="Benzersiz barkod" />
-                                </div>
-                                <div className="ud-pm-field">
-                                    <label><FaTag style={{ fontSize: 10 }} /> SKU <span className="required">*</span></label>
-                                    <input value={uf.sku} onChange={e => ufSet("sku", e.target.value)} placeholder="Stok kodu" />
-                                </div>
-                            </div>
-                            {codeSugg && (
-                                <div className="ud-pm-grid-2" style={{ marginTop: 12 }}>
-                                    <div>
-                                        <div style={{ color: "var(--ud-pm-text-dim)", fontSize: 9, fontWeight: 700, marginBottom: 6, textTransform: "uppercase" }}>Barkod Önerileri</div>
-                                        <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                                            {(codeSugg.barcodes || []).map((b, i) => (
-                                                <button key={i} className={`ud-pm-code-chip ${!b.available ? "unavailable" : ""}`}
-                                                    onClick={() => b.available && ufSet("barcode", b.value)} disabled={!b.available}>
-                                                    {b.available ? <FaCheck style={{ fontSize: 8 }} /> : <FaTimes style={{ fontSize: 8 }} />} {b.value}
-                                                </button>
-                                            ))}
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <div style={{ color: "var(--ud-pm-text-dim)", fontSize: 9, fontWeight: 700, marginBottom: 6, textTransform: "uppercase" }}>SKU Önerileri</div>
-                                        <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                                            {(codeSugg.skus || []).map((s, i) => (
-                                                <button key={i} className={`ud-pm-code-chip ${!s.available ? "unavailable" : ""}`}
-                                                    onClick={() => s.available && ufSet("sku", s.value)} disabled={!s.available}>
-                                                    {s.available ? <FaCheck style={{ fontSize: 8 }} /> : <FaTimes style={{ fontSize: 8 }} />} {s.value}
-                                                </button>
-                                            ))}
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                        <div style={{ display: "flex", justifyContent: "flex-end" }}>
-                            <button className="ud-pm-btn accent" onClick={() => setUploadStep(2)} disabled={!uf.name.trim()}><span>İleri</span> <FaArrowRight /></button>
-                        </div>
-                    </motion.div>
-                )}
-
-                {/* ADIM 2 */}
-                {uploadStep === 2 && (
-                    <motion.div initial={{ opacity: 0, x: 15 }} animate={{ opacity: 1, x: 0 }} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                        <div className="ud-pm-card">
-                            <div className="ud-pm-card-header">
-                                <span className="icon"><FaSitemap /></span>
-                                <div style={{ flex: 1 }}><div className="title">Kategori</div><div className="subtitle">Platform kategorisi seçin</div></div>
-                                <div style={{ display: "flex", gap: 4 }}>
-                                    {["Trendyol", "N11"].map(p => (
-                                        <button key={p} className={`ud-pm-tone-btn ${catPlatform === p ? "active" : ""}`}
-                                            style={catPlatform === p ? { borderColor: PL_COLOR[p], color: PL_COLOR[p], background: PL_COLOR[p] + "15" } : {}}
-                                            onClick={() => { setCatPlatform(p); setCatLevels([]); setCatResults([]); setCatSearch(""); }}>
-                                            {PL_SHORT[p]} {p}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-                            {uf.category && (
-                                <div className="ud-pm-cat-selected">
-                                    <FaCheckCircle style={{ color: "var(--ud-pm-green)", fontSize: 13 }} />
-                                    <span className="cat-text">{uf.category}</span>
-                                    <button className="clear-btn" onClick={() => { ufSet("category", ""); setCatLevels([]); }}><FaTimes /></button>
-                                </div>
-                            )}
-                            <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-                                <div className="ud-pm-search-wrap" style={{ maxWidth: "none" }}>
-                                    <span className="icon"><FaSearch /></span>
-                                    <input className="ud-pm-search" value={catSearch} onChange={e => handleCatSearch(e.target.value)} placeholder={`${catPlatform} kategorilerinde ara...`} />
-                                </div>
-                                {!catSearch && catLevels.length === 0 && (
-                                    <button className="ud-pm-btn sm blue" onClick={() => loadCatLevel("0", 0)} disabled={catLoading}>
-                                        {catLoading ? <span className="spinner" /> : <FaFolderOpen />} Aç
-                                    </button>
-                                )}
-                            </div>
-                            {catSearch && catResults.length > 0 && (
-                                <div className="ud-pm-cat-search-results">
-                                    {catResults.map((c, i) => (
-                                        <div key={c.id || i} className="ud-pm-cat-search-item"
-                                            onClick={() => { ufSet("category", c.path || c.name); setCatSearch(""); setCatResults([]); }}>
-                                            <div className="name">{c.name}</div>
-                                            {c.path && <div className="path">{c.path}</div>}
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-                            {!catSearch && catLevels.length > 0 && (
-                                <div className="ud-pm-cat-levels">
-                                    {catLevels.map((lv, li) => (
-                                        <div key={li} className="ud-pm-cat-column">
-                                            <div className="col-header">{li === 0 ? "Ana Kategori" : `Alt ${li}`}</div>
-                                            <div className="col-list">
-                                                {lv.categories.map(c => {
-                                                    const sel = lv.selected?.id === c.id;
-                                                    return (
-                                                        <div key={c.id} className={`ud-pm-cat-item ${sel ? "selected" : ""}`} onClick={() => handleCatSelect(li, c)}>
-                                                            <span className="cat-icon" style={{ color: c.isLeaf ? "var(--ud-pm-green)" : "var(--ud-pm-yellow)" }}>
-                                                                {c.isLeaf ? <FaCheck /> : <FaFolderOpen />}
-                                                            </span>
-                                                            <span className="cat-name">{c.name}</span>
-                                                            {c.hasChildren && <span className="cat-arrow"><FaChevronRight /></span>}
-                                                        </div>
-                                                    );
-                                                })}
-                                            </div>
-                                        </div>
-                                    ))}
-                                    {catLoading && <div style={{ minWidth: 170, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--ud-pm-text-dim)" }}><FaSpinner className="ud-pm-spin" /></div>}
-                                </div>
-                            )}
-                        </div>
-                        <div className="ud-pm-card">
-                            <div className="ud-pm-card-header">
-                                <span className="icon"><FaImage /></span>
-                                <div><div className="title">Görseller</div><div className="subtitle">Dosya veya URL (maks. 8)</div></div>
-                                <Pill color="var(--ud-pm-accent)">{totalImgs}/8</Pill>
-                            </div>
-                            <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
-                                <input ref={fileRef} type="file" accept="image/*" multiple onChange={handleFileSelect} style={{ display: "none" }} />
-                                <button className="ud-pm-btn sm purple" onClick={() => fileRef.current?.click()} disabled={totalImgs >= 8}><FaFolderOpen /> Dosya</button>
-                                <div style={{ display: "flex", gap: 4, flex: 1, minWidth: 180 }}>
-                                    <input className="ud-pm-search" style={{ paddingLeft: 12 }} value={imgUrlInput} onChange={e => setImgUrlInput(e.target.value)} placeholder="https://... görsel URL" onKeyDown={e => e.key === "Enter" && handleAddImgUrl()} />
-                                    <button className="ud-pm-btn sm green" onClick={handleAddImgUrl} disabled={!imgUrlInput.trim() || totalImgs >= 8}><FaPlus /></button>
-                                </div>
-                            </div>
-                            {totalImgs > 0 ? (
-                                <div className="ud-pm-img-grid">
-                                    {uf.imageUrls.map((u, i) => (
-                                        <div key={`u${i}`} className="ud-pm-img-item">
-                                            <img src={u} alt="" onError={e => e.target.style.display = "none"} />
-                                            <button className="remove-btn" onClick={() => removeImg("url", i)}><FaTimes /></button>
-                                        </div>
-                                    ))}
-                                    {imgFiles.map((f, i) => (
-                                        <div key={`f${i}`} className="ud-pm-img-item">
-                                            <img src={f.preview} alt="" />
-                                            <button className="remove-btn" onClick={() => removeImg("file", i)}><FaTimes /></button>
-                                        </div>
-                                    ))}
-                                </div>
-                            ) : (
-                                <div className="ud-pm-img-dropzone" onClick={() => fileRef.current?.click()}>
-                                    <div className="icon"><FaImage /></div>
-                                    <div className="text">Tıklayın veya URL yapıştırın</div>
-                                </div>
-                            )}
-                        </div>
-                        <div style={{ display: "flex", justifyContent: "space-between" }}>
-                            <button className="ud-pm-btn muted" onClick={() => setUploadStep(1)}><FaArrowLeft /> Geri</button>
-                            <button className="ud-pm-btn accent" onClick={() => setUploadStep(3)}>İleri <FaArrowRight /></button>
-                        </div>
-                    </motion.div>
-                )}
-
-                {/* ADIM 3 */}
-                {uploadStep === 3 && (
-                    <motion.div initial={{ opacity: 0, x: 15 }} animate={{ opacity: 1, x: 0 }} className="ud-pm-upload-final">
-                        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                            <div className="ud-pm-card">
-                                <div className="ud-pm-card-header">
-                                    <span className="icon"><FaEdit /></span>
-                                    <div style={{ flex: 1 }}><div className="title">Açıklama</div><div className="subtitle">Yazın veya AI ile oluşturun</div></div>
-                                </div>
-                                <div className="ud-pm-tone-group" style={{ marginBottom: 10 }}>
-                                    <span style={{ color: "var(--ud-pm-text-dim)", fontSize: 9, fontWeight: 700 }}><FaMagic /> Ton:</span>
-                                    {[{ id: "professional", l: "Profesyonel" }, { id: "friendly", l: "Samimi" }, { id: "luxury", l: "Lüks" }, { id: "minimal", l: "Minimal" }].map(t => (
-                                        <button key={t.id} className={`ud-pm-tone-btn ${descTone === t.id ? "active" : ""}`} onClick={() => setDescTone(t.id)}>{t.l}</button>
-                                    ))}
-                                    <div className="ud-pm-spacer" />
-                                    <button className="ud-pm-btn sm purple" onClick={handleGenDesc} disabled={!uf.name.trim() || descLoading}>
-                                        {descLoading ? <span className="spinner" /> : <FaMagic />} Oluştur
-                                    </button>
-                                </div>
-                                <div className="ud-pm-field">
-                                    <textarea value={uf.description} onChange={e => ufSet("description", e.target.value)} placeholder="Ürün açıklaması..." rows={10} />
-                                </div>
-                                <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
-                                    <span style={{ color: "var(--ud-pm-text-dim)", fontSize: 9 }}>{uf.description.length} karakter</span>
-                                    {uf.description && <button onClick={() => ufSet("description", "")} style={{ background: "none", border: "none", color: "var(--ud-pm-text-dim)", cursor: "pointer", fontSize: 10 }}><FaTrash style={{ fontSize: 9 }} /> Temizle</button>}
-                                </div>
-                            </div>
-                            <button className="ud-pm-btn muted" onClick={() => setUploadStep(2)} style={{ alignSelf: "flex-start" }}><FaArrowLeft /> Geri</button>
-                        </div>
-                        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                            <div className="ud-pm-card">
-                                <div style={{ color: "var(--ud-pm-text)", fontSize: 13, fontWeight: 700, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}><FaRocket style={{ color: "var(--ud-pm-purple)" }} /> Platformlar</div>
-                                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                                    {marketplaces.map(mp => {
-                                        const sel = uf.targetMarketplaces.includes(mp.marketplaceName);
-                                        const plColor = PL_COLOR[mp.marketplaceName] || "var(--ud-pm-accent)";
-                                        return (
-                                            <div key={mp._id} className={`ud-pm-target-item ${sel ? "selected" : ""}`}
-                                                style={sel ? { background: plColor + "12", borderColor: plColor } : {}}
-                                                onClick={() => toggleTarget(mp.marketplaceName)}>
-                                                <span className="mp-icon" style={{ color: plColor }}><FaStore /></span>
-                                                <span className="mp-name">{mp.marketplaceName}</span>
-                                                <span className="ud-pm-target-check" style={sel ? { borderColor: plColor, background: plColor } : {}}>
-                                                    {sel && <FaCheck />}
-                                                </span>
-                                            </div>
-                                        );
-                                    })}
-                                </div>
-                            </div>
-                            <div className="ud-pm-card ud-pm-summary">
-                                <div style={{ color: "var(--ud-pm-text-dim)", fontSize: 9, fontWeight: 700, textTransform: "uppercase", marginBottom: 8 }}><FaClipboardList style={{ fontSize: 9 }} /> Özet</div>
-                                {[
-                                    ["Ürün", uf.name || "—", "var(--ud-pm-text)"], ["Barkod", uf.barcode || "—", "var(--ud-pm-accent)"], ["SKU", uf.sku || "—", "var(--ud-pm-purple)"],
-                                    ["Fiyat", uf.price ? fmt(uf.price) : "—", "var(--ud-pm-green)"], ["Stok", uf.stock || "0", "var(--ud-pm-text)"],
-                                    ...(uf.category ? [["Kategori", uf.category, "var(--ud-pm-yellow)"]] : []), ...(uf.brand ? [["Marka", uf.brand, "var(--ud-pm-blue)"]] : []),
-                                    ["Görseller", `${totalImgs} adet`, "var(--ud-pm-text)"], ["Açıklama", uf.description ? "✓" : "—", uf.description ? "var(--ud-pm-green)" : "var(--ud-pm-text-dim)"],
-                                ].map(([k, v, c]) => (
-                                    <div key={k} className="ud-pm-summary-row">
-                                        <span className="key">{k}</span>
-                                        <span className="val" style={{ color: c }}>{v}</span>
-                                    </div>
-                                ))}
-                                {uf.targetMarketplaces.length > 0 && (
-                                    <div style={{ display: "flex", gap: 3, flexWrap: "wrap", marginTop: 6 }}>
-                                        {uf.targetMarketplaces.map(t => <Pill key={t} color={PL_COLOR[t] || "var(--ud-pm-accent)"}>{PL_SHORT[t]} {t}</Pill>)}
-                                    </div>
-                                )}
-                            </div>
-                            <button className="ud-pm-btn accent" onClick={handleCreate} disabled={!canSubmit || uploadLoading} style={{ width: "100%", justifyContent: "center", padding: "12px", fontSize: 13 }}>
-                                {uploadLoading ? <span className="spinner" /> : uf.targetMarketplaces.length > 0 ? <FaRocket /> : <FaSave />}
-                                {uf.targetMarketplaces.length > 0 ? `Oluştur & ${uf.targetMarketplaces.length} Platforma Dağıt` : "Kaydet"}
-                            </button>
-                            {!canSubmit && <div style={{ color: "var(--ud-pm-yellow)", fontSize: 10, textAlign: "center", display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}><FaExclamationTriangle /> Ad, barkod, SKU ve fiyat zorunlu</div>}
-                        </div>
-                    </motion.div>
-                )}
+            <div className="ud-pm-card">
+                <ProductUploadWizard userId={userId} />
             </div>
         );
     };
@@ -867,6 +804,306 @@ const ProductManagementCenter = ({ userId }) => {
         setPsSelected(new Set());
         loadProducts(page);
     };
+
+    /* ═══════════════════════════════════════════════════════════════
+       TAB 5: PAZARYERİNE YÜKLE
+       ═══════════════════════════════════════════════════════════════ */
+    const renderUploadMarketplace = () => (
+        <div className="ud-pm-upload-mp-container" style={{ display: "grid", gridTemplateColumns: "350px 1fr", gap: 20, height: "calc(100vh - 300px)", minHeight: 700 }}>
+            {/* Sol: Ürün Listesi */}
+            <div className="ud-pm-card" style={{ display: "flex", flexDirection: "column", padding: 0, overflow: "hidden" }}>
+                <div style={{ padding: 15, borderBottom: "1px solid var(--ud-pm-border)", display: "flex", flexDirection: "column", gap: 10 }}>
+                    <div className="ud-pm-search-wrap" style={{ width: "100%" }}>
+                        <span className="icon"><FaSearch /></span>
+                        <input className="ud-pm-search" value={uploadMpSearch} onChange={e => setUploadMpSearch(e.target.value)} placeholder="Ürün ara..." />
+                    </div>
+                    <div style={{ display: "flex", gap: 5 }}>
+                        <select 
+                            className="ud-pm-select sm" 
+                            style={{ flex: 1, fontSize: 11 }}
+                            value={uploadMpFilterPl} 
+                            onChange={e => setUploadMpFilterPl(e.target.value)}
+                        >
+                            <option value="">Tüm Platformlar</option>
+                            {PLATFORMS.map(p => <option key={p} value={p}>{p}</option>)}
+                        </select>
+                        <select 
+                            className="ud-pm-select sm" 
+                            style={{ flex: 1, fontSize: 11 }}
+                            value={uploadMpFilterType} 
+                            onChange={e => setUploadMpFilterType(e.target.value)}
+                        >
+                            <option value="">Durum Hepsi</option>
+                            <option value="listed">Yüklü Olanlar</option>
+                            <option value="not_listed">Yüklü Olmayanlar</option>
+                        </select>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                        <span style={{ color: "var(--ud-pm-text-dim)", fontSize: 11 }}>{total} ürün</span>
+                        <button
+                            className="ud-pm-btn sm outline"
+                            onClick={() => { setUploadMpSearch(""); setUploadMpFilterPl(""); setUploadMpFilterType(""); }}
+                        >
+                            <FaTimes /> Filtreyi Temizle
+                        </button>
+                    </div>
+                </div>
+                <div style={{ flex: 1, overflowY: "auto", padding: "10px 0" }}>
+                    {uploadMpLoading ? <Loading /> : products.length === 0 ? <Empty title="Ürün bulunamadı" /> : (
+                        products.map(p => (
+                            <div key={p._id} 
+                                className={`ud-pm-upload-list-item ${uploadMpProduct?._id === p._id ? "active" : ""}`}
+                                onClick={() => setUploadMpProduct(p)}>
+                                                <div style={{ width: 80, height: 80, borderRadius: 8, overflow: "hidden", border: "1px solid var(--ud-pm-border)", background: "#fff" }}>
+                                                    {p.masterProduct?.images?.[0] ? <img src={p.masterProduct.images[0]} style={{ width: "100%", height: "100%", objectFit: "contain" }} alt="" /> : <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "#ccc" }}><FaImage size={24} /></div>}
+                                                </div>
+                                                <div>
+                                                    <div className="name" style={{ fontWeight: 600, color: "var(--ud-pm-text)" }}>{p.masterProduct?.name || "İsimsiz"}</div>
+                                                    <div className="sku" style={{ fontSize: 11, color: "var(--ud-pm-text-sub)" }}>{p.masterProduct?.sku || p.masterProduct?.barcode || "-"}</div>
+                                                    <div className="mps" style={{ display: "flex", gap: 4, marginTop: 4 }}>
+                                                        {PLATFORMS.map(pl => {
+                                                            const m = (p.marketplaceMappings || []).find(mm => normMP(mm.marketplaceName) === normMP(pl) && mm.syncStatus !== "error");
+                                                            return m ? <span key={pl} title={pl} style={{ width: 6, height: 6, borderRadius: "50%", background: PL_COLOR[pl] }} /> : null;
+                                                        })}
+                                                    </div>
+                                                </div>
+                                <FaChevronRight className="chevron" />
+                            </div>
+                        ))
+                    )}
+                </div>
+                <div style={{ padding: 10, borderTop: "1px solid var(--ud-pm-border)" }}>
+                    <Pagination currentPage={uploadMpPage} totalPages={Math.ceil(total / LIMIT)} total={total} onPageChange={loadUploadMpProducts} />
+                </div>
+            </div>
+
+            {/* Sağ: Pazaryeri Dağıtım Paneli */}
+            <div className="ud-pm-card" style={{ padding: 0, display: "flex", flexDirection: "column", overflow: "hidden", background: "var(--ud-pm-bg-card)", position: "relative" }}>
+                {!uploadMpProduct ? (
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", flexDirection: "column", color: "var(--ud-pm-text-sub)", gap: 10 }}>
+                        <FaCloudUploadAlt style={{ fontSize: 48, opacity: 0.2 }} />
+                        <p>Düzenlemek veya yüklemek için soldan bir ürün seçin.</p>
+                    </div>
+                ) : (
+                    <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
+                        {/* Üst Bilgi */}
+                        <div style={{ padding: 20, borderBottom: "1px solid var(--ud-pm-border)", display: "flex", justifyContent: "space-between", alignItems: "flex-start", background: "rgba(255,255,255,0.02)" }}>
+                            <div style={{ display: "flex", gap: 15 }}>
+                                <div style={{ width: 80, height: 80, borderRadius: 8, overflow: "hidden", border: "1px solid var(--ud-pm-border)", background: "#fff" }}>
+                                    {uploadMpProduct.masterProduct?.images?.[0] ? <img src={uploadMpProduct.masterProduct.images[0]} style={{ width: "100%", height: "100%", objectFit: "contain" }} alt="" /> : <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "#ccc" }}><FaImage size={24} /></div>}
+                                </div>
+                                <div>
+                                    <h2 style={{ fontSize: 18, margin: "0 0 5px 0", color: "var(--ud-pm-text)" }}>{uploadMpProduct.masterProduct?.name || "İsimsiz"}</h2>
+                                    <div style={{ display: "flex", gap: 10, fontSize: 12 }}>
+                                        <Pill color="var(--ud-pm-blue)">SKU: {uploadMpProduct.masterProduct?.sku || "-"}</Pill>
+                                        <Pill color="var(--ud-pm-purple)">Barkod: {uploadMpProduct.masterProduct?.barcode || "-"}</Pill>
+                                        <Pill color="var(--ud-pm-accent)">{(uploadMpProduct.masterProduct?.price || 0).toLocaleString("tr-TR", { style: "currency", currency: uploadMpProduct.masterProduct?.currency || "TRY" })}</Pill>
+                                    </div>
+                                </div>
+                            </div>
+                            <button className="ud-pm-btn sm outline" onClick={() => openDetail(uploadMpProduct._id)}><FaBolt /> Tüm Bilgiler</button>
+                        </div>
+
+                        {/* Pazaryeri Listesi */}
+                        <div style={{ flex: 1, overflowY: "auto", padding: 20 }}>
+                            <h3 style={{ fontSize: 14, marginBottom: 15, display: "flex", alignItems: "center", gap: 8, color: "var(--ud-pm-text)" }}><FaStore /> Satış Platformları</h3>
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 15 }}>
+                                {marketplaces.map(mp => {
+                                    const ps = getPlStatus(uploadMpProduct, mp.marketplaceName);
+                                    const isSelected = uploadMpSelectedPlatform === mp.marketplaceName;
+                                    const mapping = uploadMpProduct.marketplaceMappings?.find(m => m.marketplaceName === mp.marketplaceName);
+                                    
+                                    return (
+                                        <div key={mp._id} 
+                                            className={`ud-pm-mp-upload-card ${isSelected ? "selected" : ""} ${ps.exists ? "exists" : ""}`}
+                                            onClick={() => {
+                                                setUploadMpSelectedPlatform(mp.marketplaceName);
+                                                const catPathStr = Array.isArray(mapping?.categoryPath) ? mapping.categoryPath.join(" > ") : mapping?.categoryPath;
+                                                setUploadMpSelectedCategory(mapping ? { 
+                                                    id: mapping.categoryId || mapping.externalCategoryId, 
+                                                    path: catPathStr, 
+                                                    name: mapping.categoryName || mapping.externalCategoryName 
+                                                } : null);
+                                                setUploadMpCatResults([]);
+                                                setUploadMpCatSearch("");
+                                                setUploadMpCatPath([]);
+                                                setUploadMpCatExpanded(new Set());
+                                                loadCategoryTree(mp.marketplaceName);
+                                            }}>
+                                            <div className="mp-icon" style={{ background: PL_COLOR[mp.marketplaceName] + "15", color: PL_COLOR[mp.marketplaceName] }}>
+                                                {PL_SHORT[mp.marketplaceName]}
+                                            </div>
+                                            <div className="mp-info">
+                                                <div className="mp-name">{mp.marketplaceName}</div>
+                                                <div className="mp-status">
+                                                    {ps.exists ? (
+                                                        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                                                            <span style={{ color: "var(--ud-pm-green)", display: "flex", alignItems: "center", gap: 4, fontSize: 11 }}>
+                                                                <FaCheckCircle size={10} /> Yüklü
+                                                            </span>
+                                                            <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                                                                {mapping?.categoryName && (
+                                                                    <span style={{ fontSize: 9, color: "var(--ud-pm-text)", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 150 }}>
+                                                                        {mapping.categoryName}
+                                                                    </span>
+                                                                )}
+                                                                {(mapping?.categoryId || mapping?.externalCategoryId) && (
+                                                                    <span style={{ fontSize: 8, color: "var(--ud-pm-text-sub)", fontFamily: 'monospace' }}>
+                                                                        ID: {mapping.categoryId || mapping.externalCategoryId}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    ) : (
+                                                        <span style={{ color: "var(--ud-pm-text-sub)", fontSize: 11 }}>Yüklü Değil</span>
+                                                    )}
+                                                </div>
+                                            </div>
+                                            {ps.exists && <div className="mp-synced"><FaSync size={10} /></div>}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+
+                            {/* Kategori Seçim Alanı */}
+                            {uploadMpSelectedPlatform && (
+                                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} style={{ marginTop: 30, borderTop: "1px solid var(--ud-pm-border)", paddingTop: 20 }}>
+                                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 15 }}>
+                                        <h3 style={{ fontSize: 14, margin: 0, display: "flex", alignItems: "center", gap: 8, color: "var(--ud-pm-text)" }}>
+                                            <FaSitemap color={PL_COLOR[uploadMpSelectedPlatform]} /> {uploadMpSelectedPlatform} Kategori Seçimi
+                                        </h3>
+                                        {uploadMpSelectedCategory && (
+                                            <Pill color="var(--ud-pm-green)">Seçili: {uploadMpSelectedCategory.id}</Pill>
+                                        )}
+                                    </div>
+
+                                    {/* Mevcut Kategori / Breadcrumb */}
+                                    <div className="ud-pm-cat-breadcrumb-container">
+                                        <div className="ud-pm-cat-breadcrumb-title">
+                                            <FaFolderOpen /> Kategori Yolu:
+                                        </div>
+                                        <div className="ud-pm-cat-breadcrumb">
+                                            <span className="breadcrumb-item" onClick={() => { setUploadMpCatExpanded(new Set()); setUploadMpSelectedCategory(null); }}>
+                                                {uploadMpSelectedPlatform}
+                                            </span>
+                                            {uploadMpSelectedCategory && (
+                                                <>
+                                                    <FaChevronRight className="sep" />
+                                                    <span className="breadcrumb-item active">
+                                                        {uploadMpSelectedCategory.name}
+                                                    </span>
+                                                </>
+                                            )}
+                                        </div>
+                                        {uploadMpSelectedCategory && (
+                                            <div className="ud-pm-cat-full-path" style={{ marginTop: 8, padding: '8px 12px', background: 'var(--ud-pm-bg-alt)', borderRadius: 6, borderLeft: '3px solid var(--ud-pm-accent)' }}>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--ud-pm-text)', fontWeight: 600, fontSize: 12, marginBottom: 4 }}>
+                                                    <FaInfoCircle size={12} color="var(--ud-pm-accent)" /> Detaylı Kategori Bilgisi
+                                                </div>
+                                                <div style={{ fontSize: 11, color: 'var(--ud-pm-text-sub)', lineHeight: 1.4 }}>
+                                                    <div style={{ marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                        <strong style={{ color: 'var(--ud-pm-text)', minWidth: 80 }}>Kategori ID:</strong> 
+                                                        <code style={{ background: 'var(--ud-pm-bg)', padding: '1px 6px', borderRadius: 4, border: '1px solid var(--ud-pm-border)', color: 'var(--ud-pm-accent)' }}>
+                                                            {uploadMpSelectedCategory.id}
+                                                        </code>
+                                                    </div>
+                                                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+                                                        <strong style={{ color: 'var(--ud-pm-text)', minWidth: 80, marginTop: 2 }}>Kategori Yolu:</strong> 
+                                                        <div style={{ flex: 1, color: 'var(--ud-pm-text)', background: 'var(--ud-pm-bg)', padding: '4px 8px', borderRadius: 4, border: '1px solid var(--ud-pm-border)', fontSize: 10 }}>
+                                                            {uploadMpSelectedCategory.path || uploadMpSelectedCategory.name}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Arama */}
+                                    <div className="ud-pm-field" style={{ marginBottom: 15 }}>
+                                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                                            <label style={{ margin: 0 }}>Kategori Ara <small>(En az 2 harf)</small></label>
+                                            <button className="ud-pm-btn sm outline" onClick={resetUploadMpCategoryState}>
+                                                <FaTimes /> Temizle
+                                            </button>
+                                        </div>
+                                        <div className="ud-pm-cat-search-grid">
+                                            <span className="search-icon"><FaSearch /></span>
+                                            <input className="search-input" 
+                                                value={uploadMpCatSearch} 
+                                                onChange={e => handleUploadMpCatSearch(e.target.value, uploadMpSelectedPlatform)} 
+                                                placeholder={`${uploadMpSelectedPlatform} kategorilerinde ara...`} />
+                                            <span className="search-spinner">
+                                                {(uploadMpCatLoading || uploadMpCatTreeLoading) ? <FaSpinner className="ud-pm-spin" /> : null}
+                                            </span>
+                                        </div>
+                                        <div style={{ marginTop: 6, fontSize: 10, color: "var(--ud-pm-text-dim)" }}>
+                                            {uploadMpCatSearch.length >= 2
+                                                ? `${uploadMpCatResults.length} sonuç`
+                                                : "Arama yapmazsanız kategori ağacı listelenir."}
+                                        </div>
+                                    </div>
+
+                                    {/* Sonuçlar veya Ağaç */}
+                                    <div className="ud-pm-cat-results" style={{ maxHeight: 500, overflowY: "auto" }}>
+                                        {uploadMpCatSearch.length >= 2 ? (
+                                            /* Arama Sonuçları */
+                                            uploadMpCatResults.length > 0 ? (
+                                                uploadMpCatResults.map(cat => (
+                                                    <div key={cat.id} 
+                                                        className={`ud-pm-cat-result-item ${uploadMpSelectedCategory?.id === cat.id ? "selected" : ""}`}
+                                                        onClick={() => setUploadMpSelectedCategory(cat)}>
+                                                        <div className="cat-name">{cat.name}</div>
+                                                        <div className="cat-path">{cat.path}</div>
+                                                        {uploadMpSelectedCategory?.id === cat.id && <FaCheckCircle className="check" />}
+                                                    </div>
+                                                ))
+                                            ) : !uploadMpCatLoading && (
+                                                <div className="ud-pm-cat-no-results">Sonuç bulunamadı.</div>
+                                            )
+                                        ) : uploadMpCatSearch.length > 0 ? (
+                                            <div className="ud-pm-cat-hint">Arama için en az 2 karakter girin.</div>
+                                        ) : (
+                                            /* Kategori Ağacı */
+                                            uploadMpCatTreeLoading ? (
+                                                <div className="ud-pm-cat-loading"><FaSpinner className="spin" /> Kategoriler yükleniyor...</div>
+                                            ) : uploadMpCatTree.length > 0 ? (
+                                                <div className="ud-pm-cat-tree-container">
+                                                    {uploadMpCatTree.map(cat => renderCategoryNode(cat, 0, []))}
+                                                </div>
+                                            ) : (
+                                                <div className="ud-pm-cat-hint">
+                                                    <p>Kategoriler yüklenemedi.</p>
+                                                    <button className="ud-pm-btn-sm" onClick={() => loadCategoryTree(uploadMpSelectedPlatform)}>Yenile</button>
+                                                </div>
+                                            )
+                                        )}
+                                    </div>
+
+                                    {/* Gönderim Butonu */}
+                                    <div style={{ marginTop: 25, display: "flex", justifyContent: "flex-end", gap: 10 }}>
+                                        <button className="ud-pm-btn outline" onClick={() => { setUploadMpSelectedPlatform(null); resetUploadMpCategoryState(); }}>Vazgeç</button>
+                                        {!normalizeUploadCategory(uploadMpSelectedCategory) && (
+                                            <div style={{ alignSelf: "center", color: "var(--ud-pm-yellow)", fontSize: 11, marginRight: 6 }}>
+                                                Yüklemek için kategori ID'si olan bir seçim yapın
+                                            </div>
+                                        )}
+                                        <button 
+                                            className="ud-pm-btn" 
+                                            style={{ background: PL_COLOR[uploadMpSelectedPlatform], color: "#fff", minWidth: 200, justifyContent: "center" }}
+                                            disabled={!normalizeUploadCategory(uploadMpSelectedCategory) || uploadMpActionLoading}
+                                            onClick={() => handleUploadToMarketplace(uploadMpProduct, uploadMpSelectedPlatform, uploadMpSelectedCategory)}>
+                                            {uploadMpActionLoading === `${uploadMpProduct._id}-${uploadMpSelectedPlatform}` ? <span className="spinner" /> : <FaCloudUploadAlt />}
+                                            {uploadMpProduct.marketplaceMappings?.some(m => m.marketplaceName === uploadMpSelectedPlatform) ? "Kategoriyi Güncelle & Gönder" : `${uploadMpSelectedPlatform}'a Yükle`}
+                                        </button>
+                                    </div>
+                                </motion.div>
+                            )}
+                        </div>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
 
     const renderPriceStock = () => (
         <div>
@@ -2133,8 +2370,8 @@ const ProductManagementCenter = ({ userId }) => {
        ═══════════════════════════════════════════════════════════════ */
     const tabs = [
         { id: "products", icon: <FaBox />, label: "Ürünler", count: total },
+        { id: "uploadMp", icon: <FaCloudUploadAlt />, label: "Ürünleri Yükle" },
         { id: "pricestock", icon: <FaDollarSign />, label: "Fiyat & Stok" },
-
         { id: "bulk", icon: <FaLayerGroup />, label: "Toplu İşlem", count: bulkSelected.size > 0 ? bulkSelected.size : undefined },
         { id: "sync", icon: <FaSync />, label: "Senkronizasyon" },
     ];
@@ -2165,6 +2402,7 @@ const ProductManagementCenter = ({ userId }) => {
             <AnimatePresence mode="wait">
                 <motion.div key={tab} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: .18 }}>
                     {tab === "products" && renderProducts()}
+                    {tab === "uploadMp" && renderUploadMarketplace()}
                     {tab === "pricestock" && renderPriceStock()}
 
                     {tab === "bulk" && renderBulk()}

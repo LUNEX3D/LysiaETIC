@@ -18,7 +18,7 @@ import { useNavigate } from "react-router-dom";
 import axios from "../services/api";
 import {
     FaCheckCircle, FaExclamationTriangle,
-    FaHistory, FaInfoCircle, FaCreditCard, FaLock, FaSpinner
+    FaHistory, FaInfoCircle, FaCreditCard, FaLock
 } from "react-icons/fa";
 
 const SubscriptionPage = () => {

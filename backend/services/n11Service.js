@@ -133,9 +133,24 @@ const createProduct = async (credentials, products, integrator = "LysiaETIC") =>
             // Dokümantasyon örneklerinde "1" gibi sayısal string ID olarak geliyor.
             // productSyncService'te boşsa zaten hata döndürülür — buraya boş gelmemeli.
             // Yine de boş gelirse loglayıp olduğu gibi bırak (N11 zaten reddeder, neden belli olur).
-            const shipmentTemplate = (product.shipmentTemplate || "STANDART").toString().trim();
+            const shipmentTemplate = (
+                product.shipmentTemplate ||
+                credentials.shipmentTemplate ||
+                ""
+            ).toString().trim();
             if (!shipmentTemplate) {
                 logger.error(`[N11 CREATE PRODUCT] ❌ shipmentTemplate boş — ürün: "${product.title || product.name}". N11 Paneli → Hesabım → Teslimat Bilgileri'nden şablon adını öğrenip credentials.shipmentTemplate olarak kaydedin.`);
+                return null;
+            }
+
+            const catalogId = product.catalogId ? String(product.catalogId).trim() : "";
+            const barcode = product.barcode ? product.barcode.toString().trim() : "";
+            if (!catalogId && !barcode) {
+                logger.error(
+                    `[N11 CREATE PRODUCT] ❌ barcode/catalogId eksik — ürün: "${product.title || product.name}". ` +
+                    `N11 CreateProduct için en az birinin gönderilmesi gerekir.`
+                );
+                return null;
             }
 
             // Marka — N11 SkuDTO'da "brand" alanı YOK
@@ -214,8 +229,8 @@ const createProduct = async (credentials, products, integrator = "LysiaETIC") =>
             };
             // Opsiyonel alanlar — sadece değer varsa ekle
             if (product.maxPurchaseQuantity) sku.maxPurchaseQuantity = parseInt(product.maxPurchaseQuantity);
-            if (product.catalogId)           sku.catalogId = product.catalogId;
-            if (product.barcode)             sku.barcode = product.barcode.toString().trim();
+            if (catalogId)                   sku.catalogId = catalogId;
+            if (barcode)                     sku.barcode = barcode;
 
             // Attributes — n11MappingService.transformProductForN11() tarafından hazırlanmış
             // array formatında gelir: [{ id, valueId, customValue }]

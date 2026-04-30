@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import axios from "../services/api";
 import { motion, AnimatePresence } from "framer-motion";
+import { FaBox, FaImage } from "react-icons/fa";
 import { useApp } from "../context/AppContext";
 
 const fmtCurrency = (v) => {
@@ -23,8 +24,9 @@ const fmtDate = (d) => {
    ═══════════════════════════════════════════════════════════ */
 const classifyStatus = (s) => {
     const l = String(s || "").toLowerCase();
-    if (l.includes("created") || l.includes("yeni") || l.includes("new") || l.includes("waiting")) return "new";
-    if (l.includes("processing") || l.includes("işlem") || l.includes("hazırlan") || l.includes("picking") || l.includes("approved")) return "processing";
+    // ✅ FIX: HB durumları eklendi — Open, Unpacked, Packaged, Shipped, Delivered, Cancelled
+    if (l.includes("created") || l.includes("yeni") || l.includes("new") || l.includes("waiting") || l === "open") return "new";
+    if (l.includes("processing") || l.includes("işlem") || l.includes("hazırlan") || l.includes("picking") || l.includes("approved") || l === "unpacked" || l === "packaged" || l.includes("paket")) return "processing";
     if (l.includes("shipping") || l.includes("shipped") || l.includes("kargo") || l.includes("transit") || l.includes("invoiced")) return "shipping";
     if (l.includes("delivered") || l.includes("teslim") || l.includes("completed") || l.includes("tamamlan")) return "delivered";
     if (l.includes("cancel") || l.includes("iptal")) return "cancelled";
@@ -42,6 +44,55 @@ const mpColors = {
     çiçeksepeti: "#e91e63",
     ciceksepeti: "#e91e63",
     amazon: "#ff9900",
+};
+
+/* ═══════════════════════════════════════════════════════════
+   PRODUCT IMAGE COMPONENT
+   ═══════════════════════════════════════════════════════════ */
+const ProductImage = ({ src, size = 38, radius = 8, onClick, C }) => {
+    const [error, setError] = useState(false);
+    const [imgSrc, setImgSrc] = useState(src);
+
+    useEffect(() => {
+        setImgSrc(src);
+        setError(false);
+    }, [src]);
+
+    const isInvalid = (url) => !url || url.includes("default-product.jpg");
+    const hasImage = !isInvalid(imgSrc) && !error;
+
+    return (
+        <div
+            onClick={(e) => {
+                if (hasImage && onClick) {
+                    e.stopPropagation();
+                    onClick(imgSrc);
+                }
+            }}
+            style={{
+                width: size, height: size, borderRadius: radius, overflow: "hidden",
+                border: `1px solid ${C.glassBr}`, background: C.card,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                cursor: hasImage ? "zoom-in" : "default", flexShrink: 0
+            }}
+        >
+            {hasImage ? (
+                <img
+                    src={imgSrc}
+                    alt=""
+                    style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                    onError={() => setError(true)}
+                />
+            ) : (
+                <div style={{
+                    width: "100%", height: "100%", display: "flex", alignItems: "center",
+                    justifyContent: "center", background: "rgba(255,255,255,0.03)", color: C.muted
+                }}>
+                    <FaBox size={Math.round(size * 0.38)} />
+                </div>
+            )}
+        </div>
+    );
 };
 
 /* ═══════════════════════════════════════════════════════════
@@ -64,6 +115,7 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
     const [invoiceStats, setInvoiceStats] = useState({ total: 0, invoiced: 0, uninvoiced: 0, error: 0 });
 
     const [error, setError] = useState("");
+    const [zoomedImage, setZoomedImage] = useState(null);
 
     // Filtreler
     const [searchQuery, setSearchQuery] = useState("");
@@ -239,15 +291,42 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
                     invoiceMap.set(dbOrder.orderNumber, {
                         invoiceStatus: dbOrder.invoiceStatus,
                         invoice: dbOrder.invoice,
+                        imageUrl: dbOrder.imageUrl,
+                        items: dbOrder.items
                     });
                 });
 
                 // API siparişlerine fatura bilgisini ekle
                 collected.forEach(order => {
-                    const invoiceInfo = invoiceMap.get(order.orderNumber);
-                    if (invoiceInfo) {
-                        order.invoiceStatus = invoiceInfo.invoiceStatus;
-                        order.invoice = invoiceInfo.invoice;
+                    const dbInfo = invoiceMap.get(order.orderNumber);
+                    if (dbInfo) {
+                        order.invoiceStatus = dbInfo.invoiceStatus;
+                        order.invoice = dbInfo.invoice;
+                        
+                        // ✅ GÖRSEL GÜNCELLEME: Eğer API'den gelen görsel yoksa veya hatalıysa, 
+                        // backend'in Product modelinden (Stok Yönetimi) eşleştirdiği görseli kullan.
+                        const isInvalidImg = (url) => !url || url.includes("default-product.jpg") || url.includes("placehold.co");
+                        
+                        // Backend'den gelen imageUrl zaten stoktaki görselle zenginleştirilmiş olabilir (yeni getAllOrders mantığı)
+                        // Ama garantiye alalım: DB verisinden gelen görseli (dbInfo.imageUrl) pazar yeri görseline tercih et
+                        if (!isInvalidImg(dbInfo.imageUrl)) {
+                            order.imageUrl = dbInfo.imageUrl;
+                        }
+                        
+                        if (dbInfo.items && dbInfo.items.length > 0) {
+                            if (!order.products || order.products.length === 0) {
+                                order.products = dbInfo.items;
+                            } else {
+                                // Mevcut ürünlerin görsellerini de DB'den gelen zenginleştirilmiş verilerle güncelle
+                                order.products = order.products.map(p => {
+                                    const dbItem = dbInfo.items.find(di => di.barcode === p.barcode);
+                                    if (dbItem && !isInvalidImg(dbItem.imageUrl)) {
+                                        return { ...p, imageUrl: dbItem.imageUrl };
+                                    }
+                                    return p;
+                                });
+                            }
+                        }
                     }
                 });
             }
@@ -262,10 +341,13 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
         setLoadingMp("");
     }, [marketplaces, token, startDate, endDate, t]);
 
-    /* ── İlk yükleme ── */
+    /* ── İlk yükleme + marketplaces değiştiğinde otomatik çek ── */
+    // ✅ FIX: marketplaces async yüklenince siparişler otomatik çekilsin
     useEffect(() => {
-        fetchApiOrders();
-    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+        if (marketplaces && marketplaces.length > 0) {
+            fetchApiOrders();
+        }
+    }, [marketplaces]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const handleRefresh = () => {
         fetchApiOrders();
@@ -359,15 +441,15 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
     // Tablo kolonları — her iki modda da fatura kolonu gösterilir
     const tableColumns = useMemo(() => {
         const cols = [
-            { field: "orderNumber", label: t("orders.orderNo"), width: "14%" },
+            { field: "orderNumber", label: t("orders.orderNo"), width: "12%" },
             { field: "marketplace", label: t("orders.marketplace"), width: "10%" },
             { field: "customerName", label: t("orders.customer"), width: "14%" },
-            { field: "products", label: t("orders.products"), width: "16%", noSort: true },
+            { field: "products", label: t("orders.products"), width: "21%", noSort: true },
             { field: "totalPrice", label: t("orders.amount"), width: "9%" },
             { field: "orderDate", label: t("orders.date"), width: "11%" },
             { field: "status", label: t("orders.status"), width: "9%", noSort: true },
             { field: "invoiceStatus", label: t("orders.invoice"), width: "12%", noSort: true },
-            { field: "actions", label: "", width: "5%", noSort: true },
+            { field: "actions", label: "", width: "2%", noSort: true },
         ];
         return cols;
     }, [t]);
@@ -377,6 +459,53 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
        ═══════════════════════════════════════════════════════ */
     return (
         <div style={{ padding: "clamp(1rem, 2.5vw, 2rem)", color: C.text, minHeight: "100vh" }}>
+
+            {/* ── ZOOM MODAL ── */}
+            <AnimatePresence>
+                {zoomedImage && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        onClick={() => setZoomedImage(null)}
+                        style={{
+                            position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+                            background: "rgba(0,0,0,0.85)", zIndex: 10000,
+                            display: "flex", alignItems: "center", justifyContent: "center",
+                            padding: "2rem", backdropFilter: "blur(5px)"
+                        }}
+                    >
+                        <motion.div
+                            initial={{ scale: 0.5, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            exit={{ scale: 0.5, opacity: 0 }}
+                            style={{ position: "relative", maxWidth: "90%", maxHeight: "90%" }}
+                        >
+                            <img
+                                src={zoomedImage}
+                                alt="zoomed"
+                                style={{
+                                    maxWidth: "100%", maxHeight: "90vh", borderRadius: 16,
+                                    boxShadow: "0 25px 50px -12px rgba(0,0,0,0.5)",
+                                    border: `2px solid ${C.glassBr}`
+                                }}
+                            />
+                            <button
+                                onClick={() => setZoomedImage(null)}
+                                style={{
+                                    position: "absolute", top: -40, right: -40,
+                                    background: "rgba(255,255,255,0.15)", border: "none",
+                                    width: 40, height: 40, borderRadius: "50%",
+                                    color: "#fff", fontSize: "1.5rem", cursor: "pointer",
+                                    display: "flex", alignItems: "center", justifyContent: "center"
+                                }}
+                            >
+                                ✕
+                            </button>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
 
             {/* ── HEADER ── */}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem", flexWrap: "wrap", gap: "1rem" }}>
@@ -632,20 +761,27 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
                                             </span>
                                         </td>
                                         <td style={{ padding: "0.75rem 1rem" }}>
-                                            {(order.products || []).length > 0 ? (
-                                                <div style={{ display: "flex", flexDirection: "column", gap: "0.15rem" }}>
-                                                    <span style={{ color: C.text, fontSize: "0.78rem", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 220, display: "block" }}>
-                                                        {order.products[0].productName || t("orders.product")}
-                                                    </span>
-                                                    {order.products.length > 1 && (
-                                                        <span style={{ color: C.dim, fontSize: "0.68rem" }}>
-                                                            +{order.products.length - 1} {t("orders.moreProducts")}
+                                            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                                                <ProductImage 
+                                                    src={order.imageUrl || (order.items?.[0]?.imageUrl) || (order.products?.[0]?.imageUrl)}
+                                                    onClick={(src) => setZoomedImage(src)}
+                                                    C={C}
+                                                />
+                                                {(order.items || order.products || []).length > 0 ? (
+                                                    <div style={{ display: "flex", flexDirection: "column", gap: "0.15rem", minWidth: 0 }}>
+                                                        <span style={{ color: C.text, fontSize: "0.78rem", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 180, display: "block" }}>
+                                                            {(order.items?.[0] || order.products[0]).productName || t("orders.product")}
                                                         </span>
-                                                    )}
-                                                </div>
-                                            ) : (
-                                                <span style={{ color: C.dim, fontSize: "0.75rem" }}>—</span>
-                                            )}
+                                                        {(order.items || order.products).length > 1 && (
+                                                            <span style={{ color: C.dim, fontSize: "0.68rem" }}>
+                                                                +{(order.items || order.products).length - 1} {t("orders.moreProducts")}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                ) : (
+                                                    <span style={{ color: C.dim, fontSize: "0.75rem" }}>—</span>
+                                                )}
+                                            </div>
                                         </td>
                                         <td style={{ padding: "0.75rem 1rem" }}>
                                             <span style={{ color: C.green, fontSize: "0.85rem", fontWeight: 800 }}>
@@ -887,33 +1023,31 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
 
                             <div style={{ marginBottom: "0.5rem" }}>
                                 <h3 style={{ color: C.text, fontSize: "0.95rem", fontWeight: 700, margin: "0 0 0.75rem 0" }}>
-                                    🛍️ {t("orders.products")} ({(selectedOrder.products || []).length || selectedOrder.productCount || 0})
+                                    🛍️ {t("orders.products")} ({(selectedOrder.items || selectedOrder.products || []).length || selectedOrder.productCount || 0})
                                 </h3>
-                                {(selectedOrder.products || []).length > 0 ? (
+                                {(selectedOrder.items || selectedOrder.products || []).length > 0 ? (
                                     <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-                                        {(selectedOrder.products || []).map((product, idx) => (
+                                        {(selectedOrder.items || selectedOrder.products || []).map((product, idx) => (
                                             <div key={idx} style={{
-                                                display: "flex", alignItems: "center", gap: "0.85rem",
+                                                display: "flex", alignItems: "center", gap: "12px",
                                                 background: C.glass, border: `1px solid ${C.glassBr}`,
-                                                borderRadius: 12, padding: "0.75rem 1rem",
+                                                borderRadius: 14, padding: "10px 14px",
                                             }}>
-                                                {product.imageUrl && product.imageUrl !== "/default-product.jpg" && (
-                                                    <img src={product.imageUrl} alt={product.productName}
-                                                        style={{
-                                                            width: 52, height: 52, borderRadius: 10,
-                                                            objectFit: "cover", border: `1px solid ${C.glassBr}`,
-                                                            flexShrink: 0,
-                                                        }}
-                                                        onError={e => { e.target.style.display = "none"; }}
-                                                    />
-                                                )}
+                                                <ProductImage 
+                                                    src={product.imageUrl}
+                                                    size={44}
+                                                    radius={10}
+                                                    onClick={(src) => setZoomedImage(src)}
+                                                    C={C}
+                                                />
                                                 <div style={{ flex: 1, minWidth: 0 }}>
-                                                    <p style={{ color: C.text, fontSize: "0.85rem", fontWeight: 700, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                                    <p style={{ color: C.text, fontSize: "0.82rem", fontWeight: 700, margin: 0, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", lineHeight: 1.3 }}>
                                                         {product.productName || t("orders.product")}
                                                     </p>
-                                                    <div style={{ display: "flex", gap: "1rem", marginTop: "0.25rem" }}>
-                                                        <span style={{ color: C.muted, fontSize: "0.75rem" }}>{t("orders.quantity")}: <strong style={{ color: C.text }}>{product.quantity || 1}</strong></span>
+                                                    <div style={{ display: "flex", gap: "1rem", marginTop: "0.25rem", flexWrap: "wrap", alignItems: "center" }}>
+                                                        <span style={{ color: C.muted, fontSize: "0.75rem" }}>{t("orders.quantity")}: <strong style={{ color: C.accent }}>{product.quantity || 1}</strong></span>
                                                         {product.price && <span style={{ color: C.muted, fontSize: "0.75rem" }}>{t("orders.price")}: <strong style={{ color: C.green }}>{fmtCurrency(product.price)}</strong></span>}
+                                                        {product.barcode && <span style={{ color: C.dim, fontSize: "0.68rem", fontFamily: "monospace", background: "rgba(255,255,255,0.05)", padding: "1px 4px", borderRadius: 4 }}>{product.barcode}</span>}
                                                     </div>
                                                 </div>
                                             </div>

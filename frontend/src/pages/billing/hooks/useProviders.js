@@ -5,8 +5,12 @@
  * Sağlayıcı bağlantı/bağlantı kesme, credential yönetimi.
  * ⚠️ Güvenlik: Credential'lar backend'e gönderilir, localStorage'da sadece
  *    session token saklanır (plain text password SAKLANMAZ).
+ *
+ * ✅ DB'deki auto-invoice config'den bağlı sağlayıcıyı otomatik algılar.
+ *    localStorage boşsa bile, kullanıcının DB'de kayıtlı QNB ayarı varsa
+ *    sağlayıcı "bağlı" olarak gösterilir.
  */
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import API from "../../../services/api";
 
 const STORAGE_KEY = "lysia_billing_providers";
@@ -57,6 +61,52 @@ const useProviders = () => {
     const [connectedProviders, setConnectedProviders] = useState(loadProviders);
     const [connecting, setConnecting] = useState(false);
     const [connectionError, setConnectionError] = useState("");
+    const dbCheckDoneRef = useRef(false);
+
+    /**
+     * localStorage boşsa DB'deki auto-invoice config'den bağlı sağlayıcıyı algıla.
+     * Kullanıcı daha önce Otomatik Fatura ayarlarından QNB bilgilerini girmişse,
+     * Faturalandırma sayfasının "Genel Bakış" sekmesi de sağlayıcıyı bağlı gösterir.
+     */
+    useEffect(() => {
+        if (dbCheckDoneRef.current) return;
+        if (connectedProviders.length > 0) {
+            dbCheckDoneRef.current = true;
+            return;
+        }
+        dbCheckDoneRef.current = true;
+
+        API.get("/auto-invoice/config")
+            .then((res) => {
+                if (!res.data.success) return;
+                const cfg = res.data.data;
+                if (!cfg || !cfg.supplier || !cfg.supplier.vkn) return;
+
+                // QNB credentials var mı?
+                const qnb = cfg.qnbCredentials || {};
+                const hasQnb = !!(qnb.earsivUsername || qnb.username);
+                if (!hasQnb) return;
+
+                // DB'den algılanan sağlayıcıyı oluştur
+                const dbProvider = {
+                    id: "qnb-esolutions",
+                    name: "QNB eSolutions",
+                    logo: "🏦",
+                    color: "#7c3aed",
+                    authType: "qnb",
+                    env: qnb.env || "test",
+                    connectedAt: new Date().toISOString(),
+                    fromDb: true, // DB'den algılandığını işaretle
+                    searchEndpoint: "/api/e-invoice/qnb/documents/search",
+                };
+
+                setConnectedProviders([dbProvider]);
+                saveProviders([dbProvider]);
+            })
+            .catch(() => {
+                /* Subscription expired veya ağ hatası — sessizce geç */
+            });
+    }, [connectedProviders.length]);
 
     const isConnected = connectedProviders.length > 0;
     const activeProvider = connectedProviders.length > 0 ? connectedProviders[0] : null;

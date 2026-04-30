@@ -75,8 +75,7 @@ const ERP_CODE = process.env.QNB_ERP_CODE || "ESC31309";
 
 // Test VKN'leri (QNB tarafından sağlanan)
 // ⚠️ e-Fatura ve e-Arşiv FARKLI ortamlar — farklı credentials!
-// e-Fatura: erpefaturatest1 → VKN / şifre
-// e-Arşiv:  connectortest   → VKN.portaltest / şifre
+// Her kullanıcı QNB'den aldığı kullanıcı adı/şifreyi olduğu gibi girer.
 const TEST_ACCOUNTS = {
     test1: { vkn: "7610650466", userCode: "7610650466", password: process.env.QNB_EFATURA_PASSWORD || "" },
     test2: { vkn: "7610650467", userCode: "7610650467", password: process.env.QNB_EFATURA2_PASSWORD || "" },
@@ -289,6 +288,16 @@ const login = async ({ username, password, env = "test", service = "efatura" }) 
         storeSession(sessionId, cookieStr || "");
         storeSessionClient(sessionId, client);
 
+        // ✅ FIX: Başarılı login'i _sessionCache'e de yaz
+        // Böylece getCachedSession eski blocked entry'yi görmez, mevcut session'ı kullanır
+        const cacheKey = service + "_" + env;
+        _sessionCache[cacheKey] = {
+            sessionId: sessionId,
+            createdAt: Date.now(),
+            blocked: false,
+            service
+        };
+
         logger.info("[QNB] Login başarılı — Servis: " + service + ", Kullanıcı: " + username + ", SessionID: " + sessionId.substring(0, 8) + "...");
         return {
             success: true,
@@ -429,11 +438,14 @@ const sendEInvoice = async ({ sessionId, invoiceXml, vkn, belgeTuru = "FATURA_UB
         // XML hash hesapla — QNB doğrulama için kullanır
         const xmlHash = md5Hash(invoiceXml);
 
+        // ⚠️ veri base64 olarak gönderilmeli — node-soap raw XML'i escape eder
+        const invoiceBase64 = Buffer.from(invoiceXml, "utf-8").toString("base64");
+
         const [result] = await client.belgeGonderAsync({
             vergiTcKimlikNo: resolvedVkn,
             belgeTuru: belgeTuru,
             belgeNo: belgeNo,
-            veri: invoiceXml,
+            veri: invoiceBase64,
             belgeHash: xmlHash,
             mimeType: "application/xml",
             belgeVersiyon: "3.0"
@@ -466,12 +478,15 @@ const sendEInvoiceExt = async ({ sessionId, invoiceXml, vkn, belgeTuru = "FATURA
         const resolvedVkn = vkn || TEST_ACCOUNTS.test1.vkn;
         const xmlHash = md5Hash(invoiceXml);
 
+        // ⚠️ veri base64 olarak gönderilmeli — node-soap raw XML'i escape eder
+        const invoiceBase64 = Buffer.from(invoiceXml, "utf-8").toString("base64");
+
         const [result] = await client.belgeGonderExtAsync({
             parametreler: {
                 vergiTcKimlikNo: resolvedVkn,
                 belgeTuru: belgeTuru,
                 belgeNo: belgeNo,
-                veri: invoiceXml,
+                veri: invoiceBase64,
                 belgeHash: xmlHash,
                 mimeType: "application/xml",
                 belgeVersiyon: "3.0",
@@ -858,11 +873,14 @@ const sendDespatch = async ({ sessionId, despatchXml, vkn, belgeNo = "", env = "
         const resolvedVkn = vkn || TEST_ACCOUNTS.test1.vkn;
         const xmlHash = md5Hash(despatchXml);
 
+        // ⚠️ veri base64 olarak gönderilmeli — node-soap raw XML'i escape eder
+        const despatchBase64 = Buffer.from(despatchXml, "utf-8").toString("base64");
+
         const [result] = await client.belgeGonderAsync({
             vergiTcKimlikNo: resolvedVkn,
             belgeTuru: "IRSALIYE_UBL",
             belgeNo: belgeNo,
-            veri: despatchXml,
+            veri: despatchBase64,
             belgeHash: xmlHash,
             mimeType: "application/xml",
             belgeVersiyon: "3.0"
@@ -962,7 +980,7 @@ const generateEArchiveNumber = async ({ sessionId, vkn, faturaKodu, env = "test"
  *
  * fatura: { belgeFormati: "UBL", belgeIcerigi: rawXmlString }
  *
- * ⚠️ ÖNEMLİ: belgeIcerigi RAW XML string olmalı, base64 DEĞİL!
+ * ⚠️ ÖNEMLİ: belgeIcerigi base64 encode edilmiş XML olmalı (node-soap raw XML'i escape eder)
  *
  * @param {string} invoiceXml - UBL XML (RAW string, base64 değil!)
  */
@@ -987,13 +1005,18 @@ const createEArchiveInvoice = async ({ sessionId, vkn, invoiceXml, sube, kasa, f
             inputData.faturaSeri = faturaSeri;
         }
 
+        // ⚠️ belgeIcerigi base64 olarak gönderilmeli!
+        // node-soap raw XML'i SOAP envelope'a koyarken escape eder (<  → &lt;)
+        // Bu da QNB'nin "fatura alanından belge elde edilemedi" hatası vermesine neden olur.
+        const invoiceBase64 = Buffer.from(invoiceXml, "utf-8").toString("base64");
+
         logger.info("[QNB] faturaOlustur input: " + JSON.stringify(inputData));
 
         const [result] = await client.faturaOlusturAsync({
             input: JSON.stringify(inputData),
             fatura: {
                 belgeFormati: "UBL",
-                belgeIcerigi: invoiceXml
+                belgeIcerigi: invoiceBase64
             }
         });
 
@@ -1042,13 +1065,18 @@ const createEArchiveInvoiceExt = async ({ sessionId, vkn, invoiceXml, sube, kasa
             inputData.faturaSeri = faturaSeri;
         }
 
+        // ⚠️ belgeIcerigi base64 olarak gönderilmeli!
+        // node-soap raw XML'i SOAP envelope'a koyarken escape eder (<  → &lt;)
+        // Bu da QNB'nin "fatura alanından belge elde edilemedi" hatası vermesine neden olur.
+        const invoiceBase64 = Buffer.from(invoiceXml, "utf-8").toString("base64");
+
         logger.info("[QNB] faturaOlusturExt input: " + JSON.stringify(inputData));
 
         const [result] = await client.faturaOlusturExtAsync({
             input: JSON.stringify(inputData),
             fatura: {
                 belgeFormati: "UBL",
-                belgeIcerigi: invoiceXml
+                belgeIcerigi: invoiceBase64
             }
         });
 
@@ -1307,11 +1335,11 @@ const previewEArchiveInvoice = async ({ sessionId, vkn, invoiceXml, uuid, fatura
             input: JSON.stringify(inputData)
         };
 
-        // Yeni fatura önizlemesi — RAW XML gönder
+        // Yeni fatura önizlemesi — base64 encode edilmiş XML gönder
         if (invoiceXml && !uuid) {
             args.fatura = {
                 belgeFormati: "UBL",
-                belgeIcerigi: invoiceXml
+                belgeIcerigi: Buffer.from(invoiceXml, "utf-8").toString("base64")
             };
         }
 
@@ -1321,10 +1349,68 @@ const previewEArchiveInvoice = async ({ sessionId, vkn, invoiceXml, uuid, fatura
         const ret = result ? result.return : null;
         const output = result ? result.output : null;
 
-        if (output) {
+        // Debug: yanıt yapısını logla
+        logger.info("[QNB] faturaOnizleme yanıt — output type=" + typeof output +
+            ", output length=" + (typeof output === "string" ? output.length : "N/A") +
+            ", ret.resultCode=" + (ret ? ret.resultCode : "null") +
+            ", result keys=" + (result ? Object.keys(result).join(",") : "null"));
+
+        // output doğrudan HTML string olabilir
+        if (typeof output === "string" && output.length > 0) {
             return { success: true, data: output };
         }
+
+        // output base64 encoded olabilir
+        if (typeof output === "string" && output.length === 0 && ret && ret.resultCode === "AE00000") {
+            // resultExtra içinde belgeIcerigi olabilir
+        }
+
+        // ret.resultExtra içinde HTML/base64 veri olabilir
         if (ret && ret.resultCode === "AE00000") {
+            // resultExtra.entry[] içinde belgeIcerigi aranır
+            const entries = ret.resultExtra && ret.resultExtra.entry;
+            if (Array.isArray(entries)) {
+                for (const entry of entries) {
+                    const key = (entry.key && entry.key.$value) || entry.key || "";
+                    const val = (entry.value && entry.value.$value) || entry.value || "";
+                    if (typeof val === "string" && val.length > 100) {
+                        // Base64 encoded HTML olabilir
+                        try {
+                            const decoded = Buffer.from(val, "base64").toString("utf-8");
+                            if (decoded.includes("<html") || decoded.includes("<HTML") || decoded.includes("<!DOCTYPE")) {
+                                logger.info("[QNB] faturaOnizleme — resultExtra'dan base64 HTML çözüldü (key=" + key + ")");
+                                return { success: true, data: decoded };
+                            }
+                        } catch (e) { /* base64 değilse devam */ }
+                        // Doğrudan HTML olabilir
+                        if (val.includes("<html") || val.includes("<HTML") || val.includes("<!DOCTYPE")) {
+                            logger.info("[QNB] faturaOnizleme — resultExtra'dan doğrudan HTML bulundu (key=" + key + ")");
+                            return { success: true, data: val };
+                        }
+                    }
+                }
+            }
+
+            // ret objesinin kendisinde belgeIcerigi olabilir
+            const belge = ret.belgeIcerigi || ret.content || ret.htmlContent || ret.data;
+            if (typeof belge === "string" && belge.length > 0) {
+                // Base64 dene
+                try {
+                    const decoded = Buffer.from(belge, "base64").toString("utf-8");
+                    if (decoded.includes("<html") || decoded.includes("<HTML") || decoded.includes("<!DOCTYPE")) {
+                        logger.info("[QNB] faturaOnizleme — ret.belgeIcerigi base64 HTML çözüldü");
+                        return { success: true, data: decoded };
+                    }
+                } catch (e) { /* ignore */ }
+                // Doğrudan HTML
+                if (belge.includes("<html") || belge.includes("<HTML") || belge.includes("<!DOCTYPE")) {
+                    return { success: true, data: belge };
+                }
+            }
+
+            // Hiçbir HTML bulunamadı — ret objesini JSON olarak logla
+            const retPreview = JSON.stringify(ret).substring(0, 500);
+            logger.warn("[QNB] faturaOnizleme AE00000 ama HTML bulunamadı — ret: " + retPreview);
             return { success: true, data: ret };
         }
 
@@ -1464,13 +1550,41 @@ const getEArchiveConfig = async ({ sessionId, vkn, env = "test" }) => {
 // ── Session Cache — aynı servis için tekrar login yapmayı önler ──────────────
 const _sessionCache = {};
 const SESSION_CACHE_TTL_MS = 20 * 60 * 1000;   // 20 dakika (QNB session ~30dk geçerli)
-const BLOCK_COOLDOWN_MS = 5 * 60 * 1000;       // 5 dakika — login başarısız olursa cooldown
+const BLOCK_COOLDOWN_MS = 90 * 1000;            // 90 saniye — login başarısız olursa cooldown
+
+/**
+ * Login cooldown'ını temizle — credentials değiştiğinde çağrılır
+ * Böylece yeni şifre ile hemen tekrar login denenebilir
+ */
+const clearLoginCooldown = (service) => {
+    if (service) {
+        // Belirli servis için temizle (tüm env'ler)
+        Object.keys(_sessionCache).forEach(key => {
+            if (key.startsWith(service + "_")) {
+                delete _sessionCache[key];
+            }
+        });
+        logger.info("[QNB] " + service + " login cooldown temizlendi");
+    } else {
+        // Tümünü temizle
+        Object.keys(_sessionCache).forEach(key => delete _sessionCache[key]);
+        logger.info("[QNB] Tüm login cooldown'lar temizlendi");
+    }
+};
 
 /**
  * Cached login — aynı servis+env için mevcut session varsa tekrar login yapmaz
- * Login başarısız olursa 5dk boyunca tekrar denemez (bloke koruması)
+ * Login başarısız olursa 90sn boyunca tekrar denemez (bloke koruması)
+ *
+ * ⚠️ username/password dışarıdan verilmeli — .env fallback KULLANILMAZ.
+ *    Per-user credential sistemi: her kullanıcı kendi QNB bilgilerini girer.
+ *
+ * @param {string} service - "earsiv" veya "efatura"
+ * @param {string} env - "test" veya "production"
+ * @param {string} username - QNB kullanıcı adı (caller tarafından çözümlenmiş)
+ * @param {string} password - QNB şifre
  */
-const getCachedSession = async (service, env, vkn) => {
+const getCachedSession = async (service, env, username, password) => {
     const cacheKey = service + "_" + env;
     const cached = _sessionCache[cacheKey];
 
@@ -1481,23 +1595,21 @@ const getCachedSession = async (service, env, vkn) => {
         return { success: false, error: cached.error || (service + " geçici olarak devre dışı (cooldown)") };
     }
 
+    // Cooldown süresi dolduysa blocked flag'ini temizle
+    if (cached && cached.blocked && (Date.now() - cached.blockedAt) >= BLOCK_COOLDOWN_MS) {
+        delete _sessionCache[cacheKey];
+    }
+
     // Geçerli session cache var mı?
-    if (cached && cached.sessionId && !cached.blocked && (Date.now() - cached.createdAt) < SESSION_CACHE_TTL_MS) {
-        return { success: true, sessionId: cached.sessionId };
+    const fresh = _sessionCache[cacheKey];
+    if (fresh && fresh.sessionId && !fresh.blocked && (Date.now() - fresh.createdAt) < SESSION_CACHE_TTL_MS) {
+        return { success: true, sessionId: fresh.sessionId };
     }
 
-    // Yeni login
-    let username, password;
-    if (service === "earsiv") {
-        username = process.env.QNB_EARSIV_USERNAME || TEST_ACCOUNTS.earsiv.userCode;
-        password = process.env.QNB_EARSIV_PASSWORD || TEST_ACCOUNTS.earsiv.password;
-    } else {
-        username = process.env.QNB_EFATURA_USERNAME || vkn;
-        password = process.env.QNB_EFATURA_PASSWORD || "";
-    }
-
+    // Credential kontrolü — caller vermezse hata
     if (!username || !password) {
-        return { success: false, error: service + " bağlantı bilgileri eksik" };
+        logger.warn("[QNB] getCachedSession — " + service + " credential eksik (username=" + (username || "(boş)") + ")");
+        return { success: false, error: service + " bağlantı bilgileri eksik. Lütfen QNB ayarlarından kullanıcı adı/şifre girin." };
     }
 
     logger.info("[QNB] " + service + " login yapılıyor — user: " + username);
@@ -1528,33 +1640,55 @@ const getCachedSession = async (service, env, vkn) => {
 
 /**
  * Genel belge arama — documentType'a göre ilgili servisi çağırır
+ *
+ * ✅ FIX: Caller'dan gelen sessionId varsa önce onu kullan.
+ *   Frontend zaten login olmuş ve sessionId gönderiyorsa, getCachedSession'a
+ *   gerek yok — doğrudan mevcut session ile sorgu yapılır.
+ *   getCachedSession sadece sessionId yoksa veya geçersizse fallback olarak kullanılır.
  */
-const searchDocuments = async ({ sessionId, vkn, searchParams = {}, documentType, env = "test" }) => {
+const searchDocuments = async ({ sessionId, vkn, searchParams = {}, documentType, env = "test", credentials }) => {
     try {
+        /**
+         * Session çözümleme: caller sessionId > getCachedSession
+         * @param {string} service - "efatura" veya "earsiv"
+         * @returns {{ sessionId: string } | { success: false, error: string }}
+         */
+        const resolveSession = async (service) => {
+            // Caller'dan gelen sessionId varsa doğrudan kullan
+            if (sessionId) {
+                return { success: true, sessionId };
+            }
+            // Yoksa cached/yeni login dene — credential'lar caller'dan gelir
+            const creds = credentials || {};
+            const username = service === "earsiv" ? (creds.earsivUsername || "") : (creds.efaturaUsername || vkn || "");
+            const password = service === "earsiv" ? (creds.earsivPassword || "") : (creds.efaturaPassword || "");
+            return await getCachedSession(service, env, username, password);
+        };
+
         switch (documentType) {
             case "outgoing-einvoice": {
-                const sess = await getCachedSession("efatura", env, vkn);
+                const sess = await resolveSession("efatura");
                 if (!sess.success) return { success: false, error: sess.error };
                 return await listOutgoingDocuments({ sessionId: sess.sessionId, vkn, searchParams, env });
             }
             case "incoming-einvoice": {
-                const sess = await getCachedSession("efatura", env, vkn);
+                const sess = await resolveSession("efatura");
                 if (!sess.success) return { success: false, error: sess.error };
                 return await listIncomingDocuments({ sessionId: sess.sessionId, vkn, belgeTuru: "FATURA", sonSiraNo: searchParams.sonSiraNo || "0", env });
             }
             case "outgoing-despatch":
             case "despatch-advice": {
-                const sess = await getCachedSession("efatura", env, vkn);
+                const sess = await resolveSession("efatura");
                 if (!sess.success) return { success: false, error: sess.error };
                 return await listOutgoingDocuments({ sessionId: sess.sessionId, vkn, searchParams: { ...searchParams, belgeTuru: "IRSALIYE" }, env });
             }
             case "incoming-despatch": {
-                const sess = await getCachedSession("efatura", env, vkn);
+                const sess = await resolveSession("efatura");
                 if (!sess.success) return { success: false, error: sess.error };
                 return await listIncomingDocuments({ sessionId: sess.sessionId, vkn, belgeTuru: "IRSALIYE", sonSiraNo: searchParams.sonSiraNo || "0", env });
             }
             case "earchive": {
-                const sess = await getCachedSession("earsiv", env, vkn);
+                const sess = await resolveSession("earsiv");
                 if (!sess.success) return { success: false, error: sess.error };
                 return await listEArchiveInvoices({ sessionId: sess.sessionId, vkn, searchParams, env });
             }
@@ -1655,6 +1789,7 @@ module.exports = {
     searchDocuments,
     checkServiceStatus,
     clearSessionClient,
+    clearLoginCooldown,
 
     // Sabitler
     WSDL,

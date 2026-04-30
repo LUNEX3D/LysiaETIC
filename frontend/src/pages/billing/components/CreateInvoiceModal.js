@@ -8,7 +8,7 @@ import React, { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
     FaTimes, FaPlus, FaArrowRight, FaFileInvoice, FaFileInvoiceDollar,
-    FaTruck, FaDownload, FaSpinner, FaExclamationTriangle, FaCheckCircle,
+    FaTruck, FaDownload, FaSpinner, FaExclamationTriangle,
     FaLink, FaBuilding, FaClipboardList,
 } from "react-icons/fa";
 import { colors, modalOverlay, modalContent, buttonPrimary, inputStyle as baseInputStyle, labelStyle as baseLabelStyle } from "../styles";

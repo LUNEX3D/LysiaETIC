@@ -109,6 +109,21 @@ API.interceptors.response.use(
             return Promise.reject(friendlyError);
         }
 
+        // ─── 403 Subscription Expired — Abonelik süresi dolmuş ─────────────
+        if (error.response?.status === 403 && error.response?.data?.subscriptionExpired) {
+            // subscriptionExpired flag'ini error'a ekle — UI bunu yakalayıp özel mesaj gösterir
+            error.subscriptionExpired = true;
+            // Global event fırlat — herhangi bir component dinleyebilir
+            window.dispatchEvent(new CustomEvent("api:subscription-expired", {
+                detail: {
+                    message: error.response.data.message,
+                    plan: error.response.data.plan,
+                    timestamp: Date.now()
+                }
+            }));
+            return Promise.reject(error);
+        }
+
         if (error.response?.status === 401 && !originalRequest._retry) {
             const currentPath = window.location.pathname;
             // Login sayfasındayken sonsuz döngü olmasın

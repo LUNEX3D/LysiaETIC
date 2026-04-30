@@ -10,7 +10,7 @@ import {
     FaSyncAlt, FaCog, FaCheckCircle, FaTimesCircle, FaExclamationTriangle,
     FaFileInvoice, FaCalendarAlt, FaMoneyBillWave, FaSpinner, FaSearch,
     FaInfoCircle, FaChartPie, FaEye, FaDownload, FaTimes, FaBuilding,
-    FaLink, FaClipboardList, FaPercentage,
+    FaLink, FaClipboardList,
 } from "react-icons/fa";
 import { colors, buttonPrimary, buttonSecondary, inputStyle as baseInputStyle, labelStyle as baseLabelStyle, sectionTitleStyle } from "../styles";
 import { GlassCard, EmptyState, LoadingState, AlertBox, SpinnerButton } from "./SharedUI";
@@ -30,19 +30,33 @@ const AutoInvoicePanel = ({ autoInvoice }) => {
     const [showConfigForm, setShowConfigForm] = useState(false);
     const [configForm, setConfigForm] = useState(null);
     const [qnbSearchQuery, setQnbSearchQuery] = useState("");
-    const [qnbDateRange, setQnbDateRange] = useState({ start: "", end: "" });
+    // Varsayılan tarih aralığı: son 30 gün
+    const [qnbDateRange, setQnbDateRange] = useState(() => {
+        const now = new Date();
+        const ago = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+        return { start: ago.toISOString().split("T")[0], end: now.toISOString().split("T")[0] };
+    });
     const [pdfLoading, setPdfLoading] = useState(null);
+    const [qnbAutoLoaded, setQnbAutoLoaded] = useState(false);
+
+    const cfg = config || {};
+    const st = stats || {};
+    const isEnabled = cfg.enabled || false;
+    const hasConfig = !!(cfg.supplier && cfg.supplier.vkn);
+    const consecutiveErrors = cfg.stats?.consecutiveErrors || 0;
 
     // İlk yüklemede verileri çek
     useEffect(() => {
         if (!config) fetchData();
     }, [config, fetchData]);
 
-    const cfg = config || {};
-    const st = stats || {};
-    const isEnabled = cfg.enabled || false;
-    const hasConfig = cfg.supplier && cfg.supplier.vkn;
-    const consecutiveErrors = cfg.stats?.consecutiveErrors || 0;
+    // Config yüklenince QNB faturalarını otomatik yükle (tek seferlik)
+    useEffect(() => {
+        if (hasConfig && !qnbAutoLoaded && qnbInvoices.length === 0 && !qnbLoading) {
+            setQnbAutoLoaded(true);
+            fetchQnbInvoices("", qnbDateRange.start, qnbDateRange.end, 1);
+        }
+    }, [hasConfig, qnbAutoLoaded, qnbInvoices.length, qnbLoading, fetchQnbInvoices, qnbDateRange]);
 
     const initConfigForm = useCallback(() => {
         setConfigForm(buildConfigForm());
@@ -54,14 +68,24 @@ const AutoInvoicePanel = ({ autoInvoice }) => {
         if (result.success) setShowConfigForm(false);
     };
 
-    const handlePreview = async (uuid) => {
+    const handlePreview = async (uuid, faturaURL) => {
+        // faturaURL varsa doğrudan aç — en güvenilir yöntem
+        if (faturaURL) {
+            window.open(faturaURL, "_blank");
+            return;
+        }
         setPdfLoading(uuid);
         const result = await previewQnbInvoice(uuid);
         setPdfLoading(null);
         if (result.error) clearError();
     };
 
-    const handleDownload = async (id, number) => {
+    const handleDownload = async (id, number, faturaURL) => {
+        // faturaURL varsa doğrudan aç
+        if (faturaURL) {
+            window.open(faturaURL, "_blank");
+            return;
+        }
         setPdfLoading(id);
         await downloadInvoicePdf(id, number);
         setPdfLoading(null);
@@ -187,6 +211,20 @@ const AutoInvoicePanel = ({ autoInvoice }) => {
                         <div><label style={labelStyle}>Soyad</label><input style={inputStyle} value={fd.defaultCustomer.lastName} onChange={(e) => updateField("defaultCustomer.lastName", e.target.value)} placeholder="Soyad" /></div>
                         <div><label style={labelStyle}>İl</label><input style={inputStyle} value={fd.defaultCustomer.city} onChange={(e) => updateField("defaultCustomer.city", e.target.value)} placeholder="İl" /></div>
                     </div>
+
+                    {/* Fatura Başlangıç Tarihi */}
+                    <h4 style={{ ...sectionTitleStyle, marginTop: "1.5rem" }}><FaCalendarAlt style={{ color: colors.yellow }} /> Fatura Başlangıç Tarihi</h4>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.75rem" }}>
+                        <div>
+                            <label style={labelStyle}>Bu tarihten önceki siparişler faturalanmaz</label>
+                            <input style={inputStyle} type="date" value={fd.autoInvoiceStartDate} onChange={(e) => updateField("autoInvoiceStartDate", e.target.value)} />
+                        </div>
+                    </div>
+                    <p style={{ fontSize: "0.72rem", color: colors.textMuted, marginTop: "0.4rem", lineHeight: 1.5 }}>
+                        ⚠️ <strong>Mükerrer fatura koruması:</strong> Sistemi aktif etmeden önce manuel kestiğiniz faturaların tekrar kesilmesini engeller.
+                        Bu tarihten önceki siparişler otomatik faturalama ve "Tümünü Faturala" işlemlerinde atlanır.
+                        İlk kurulumda otomatik olarak bugünün tarihi atanır. Gerekirse değiştirebilirsiniz.
+                    </p>
 
                     {/* Tetikleme Ayarları */}
                     <h4 style={{ ...sectionTitleStyle, marginTop: "1.5rem" }}><FaClipboardList style={{ color: colors.blue }} /> Tetikleme Ayarları</h4>
@@ -314,12 +352,13 @@ const AutoInvoicePanel = ({ autoInvoice }) => {
 
             {/* İstatistik Kartları */}
             {hasConfig && (
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "1rem", marginBottom: "1.5rem" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "1rem", marginBottom: "1.5rem" }}>
                     {[
                         { label: "Toplam Fatura", value: st.totalInvoices || 0, icon: <FaFileInvoice />, color: colors.accent },
                         { label: "Bugün Kesilen", value: st.todayInvoices || 0, icon: <FaCalendarAlt />, color: colors.green },
                         { label: "Toplam Tutar", value: fmtCurrency(st.totalAmount || 0), icon: <FaMoneyBillWave />, color: colors.purple },
                         { label: "Faturasız Sipariş", value: st.uninvoicedOrders || 0, icon: <FaExclamationTriangle />, color: (st.uninvoicedOrders || 0) > 0 ? colors.yellow : colors.dim },
+                        { label: "Hatalı Sipariş", value: st.errorOrders || 0, icon: <FaTimesCircle />, color: (st.errorOrders || 0) > 0 ? colors.red : colors.dim },
                     ].map((card, i) => (
                         <GlassCard key={i} style={{ padding: "1.15rem" }}>
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
@@ -334,18 +373,27 @@ const AutoInvoicePanel = ({ autoInvoice }) => {
                 </div>
             )}
 
+            {/* Uyarı Mesajı — Neden faturalanmıyor? */}
+            {st.autoInvoiceWarning && (
+                <AlertBox type="warning" message={st.autoInvoiceWarning} />
+            )}
+
             {/* Tümünü Faturala */}
-            {hasConfig && (st.uninvoicedOrders || 0) > 0 && (
+            {hasConfig && ((st.uninvoicedOrders || 0) > 0 || (st.errorOrders || 0) > 0) && (
                 <div style={{ marginBottom: "1.5rem", display: "flex", gap: "0.75rem", alignItems: "center", flexWrap: "wrap" }}>
                     <SpinnerButton
                         onClick={() => processAll(50)}
                         loading={processLoading}
                         loadingText="Faturalar Kesiliyor..."
                         style={buttonPrimary}>
-                        <FaFileInvoice /> Faturasız Siparişleri Faturala ({Math.min(50, st.uninvoicedOrders)})
+                        <FaFileInvoice /> {(st.errorOrders || 0) > 0 && (st.uninvoicedOrders || 0) === 0
+                            ? "Hatalı Siparişleri Tekrar Dene (" + (st.errorOrders || 0) + ")"
+                            : "Faturasız Siparişleri Faturala (" + Math.min(50, (st.uninvoicedOrders || 0) + (st.errorOrders || 0)) + ")"}
                     </SpinnerButton>
                     <span style={{ color: colors.dim, fontSize: "0.75rem" }}>
-                        Tek seferde en fazla 50 sipariş faturalanır.
+                        {(st.errorOrders || 0) > 0
+                            ? "Hatalı siparişler sıfırlanıp tekrar denenecek. Tek seferde en fazla 50 sipariş."
+                            : "Tek seferde en fazla 50 sipariş faturalanır."}
                     </span>
                 </div>
             )}
@@ -367,6 +415,7 @@ const AutoInvoicePanel = ({ autoInvoice }) => {
                                 { label: "Firma VKN", value: cfg.supplier?.vkn || "—" },
                                 { label: "Firma Adı", value: cfg.supplier?.name || "—" },
                                 { label: "Ortam", value: cfg.qnbCredentials?.env === "production" ? "Canlı" : "Test" },
+                                { label: "📅 Başlangıç Tarihi", value: cfg.autoInvoiceStartDate ? fmtDate(cfg.autoInvoiceStartDate) : "—", color: colors.yellow },
                             ].map((row, i) => (
                                 <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.35rem 0", borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
                                     <span style={{ color: colors.dim, fontSize: "0.78rem" }}>{row.label}</span>
@@ -470,43 +519,54 @@ const AutoInvoicePanel = ({ autoInvoice }) => {
                     {/* Tablo */}
                     {qnbInvoices.length > 0 && (
                         <>
-                            <div style={{ display: "grid", gridTemplateColumns: "2fr 1.5fr 1fr 1fr 1fr", gap: "0.5rem", padding: "0.5rem 0.75rem", background: "rgba(255,255,255,0.03)", borderRadius: 8, marginBottom: "0.5rem" }}>
-                                {["Fatura No", "Müşteri", "Tarih", "Tutar", "İşlem"].map((h) => (
-                                    <span key={h} style={{ color: colors.dim, fontSize: "0.7rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.5px" }}>{h}</span>
+                            <div style={{ display: "grid", gridTemplateColumns: "1.8fr 1.3fr 0.9fr 0.8fr 0.9fr 0.7fr 0.7fr", gap: "0.4rem", padding: "0.5rem 0.75rem", background: "rgba(255,255,255,0.03)", borderRadius: 8, marginBottom: "0.5rem" }}>
+                                {["Fatura No", "Müşteri", "Pazaryeri", "Tarih", "Tutar", "Durum", "İşlem"].map((h) => (
+                                    <span key={h} style={{ color: colors.dim, fontSize: "0.68rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.5px" }}>{h}</span>
                                 ))}
                             </div>
-                            <div style={{ display: "flex", flexDirection: "column", gap: "0.2rem", maxHeight: 450, overflowY: "auto" }}>
-                                {qnbInvoices.map((inv, idx) => (
-                                    <motion.div key={inv.id || idx} whileHover={{ backgroundColor: "rgba(255,255,255,0.04)" }}
-                                        style={{ display: "grid", gridTemplateColumns: "2fr 1.5fr 1fr 1fr 1fr", gap: "0.5rem", padding: "0.6rem 0.75rem", borderRadius: 8, borderBottom: "1px solid rgba(255,255,255,0.04)", alignItems: "center" }}>
-                                        <div style={{ overflow: "hidden" }}>
-                                            <span style={{ color: colors.accent, fontSize: "0.8rem", fontWeight: 700, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{inv.faturaNo || "—"}</span>
-                                            {inv.uuid && <span style={{ color: colors.dim, fontSize: "0.62rem", fontFamily: "monospace" }}>{inv.uuid.substring(0, 16)}...</span>}
-                                        </div>
-                                        <div style={{ overflow: "hidden" }}>
-                                            <span style={{ color: colors.text, fontSize: "0.78rem", display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{inv.aliciAdi || "—"}</span>
-                                            {inv.aliciVkn && <span style={{ color: colors.dim, fontSize: "0.62rem", fontFamily: "monospace" }}>{inv.aliciVkn}</span>}
-                                        </div>
-                                        <span style={{ color: colors.muted, fontSize: "0.78rem" }}>{fmtDate(inv.tarih)}</span>
-                                        <span style={{ color: colors.green, fontSize: "0.82rem", fontWeight: 700 }}>{inv.tutar > 0 ? fmtCurrency(inv.tutar) : "—"}</span>
-                                        <div style={{ display: "flex", gap: "0.3rem" }}>
-                                            <motion.button whileHover={{ scale: 1.15 }} whileTap={{ scale: 0.9 }} title="Görüntüle"
-                                                onClick={() => inv.uuid && handlePreview(inv.uuid)}
-                                                disabled={pdfLoading === inv.uuid || !inv.uuid}
-                                                style={{ background: colors.glass, border: "1px solid " + colors.glassBr, borderRadius: 6, padding: "0.35rem", cursor: inv.uuid ? "pointer" : "not-allowed", color: colors.accent, fontSize: "0.75rem", display: "flex", opacity: pdfLoading === inv.uuid ? 0.5 : 1 }}>
-                                                {pdfLoading === inv.uuid ? <FaSpinner style={{ animation: "spin 1s linear infinite" }} /> : <FaEye />}
-                                            </motion.button>
-                                            {inv._id && (
-                                                <motion.button whileHover={{ scale: 1.15 }} whileTap={{ scale: 0.9 }} title="İndir"
-                                                    onClick={() => handleDownload(inv._id, inv.faturaNo)}
-                                                    disabled={pdfLoading === inv._id}
-                                                    style={{ background: colors.glass, border: "1px solid " + colors.glassBr, borderRadius: 6, padding: "0.35rem", cursor: "pointer", color: colors.blue, fontSize: "0.75rem", display: "flex", opacity: pdfLoading === inv._id ? 0.5 : 1 }}>
-                                                    {pdfLoading === inv._id ? <FaSpinner style={{ animation: "spin 1s linear infinite" }} /> : <FaDownload />}
+                            <div style={{ display: "flex", flexDirection: "column", gap: "0.15rem", maxHeight: 500, overflowY: "auto" }}>
+                                {qnbInvoices.map((inv, idx) => {
+                                    const displayAmount = (inv.tutar > 0) ? inv.tutar : ((inv.kdvHaric || 0) + (inv.kdv || 0));
+                                    const sColors = { created: colors.green, error: colors.red, pending: colors.yellow };
+                                    const sLabels = { created: "Kesildi", error: "Hata", pending: "Bekliyor" };
+                                    const sColor = sColors[inv.durum] || colors.dim;
+                                    const sLabel = sLabels[inv.durum] || inv.durum || "";
+                                    const cbIcons = { auto: "\u26A1", manual: "\u270B" };
+                                    const cbIcon = cbIcons[inv.createdBy] || "";
+                                    return (
+                                        <motion.div key={inv.id || idx} whileHover={{ backgroundColor: "rgba(255,255,255,0.04)" }}
+                                            style={{ display: "grid", gridTemplateColumns: "1.8fr 1.3fr 0.9fr 0.8fr 0.9fr 0.7fr 0.7fr", gap: "0.4rem", padding: "0.55rem 0.75rem", borderRadius: 8, borderBottom: "1px solid rgba(255,255,255,0.03)", alignItems: "center", background: idx % 2 === 0 ? "transparent" : "rgba(255,255,255,0.015)" }}>
+                                            <div style={{ overflow: "hidden" }}>
+                                                <span style={{ color: colors.accent, fontSize: "0.78rem", fontWeight: 700, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cbIcon} {inv.faturaNo || "\u2014"}</span>
+                                                {inv.orderNumber && <span style={{ color: colors.dim, fontSize: "0.6rem" }}>Siparis: {inv.orderNumber}</span>}
+                                            </div>
+                                            <div style={{ overflow: "hidden" }}>
+                                                <span style={{ color: colors.text, fontSize: "0.76rem", display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{inv.aliciAdi || "\u2014"}</span>
+                                                {inv.aliciVkn && inv.aliciVkn !== "11111111111" && <span style={{ color: colors.dim, fontSize: "0.6rem", fontFamily: "monospace" }}>{inv.aliciVkn}</span>}
+                                            </div>
+                                            <span style={{ color: colors.muted, fontSize: "0.74rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{inv.marketplaceName || "\u2014"}</span>
+                                            <span style={{ color: colors.muted, fontSize: "0.74rem" }}>{fmtDate(inv.tarih)}</span>
+                                            <span style={{ color: colors.green, fontSize: "0.8rem", fontWeight: 700, fontFamily: "monospace" }}>{displayAmount > 0 ? fmtCurrency(displayAmount) : "\u2014"}</span>
+                                            <span style={{ color: sColor, fontSize: "0.72rem", fontWeight: 600 }}>{sLabel}</span>
+                                            <div style={{ display: "flex", gap: "0.25rem" }}>
+                                                <motion.button whileHover={{ scale: 1.15 }} whileTap={{ scale: 0.9 }} title="Goruntule"
+                                                    onClick={() => inv.uuid && handlePreview(inv.uuid, inv.faturaURL)}
+                                                    disabled={pdfLoading === inv.uuid || !inv.uuid}
+                                                    style={{ background: colors.glass, border: "1px solid " + colors.glassBr, borderRadius: 6, padding: "0.3rem", cursor: inv.uuid ? "pointer" : "not-allowed", color: colors.accent, fontSize: "0.72rem", display: "flex", opacity: pdfLoading === inv.uuid ? 0.5 : 1 }}>
+                                                    {pdfLoading === inv.uuid ? <FaSpinner style={{ animation: "spin 1s linear infinite" }} /> : <FaEye />}
                                                 </motion.button>
-                                            )}
-                                        </div>
-                                    </motion.div>
-                                ))}
+                                                {inv._id && (
+                                                    <motion.button whileHover={{ scale: 1.15 }} whileTap={{ scale: 0.9 }} title="Indir"
+                                                        onClick={() => handleDownload(inv._id, inv.faturaNo, inv.faturaURL)}
+                                                        disabled={pdfLoading === inv._id}
+                                                        style={{ background: colors.glass, border: "1px solid " + colors.glassBr, borderRadius: 6, padding: "0.3rem", cursor: "pointer", color: colors.blue, fontSize: "0.72rem", display: "flex", opacity: pdfLoading === inv._id ? 0.5 : 1 }}>
+                                                        {pdfLoading === inv._id ? <FaSpinner style={{ animation: "spin 1s linear infinite" }} /> : <FaDownload />}
+                                                    </motion.button>
+                                                )}
+                                            </div>
+                                        </motion.div>
+                                    );
+                                })}
                             </div>
 
                             {/* Sayfalama */}
@@ -536,13 +596,13 @@ const AutoInvoicePanel = ({ autoInvoice }) => {
                     {!qnbLoading && qnbInvoices.length === 0 && (
                         <EmptyState
                             icon={<FaFileInvoice style={{ fontSize: "2rem", color: colors.dim }} />}
-                            title={qnbSearchQuery ? "Arama sonucu bulunamadı" : "Fatura listesi yüklenmedi"}
-                            description={qnbSearchQuery ? "Farklı arama kriterleri deneyin." : "QNB'den kesilen faturaları görmek için 'Yenile' butonuna tıklayın."}
+                            title={qnbSearchQuery ? "Arama sonucu bulunamadı" : "Henüz fatura kesilmemiş"}
+                            description={qnbSearchQuery ? "Farklı arama kriterleri deneyin." : "Seçili tarih aralığında kesilmiş fatura bulunamadı. Tarih aralığını genişletin veya siparişlerinizi faturalatın."}
                             action={!qnbSearchQuery && (
                                 <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
-                                    onClick={() => fetchQnbInvoices("", "", "", 1)}
+                                    onClick={() => fetchQnbInvoices("", qnbDateRange.start, qnbDateRange.end, 1)}
                                     style={buttonPrimary}>
-                                    <FaSyncAlt /> QNB'den Faturaları Yükle
+                                    <FaSyncAlt /> Faturaları Yükle
                                 </motion.button>
                             )}
                         />

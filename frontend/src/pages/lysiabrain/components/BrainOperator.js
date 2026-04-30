@@ -15,7 +15,7 @@ const BrainOperator = ({ operatorStatus, cycleResult, cycleLoading, onChangeMode
     const [activePhase, setActivePhase] = useState(null);
     const [completedPhases, setCompletedPhases] = useState([]);
     const [cycleHistory, setCycleHistory] = useState([]);
-    const [historyLoading, setHistoryLoading] = useState(false);
+    const [, setHistoryLoading] = useState(false);
 
     const MODES = {
         passive: { label: t("op.mode.passive"), color: T.green, dim: T.greenDim, icon: "👁️", desc: t("op.mode.passive_desc") },

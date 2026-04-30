@@ -108,7 +108,7 @@ const AutoInvoiceConfigSchema = new mongoose.Schema({
     // Kullanıcı kendi varsayılan alıcı bilgisini tanımlamalıdır
     // NOT: QNB "Nihai Tüketici" adını kabul etmez — gerçek bir isim gerekir
     defaultCustomer: {
-        vkn: { type: String, default: "12345678901" },
+        vkn: { type: String, default: "11111111111" },
         name: { type: String, default: "" },
         firstName: { type: String, default: "" },
         lastName: { type: String, default: "" },
@@ -119,8 +119,7 @@ const AutoInvoiceConfigSchema = new mongoose.Schema({
 
     // ── QNB Bağlantı Bilgileri ────────────────────────────────────────────
     // ⚠️ e-Arşiv ve e-Fatura FARKLI ortamlar — FARKLI credentials!
-    //   e-Arşiv:  connectortest   → VKN.portaltest / ayrı şifre
-    //   e-Fatura: erpefaturatest1 → VKN / ayrı şifre
+    //   Her kullanıcı QNB'den aldığı kullanıcı adı/şifreyi olduğu gibi girer.
     qnbCredentials: {
         // Eski alan (geriye uyumluluk — e-Fatura olarak kullanılır)
         username: { type: String, default: "" },
@@ -147,6 +146,13 @@ const AutoInvoiceConfigSchema = new mongoose.Schema({
 
     // ── Fatura Notu ───────────────────────────────────────────────────────
     defaultNote: { type: String, default: "" },
+
+    // ── Otomatik Fatura Başlangıç Tarihi ──────────────────────────────────
+    // Bu tarihten ÖNCE oluşan siparişler otomatik faturalanmaz.
+    // Kullanıcı sistemi aktif ettiğinde set edilir — daha önce manuel
+    // kesilmiş faturaların mükerrer kesilmesini engeller.
+    // Kullanıcı ayarlardan değiştirebilir.
+    autoInvoiceStartDate: { type: Date },
 
     // ── İstatistikler ─────────────────────────────────────────────────────
     stats: {
