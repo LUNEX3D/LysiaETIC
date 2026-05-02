@@ -1,7 +1,4 @@
-import axios from "axios";
 import API from "./api"; // ✅ Interceptor'lı API instance'ı kullan
-
-const BASE_URL = (process.env.REACT_APP_API_URL ?? "http://localhost:5000") + "/api"; // Backend API'nizin temel URL'si
 
 // Kullanıcının entegre ettiği pazar yerlerini çekme
 export const getUserMarketplaces = async () => {
@@ -62,20 +59,8 @@ export const fetchDashboardData = async () => {
 
 // Diğer API çağrıları için örnek fonksiyonlar
 export const fetchOrders = async (marketplaceId) => {
-    const token = localStorage.getItem("token") || sessionStorage.getItem("token");
-
-    if (!token) {
-        console.error("❌ Token eksik!");
-        return { message: "❌ Yetkisiz erişim, token eksik!" };
-    }
-
     try {
-        const response = await axios.get(`${BASE_URL}/orders/all${marketplaceId ? `?marketplace=${marketplaceId}` : ''}`, {
-            headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${token}`,
-            },
-        });
+        const response = await API.get(`/orders/all${marketplaceId ? `?marketplace=${marketplaceId}` : ''}`);
 
         if (response.status === 200) {
             return response.data;
@@ -89,20 +74,8 @@ export const fetchOrders = async (marketplaceId) => {
 };
 
 export const fetchInventory = async (marketplaceId) => {
-    const token = localStorage.getItem("token") || sessionStorage.getItem("token");
-
-    if (!token) {
-        console.error("❌ Token eksik!");
-        return { message: "❌ Yetkisiz erişim, token eksik!" };
-    }
-
     try {
-        const response = await axios.get(`${BASE_URL}/inventory/all${marketplaceId ? `?marketplace=${marketplaceId}` : ''}`, {
-            headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${token}`,
-            },
-        });
+        const response = await API.get(`/inventory/all${marketplaceId ? `?marketplace=${marketplaceId}` : ''}`);
 
         if (response.status === 200) {
             return response.data;
