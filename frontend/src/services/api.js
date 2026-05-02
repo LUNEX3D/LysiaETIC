@@ -13,6 +13,11 @@ import axios from "axios";
 // LAN: Sayfa http://192.168.x.x:3000 ile açıldıysa ve env hâlâ localhost:5000 ise,
 //      istekleri aynı makinenin LAN IP'sine yönlendir (telefon/test için).
 function resolveApiBase() {
+    // Production'da relative path (/api) kullanımı için boş string dön
+    if (process.env.NODE_ENV === "production") {
+        return "";
+    }
+
     const defaultLocal = "http://localhost:5000";
     const fromEnv = process.env.REACT_APP_API_URL;
     const envVal = fromEnv !== undefined && fromEnv !== null && fromEnv !== ""
