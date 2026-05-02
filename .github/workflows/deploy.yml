@@ -55,27 +55,34 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H "$AWS_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
 
-      - name: Deploy Backend
+      # Boş secret + kırık satır devamı → ssh usage + exit 255
+      - name: Verify EC2 connection settings
         env:
           AWS_HOST: ${{ secrets.AWS_HOST }}
           AWS_USER: ${{ secrets.AWS_USER }}
         run: |
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
-            "$AWS_USER@$AWS_HOST" \
-            "cd ~/LysiaETIC && git pull origin main && cd backend && npm ci --omit=dev && pm2 restart backend"
+          if [ -z "$AWS_HOST" ] || [ -z "$AWS_USER" ]; then
+            echo "::error::AWS_HOST veya AWS_USER boş. Repo → Settings → Secrets → Actions içinde bu iki secret'ı ekleyin (EC2 IP ve kullanıcı adı)."
+            exit 1
+          fi
+          if [ ! -s ~/.ssh/deploy_key ]; then
+            echo "::error::SSH anahtarı boş — AWS_SSH_KEY secret'ına tam .pem içeriğini ekleyin."
+            exit 1
+          fi
+
+      - name: Deploy Backend
+        env:
+          AWS_HOST: ${{ secrets.AWS_HOST }}
+          AWS_USER: ${{ secrets.AWS_USER }}
+        run: ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no "$AWS_USER@$AWS_HOST" "cd ~/LysiaETIC && git pull origin main && cd backend && npm ci --omit=dev && pm2 restart backend"
 
       - name: Deploy Frontend
         env:
           AWS_HOST: ${{ secrets.AWS_HOST }}
           AWS_USER: ${{ secrets.AWS_USER }}
         run: |
-          scp -r -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
-            ./frontend/build/* \
-            "$AWS_USER@$AWS_HOST:~/build/"
-
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
-            "$AWS_USER@$AWS_HOST" \
-            "sudo rm -rf /var/www/html/* && sudo cp -r ~/build/* /var/www/html/ && sudo chmod -R 755 /var/www/html/ && sudo chown -R www-data:www-data /var/www/html/ && sudo systemctl restart nginx"
+          scp -r -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no ./frontend/build/* "$AWS_USER@$AWS_HOST:~/build/"
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no "$AWS_USER@$AWS_HOST" "sudo rm -rf /var/www/html/* && sudo cp -r ~/build/* /var/www/html/ && sudo chmod -R 755 /var/www/html/ && sudo chown -R www-data:www-data /var/www/html/ && sudo systemctl restart nginx"
 
       - name: Health Check
         env:
