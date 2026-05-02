@@ -1,11 +1,14 @@
 # ═══════════════════════════════════════════════════════════════
 # LysiaETIC — CD Pipeline (AWS Deploy)
-# ✅ P1-4: main branch'e push yapıldığında otomatik deploy
+# main push → EC2'de git pull + pm2 + nginx
 #
-# Gerekli GitHub Secrets:
-#   AWS_SSH_KEY        — EC2 SSH private key (PEM)
-#   AWS_HOST           — EC2 IP adresi (ör: 13.51.158.124)
-#   AWS_USER           — EC2 kullanıcı adı (ör: ubuntu)
+# GitHub → Settings → Secrets and variables → Actions:
+#   AWS_SSH_KEY   — EC2 .pem içeriği (tam metin)
+#   AWS_HOST      — EC2 IP veya DNS
+#   AWS_USER      — ubuntu | ec2-user vb.
+#
+# Not: Secret'ları run: içinde ${{ secrets.X }} ile YAZMAYIN; sadece env: ile
+# verin. Aksi halde çok satırlı anahtar / maskeleme boş script üretebilir.
 # ═══════════════════════════════════════════════════════════════
 
 name: CD — AWS Deploy
@@ -32,29 +35,6 @@ jobs:
           cache: "npm"
           cache-dependency-path: frontend/package-lock.json
 
-      # ── Secrets kontrolü (boş AWS_HOST / bozuk key en sık hata) ──
-      - name: Check deployment secrets
-        env:
-          AWS_HOST: ${{ secrets.AWS_HOST }}
-          AWS_USER: ${{ secrets.AWS_USER }}
-          AWS_SSH_KEY: ${{ secrets.AWS_SSH_KEY }}
-        run: |
-          set -e
-          missing=""
-          [ -z "$AWS_HOST" ] && missing="$missing AWS_HOST"
-          [ -z "$AWS_USER" ] && missing="$missing AWS_USER"
-          [ -z "$AWS_SSH_KEY" ] && missing="$missing AWS_SSH_KEY"
-          if [ -n "$missing" ]; then
-            echo "::error::Repo → Settings → Secrets and variables → Actions: şu secret'lar boş veya tanımsız:$missing"
-            exit 1
-          fi
-          key_len=${#AWS_SSH_KEY}
-          if [ "$key_len" -lt 80 ]; then
-            echo "::error::AWS_SSH_KEY çok kısa. .pem dosyasının tamamını (-----BEGIN ... PRIVATE KEY----- ile -----END ...----- arası) tek secret olarak yapıştırın."
-            exit 1
-          fi
-
-      # ── Frontend Build ──
       - name: Build Frontend
         working-directory: ./frontend
         run: |
@@ -65,52 +45,38 @@ jobs:
           NODE_OPTIONS: --openssl-legacy-provider
           REACT_APP_API_URL: ""
 
-      # ── SSH: adımları ayır (logda hangi satırın patladığı net olsun; $HOME kullan) ──
-      - name: SSH — create directory
-        run: mkdir -p "$HOME/.ssh"
-
-      - name: SSH — write private key
+      - name: Setup SSH Key
         env:
           AWS_SSH_KEY: ${{ secrets.AWS_SSH_KEY }}
-        run: |
-          printf '%s\n' "$AWS_SSH_KEY" > "$HOME/.ssh/deploy_key"
-          chmod 600 "$HOME/.ssh/deploy_key"
-          if [ ! -s "$HOME/.ssh/deploy_key" ]; then
-            echo "::error::SSH anahtar dosyası boş yazıldı. Secret adı AWS_SSH_KEY ve tam PEM içeriği olduğundan emin olun."
-            exit 1
-          fi
-
-      - name: SSH — known_hosts (isteğe bağlı)
-        env:
           AWS_HOST: ${{ secrets.AWS_HOST }}
-        continue-on-error: true
-        run: ssh-keyscan -T 15 -H "$AWS_HOST" >> "$HOME/.ssh/known_hosts" 2>/dev/null
+        run: |
+          mkdir -p ~/.ssh
+          echo "$AWS_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$AWS_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
 
-      # ── Backend Deploy (Git Pull + PM2 Restart) ──
       - name: Deploy Backend
         env:
           AWS_HOST: ${{ secrets.AWS_HOST }}
           AWS_USER: ${{ secrets.AWS_USER }}
         run: |
-          ssh -i "$HOME/.ssh/deploy_key" -o StrictHostKeyChecking=no \
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
             "$AWS_USER@$AWS_HOST" \
             "cd ~/LysiaETIC && git pull origin main && cd backend && npm ci --omit=dev && pm2 restart backend"
 
-      # ── Frontend Deploy (SCP + Nginx) ──
       - name: Deploy Frontend
         env:
           AWS_HOST: ${{ secrets.AWS_HOST }}
           AWS_USER: ${{ secrets.AWS_USER }}
         run: |
-          scp -r -i "$HOME/.ssh/deploy_key" -o StrictHostKeyChecking=no \
+          scp -r -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
             ./frontend/build/* \
             "$AWS_USER@$AWS_HOST:~/build/"
 
-          ssh -i "$HOME/.ssh/deploy_key" -o StrictHostKeyChecking=no \
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
             "$AWS_USER@$AWS_HOST" \
             "sudo rm -rf /var/www/html/* && sudo cp -r ~/build/* /var/www/html/ && sudo chmod -R 755 /var/www/html/ && sudo chown -R www-data:www-data /var/www/html/ && sudo systemctl restart nginx"
 
-      # ── Health Check ──
       - name: Health Check
         env:
           AWS_HOST: ${{ secrets.AWS_HOST }}
@@ -118,7 +84,6 @@ jobs:
           sleep 10
           curl -f "http://$AWS_HOST/api/status" || echo "⚠️ Health check failed — sunucu henüz hazır olmayabilir"
 
-      # ── Cleanup ──
       - name: Cleanup SSH Key
         if: always()
-        run: rm -f "$HOME/.ssh/deploy_key"
+        run: rm -f ~/.ssh/deploy_key
