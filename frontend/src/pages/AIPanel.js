@@ -74,6 +74,7 @@ import "../styles/AIPanel.smart.css";
 const AIPanel = () => {
     // ==================== STATE ====================
     const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
     const [systemHealth, setSystemHealth] = useState(null);
     const [criticalActions, setCriticalActions] = useState([]);
     const [opportunities, setOpportunities] = useState([]);
@@ -139,7 +140,8 @@ const AIPanel = () => {
 
     const analyzeSystem = useCallback(async () => {
         try {
-            setLoading(true);
+            if (loading) setLoading(true);
+            else setRefreshing(true);
             setError("");
 
             console.log("🧠 [AI Panel] Proaktif sistem analizi başlatılıyor...");
@@ -246,6 +248,7 @@ const AIPanel = () => {
             setError("Sistem analizi sırasında bir hata oluştu. Lütfen tekrar deneyin.");
         } finally {
             setLoading(false);
+            setRefreshing(false);
         }
     }, []);
 
@@ -567,13 +570,13 @@ const AIPanel = () => {
                     <Tooltip title="Sistemi Yenile">
                         <IconButton
                             onClick={analyzeSystem}
-                            disabled={loading}
+                            disabled={loading || refreshing}
                             sx={{
                                 background: 'rgba(255, 255, 255, 0.1)',
                                 '&:hover': { background: 'rgba(138, 43, 226, 0.3)' }
                             }}
                         >
-                            <RefreshIcon className={loading ? 'pulse' : ''} />
+                            <RefreshIcon className={refreshing || loading ? 'pulse' : ''} />
                         </IconButton>
                     </Tooltip>
                     <Tooltip title="AI Asistan">
@@ -694,7 +697,7 @@ const AIPanel = () => {
                                 <InsightsIcon sx={{ fontSize: '2rem', mr: 1.5, color: '#8b5cf6' }} />
                                 <Box>
                                     <Typography variant="h5" sx={{ fontWeight: 700 }}>
-                                        AI Önerileri
+                                        AI Öönerileri
                                     </Typography>
                                     <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>
                                         Yapay zeka tarafından oluşturuldu
@@ -942,7 +945,7 @@ const AIPanel = () => {
                 </CardContent>
             </Card>
 
-            {/* Kritik Aksiyonlar */}
+            {/* Kâritik Aksiyonlar */}
             {criticalActions.length > 0 && (
                 <Card sx={{ mb: 4 }}>
                     <CardContent>
@@ -950,7 +953,7 @@ const AIPanel = () => {
                             <BoltIcon sx={{ fontSize: '2rem', mr: 1.5, color: '#f59e0b' }} />
                             <Box>
                                 <Typography variant="h5" sx={{ fontWeight: 700 }}>
-                                    Kritik Aksiyonlar
+                                    Kâritik Aksiyonlar
                                 </Typography>
                                 <Typography variant="body2" sx={{ color: 'rgba(255, 255, 255, 0.7)' }}>
                                     {criticalActions.length} acil eylem tespit edildi
@@ -984,7 +987,7 @@ const AIPanel = () => {
                                                 {action.title}
                                             </Typography>
                                             <Chip
-                                                label={action.priority === 'critical' ? '🔴 Kritik' :
+                                                label={action.priority === 'critical' ? '🔴 Kâritik' :
                                                        action.priority === 'high' ? '🟠 Yüksek' :
                                                        action.priority === 'medium' ? '🟡 Orta' : '🟢 Düşük'}
                                                 size="small"
@@ -1005,7 +1008,7 @@ const AIPanel = () => {
                                             border: '1px solid rgba(138, 43, 226, 0.2)'
                                         }}>
                                             <Typography variant="body2" sx={{ fontWeight: 600 }}>
-                                                💡 Önerilen Aksiyon:
+                                                💡 Öönerilen Aksiyon:
                                             </Typography>
                                             <Typography variant="body2" sx={{ mt: 0.5, opacity: 0.9 }}>
                                                 {action.action}
@@ -1279,7 +1282,7 @@ const AIPanel = () => {
                                     height: '100%'
                                 }}>
                                     <Typography variant="h6" fontWeight="bold" sx={{ mb: 2, display: 'flex', alignItems: 'center' }}>
-                                        ⚡ Önerilen Aksiyonlar
+                                        ⚡ Öönerilen Aksiyonlar
                                     </Typography>
                                     {weeklyReport.actions?.slice(0, 3).map((action, index) => (
                                         <Box key={index} sx={{ display: 'flex', mb: 1.5, alignItems: 'flex-start' }}>
@@ -1363,13 +1366,13 @@ const AIPanel = () => {
                     {activeTab === 'overview' && (
                         <Box>
                             <Grid container spacing={3}>
-                                {/* Fiyat Önerileri */}
+                                {/* Fiyat Öönerileri */}
                                 <Grid item xs={12} md={6}>
                                     <Paper sx={{ p: 3, height: '100%', background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(5, 150, 105, 0.05) 100%)' }}>
                                         <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
                                             <LocalOfferIcon sx={{ fontSize: '2rem', mr: 1.5, color: '#10b981' }} />
                                             <Typography variant="h6" fontWeight="bold">
-                                                💰 Akıllı Fiyat Önerileri
+                                                💰 Akıllı Fiyat Öönerileri
                                             </Typography>
                                         </Box>
                                         {priceRecommendations.map((rec, index) => (
@@ -1382,7 +1385,7 @@ const AIPanel = () => {
                                                         Mevcut: {rec.currentPrice} ₺
                                                     </Typography>
                                                     <Typography variant="body2" fontWeight="bold" sx={{ color: '#10b981' }}>
-                                                        Önerilen: {rec.recommendedPrice} ₺
+                                                        Öönerilen: {rec.recommendedPrice} ₺
                                                     </Typography>
                                                 </Box>
                                                 <Typography variant="caption" sx={{ display: 'block', mb: 1, opacity: 0.7 }}>
@@ -1423,7 +1426,7 @@ const AIPanel = () => {
                                                         <Typography variant="body2" fontWeight="bold">{pred.predictedDemand}</Typography>
                                                     </Grid>
                                                     <Grid item xs={4}>
-                                                        <Typography variant="caption" sx={{ opacity: 0.7 }}>Önerilen</Typography>
+                                                        <Typography variant="caption" sx={{ opacity: 0.7 }}>Öönerilen</Typography>
                                                         <Typography variant="body2" fontWeight="bold" sx={{ color: '#10b981' }}>{pred.recommendedStock}</Typography>
                                                     </Grid>
                                                 </Grid>

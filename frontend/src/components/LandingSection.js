@@ -85,10 +85,10 @@ const transformApiPlans = (apiPlans) => {
 
 const FEATURES = [
     { icon: "🔗", title: "Çoklu Pazaryeri", desc: "Trendyol, Hepsiburada, Amazon, N11, ÇiçekSepeti — tek panelden.", color: "#f27a1a" },
-    { icon: "📦", title: "Stok & Ürün", desc: "Otomatik stok senkronizasyonu, toplu ürün yükleme ve fiyat eşitleme.", color: "#22c55e" },
+    { icon: "📦", title: "Stok & Ürün", desc: "Otomatik stok senkâronizasyonu, toplu ürün yükleme ve fiyat eşitleme.", color: "#22c55e" },
     { icon: "📊", title: "Gelişmiş Analitik", desc: "AI destekli satış analizi, trend tahminleri ve performans raporları.", color: "#6366f1" },
     { icon: "🧾", title: "E-Fatura", desc: "QNB, Sovos, Paraşüt, Ödeal — otomatik e-fatura ve e-arşiv.", color: "#ec4899" },
-    { icon: "🚚", title: "Kargo Takibi", desc: "Tüm kargo firmalarını tek ekrandan takip edin.", color: "#f59e0b" },
+    { icon: "🚚", title: "Kargo Takibi", desc: "Tüm kargo firmalarını tek ekârandan takip edin.", color: "#f59e0b" },
     { icon: "🤖", title: "AI Asistan", desc: "Yapay zeka destekli ürün açıklaması ve fiyat önerisi.", color: "#8b5cf6" }
 ];
 
@@ -102,7 +102,7 @@ const STATS = [
 const TABS = [
     { id: "home", label: "Ana Sayfa", icon: "🏠" },
     { id: "features", label: "Özellikler", icon: "⚡" },
-    { id: "pricing", label: "Fiyatlandırma", icon: "💎" },
+    { id: "priçing", label: "Fiyatlandırma", icon: "💎" },
 ];
 
 /* ═══════════════════════════════════════════════════════════
@@ -407,7 +407,7 @@ const S = {
     }),
     stepTitle: { fontSize: "13px", fontWeight: 700, color: "#fff", marginBottom: "4px" },
     stepDesc: { fontSize: "11px", color: "#94a3b8", lineHeight: 1.4 },
-    pricingGrid: {
+    priçingGrid: {
         display: "grid",
         gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
         gap: "12px",
@@ -595,7 +595,7 @@ const HomeTab = ({ onGoToLogin }) => {
                 <div style={S.stepsRow}>
                     {[
                         { num: "1", title: "Kayıt Olun", desc: "Ücretsiz hesap oluşturun, 14 gün demo kullanın.", color: "#22d3ee" },
-                        { num: "2", title: "Entegre Edin", desc: "Pazaryeri API bilgilerinizi girin, senkronizasyon başlasın.", color: "#6366f1" },
+                        { num: "2", title: "Entegre Edin", desc: "Pazaryeri API bilgilerinizi girin, senkâronizasyon başlasın.", color: "#6366f1" },
                         { num: "3", title: "Yönetin", desc: "Siparişler, stoklar, faturalar — hepsini tek panelden.", color: "#a78bfa" },
                     ].map((step, i) => (
                         <div key={i} style={S.stepCard}>
@@ -677,7 +677,7 @@ const FeaturesTab = () => {
     );
 };
 
-const PricingTab = ({ onGoToLogin, plans }) => {
+const PriçingTab = ({ onGoToLogin, plans }) => {
     const [hoveredPlan, setHoveredPlan] = useState(null);
     const [billingPeriod, setBillingPeriod] = useState("monthly");
 
@@ -731,7 +731,7 @@ const PricingTab = ({ onGoToLogin, plans }) => {
                         }}>%17</span>
                     </button>
                 </div>
-                <div style={S.pricingGrid}>
+                <div style={S.priçingGrid}>
                     {displayPlans.map((p, i) => (
                         <div
                             key={p.id}
@@ -777,7 +777,7 @@ const PricingTab = ({ onGoToLogin, plans }) => {
                     {[
                         { q: "Demo sürem bitince ne olur?", a: "Hesabınız askıya alınır. Verileriniz silinmez, paket satın alarak devam edebilirsiniz." },
                         { q: "Paket yükseltme yapabilir miyim?", a: "Evet, istediğiniz zaman paketinizi yükseltebilirsiniz." },
-                        { q: "Ödeme yöntemleri nelerdir?", a: "Kredi kartı, banka kartı ve havale/EFT ile ödeme yapabilirsiniz." },
+                        { q: "Ödeme yöntemleri nelerdir?", a: "Kâredi kartı, banka kartı ve havale/EFT ile ödeme yapabilirsiniz." },
                         { q: "İptal edebilir miyim?", a: "İstediğiniz zaman iptal edebilirsiniz. Mevcut dönem sonuna kadar kullanırsınız." },
                     ].map((faq, i) => (
                         <div key={i} style={S.faqCard}>
@@ -857,12 +857,12 @@ const LandingSection = ({ onScrollToLogin }) => {
             <div style={S.contentArea}>
                 {activeTab === "home" && <HomeTab onGoToLogin={handleGoToLogin} />}
                 {activeTab === "features" && <FeaturesTab />}
-                {activeTab === "pricing" && <PricingTab onGoToLogin={handleGoToLogin} plans={apiPlans} />}
+                {activeTab === "priçing" && <PriçingTab onGoToLogin={handleGoToLogin} plans={apiPlans} />}
             </div>
 
             {/* Footer */}
             <div style={S.footer}>
-                <span>© {new Date().getFullYear()} Lunexetic. Tüm hakları saklıdır.</span>
+                <span>© {new Date().getFullYear()} Pazaryönetim. Tüm hakları saklıdır.</span>
                 <span style={{ margin: "0 8px", opacity: 0.3 }}>•</span>
                 <a href="/privacy" target="_blank" rel="noopener noreferrer" style={{ color: "#64748b", textDecoration: "none", transition: "color 0.2s" }}>Gizlilik Politikası</a>
                 <span style={{ margin: "0 8px", opacity: 0.3 }}>•</span>

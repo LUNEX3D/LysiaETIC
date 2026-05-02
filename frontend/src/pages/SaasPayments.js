@@ -45,7 +45,7 @@ const SaasPayments = () => {
         return matchSearch && matchFilter;
     });
 
-    const statusLabels = { pending: "Bekliyor", completed: "Tamamlandı", failed: "Başarısız", refunded: "İade Edildi" };
+    const statusLabels = { pending: "Bekliyor", completed: "Tamamlandı", failed: "Başarısız", refunded: "İİade Edildi" };
     const statusColors = { pending: "yellow", completed: "green", failed: "red", refunded: "cyan" };
     const fmtMoney = (n, cur) => (cur || "TRY") === "TRY" ? `₺${n?.toLocaleString("tr-TR") || 0}` : `${n || 0} ${cur}`;
 
@@ -72,7 +72,7 @@ const SaasPayments = () => {
                         <option value="completed">Tamamlandı</option>
                         <option value="pending">Bekliyor</option>
                         <option value="failed">Başarısız</option>
-                        <option value="refunded">İade Edildi</option>
+                        <option value="refunded">İİade Edildi</option>
                     </select>
                     <span className="ap-toolbar-count">{filtered.length} ödeme</span>
                 </div>
@@ -132,7 +132,7 @@ const SaasPayments = () => {
                                                         style={{ background: "var(--ap-cyan-soft)", color: "var(--ap-cyan)" }}
                                                         onClick={() => handleStatusChange(payment._id, "refunded")}
                                                     >
-                                                        <FaUndo /> İade
+                                                        <FaUndo /> İİade
                                                     </button>
                                                 )}
                                             </div>

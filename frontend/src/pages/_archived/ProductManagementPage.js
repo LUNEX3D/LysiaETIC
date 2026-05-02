@@ -611,7 +611,7 @@ const ProductManagementPage = () => {
                                     </p>
                                     <div className="pm-product-price-row">
                                         <span className="pm-price">₺{Number(price).toLocaleString("tr-TR")}</span>
-                                        <span className="pm-stock">{stock} adet</span>
+                                        <span className="pm-stock">{stock} İadet</span>
                                     </div>
                                     {mappings.length > 0 && (
                                         <div className="pm-mp-badges">
@@ -656,7 +656,7 @@ const ProductManagementPage = () => {
                 <div className="pm-pagination">
                     <button className="pm-btn pm-btn-sm pm-btn-outline"
                         disabled={page === 0} onClick={() => setPage(p => Math.max(0, p - 1))}>
-                        <FaArrowLeft /> Önceki
+                        <FaArrowLeft /> ÖÖnceki
                     </button>
                     <span>Sayfa {page + 1} / {Math.ceil(totalProducts / 20)}</span>
                     <button className="pm-btn pm-btn-sm pm-btn-outline"
@@ -894,7 +894,7 @@ const ProductManagementPage = () => {
                             <h4>Fiyat & Stok</h4>
                             <div className="pm-review-row"><span>Satış Fiyatı</span><strong>{formData.price} {formData.currencyType}</strong></div>
                             <div className="pm-review-row"><span>Liste Fiyatı</span><strong>{formData.listPrice || formData.price} {formData.currencyType}</strong></div>
-                            <div className="pm-review-row"><span>Stok</span><strong>{formData.stock} adet</strong></div>
+                            <div className="pm-review-row"><span>Stok</span><strong>{formData.stock} İadet</strong></div>
                             <div className="pm-review-row"><span>KDV</span><strong>%{formData.vatRate}</strong></div>
                         </div>
                         <div className="pm-review-section">
@@ -925,7 +925,7 @@ const ProductManagementPage = () => {
                     </div>
                     {formData.images.filter(i => i.trim()).length > 0 && (
                         <div className="pm-review-section" style={{ marginTop: "1rem" }}>
-                            <h4>Görseller ({formData.images.filter(i => i.trim()).length} adet)</h4>
+                            <h4>Görseller ({formData.images.filter(i => i.trim()).length} İadet)</h4>
                             <div className="pm-image-preview">
                                 {formData.images.filter(i => i.trim()).map((img, idx) => (
                                     <div key={idx} className="pm-preview-thumb">
@@ -954,7 +954,7 @@ const ProductManagementPage = () => {
                     <div className="pm-success-details">
                         <span>📦 Barkod: {formData.barcode}</span>
                         <span>💰 Fiyat: {formData.price} {formData.currencyType}</span>
-                        <span>📊 Stok: {formData.stock} adet</span>
+                        <span>📊 Stok: {formData.stock} İadet</span>
                         <span>🏪 Pazaryeri: {formData.selectedMarketplaces.join(", ")}</span>
                     </div>
                     <div className="pm-success-actions">
@@ -1323,7 +1323,7 @@ const ProductManagementPage = () => {
             <div className="pm-header">
                 <div className="pm-header-left">
                     <h1><FaBoxOpen /> Ürün Yönetimi</h1>
-                    <p>Tüm pazaryerlerinizi tek panelden yönetin</p>
+                    <p>Tüm pazaryerlerİşinizi tek panelden yönetin</p>
                 </div>
                 <div className="pm-header-right">
                     <button className="pm-btn pm-btn-secondary" onClick={handleAutoSync} disabled={loading}>

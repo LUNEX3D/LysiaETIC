@@ -53,13 +53,13 @@ const SaasReports = () => {
                                 ) : parseFloat(data.revenueGrowth) < 0 ? (
                                     <><FaArrowDown style={{ color: "var(--ap-red)", fontSize: 10 }} /> <span style={{ color: "var(--ap-red)" }}>%{data.revenueGrowth}</span> düşüş</>
                                 ) : (
-                                    <span>Önceki ay ile aynı</span>
+                                    <span>ÖÖnceki ay ile aynı</span>
                                 )}
                             </div>
                         </div>
                         <div className="ap-kpi">
                             <div className="ap-kpi-icon ap-kpi-icon--blue"><FaChartBar /></div>
-                            <div className="ap-kpi-label">Önceki Ay Gelir</div>
+                            <div className="ap-kpi-label">ÖÖnceki Ay Gelir</div>
                             <div className="ap-kpi-val">{fmtMoney(data.prevMonthRevenue)}</div>
                         </div>
                         <div className="ap-kpi">
@@ -70,7 +70,7 @@ const SaasReports = () => {
                         </div>
                         <div className="ap-kpi">
                             <div className="ap-kpi-icon ap-kpi-icon--red"><FaExclamationTriangle /></div>
-                            <div className="ap-kpi-label">Churn (İptal)</div>
+                            <div className="ap-kpi-label">Chuürün (İptal)</div>
                             <div className="ap-kpi-val">{data.churnCount || 0}</div>
                             <div className="ap-kpi-sub">Oran: %{data.churnRate || 0}</div>
                         </div>

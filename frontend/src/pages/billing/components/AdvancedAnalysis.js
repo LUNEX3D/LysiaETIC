@@ -180,7 +180,7 @@ const AdvancedAnalysis = React.memo(({ invoices, onInvoiceClick }) => {
             <div style={{ textAlign: "center", padding: "3rem 1.5rem", color: colors.dim }}>
                 <div style={{ fontSize: "3rem", marginBottom: "0.75rem" }}>📊</div>
                 <p style={{ color: colors.muted, fontSize: "1rem", fontWeight: 600 }}>Analiz için veri yok</p>
-                <p style={{ fontSize: "0.82rem" }}>Gelişmiş analiz görüntülemek için önce belgelerinizin yüklenmesi gerekiyor.</p>
+                <p style={{ fontSize: "0.82rem" }}>Gelişmiş analiz görüntülemek için önce belgelerİşinizin yüklenmesi gerekiyor.</p>
             </div>
         );
     }

@@ -13,7 +13,6 @@ import AdvancedAnalytics from "../pages/AdvancedAnalytics";
 import LysiaBrain from "../pages/lysiabrain/LysiaBrain";
 import AIChatWidget from "../components/AIChatWidget";
 import ProductManagementCenter from "../pages/ProductManagementCenter";
-import ProductUploadWizard from "../pages/ProductUploadWizard";
 import CategoryCenterPage from "../pages/CategoryCenterPage";
 import SettingsPage from "../pages/SettingsPage";
 import SupportTicketsPage from "../pages/SupportTicketsPage";
@@ -272,22 +271,32 @@ const UserDashboard = () => {
         })();
     }, [userId]);
 
-    // ── Sipariş bildirimlerini backend'e kaydet ──
+    // ── Sipariş bildirimlerini backend'e kaydet (yalnızca İstanbul takvimine göre bugün) ──
     const syncOrderNotifications = useCallback(async (data) => {
         if (!data?.marketplaceStatus) return;
+        const isOrderDateTodayIstanbul = (orderDate) => {
+            if (!orderDate) return false;
+            const t = new Date(orderDate);
+            if (Number.isNaN(t.getTime())) return false;
+            const tz = "Europe/Istanbul";
+            const dStr = t.toLocaleDateString("en-CA", { timeZone: tz });
+            const todayStr = new Date().toLocaleDateString("en-CA", { timeZone: tz });
+            return dStr === todayStr;
+        };
         try {
             const orders = [];
             Object.entries(data.marketplaceStatus).forEach(([mp, mpData]) => {
                 if (mpData.orderDetails && Array.isArray(mpData.orderDetails)) {
-                    mpData.orderDetails.forEach(o => {
-                        if (o.orderNumber) {
+                    mpData.orderDetails.forEach((o) => {
+                        if (o.orderNumber && isOrderDateTodayIstanbul(o.orderDate)) {
                             orders.push({
                                 orderNumber: o.orderNumber,
                                 marketplace: mp,
                                 totalPrice: o.totalPrice || 0,
                                 itemCount: o.items?.length || 1,
                                 customerName: o.customerName || "",
-                                status: o.status || "Created"
+                                status: o.status || "Created",
+                                orderDate: o.orderDate,
                             });
                         }
                     });
@@ -462,7 +471,7 @@ const UserDashboard = () => {
             if (l.includes("shipping") || l.includes("shipped") || l.includes("kargo") || l.includes("transit")) return "shipping";
             if (l.includes("delivered") || l.includes("teslim")) return "delivered";
             if (l.includes("cancel") || l.includes("iptal")) return "cancelled";
-            if (l.includes("return") || l.includes("iade") || l.includes("refund")) return "returned";
+            if (l.includes("return") || l.includes("iİade") || l.includes("refund")) return "returned";
             return "processing";
         };
 
@@ -1375,7 +1384,7 @@ const UserDashboard = () => {
             case "advanced-analytics": return <AdvancedAnalytics userId={userId} />;
             case "lysia-brain": return <LysiaBrain userId={userId} />;
             case "pm-center": return <ProductManagementCenter userId={userId} initialTab="products" />;
-            case "product-upload": return <ProductUploadWizard userId={userId} />;
+            case "product-upload": return <ProductManagementCenter userId={userId} initialTab="newProduct" />;
             case "category-center": return <CategoryCenterPage userId={userId} />;
             case "settings": return <SettingsPage userId={userId} />;
             case "billing": return <BillingPage userId={userId} />;
@@ -1428,8 +1437,8 @@ const UserDashboard = () => {
                 <div className="sidebar-header">
                     <motion.div className="logo-container" animate={{ opacity: menuOpen ? 1 : 0 }} transition={{ duration: 0.12 }}>
                         <h1 className="logo">
-                            <span className="logo-main">LUNEX</span>
-                            <span className="logo-sub">ETİC</span>
+                            <span className="logo-main">Pazaryönetim</span>
+                            <span className="logo-sub">Panel</span>
                         </h1>
                     </motion.div>
                     <button className="menu-toggle" onClick={() => setMenuOpen(!menuOpen)}>
@@ -1553,7 +1562,7 @@ const UserDashboard = () => {
             <AnimatePresence mode="wait">
                 <motion.main
                     key={activePanel}
-                    className={`content-area${activePanel === "integration" ? " content-area--galaxy" : ""}${activePanel === "lysia-brain" ? " content-area--brain" : ""}`}
+                    className={`content-area${activePanel === "integration" ? " content-area--galaxy" : ""}${activePanel === "lysia-brain" ? " content-area--brain" : ""}${activePanel === "product-upload" || activePanel === "pm-center" ? " content-area--wizard-flush" : ""}`}
                     initial={{ opacity: 0, y: 12 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -8 }}

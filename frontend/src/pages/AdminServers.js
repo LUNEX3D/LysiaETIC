@@ -44,7 +44,7 @@ const AdminServers = () => {
             setError("");
         } catch (err) {
             console.error(err);
-            setError("Sistem verileri alınamadı. Yetkinizi kontrol edin.");
+            setError("Sistem verileri alınamadı. Yetkİşinizi kontrol edin.");
         } finally {
             setLoading(false);
         }

@@ -6,8 +6,8 @@
  * 
  */
 import React from "react";
-import { T, fmt, fmtN, useResponsive } from "../styles";
-import { Card, CardHeader, StatCard, ScoreRing, HealthBar, Badge, Btn, EmptyState, GlowLine, InsightCard } from "./shared/SharedUI";
+import { T, fmt, useResponsive } from "../styles";
+import { Card, CardHeader, StatCard, HealthBar, Badge, Btn, EmptyState, InsightCard } from "./shared/SharedUI";
 
 const BrainDashboard = ({ brain, recSummary, onTabChange, onAutoDecide, onDiagnosis, autoDecideLoading, autoDecisions, t }) => {
     const { isMobile, isTablet } = useResponsive();
@@ -16,7 +16,6 @@ const BrainDashboard = ({ brain, recSummary, onTabChange, onAutoDecide, onDiagno
 
     const bh = brain.businessHealth || {};
     const tone = brain.emotionalTone || {};
-    const score = brain.score || {};
     const money = brain.moneyTracker || {};
     const redAlerts = brain.redAlerts || {};
     const thoughtProcess = brain.thoughtProcess || {};
@@ -127,7 +126,7 @@ const BrainDashboard = ({ brain, recSummary, onTabChange, onAutoDecide, onDiagno
                         title={t("dash.ai_earned")} 
                         value={fmt(money.aiEarnings)} 
                         status="success"
-                        description="AI nerileriyle salanan ek kr"
+                        description="AI önerileriyle salanan ek kâr"
                         onClick={() => onTabChange("roi")}
                     />
                     <InsightCard 
@@ -135,7 +134,7 @@ const BrainDashboard = ({ brain, recSummary, onTabChange, onAutoDecide, onDiagno
                         title={t("dash.loss_detected")} 
                         value={fmt(money.potentialLoss)} 
                         status="danger"
-                        description="Kritik zarar riski tayan rnler"
+                        description="Kritik zarar riski taşıyan ürünler"
                         onClick={() => onTabChange("losses")}
                     />
                     <InsightCard 

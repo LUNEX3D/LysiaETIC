@@ -30,7 +30,7 @@ const classifyStatus = (s) => {
     if (l.includes("shipping") || l.includes("shipped") || l.includes("kargo") || l.includes("transit") || l.includes("invoiced")) return "shipping";
     if (l.includes("delivered") || l.includes("teslim") || l.includes("completed") || l.includes("tamamlan")) return "delivered";
     if (l.includes("cancel") || l.includes("iptal")) return "cancelled";
-    if (l.includes("return") || l.includes("iade") || l.includes("refund")) return "returned";
+    if (l.includes("return") || l.includes("iİade") || l.includes("refund")) return "returned";
     return "processing";
 };
 

@@ -4,9 +4,11 @@
  * Tek sayfa içinde tüm ürün yönetimi:
  *   • Dashboard özet kartları (üstte her zaman görünür)
  *   • Tab 1: Ürünler — Liste + inline fiyat/stok düzenleme
- *   • Tab 2: Ürün Yükle — 3 adımlı wizard
- *   • Tab 3: Fiyat & Stok — Toplu düzenleme tablosu
- *   • Tab 4: Senkronizasyon — Platform kartları + loglar
+ *   • Tab: Yeni ürün & dağıt — ProductUploadWizard (createAndDistribute)
+ *   • Tab: Ürünleri Yükle — Mevcut ürünü pazaryerine yükle / kategori
+ *   • Tab: Varyant grupları — Aynı model (Trendyol productMainId) altında renk/beden ailesi
+ *   • Tab: Fiyat & Stok — Toplu düzenleme tablosu
+ *   • Tab: Senkâronizasyon — Platform kartları + loglar
  */
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
@@ -19,7 +21,7 @@ import {
     FaBolt, FaClipboardList, FaImage, FaFolderOpen, FaMagic,
     FaArrowRight, FaArrowLeft, FaSave, FaCloudUploadAlt, FaShieldAlt,
     FaPercentage, FaLayerGroup, FaExclamationTriangle, FaCheckCircle,
-    FaTimesCircle, FaInfoCircle, FaCubes, FaSitemap, FaSpinner
+    FaTimesCircle, FaInfoCircle, FaCubes, FaSitemap, FaSpinner, FaObjectGroup
 } from "react-icons/fa";
 import {
     getProducts, getProductDetail, updateProduct, deleteProduct,
@@ -31,8 +33,16 @@ import {
     suggestCodes, generateDescription,
     bulkUpdatePrices, bulkUpdateStocks, bulkDeleteProducts, bulkUpdateFields,
     distributeUndistributed,
+    updateChannelPricesLocal,
+    listVariantGroups,
+    getVariantGroup,
+    createVariantGroup,
+    updateVariantGroup,
+    addVariantGroupMembers,
+    removeVariantGroupMembers,
+    deleteVariantGroup,
 } from "../services/productManagementApi";
-import { searchCategories, getCategoryTree } from "../services/categoryCenterApi";
+import { searchCategories, getCategoryTree, resolveForDistribute } from "../services/categoryCenterApi";
 import { getUserMarketplaces } from "../services/marketplaceApi";
 import ProductUploadWizard from "./ProductUploadWizard";
 import "../styles/ProductManagementCenter.css";
@@ -52,13 +62,47 @@ const fmtDate = (d) => { if (!d) return "—"; const dt = new Date(d); return is
 const fmtAgo = (d) => { if (!d) return "—"; const m = Math.floor((Date.now() - new Date(d).getTime()) / 60000); if (m < 1) return "Az önce"; if (m < 60) return `${m}dk`; const h = Math.floor(m / 60); if (h < 24) return `${h}sa`; return `${Math.floor(h / 24)}g`; };
 
 const normMP = (n) => { if (!n) return ""; const l = n.trim().toLowerCase(); if (l === "trendyol") return "trendyol"; if (l === "hepsiburada") return "hepsiburada"; if (l === "n11") return "n11"; if (l === "amazon" || l === "amazon türkiye") return "amazon"; if (l === "çiçeksepeti" || l === "ciceksepeti") return "ciceksepeti"; return l; };
+const summarizeVariantAttrs = (attrs) => {
+    if (!attrs || typeof attrs !== "object") return "—";
+    const c = attrs.color || attrs.renk;
+    const s = attrs.size || attrs.beden;
+    const bits = [c, s].filter(Boolean);
+    return bits.length ? bits.join(" · ") : "—";
+};
+
+/** Varyant seçicilerde arama (ad, SKU, barkod) */
+const filterVgProductRows = (rows, q) => {
+    const t = String(q || "").trim().toLowerCase();
+    if (!t) return rows || [];
+    return (rows || []).filter((p) => {
+        const mp = p.masterProduct || {};
+        const blob = `${mp.name || ""} ${mp.sku || ""} ${mp.barcode || ""}`.toLowerCase();
+        return blob.includes(t);
+    });
+};
+
+const vgProductThumb = (p) => {
+    const imgs = p.masterProduct?.images || p.images;
+    const u = Array.isArray(imgs) && imgs.length ? (typeof imgs[0] === "string" ? imgs[0] : imgs[0]?.url) : null;
+    return u && String(u).startsWith("http") ? u : null;
+};
 // ⚠️ FIX: syncStatus: "error" = platformda yok/kaldırılmış — bu mapping'ler gösterilmez
 const getPlMap = (p, name) => (p.marketplaceMappings || []).find(m => normMP(m.marketplaceName) === normMP(name) && m.syncStatus !== "error");
+/** syncStatus fark etmeksizin eşleşme (pazaryeri fiyat sekmesi) */
+const getPlMappingAny = (p, name) => (p.marketplaceMappings || []).find(m => normMP(m.marketplaceName) === normMP(name));
 const getPlStatus = (p, name) => { const m = getPlMap(p, name); if (!m) return { exists: false }; return { exists: true, status: m.syncStatus || (m.isActive !== false ? "active" : "inactive"), price: m.price, stock: m.stock, lastSync: m.lastSyncDate }; };
 
 /* ═══════════════════════════════════════════════════════════════════
    ANA BİLEŞEN
    ═══════════════════════════════════════════════════════════════════ */
+const MP_LOGO = {
+    Trendyol: <FaStore style={{ color: "#f27a1a" }} />,
+    Hepsiburada: <FaStore style={{ color: "#ff6000" }} />,
+    N11: <FaStore style={{ color: "#8b5cf6" }} />,
+    Amazon: <FaStore style={{ color: "#f59e0b" }} />,
+    "ÇiçekSepeti": <FaStore style={{ color: "#ec4899" }} />
+};
+
 const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
     // ── Core State ──
     const [tab, setTab] = useState(initialTab);
@@ -139,16 +183,62 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
     const [deleteLoading, setDeleteLoading] = useState(false);
     const [deleteResult, setDeleteResult] = useState(null);         // { success, msg, mpResults: [] }
 
+    // ── Varyant grupları sekmesi ──
+    const [vgGroups, setVgGroups] = useState([]);
+    const [vgLoading, setVgLoading] = useState(false);
+    const [vgCreateOpen, setVgCreateOpen] = useState(false);
+    const [vgDetailOpen, setVgDetailOpen] = useState(false);
+    const [vgPickerOpen, setVgPickerOpen] = useState(false);
+    const [vgActiveId, setVgActiveId] = useState(null);
+    const [vgMembers, setVgMembers] = useState([]);
+    const [vgPickerRows, setVgPickerRows] = useState([]);
+    const [vgFormName, setVgFormName] = useState("");
+    const [vgFormNotes, setVgFormNotes] = useState("");
+    const [vgFormMainId, setVgFormMainId] = useState("");
+    const [vgFormColorLbl, setVgFormColorLbl] = useState("Renk");
+    const [vgFormSizeLbl, setVgFormSizeLbl] = useState("Beden");
+    const [vgCreatePick, setVgCreatePick] = useState(() => new Set());
+    const [vgPickerPick, setVgPickerPick] = useState(() => new Set());
+    const [vgCreateStep, setVgCreateStep] = useState(1);
+    const [vgListSearch, setVgListSearch] = useState("");
+    const [vgListLoading, setVgListLoading] = useState(false);
+
     // ── Category Tab State ──
     const [catTab, setCatTab] = useState("browse"); // "browse" | "mapping" | "products"
     const [catPlatformSel, setCatPlatformSel] = useState("Trendyol");
-    const [catTreeData, setCatTreeData] = useState({}); // { [nodeId]: { children, loaded } }
+    const [catTreeData, setCatTreeData] = useState({}); // { [nodeId]: { children, loİaded } }
     const [catExpanded, setCatExpanded] = useState(new Set());
     const [catTreeLoading, setCatTreeLoading] = useState("");
     const [catSearchQ, setCatSearchQ] = useState("");
     const [catSearchResults, setCatSearchResults] = useState([]);
     const [catSearchLoading, setCatSearchLoading] = useState(false);
     const uploadMpCatSearchTimer = useRef(null);
+    const distSearchTimer = useRef(null);
+
+    /* ── Ürün detayından "Gönder" → kategori seçimi ── */
+    const [distUi, setDistUi] = useState(null);
+    const [distTree, setDistTree] = useState([]);
+    const [distExpanded, setDistExpanded] = useState(() => new Set());
+    const [distSelected, setDistSelected] = useState(null);
+    const [distSearch, setDistSearch] = useState("");
+    const [distResults, setDistResults] = useState([]);
+    const [distLoadingTree, setDistLoadingTree] = useState(false);
+    const [distLoadingSearch, setDistLoadingSearch] = useState(false);
+    const [distCenter, setDistCenter] = useState(null);
+    const [distCenterLoading, setDistCenterLoading] = useState(false);
+    const [distActionLoading, setDistActionLoading] = useState(false);
+
+    const [chTabProducts, setChTabProducts] = useState([]);
+    const [chTabTotal, setChTabTotal] = useState(0);
+    const [chTabPage, setChTabPage] = useState(0);
+    const [chTabSearch, setChTabSearch] = useState("");
+    const [chTabLoading, setChTabLoading] = useState(false);
+    const [chSelectedId, setChSelectedId] = useState(null);
+    const [chDetail, setChDetail] = useState(null);
+    const [chDetailLoading, setChDetailLoading] = useState(false);
+    const [chDraft, setChDraft] = useState({});
+    const [chRowAction, setChRowAction] = useState("");
+
     const [catSelectedNode, setCatSelectedNode] = useState(null); // { id, name, path, platform }
     const [masterCategories, setMasterCategories] = useState([]);
     const [masterCatLoading, setMasterCatLoading] = useState(false);
@@ -258,7 +348,7 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
             const next = new Set(prev);
             if (next.has(catId)) next.delete(catId);
             else {
-                // Sadece tıklananı aç, diğerlerini kapatmak istenebilir ama 
+                // Sİadece tıklananı aç, diğerlerini kapatmak istenebilir ama 
                 // kullanıcı hiyerarşiyi görmek istiyor genelde.
                 next.add(catId);
             }
@@ -366,10 +456,21 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
             const platformResult = Array.isArray(response?.results)
                 ? response.results.find((r) => normMP(r.marketplace) === normMP(platform))
                 : null;
-            const statusText = platformResult?.status === "success" || platformResult?.status === "pending"
-                ? (platformResult?.message || `${platform} gönderimi başlatıldı`)
-                : `${platform} için işlem alındı`;
-            showToast(statusText, platformResult?.status === "error" ? "error" : "success");
+            const st = platformResult?.status;
+            let statusText;
+            let toastType = "success";
+            if (st === "error") {
+                statusText = platformResult?.message || `${platform}: yükleme başarısız`;
+                toastType = "error";
+            } else if (st === "skipped") {
+                statusText = platformResult?.message || `${platform}: atlandı (zaten yüklü veya kategori güncellemesi yok)`;
+            } else if (st === "success" || st === "pending") {
+                statusText = platformResult?.message || (st === "pending" ? `${platform}: kuyrukta — sonuç bekleniyor` : `${platform}: gönderim tamamlandı`);
+            } else {
+                statusText = platformResult?.message || `${platform}: beklenmeyen yanıt — konsol / ağ sekmesini kontrol edin`;
+                toastType = "error";
+            }
+            showToast(statusText, toastType);
             // Detayı güncelle
             const r = await getProductDetail(product._id);
             setUploadMpProduct(r.product);
@@ -383,6 +484,198 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
         }
     };
 
+    const resetDistUiState = () => {
+        setDistTree([]);
+        setDistExpanded(new Set());
+        setDistSelected(null);
+        setDistSearch("");
+        setDistResults([]);
+        setDistCenter(null);
+        if (distSearchTimer.current) clearTimeout(distSearchTimer.current);
+    };
+
+    const closeDistFlow = () => {
+        resetDistUiState();
+        setDistUi(null);
+        setDistCenterLoading(false);
+        setDistActionLoading(false);
+    };
+
+    const openDistFlow = (product, platform) => {
+        resetDistUiState();
+        setDistUi({ product, platform, phase: "menu" });
+    };
+
+    const loadDistCategoryTree = async (platform) => {
+        setDistLoadingTree(true);
+        try {
+            const normalizedPl = normMP(platform);
+            const res = await getCategoryTree(normalizedPl);
+            const tree = res?.data?.categories || res?.data?.tree || res?.data || [];
+            setDistTree(Array.isArray(tree) ? tree : []);
+        } catch {
+            showToast(`${platform} kategori ağacı yüklenemedi. Entegrasyonu kontrol edin.`, "error");
+            setDistTree([]);
+        } finally {
+            setDistLoadingTree(false);
+        }
+    };
+
+    const goDistPhaseSearch = () => {
+        if (!distUi) return;
+        const pl = distUi.platform;
+        setDistSelected(null);
+        setDistSearch("");
+        setDistResults([]);
+        setDistExpanded(new Set());
+        setDistUi((u) => (u ? { ...u, phase: "search" } : u));
+        loadDistCategoryTree(pl);
+    };
+
+    const handleDistSearchChange = (val) => {
+        setDistSearch(val);
+        if (distSearchTimer.current) clearTimeout(distSearchTimer.current);
+        if (!distUi || !val || val.trim().length < 2) {
+            setDistResults([]);
+            return;
+        }
+        const platform = distUi.platform;
+        distSearchTimer.current = setTimeout(async () => {
+            setDistLoadingSearch(true);
+            try {
+                const res = await searchCategories(normMP(platform), val.trim());
+                setDistResults(res?.data?.results || []);
+            } catch {
+                setDistResults([]);
+            } finally {
+                setDistLoadingSearch(false);
+            }
+        }, 400);
+    };
+
+    const toggleDistExpand = (catId) => {
+        setDistExpanded((prev) => {
+            const next = new Set(prev);
+            if (next.has(catId)) next.delete(catId);
+            else next.add(catId);
+            return next;
+        });
+    };
+
+    const handleDistTreeClick = (cat, path = []) => {
+        const children = cat.children || cat.subCategories || [];
+        const hasChildren = children.length > 0;
+        if (hasChildren) toggleDistExpand(cat.id);
+        const fullPath = [...path, cat.name].join(" > ");
+        setDistSelected({ id: cat.id, name: cat.name, path: fullPath });
+    };
+
+    const renderDistCategoryNode = (cat, level = 0, path = []) => {
+        const children = cat.children || cat.subCategories || [];
+        const hasChildren = children.length > 0;
+        const isExpanded = distExpanded.has(cat.id);
+        const isSelected = distSelected?.id === cat.id;
+        const currentPath = [...path, cat.name];
+        return (
+            <div key={cat.id} className={`ud-pm-cat-node-wrapper ${isExpanded ? "expanded" : ""}`}>
+                <div
+                    className={`ud-pm-cat-tree-item ${isSelected ? "selected" : ""} level-${level} ${hasChildren ? "has-children" : "is-leaf"}`}
+                    style={{ paddingLeft: 12 + level * 20 }}
+                >
+                    <div className="cat-info" onClick={() => handleDistTreeClick(cat, path)}>
+                        {hasChildren ? (
+                            <span className="expand-icon" onClick={(e) => { e.stopPropagation(); toggleDistExpand(cat.id); }}>
+                                {isExpanded ? <FaChevronDown /> : <FaChevronRight />}
+                            </span>
+                        ) : (
+                            <span className="leaf-icon"><FaTag size={10} /></span>
+                        )}
+                        <div className="cat-name">{cat.name}</div>
+                    </div>
+                    {hasChildren && (
+                        <div className="cat-meta" onClick={(e) => { e.stopPropagation(); toggleDistExpand(cat.id); }}>
+                            <span className="child-count">{children.length} alt</span>
+                        </div>
+                    )}
+                    {isSelected && <FaCheckCircle className="check-icon" />}
+                </div>
+                {hasChildren && isExpanded && (
+                    <div className="cat-children-container">
+                        {children.map((child) => renderDistCategoryNode(child, level + 1, currentPath))}
+                    </div>
+                )}
+            </div>
+        );
+    };
+
+    const distributeWithCategoryAndRefresh = async (product, platform, categoryPayload) => {
+        const normalizedCategory = normalizeUploadCategory(categoryPayload);
+        if (!normalizedCategory) {
+            showToast("Kategori ID gerekli", "error");
+            return;
+        }
+        setDistActionLoading(true);
+        try {
+            const response = await distributeProduct(product._id, [platform], {
+                id: normalizedCategory.id,
+                path: normalizedCategory.path,
+                name: normalizedCategory.name
+            });
+            const platformResult = Array.isArray(response?.results)
+                ? response.results.find((r) => normMP(r.marketplace) === normMP(platform))
+                : null;
+            const statusText = platformResult?.status === "success" || platformResult?.status === "pending"
+                ? (platformResult?.message || `${platform} gönderimi başlatıldı`)
+                : (platformResult?.message || `${platform} işlendi`);
+            showToast(statusText, platformResult?.status === "error" ? "error" : "success");
+            closeDistFlow();
+            if (showDetail && detail && String(detail._id) === String(product._id)) {
+                const r = await getProductDetail(product._id);
+                setDetail(r.product);
+            }
+            loadProducts(page);
+        } catch (e) {
+            const err = e?.response?.data;
+            showToast(err?.details || err?.error || err?.message || "Dağıtım hatası", "error");
+        } finally {
+            setDistActionLoading(false);
+        }
+    };
+
+    const goDistPhaseCenter = async () => {
+        if (!distUi) return;
+        const pid = distUi.product._id;
+        const pl = distUi.platform;
+        setDistUi((u) => (u ? { ...u, phase: "center" } : u));
+        setDistCenterLoading(true);
+        setDistCenter(null);
+        try {
+            const res = await resolveForDistribute(pid, pl);
+            setDistCenter(res?.data ?? null);
+        } catch {
+            setDistCenter({ resolved: false });
+            showToast("Kategori merkezi yanıtı alınamadı", "error");
+        } finally {
+            setDistCenterLoading(false);
+        }
+    };
+
+    const confirmCenterDistribute = () => {
+        if (!distUi || !distCenter?.resolved || !distCenter.platformCategory?.categoryId) {
+            showToast("Bu platform için merkezde geçerli kategori ID yok", "error");
+            return;
+        }
+        const pc = distCenter.platformCategory;
+        const leafName = pc.categoryPath && /[>]/.test(pc.categoryPath)
+            ? pc.categoryPath.split(/\s*>\s*/).map((s) => s.trim()).filter(Boolean).pop()
+            : (pc.categoryPath || distUi.platform);
+        distributeWithCategoryAndRefresh(distUi.product, distUi.platform, {
+            id: pc.categoryId,
+            path: pc.categoryPath || String(pc.categoryId),
+            name: leafName || distUi.platform
+        });
+    };
+
     const loadBulkProducts = useCallback(async (p = 0, s = bulkSearch) => {
         setBulkLoading(true);
         try {
@@ -393,9 +686,59 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
         finally { setBulkLoading(false); }
     }, [bulkSearch, showToast]);
 
-    useEffect(() => { if (tab === "sync") loadLogs(); if (tab === "products" || tab === "pricestock") loadProducts(0); if (tab === "bulk") loadBulkProducts(0); if (tab === "uploadMp") loadUploadMpProducts(0, uploadMpSearch, uploadMpFilterPl, uploadMpFilterType); }, [tab]); // eslint-disable-line
+    const loadChTabProducts = useCallback(async (p = 0) => {
+        setChTabLoading(true);
+        try {
+            const params = { page: p, limit: LIMIT };
+            const q = chTabSearch.trim();
+            if (q) params.search = q;
+            const res = await getProducts(params);
+            setChTabProducts(res.products || []);
+            setChTabTotal(res.total || 0);
+            setChTabPage(p);
+        } catch { showToast("Liste yüklenemedi", "error"); }
+        finally { setChTabLoading(false); }
+    }, [chTabSearch, showToast]);
+
+    const loadVariantGroups = useCallback(async () => {
+        setVgLoading(true);
+        try {
+            const data = await listVariantGroups();
+            setVgGroups(data.groups || []);
+        } catch (e) {
+            showToast(e.response?.data?.error || e.message || "Varyant grupları yüklenemedi", "error");
+        } finally {
+            setVgLoading(false);
+        }
+    }, [showToast]);
+
+    useEffect(() => { if (tab === "sync") loadLogs(); if (tab === "products" || tab === "pricestock") loadProducts(0); if (tab === "bulk") loadBulkProducts(0); if (tab === "uploadMp") loadUploadMpProducts(0, uploadMpSearch, uploadMpFilterPl, uploadMpFilterType); if (tab === "channel-prices") loadChTabProducts(0); if (tab === "variants") loadVariantGroups(); }, [tab]); // eslint-disable-line
     useEffect(() => { if (tab === "bulk") { if (bulkSearchRef.current) clearTimeout(bulkSearchRef.current); bulkSearchRef.current = setTimeout(() => loadBulkProducts(0, bulkSearch), 400); return () => clearTimeout(bulkSearchRef.current); } }, [bulkSearch]); // eslint-disable-line
     useEffect(() => { if (tab === "uploadMp") { const t = setTimeout(() => loadUploadMpProducts(0, uploadMpSearch, uploadMpFilterPl, uploadMpFilterType), 400); return () => clearTimeout(t); } }, [uploadMpSearch, uploadMpFilterPl, uploadMpFilterType]); // eslint-disable-line
+    useEffect(() => {
+        if (tab !== "channel-prices") return;
+        const t = setTimeout(() => loadChTabProducts(0), 400);
+        return () => clearTimeout(t);
+    }, [chTabSearch]); // eslint-disable-line
+
+    useEffect(() => {
+        if (!chDetail) {
+            setChDraft({});
+            return;
+        }
+        const d = {};
+        const master = chDetail.masterProduct || {};
+        for (const pl of PLATFORMS) {
+            const m = getPlMappingAny(chDetail, pl);
+            const sale = m?.price != null && m.price !== "" ? m.price : master.price;
+            const list = m?.listPrice != null && m.listPrice !== "" ? m.listPrice : (master.listPrice != null ? master.listPrice : sale);
+            d[pl] = {
+                sale: sale == null ? "" : String(sale),
+                list: list == null ? "" : String(list)
+            };
+        }
+        setChDraft(d);
+    }, [chDetail]);
 
     // ── Actions ──
     const openDetail = async (id) => {
@@ -415,6 +758,90 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
         try { await syncPrice(id, Number(price), listPrice ? Number(listPrice) : null); showToast(`Fiyat güncellendi: ${fmt(price)}`); loadProducts(page); } catch (e) { showToast("Fiyat hatası", "error"); }
         finally { setActionLoading(""); }
     };
+
+    const selectChProduct = async (id) => {
+        setChSelectedId(id);
+        setChDetailLoading(true);
+        setChDetail(null);
+        try {
+            const r = await getProductDetail(id);
+            setChDetail(r.product);
+        } catch { showToast("Ürün detayı alınamadı", "error"); }
+        finally { setChDetailLoading(false); }
+    };
+
+    const setChDraftField = (pl, field, value) => {
+        setChDraft((prev) => ({
+            ...prev,
+            [pl]: { ...(prev[pl] || { sale: "", list: "" }), [field]: value }
+        }));
+    };
+
+    const parseChMoney = (v) => {
+        if (v === "" || v == null) return null;
+        const n = parseFloat(String(v).replace(",", "."));
+        return Number.isNaN(n) ? null : n;
+    };
+
+    const saveChLocal = async (pl) => {
+        if (!chDetail) return;
+        const sale = parseChMoney(chDraft[pl]?.sale);
+        const list = parseChMoney(chDraft[pl]?.list);
+        if (sale == null || sale <= 0) { showToast("Geçerli satış fiyatı girin", "error"); return; }
+        const listFin = list != null && list > 0 ? list : sale;
+        setChRowAction(`${pl}-local`);
+        try {
+            await updateChannelPricesLocal(chDetail._id, [{ marketplaceName: pl, price: sale, listPrice: listFin }]);
+            showToast(`${pl}: panelde kaydedildi`);
+            const r = await getProductDetail(chDetail._id);
+            setChDetail(r.product);
+            loadChTabProducts(chTabPage);
+        } catch (e) {
+            showToast(e?.response?.data?.error || "Kayıt başarısız", "error");
+        } finally { setChRowAction(""); }
+    };
+
+    const pushChPrice = async (pl) => {
+        if (!chDetail) return;
+        const sale = parseChMoney(chDraft[pl]?.sale);
+        const list = parseChMoney(chDraft[pl]?.list);
+        if (sale == null || sale <= 0) { showToast("Geçerli satış fiyatı girin", "error"); return; }
+        const listFin = list != null && list > 0 ? list : null;
+        setChRowAction(`${pl}-push`);
+        try {
+            await syncPrice(chDetail._id, sale, listFin, pl);
+            showToast(`${pl}: pazaryerine iletildi`);
+            const r = await getProductDetail(chDetail._id);
+            setChDetail(r.product);
+            loadChTabProducts(chTabPage);
+        } catch (e) {
+            showToast(e?.response?.data?.error || e?.response?.data?.details || "Pazaryeri güncellemesi başarısız", "error");
+        } finally { setChRowAction(""); }
+    };
+
+    const fillChDraftFromMaster = () => {
+        const master = chDetail?.masterProduct || {};
+        const mp = Number(master.price);
+        const lp = master.listPrice != null && master.listPrice !== "" ? Number(master.listPrice) : mp;
+        if (!chDetail || !Number.isFinite(mp) || mp <= 0) {
+            showToast("Master satış fiyatı yok veya geçersiz", "error");
+            return;
+        }
+        const listVal = Number.isFinite(lp) && lp > 0 ? lp : mp;
+        setChDraft((prev) => {
+            const next = { ...prev };
+            for (const pl of PLATFORMS) {
+                if (!getPlMappingAny(chDetail, pl)) continue;
+                next[pl] = { sale: String(mp), list: String(listVal) };
+            }
+            return next;
+        });
+        showToast("Taslaklar master referans fiyatıyla dolduruldu", "success");
+    };
+
+    const chListedCount = chDetail
+        ? PLATFORMS.filter((pl) => getPlMappingAny(chDetail, pl)).length
+        : 0;
 
     // Silme onay modal'ını aç
     const askDelete = (id) => {
@@ -487,7 +914,7 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
     const handleSuggestCodes = async () => {
         if (!uf.name.trim()) return showToast("Önce ürün adı girin", "error");
         setCodeLoading(true);
-        try { const r = await suggestCodes(uf.name.trim(), uf.brand, uf.category); setCodeSugg(r.suggestions); } catch { showToast("Öneri alınamadı", "error"); }
+        try { const r = await suggestCodes(uf.name.trim(), uf.brand, uf.category); setCodeSugg(r.suggestions); } catch { showToast("Ööneri alınamadı", "error"); }
         finally { setCodeLoading(false); }
     };
 
@@ -606,9 +1033,9 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
 
     const Empty = ({ icon: Icon = FaBox, title, desc }) => (
         <div className="ud-pm-empty">
-            <div className="icon"><Icon /></div>
-            <div className="title">{title}</div>
-            {desc && <div className="desc">{desc}</div>}
+            <div className="icon" style={{ fontSize: 48, opacity: 0.3, marginBottom: 12 }}><Icon /></div>
+            <div className="title" style={{ fontSize: 18, fontWeight: 700 }}>{title}</div>
+            {desc && <div className="desc" style={{ fontSize: 14, opacity: 0.7 }}>{desc}</div>}
         </div>
     );
 
@@ -650,15 +1077,215 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
     };
 
     /* ═══════════════════════════════════════════════════════════════
+       TAB: PAZARYERİ BAZLI FİYATLAR
+       ═══════════════════════════════════════════════════════════════ */
+    const renderChannelPrices = () => {
+        const master = chDetail?.masterProduct || {};
+        const chPages = Math.max(1, Math.ceil(chTabTotal / LIMIT));
+        return (
+            <div className="ud-pm-chpr-root">
+                <div className="ud-pm-chpr-hero ud-pm-card">
+                    <div className="ud-pm-chpr-hero-main">
+                        <div className="ud-pm-chpr-hero-icon" aria-hidden><FaPercentage /></div>
+                        <div className="ud-pm-chpr-hero-copy">
+                            <h3 className="ud-pm-chpr-title"><FaDollarSign /> Pazaryeri fiyatları</h3>
+                            <p className="ud-pm-chpr-sub">Soldan ürün seçin; her pazaryeri için satış ve liste fiyatını girin. Önce <strong>Panelde kaydet</strong>, ardından <strong>Pazaryerine gönder</strong> ile canlı güncelleyin.</p>
+                        </div>
+                    </div>
+                    <ol className="ud-pm-chpr-steps" aria-label="İşlem adımları">
+                        <li><span className="ud-pm-chpr-step-num">1</span> Ürün seç</li>
+                        <li><span className="ud-pm-chpr-step-num">2</span> Fiyatları düzenle</li>
+                        <li><span className="ud-pm-chpr-step-num">3</span> Kaydet / gönder</li>
+                    </ol>
+                </div>
+                <div className="ud-pm-chpr-layout">
+                    <div className="ud-pm-chpr-list ud-pm-card">
+                        <div className="ud-pm-chpr-list-top">
+                            <div className="ud-pm-chpr-list-title">
+                                <FaLayerGroup /> Ürünler
+                                <span className="ud-pm-chpr-count">{chTabTotal}</span>
+                            </div>
+                        </div>
+                        <div className="ud-pm-search-wrap ud-pm-chpr-search">
+                            <span className="icon"><FaSearch /></span>
+                            <input className="ud-pm-search" value={chTabSearch} onChange={(e) => setChTabSearch(e.target.value)} placeholder="Ad, barkod veya SKU…" aria-label="Pazaryeri fiyatlarında ürün ara" />
+                        </div>
+                        {chTabLoading ? <Loading /> : chTabProducts.length === 0 ? <Empty title="Ürün yok" desc="Aramayı değiştirin veya ürün ekleyin." />
+                            : (
+                                <div className="ud-pm-chpr-list-scroll">
+                                    {chTabProducts.map((row) => {
+                                        const mp = row.masterProduct || {};
+                                        const active = chSelectedId && String(chSelectedId) === String(row._id);
+                                        const nListed = PLATFORMS.filter((pl) => getPlMappingAny(row, pl)).length;
+                                        return (
+                                            <button
+                                                key={row._id}
+                                                type="button"
+                                                className={`ud-pm-chpr-list-item ${active ? "active" : ""}`}
+                                                onClick={() => selectChProduct(row._id)}
+                                            >
+                                                {mp.images?.[0] ? <img src={mp.images[0]} alt="" className="ud-pm-chpr-thumb" /> : <div className="ud-pm-chpr-thumb ph"><FaBox /></div>}
+                                                <div className="ud-pm-chpr-list-meta">
+                                                    <div className="ud-pm-chpr-list-name">{mp.name || "İsimsiz"}</div>
+                                                    <div className="ud-pm-chpr-list-sub">{mp.barcode || "—"} · {fmt(mp.price)}</div>
+                                                    <div className="ud-pm-chpr-list-footer">
+                                                        <div className="ud-pm-chpr-list-pldots" aria-hidden>
+                                                            {PLATFORMS.map((pl) => {
+                                                                const on = getPlMappingAny(row, pl);
+                                                                return (
+                                                                    <span
+                                                                        key={pl}
+                                                                        className={`ud-pm-chpr-pldot ${on ? "on" : ""}`}
+                                                                        style={{ "--pl": PL_COLOR[pl] }}
+                                                                        title={pl}
+                                                                    />
+                                                                );
+                                                            })}
+                                                        </div>
+                                                        <span className="ud-pm-chpr-list-plhint">{nListed}/{PLATFORMS.length} kanal</span>
+                                                    </div>
+                                                </div>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        <Pagination currentPage={chTabPage} totalPages={chPages} total={chTabTotal} onPageChange={(p) => loadChTabProducts(p)} />
+                    </div>
+                    <div className="ud-pm-chpr-panel ud-pm-card">
+                        {!chSelectedId ? (
+                            <div className="ud-pm-chpr-placeholder">
+                                <div className="ud-pm-chpr-placeholder-icon"><FaStore /></div>
+                                <div className="ud-pm-chpr-placeholder-title">Ürün seçilmedi</div>
+                                <p>Soldaki listeden bir ürün seçerek pazaryeri fiyatlarını görüntüleyip düzenleyebilirsiniz.</p>
+                            </div>
+                        ) : chDetailLoading ? <Loading /> : !chDetail ? <Empty title="Yüklenemedi" />
+                            : (
+                                <>
+                                    <div className="ud-pm-chpr-summary">
+                                        <div className="ud-pm-chpr-product-head">
+                                            {master.images?.[0] ? <img src={master.images[0]} alt="" className="ud-pm-chpr-hero-img" /> : <div className="ud-pm-chpr-hero-img ph"><FaBox /></div>}
+                                            <div className="ud-pm-chpr-product-head-text">
+                                                <h4 className="ud-pm-chpr-product-title">{master.name}</h4>
+                                                <div className="ud-pm-chpr-badges">
+                                                    <Pill color="var(--ud-pm-accent)"><FaBarcode style={{ fontSize: 8 }} /> {master.barcode}</Pill>
+                                                    {master.sku && <Pill color="var(--ud-pm-purple)">{master.sku}</Pill>}
+                                                    <span className="ud-pm-chpr-kanal-badge">{chListedCount} aktif kanal</span>
+                                                </div>
+                                                <div className="ud-pm-chpr-master-strip">
+                                                    <div className="ud-pm-chpr-master-row">
+                                                        <div className="ud-pm-chpr-master-ref">
+                                                            <span className="ud-pm-chpr-master-label">Master referans</span>
+                                                            <strong>{fmt(master.price)}</strong>
+                                                            {master.listPrice != null && master.listPrice !== master.price && (
+                                                                <span className="ud-pm-chpr-master-list"> · Liste {fmt(master.listPrice)}</span>
+                                                            )}
+                                                        </div>
+                                                        <button type="button" className="ud-pm-btn sm accent outline ud-pm-chpr-fill-master" onClick={fillChDraftFromMaster} disabled={chListedCount === 0}>
+                                                            <FaBolt /> Referansı doldur
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="ud-pm-chpr-channels-head">
+                                        <span className="ud-pm-chpr-channels-title">Kanal fiyatları</span>
+                                        <span className="ud-pm-chpr-channels-hint">Her satır bağımsız kaydedilir</span>
+                                    </div>
+                                    <div className="ud-pm-chpr-channels">
+                                        {PLATFORMS.map((pl) => {
+                                            const m = getPlMappingAny(chDetail, pl);
+                                            const listed = !!m;
+                                            const rowBusy = chRowAction.startsWith(`${pl}-`);
+                                            const d = chDraft[pl] || { sale: "", list: "" };
+                                            return (
+                                                <div
+                                                    key={pl}
+                                                    className={`ud-pm-chpr-card ${listed ? "is-listed" : "is-muted"}`}
+                                                    style={{ "--chpr-accent": PL_COLOR[pl] }}
+                                                >
+                                                    <div className="ud-pm-chpr-card-head">
+                                                        <span className="ud-pm-chpr-pl ud-pm-chpr-pl--lg" style={{ color: PL_COLOR[pl] }}>
+                                                            {MP_LOGO[pl]} {pl}
+                                                        </span>
+                                                        {listed ? (
+                                                            <span className="ud-pm-chpr-card-badge ud-pm-chpr-card-badge--ok">Kayıtlı</span>
+                                                        ) : (
+                                                            <span className="ud-pm-chpr-card-badge">Bu kanalda yok</span>
+                                                        )}
+                                                    </div>
+                                                    {listed ? (
+                                                        <>
+                                                            <div className="ud-pm-chpr-card-fields">
+                                                                <label className="ud-pm-chpr-field">
+                                                                    <span>Satış (₺)</span>
+                                                                    <input
+                                                                        className="ud-pm-chpr-input"
+                                                                        value={d.sale}
+                                                                        onChange={(e) => setChDraftField(pl, "sale", e.target.value)}
+                                                                        inputMode="decimal"
+                                                                        placeholder="0,00"
+                                                                    />
+                                                                </label>
+                                                                <label className="ud-pm-chpr-field">
+                                                                    <span>Liste (₺)</span>
+                                                                    <input
+                                                                        className="ud-pm-chpr-input"
+                                                                        value={d.list}
+                                                                        onChange={(e) => setChDraftField(pl, "list", e.target.value)}
+                                                                        inputMode="decimal"
+                                                                        placeholder="0,00"
+                                                                    />
+                                                                </label>
+                                                            </div>
+                                                            <div className="ud-pm-chpr-card-live">
+                                                                <span className="ud-pm-chpr-card-live-label">Kayıtlı fiyat</span>
+                                                                <span className="ud-pm-chpr-now">
+                                                                    {m.price != null ? fmt(m.price) : "—"}
+                                                                    {m.listPrice != null && m.listPrice !== m.price && <small> · liste {fmt(m.listPrice)}</small>}
+                                                                </span>
+                                                            </div>
+                                                            <div className="ud-pm-chpr-card-actions">
+                                                                <button type="button" className="ud-pm-btn sm muted ud-pm-chpr-card-btn" disabled={rowBusy} onClick={() => saveChLocal(pl)} title="Sadece panel veritabanı">
+                                                                    {rowBusy && chRowAction === `${pl}-local` ? <span className="spinner" /> : <FaSave />} Panelde kaydet
+                                                                </button>
+                                                                <button type="button" className="ud-pm-btn sm green ud-pm-chpr-card-btn ud-pm-chpr-btn-mp" disabled={rowBusy} onClick={() => pushChPrice(pl)} title="Pazaryeri API">
+                                                                    {rowBusy && chRowAction === `${pl}-push` ? <span className="spinner" /> : <FaGlobe />} Pazaryerine gönder
+                                                                </button>
+                                                            </div>
+                                                        </>
+                                                    ) : (
+                                                        <p className="ud-pm-chpr-card-hint">Bu ürün bu pazaryerine dağıtılmamış; fiyat alanları kapalıdır.</p>
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                    <div className="ud-pm-chpr-footnote ud-pm-chpr-footnote--box">
+                                        <FaInfoCircle className="ud-pm-chpr-footnote-ico" />
+                                        <div>
+                                            <strong>Panelde kaydet</strong> yalnızca veritabanını günceller. <strong>Pazaryerine gönder</strong> ilgili API ile canlı fiyat güncellemesi dener; ürünün o platformda aktif olması gerekir.
+                                        </div>
+                                    </div>
+                                </>
+                            )}
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
+    /* ═══════════════════════════════════════════════════════════════
        TAB 1: ÜRÜN LİSTESİ
        ═══════════════════════════════════════════════════════════════ */
     const renderProducts = () => (
         <div>
             {/* Toolbar */}
-            <div className="ud-pm-toolbar">
+            <div className="ud-pm-toolbar ud-pm-toolbar--card">
                 <div className="ud-pm-search-wrap">
                     <span className="icon"><FaSearch /></span>
-                    <input className="ud-pm-search" value={search} onChange={e => setSearch(e.target.value)} placeholder="Ürün adı, barkod, SKU..." />
+                    <input className="ud-pm-search" value={search} onChange={e => setSearch(e.target.value)} placeholder="Ürün adı, barkod, SKU..." aria-label="Ürün ara" />
                 </div>
                 <select className="ud-pm-select" value={stockFilter} onChange={e => setStockFilter(e.target.value)}>
                     <option value="">Tüm Stok</option><option value="lowStock">Düşük</option><option value="outOfStock">Yok</option>
@@ -680,69 +1307,75 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
                 </button>
             </div>
 
-            {/* Tablo */}
-            <div className="ud-pm-table-wrap">
-                <div className="ud-pm-table-scroll">
-                    <table className="ud-pm-table">
-                        <thead>
-                            <tr>
-                                <th style={{ width: 40 }}><input type="checkbox" className="ud-pm-checkbox" checked={selected.size === products.length && products.length > 0} onChange={toggleAll} /></th>
-                                <th>Ürün</th>
-                                <th>Barkod / SKU</th>
-                                <th className="right">Fiyat</th>
-                                <th className="center">Stok</th>
-                                <th className="center">Platformlar</th>
-                                <th className="center">İşlem</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {loading ? (
-                                <tr><td colSpan={7}><Loading /></td></tr>
-                            ) : products.length === 0 ? (
-                                <tr><td colSpan={7}><Empty icon={FaBox} title="Ürün bulunamadı" desc="Pazaryerlerinden çekin veya yeni ekleyin" /></td></tr>
-                            ) : products.map((p, i) => {
-                                const mp = p.masterProduct || {};
-                                const st = p.stockTracking || {};
-                                const isSel = selected.has(p._id);
-                                return (
-                                    <motion.tr key={p._id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: i * 0.015 }}
-                                        className={isSel ? "selected" : ""} onClick={() => openDetail(p._id)}>
-                                        <td onClick={e => e.stopPropagation()}><input type="checkbox" className="ud-pm-checkbox" checked={isSel} onChange={() => toggleSel(p._id)} /></td>
-                                        <td>
-                                            <div className="product-cell">
-                                                {mp.images?.[0] ? <img src={mp.images[0]} alt="" className="product-img" />
-                                                    : <div className="product-img-placeholder"><FaBox /></div>}
-                                                <div>
-                                                    <div className="product-name">{mp.name || "İsimsiz"}</div>
-                                                    {mp.brand && <div className="product-brand">{mp.brand}</div>}
-                                                </div>
-                                            </div>
-                                        </td>
-                                        <td>
-                                            <div className="mono">{mp.barcode || "—"}</div>
-                                            <div className="mono-dim">{mp.sku || "—"}</div>
-                                        </td>
-                                        <td className="right">
-                                            <div className="price">{fmt(mp.price)}</div>
-                                            {mp.listPrice && mp.listPrice !== mp.price && <div className="price-old">{fmt(mp.listPrice)}</div>}
-                                        </td>
-                                        <td className="center">
-                                            <span className={st.isOutOfStock ? "stock-out" : st.isLowStock ? "stock-low" : "stock-ok"}>
-                                                {st.totalStock ?? mp.stock ?? 0}
-                                            </span>
-                                        </td>
-                                        <td className="center"><PlatformDots product={p} /></td>
-                                        <td className="center" onClick={e => e.stopPropagation()}>
-                                            <div style={{ display: "flex", gap: 4, justifyContent: "center" }}>
-                                                <button className="ud-pm-btn sm accent outline" onClick={() => openDetail(p._id)}><FaEye /></button>
-                                                <button className="ud-pm-btn sm red outline" onClick={() => askDelete(p._id)}><FaTrash /></button>
-                                            </div>
-                                        </td>
-                                    </motion.tr>
-                                );
-                            })}
-                        </tbody>
-                    </table>
+            {/* Ürünler — tek sütun, alt alta liste */}
+            <div className="ud-pm-product-list-wrap ud-pm-card">
+                <div className="ud-pm-product-list-head">
+                    <label className="ud-pm-product-list-check-all">
+                        <input type="checkbox" className="ud-pm-checkbox" checked={selected.size === products.length && products.length > 0} onChange={toggleAll} />
+                        <span>Tümünü seç</span>
+                    </label>
+                </div>
+                <div className="ud-pm-product-list">
+                    {loading ? (
+                        <div className="ud-pm-product-list-loading"><Loading /></div>
+                    ) : products.length === 0 ? (
+                        <Empty icon={FaBox} title="Ürün bulunamadı" desc="Pazaryerlerinden çekin veya yeni ekleyin" />
+                    ) : products.map((p, i) => {
+                        const mp = p.masterProduct || {};
+                        const st = p.stockTracking || {};
+                        const isSel = selected.has(p._id);
+                        return (
+                            <motion.div
+                                key={p._id}
+                                layout={false}
+                                initial={{ opacity: 0, y: 6 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ delay: Math.min(i * 0.02, 0.35) }}
+                                className={`ud-pm-product-list-item ${isSel ? "selected" : ""}`}
+                                onClick={() => openDetail(p._id)}
+                                role="button"
+                                tabIndex={0}
+                                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openDetail(p._id); } }}
+                            >
+                                <div className="ud-pm-product-list-item-check" onClick={(e) => e.stopPropagation()}>
+                                    <input type="checkbox" className="ud-pm-checkbox" checked={isSel} onChange={() => toggleSel(p._id)} />
+                                </div>
+                                <div className="ud-pm-product-list-item-main">
+                                    {mp.images?.[0] ? <img src={mp.images[0]} alt="" className="ud-pm-product-list-img" />
+                                        : <div className="ud-pm-product-list-img ud-pm-product-list-img--ph"><FaBox /></div>}
+                                    <div className="ud-pm-product-list-text">
+                                        <div className="ud-pm-product-list-name">{mp.name || "İsimsiz"}</div>
+                                        {mp.brand && <div className="ud-pm-product-list-brand">{mp.brand}</div>}
+                                        <div className="ud-pm-product-list-codes">
+                                            <span className="mono">{mp.barcode || "—"}</span>
+                                            <span className="mono-dim">{mp.sku || "—"}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="ud-pm-product-list-item-stats">
+                                    <div className="ud-pm-product-list-stat">
+                                        <span className="ud-pm-product-list-stat-label">Fiyat</span>
+                                        <span className="price">{fmt(mp.price)}</span>
+                                        {mp.listPrice != null && mp.listPrice !== mp.price && <span className="price-old">{fmt(mp.listPrice)}</span>}
+                                    </div>
+                                    <div className="ud-pm-product-list-stat">
+                                        <span className="ud-pm-product-list-stat-label">Stok</span>
+                                        <span className={st.isOutOfStock ? "stock-out" : st.isLowStock ? "stock-low" : "stock-ok"}>
+                                            {st.totalStock ?? mp.stock ?? 0}
+                                        </span>
+                                    </div>
+                                    <div className="ud-pm-product-list-stat ud-pm-product-list-stat--platforms">
+                                        <span className="ud-pm-product-list-stat-label">Platform</span>
+                                        <PlatformDots product={p} />
+                                    </div>
+                                </div>
+                                <div className="ud-pm-product-list-item-actions" onClick={(e) => e.stopPropagation()}>
+                                    <button type="button" className="ud-pm-btn sm accent outline" onClick={() => openDetail(p._id)}><FaEye /></button>
+                                    <button type="button" className="ud-pm-btn sm red outline" onClick={() => askDelete(p._id)}><FaTrash /></button>
+                                </div>
+                            </motion.div>
+                        );
+                    })}
                 </div>
                 <Pagination currentPage={page} totalPages={totalPages} total={total} onPageChange={p => loadProducts(p)} />
             </div>
@@ -777,15 +1410,21 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
     );
 
     /* ═══════════════════════════════════════════════════════════════
-       TAB 2: ÜRÜN YÜKLE (3 Adımlı Wizard)
+       TAB: YENİ ÜRÜN & DAĞIT (sihirbaz — createAndDistribute)
        ═══════════════════════════════════════════════════════════════ */
-    const renderUpload = () => {
-        return (
-            <div className="ud-pm-card">
+    const renderNewProductWizard = () => (
+        <div className="ud-pm-wizard-tab">
+            <div className="ud-pm-wizard-tab-intro ud-pm-card" role="note">
+                <p className="ud-pm-wizard-tab-desc">
+                    Pazaryeri seçtiyseniz 4. adımda her platform için kategori seçin. Görseller: pazaryerine aktarım için en az bir <strong>https://</strong> görsel URL gerekir.
+                    Zaten kayıtlı bir ürünü yüklemek için <strong>Ürünleri Yükle</strong> sekmesine geçin.
+                </p>
+            </div>
+            <div className="ud-pm-card ud-pm-wizard-tab-body">
                 <ProductUploadWizard userId={userId} />
             </div>
-        );
-    };
+        </div>
+    );
 
     /* ═══════════════════════════════════════════════════════════════
        TAB 3: FİYAT & STOK
@@ -809,7 +1448,7 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
        TAB 5: PAZARYERİNE YÜKLE
        ═══════════════════════════════════════════════════════════════ */
     const renderUploadMarketplace = () => (
-        <div className="ud-pm-upload-mp-container" style={{ display: "grid", gridTemplateColumns: "350px 1fr", gap: 20, height: "calc(100vh - 300px)", minHeight: 700 }}>
+        <div className="ud-pm-upload-mp-container">
             {/* Sol: Ürün Listesi */}
             <div className="ud-pm-card" style={{ display: "flex", flexDirection: "column", padding: 0, overflow: "hidden" }}>
                 <div style={{ padding: 15, borderBottom: "1px solid var(--ud-pm-border)", display: "flex", flexDirection: "column", gap: 10 }}>
@@ -1107,10 +1746,10 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
 
     const renderPriceStock = () => (
         <div>
-            <div className="ud-pm-toolbar">
-                <div className="ud-pm-search-wrap" style={{ maxWidth: 300 }}>
+            <div className="ud-pm-toolbar ud-pm-toolbar--card">
+                <div className="ud-pm-search-wrap">
                     <span className="icon"><FaSearch /></span>
-                    <input className="ud-pm-search" value={search} onChange={e => setSearch(e.target.value)} placeholder="Ürün ara..." />
+                    <input className="ud-pm-search" value={search} onChange={e => setSearch(e.target.value)} placeholder="Ürün ara..." aria-label="Fiyat stok listesinde ara" />
                 </div>
                 <select className="ud-pm-select" value={stockFilter} onChange={e => setStockFilter(e.target.value)}>
                     <option value="">Tüm</option><option value="lowStock">Düşük</option><option value="outOfStock">Yok</option>
@@ -1183,7 +1822,14 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
                                         </td>
                                         {PLATFORMS.slice(0, 3).map(pl => { const ps = getPlStatus(p, pl); return (
                                             <td key={pl} className="center">
-                                                {ps.exists ? <span style={{ color: "var(--ud-pm-text)", fontSize: 11, fontWeight: 600 }}>{ps.price ? fmt(ps.price) : "—"}</span> : <span style={{ color: "var(--ud-pm-text-dim)", fontSize: 10 }}>—</span>}
+                                                {ps.exists ? (
+                                                    <div className="p-card-mp-info" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                                                        <span className="mp-icon-mini" style={{ display: "flex", fontSize: 14 }}>{MP_LOGO[pl] || <FaStore />}</span>
+                                                        <span style={{ color: "var(--ud-pm-text)", fontSize: 11, fontWeight: 600 }}>
+                                                            {ps.price ? fmt(ps.price) : "—"}
+                                                        </span>
+                                                    </div>
+                                                ) : <span style={{ color: "var(--ud-pm-text-dim)", fontSize: 10 }}>—</span>}
                                             </td>
                                         ); })}
                                         <td className="center">
@@ -1217,13 +1863,13 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
     // ── Kategori Ağacı Yükle (lazy — tıklanınca alt kategorileri çeker) ──
     const loadCatTreeNode = async (platform, parentId = "0") => {
         const key = `${platform}::${parentId}`;
-        if (catTreeData[key]?.loaded) return;
+        if (catTreeData[key]?.loİaded) return;
         setCatTreeLoading(key);
         try {
             const r = { categories: [] };
             setCatTreeData(prev => ({
                 ...prev,
-                [key]: { children: r.categories || [], loaded: true }
+                [key]: { children: r.categories || [], loİaded: true }
             }));
         } catch { showToast("Kategori yüklenemedi", "error"); }
         finally { setCatTreeLoading(""); }
@@ -1556,7 +2202,7 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
                                                     {/* Eşleştirilmiş PY Kategorileri */}
                                                     {mpCats.map((mc, i) => (
                                                         <div key={i} className="ud-pm-cat-tree-node leaf" style={{ paddingLeft: 42 }}>
-                                                            <Pill color={PL_COLOR[mc.marketplaceName] || "var(--ud-pm-accent)"}>{PL_SHORT[mc.marketplaceName] || mc.marketplaceName}</Pill>
+                                                            <span className="mp-icon-mini" style={{ marginRight: 6 }}>{MP_LOGO[mc.marketplaceName] || <FaStore />}</span>
                                                             <span style={{ color: "var(--ud-pm-text-sub)", fontSize: 11, flex: 1 }}>{mc.categoryName}</span>
                                                             <span style={{ color: "var(--ud-pm-text-dim)", fontSize: 9, fontFamily: "monospace" }}>ID: {mc.categoryId}</span>
                                                         </div>
@@ -1586,7 +2232,7 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
                                                                 </div>
                                                                 {childExp && childMpCats.map((mc, i) => (
                                                                     <div key={i} className="ud-pm-cat-tree-node leaf" style={{ paddingLeft: 60 }}>
-                                                                        <Pill color={PL_COLOR[mc.marketplaceName] || "var(--ud-pm-accent)"}>{PL_SHORT[mc.marketplaceName] || mc.marketplaceName}</Pill>
+                                                                        <span className="mp-icon-mini" style={{ marginRight: 6 }}>{MP_LOGO[mc.marketplaceName] || <FaStore />}</span>
                                                                         <span style={{ color: "var(--ud-pm-text-sub)", fontSize: 11, flex: 1 }}>{mc.categoryName}</span>
                                                                         <span style={{ color: "var(--ud-pm-text-dim)", fontSize: 9, fontFamily: "monospace" }}>ID: {mc.categoryId}</span>
                                                                     </div>
@@ -1760,7 +2406,7 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
                 <div className="ud-pm-card" style={{ background: "linear-gradient(135deg, rgba(78,205,196,0.05), rgba(139,92,246,0.05))", borderColor: "rgba(78,205,196,0.2)" }}>
                     <div className="ud-pm-sync-header">
                         <span className="mp-icon" style={{ color: "var(--ud-pm-accent)" }}><FaGlobe /></span>
-                        <div><div className="mp-name">Tüm Platformlar</div><div className="mp-status">Toplu senkronizasyon</div></div>
+                        <div><div className="mp-name">Tüm Platformlar</div><div className="mp-status">Toplu senkâronizasyon</div></div>
                     </div>
                     <div style={{ display: "flex", gap: 6 }}>
                         <button className="ud-pm-btn accent" style={{ flex: 1, justifyContent: "center" }} onClick={handleSyncAll} disabled={actionLoading === "sync-all"}>
@@ -1777,7 +2423,7 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
 
             <div className="ud-pm-card">
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                    <div style={{ color: "var(--ud-pm-text)", fontSize: 14, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}><FaClipboardList style={{ color: "var(--ud-pm-accent)" }} /> Senkronizasyon Logları</div>
+                    <div style={{ color: "var(--ud-pm-text)", fontSize: 14, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}><FaClipboardList style={{ color: "var(--ud-pm-accent)" }} /> Senkâronizasyon Logları</div>
                     <button className="ud-pm-btn sm accent outline" onClick={loadLogs}><FaSync /></button>
                 </div>
                 {logsLoading ? <Loading />
@@ -1800,6 +2446,170 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
             </div>
         </div>
     );
+
+    /* ═══════════════════════════════════════════════════════════════
+       DAĞITIM — Kategori seçimi (detay modalından Gönder)
+       ═══════════════════════════════════════════════════════════════ */
+    const renderDistributeModal = () => {
+        if (!distUi) return null;
+        const { product, platform, phase } = distUi;
+
+        return ReactDOM.createPortal(
+            <AnimatePresence>
+                <motion.div
+                    className="ud-pm-modal-overlay ud-pm-dist-layer"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    onClick={() => { if (!distActionLoading && !distCenterLoading) closeDistFlow(); }}
+                >
+                    <motion.div
+                        className="ud-pm-modal ud-pm-dist-modal"
+                        initial={{ scale: 0.94, y: 16 }}
+                        animate={{ scale: 1, y: 0 }}
+                        exit={{ scale: 0.94, y: 16 }}
+                        onClick={(e) => e.stopPropagation()}
+                        style={{ maxWidth: phase === "search" ? 560 : 480 }}
+                    >
+                        <div className="ud-pm-modal-header" style={{ marginBottom: 14 }}>
+                            <div className="product-info" style={{ alignItems: "flex-start" }}>
+                                <div>
+                                    <h2 style={{ fontSize: 16, margin: 0 }}>{platform} — Ürün gönderimi</h2>
+                                    <p style={{ margin: "6px 0 0", fontSize: 12, color: "var(--ud-pm-text-dim)", fontWeight: 400 }}>
+                                        {(product.masterProduct || {}).name || "Ürün"}
+                                    </p>
+                                </div>
+                            </div>
+                            <button type="button" className="close-btn" disabled={distActionLoading} onClick={closeDistFlow}><FaTimes /></button>
+                        </div>
+
+                        {phase === "menu" && (
+                            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                                <button type="button" className="ud-pm-btn accent" style={{ width: "100%", justifyContent: "center", padding: "12px 16px" }}
+                                    onClick={goDistPhaseSearch}>
+                                    <FaSearch /> Kategori ara (ağaç ve arama)
+                                </button>
+                                <button type="button" className="ud-pm-btn purple" style={{ width: "100%", justifyContent: "center", padding: "12px 16px" }}
+                                    onClick={() => { void goDistPhaseCenter(); }}>
+                                    <FaSitemap /> Kategori merkezini kullan (otomatik)
+                                </button>
+                                <p style={{ fontSize: 11, color: "var(--ud-pm-text-dim)", margin: 0, lineHeight: 1.5 }}>
+                                    Kategori merkezi: ürününüzün Trendyol kayıtlı kategori ID’si veya ana ürün kategori metniyle eşleşen satırdan, <strong>{platform}</strong> için tanımlı kategori kullanılır.
+                                </p>
+                            </div>
+                        )}
+
+                        {phase === "search" && (
+                            <div>
+                                <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+                                    <button type="button" className="ud-pm-btn sm muted" onClick={() => { setDistUi((u) => (u ? { ...u, phase: "menu" } : u)); }}>
+                                        <FaChevronLeft /> Geri
+                                    </button>
+                                    <button type="button" className="ud-pm-btn sm outline" onClick={() => loadDistCategoryTree(platform)} disabled={distLoadingTree}>
+                                        <FaSync /> Yenile
+                                    </button>
+                                </div>
+                                <div className="ud-pm-cat-search-grid" style={{ marginBottom: 10 }}>
+                                    <span className="search-icon"><FaSearch /></span>
+                                    <input
+                                        className="search-input"
+                                        value={distSearch}
+                                        onChange={(e) => handleDistSearchChange(e.target.value)}
+                                        placeholder={`${platform} kategorilerinde ara (en az 2 harf)...`}
+                                    />
+                                    <span className="search-spinner">{distLoadingSearch ? <FaSpinner className="ud-pm-spin" /> : null}</span>
+                                </div>
+                                {distResults.length > 0 && (
+                                    <div className="ud-pm-cat-results" style={{ maxHeight: 160, marginBottom: 10 }}>
+                                        {distResults.map((cat) => (
+                                            <div
+                                                key={String(cat.id)}
+                                                className={`ud-pm-cat-result-item ${distSelected?.id === cat.id ? "selected" : ""}`}
+                                                onClick={() => setDistSelected({ id: cat.id, name: cat.name, path: cat.path || cat.name })}
+                                            >
+                                                <div className="cat-name">{cat.name}</div>
+                                                <div className="cat-path">{cat.path}</div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                                {distLoadingTree ? <div className="ud-pm-cat-loading"><FaSpinner className="spin" /> Yükleniyor...</div>
+                                    : (
+                                        <div className="ud-pm-cat-tree-container" style={{ maxHeight: 280, overflowY: "auto" }}>
+                                            {distTree.length ? distTree.map((c) => renderDistCategoryNode(c, 0, []))
+                                                : <div style={{ fontSize: 12, color: "var(--ud-pm-text-dim)" }}>Kategori bulunamadı.</div>}
+                                        </div>
+                                    )}
+                                {distSelected && (
+                                    <div style={{ marginTop: 12, padding: 10, background: "rgba(78,205,196,0.08)", borderRadius: 8, fontSize: 11 }}>
+                                        <strong>Seçili:</strong> {distSelected.path}{" "}
+                                        <span style={{ color: "var(--ud-pm-text-dim)" }}>(ID: {distSelected.id})</span>
+                                    </div>
+                                )}
+                                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
+                                    <button type="button" className="ud-pm-btn accent" disabled={distActionLoading || !normalizeUploadCategory(distSelected)}
+                                        onClick={() => distributeWithCategoryAndRefresh(product, platform, distSelected)}>
+                                        {distActionLoading ? <span className="spinner" /> : <FaRocket />} Gönder
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {phase === "center" && (
+                            <div>
+                                <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+                                    <button type="button" className="ud-pm-btn sm muted" onClick={() => { setDistCenter(null); setDistUi((u) => (u ? { ...u, phase: "menu" } : u)); }} disabled={distCenterLoading}>
+                                        <FaChevronLeft /> Geri
+                                    </button>
+                                </div>
+                                {distCenterLoading ? <Loading />
+                                    : distCenter?.resolved ? (
+                                        <div style={{ fontSize: 12, lineHeight: 1.6 }}>
+                                            <div style={{ marginBottom: 10, padding: 10, background: "var(--ud-pm-glass)", borderRadius: 8 }}>
+                                                <div style={{ fontWeight: 700, color: "var(--ud-pm-text)", marginBottom: 6 }}>Kategori merkezi (master)</div>
+                                                <div style={{ color: "var(--ud-pm-text-sub)" }}>{distCenter.master?.masterPath || distCenter.master?.masterName || "—"}</div>
+                                            </div>
+                                            <div style={{ marginBottom: 10, padding: 10, border: "1px solid var(--ud-pm-border)", borderRadius: 8 }}>
+                                                <div style={{ fontWeight: 700, color: "var(--ud-pm-accent)", marginBottom: 6 }}>{platform} — merkezdeki eşlenik</div>
+                                                {distCenter.platformCategory?.categoryPath ? (
+                                                    <div style={{ color: "var(--ud-pm-text)" }}>{distCenter.platformCategory.categoryPath}</div>
+                                                ) : null}
+                                                <div style={{ color: "var(--ud-pm-text-dim)", marginTop: 4 }}>
+                                                    Kategori ID: <code style={{ color: "var(--ud-pm-accent)" }}>{distCenter.platformCategory?.categoryId || "—"}</code>
+                                                </div>
+                                                {!distCenter.platformCategory?.isComplete && (
+                                                    <p style={{ color: "var(--ud-pm-yellow)", margin: "8px 0 0" }}>
+                                                        Merkezde bu platform için kategori ID boş. Kategori Ara ile manuel seçin veya Kategori Merkezi sayfasında eşleştirmeyi tamamlayın.
+                                                    </p>
+                                                )}
+                                            </div>
+                                            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                                                <button type="button" className="ud-pm-btn purple" disabled={distActionLoading || !distCenter.platformCategory?.categoryId}
+                                                    onClick={confirmCenterDistribute}>
+                                                    {distActionLoading ? <span className="spinner" /> : <FaRocket />} Bu kategori ile gönder
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div style={{ textAlign: "center", padding: "8px 0" }}>
+                                            <p style={{ color: "var(--ud-pm-text-sub)", fontSize: 12, marginBottom: 12 }}>
+                                                {distCenter?.hint
+                                                    ? `Ürün kategorisi: "${distCenter.hint}" — merkezde eşleşen satır bulunamadı.`
+                                                    : "Kategori merkezinde eşleşme yok. Önce ürüne kategori atayın veya Kategori Ara kullanın."}
+                                            </p>
+                                            <button type="button" className="ud-pm-btn accent outline" onClick={goDistPhaseSearch}>
+                                                Kategori ara
+                                            </button>
+                                        </div>
+                                    )}
+                            </div>
+                        )}
+                    </motion.div>
+                </motion.div>
+            </AnimatePresence>,
+            document.body
+        );
+    };
 
     /* ═══════════════════════════════════════════════════════════════
        ÜRÜN DETAY MODAL
@@ -1869,7 +2679,7 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
                                                 </> : <>
                                                     <Pill color="var(--ud-pm-text-dim)">Pasif</Pill>
                                                     <button className="ud-pm-btn sm outline" style={{ borderColor: PL_COLOR[pl], color: PL_COLOR[pl] }}
-                                                        onClick={() => { distributeProduct(p._id, [pl]).then(() => { showToast(`${pl} dağıtıldı`); openDetail(p._id); }).catch(() => showToast("Hata", "error")); }}>
+                                                        onClick={() => openDistFlow(p, pl)}>
                                                         <FaRocket /> Gönder
                                                     </button>
                                                 </>}
@@ -1937,7 +2747,7 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
                                 </button>
                             </div>
                         ) : (
-                            /* Silme onay ekranı */
+                            /* Silme onay ekâranı */
                             <>
                                 <div style={{ textAlign: "center", marginBottom: 16 }}>
                                     <div style={{ fontSize: 40, marginBottom: 10 }}><FaExclamationTriangle style={{ color: "var(--ud-pm-red)" }} /></div>
@@ -1969,7 +2779,7 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
                                 {!hasPlatforms && (
                                     <div style={{ background: "rgba(78,205,196,0.06)", border: "1px solid rgba(78,205,196,0.15)", borderRadius: 10, padding: "10px 14px", marginBottom: 14, display: "flex", alignItems: "center", gap: 8 }}>
                                         <FaInfoCircle style={{ color: "var(--ud-pm-accent)", fontSize: 14, flexShrink: 0 }} />
-                                        <span style={{ color: "var(--ud-pm-text-sub)", fontSize: 12 }}>Bu ürün hiçbir pazaryerine dağıtılmamış. Sadece yerel kayıt silinecek.</span>
+                                        <span style={{ color: "var(--ud-pm-text-sub)", fontSize: 12 }}>Bu ürün hiçbir pazaryerine dağıtılmamış. Sİadece yerel kayıt silinecek.</span>
                                     </div>
                                 )}
 
@@ -2090,10 +2900,10 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
             <div className="ud-pm-bulk-layout">
                 {/* SOL: Ürün Listesi */}
                 <div>
-                    <div className="ud-pm-toolbar">
-                        <div className="ud-pm-search-wrap" style={{ maxWidth: 300 }}>
+                    <div className="ud-pm-toolbar ud-pm-toolbar--card">
+                        <div className="ud-pm-search-wrap ud-pm-search-wrap--narrow">
                             <span className="icon"><FaSearch /></span>
-                            <input className="ud-pm-search" value={bulkSearch} onChange={e => setBulkSearch(e.target.value)} placeholder="Ürün adı, barkod, SKU..." />
+                            <input className="ud-pm-search" value={bulkSearch} onChange={e => setBulkSearch(e.target.value)} placeholder="Ürün adı, barkod, SKU..." aria-label="Toplu işlemde ürün ara" />
                         </div>
                         <Pill color="var(--ud-pm-accent)"><FaCheck style={{ fontSize: 8 }} /> {bulkSelected.size} / {bulkTotal}</Pill>
                         <button className="ud-pm-btn sm accent outline" onClick={bulkSelectAll} disabled={bulkActionLoading}><FaClipboardList /> Tümünü Seç</button>
@@ -2366,44 +3176,260 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
     };
 
     /* ═══════════════════════════════════════════════════════════════
+       TAB: VARYANT GRUPLARI (aynı model — Trendyol productMainId hizası)
+       ═══════════════════════════════════════════════════════════════ */
+    const vgToggleCreatePick = (id) => {
+        const s = String(id);
+        setVgCreatePick((prev) => { const n = new Set(prev); n.has(s) ? n.delete(s) : n.add(s); return n; });
+    };
+    const vgTogglePickerPick = (id) => {
+        const s = String(id);
+        setVgPickerPick((prev) => { const n = new Set(prev); n.has(s) ? n.delete(s) : n.add(s); return n; });
+    };
+    const vgCloseCreate = () => {
+        setVgCreateOpen(false);
+        setVgCreateStep(1);
+        setVgListSearch("");
+    };
+    const vgOpenCreate = async () => {
+        setVgFormName(""); setVgFormNotes(""); setVgFormMainId(""); setVgFormColorLbl("Renk"); setVgFormSizeLbl("Beden");
+        setVgCreatePick(new Set()); setVgCreateStep(1); setVgListSearch("");
+        setVgCreateOpen(true);
+        setVgListLoading(true);
+        try {
+            const res = await getProducts({ page: 0, limit: 300 });
+            setVgPickerRows((res.products || []).filter((p) => !p.variantGroupId));
+        } catch { setVgPickerRows([]); }
+        finally { setVgListLoading(false); }
+    };
+    const vgFilteredUngrouped = () => filterVgProductRows(vgPickerRows, vgListSearch);
+    const vgSelectAllFilteredCreate = () => {
+        const filtered = vgFilteredUngrouped();
+        setVgCreatePick((prev) => {
+            const n = new Set(prev);
+            filtered.forEach((p) => n.add(String(p._id)));
+            return n;
+        });
+    };
+    const vgClearCreatePick = () => setVgCreatePick(new Set());
+    const vgSelectAllFilteredPicker = () => {
+        const filtered = vgFilteredUngrouped();
+        setVgPickerPick((prev) => {
+            const n = new Set(prev);
+            filtered.forEach((p) => n.add(String(p._id)));
+            return n;
+        });
+    };
+    const vgClearPickerPick = () => setVgPickerPick(new Set());
+    const vgClosePicker = () => {
+        setVgPickerOpen(false);
+        setVgListSearch("");
+        setVgPickerPick(new Set());
+    };
+    const vgSubmitCreate = async () => {
+        if (vgFormName.trim().length < 2) { showToast("Grup adı en az 2 karakter olmalı", "error"); return; }
+        try {
+            await createVariantGroup({
+                name: vgFormName.trim(),
+                notes: vgFormNotes,
+                trendyolProductMainId: vgFormMainId.trim(),
+                memberIds: [...vgCreatePick],
+                dimensionHint: { colorLabel: vgFormColorLbl, sizeLabel: vgFormSizeLbl },
+            });
+            vgCloseCreate();
+            showToast("Varyant grubu oluşturuldu");
+            loadVariantGroups();
+            loadProducts(page);
+        } catch (e) { showToast(e.response?.data?.error || e.message, "error"); }
+    };
+    const vgOpenDetail = async (groupId) => {
+        setVgActiveId(groupId); setVgDetailOpen(true);
+        try {
+            const data = await getVariantGroup(groupId);
+            setVgFormName(data.group?.name || "");
+            setVgFormNotes(data.group?.notes || "");
+            setVgFormMainId(data.group?.trendyolProductMainId || "");
+            setVgFormColorLbl(data.group?.dimensionHint?.colorLabel || "Renk");
+            setVgFormSizeLbl(data.group?.dimensionHint?.sizeLabel || "Beden");
+            setVgMembers(data.members || []);
+        } catch (e) {
+            showToast(e.response?.data?.error || e.message, "error");
+            setVgMembers([]);
+        }
+    };
+    const vgSaveDetailMeta = async () => {
+        if (!vgActiveId) return;
+        try {
+            await updateVariantGroup(vgActiveId, {
+                name: vgFormName.trim(),
+                notes: vgFormNotes,
+                trendyolProductMainId: vgFormMainId.trim(),
+                dimensionHint: { colorLabel: vgFormColorLbl, sizeLabel: vgFormSizeLbl },
+            });
+            showToast("Grup bilgileri kaydedildi");
+            loadVariantGroups();
+            const data = await getVariantGroup(vgActiveId);
+            setVgMembers(data.members || []);
+        } catch (e) { showToast(e.response?.data?.error || e.message, "error"); }
+    };
+    const vgOpenAddPicker = async () => {
+        if (!vgActiveId) return;
+        setVgPickerPick(new Set()); setVgListSearch(""); setVgPickerOpen(true);
+        setVgListLoading(true);
+        try {
+            const res = await getProducts({ page: 0, limit: 300 });
+            setVgPickerRows((res.products || []).filter((p) => !p.variantGroupId));
+        } catch { setVgPickerRows([]); }
+        finally { setVgListLoading(false); }
+    };
+    const vgSubmitAddMembers = async () => {
+        if (!vgActiveId || vgPickerPick.size === 0) return;
+        try {
+            await addVariantGroupMembers(vgActiveId, [...vgPickerPick]);
+            vgClosePicker();
+            showToast("Ürünler gruba eklendi");
+            const data = await getVariantGroup(vgActiveId);
+            setVgMembers(data.members || []);
+            loadVariantGroups();
+            loadProducts(page);
+        } catch (e) { showToast(e.response?.data?.error || e.message, "error"); }
+    };
+    const vgRemoveMember = async (productId) => {
+        if (!vgActiveId) return;
+        if (!window.confirm("Bu ürünü gruptan çıkarmak istiyor musunuz?")) return;
+        try {
+            await removeVariantGroupMembers(vgActiveId, [productId]);
+            showToast("Ürün gruptan çıkarıldı");
+            const data = await getVariantGroup(vgActiveId);
+            setVgMembers(data.members || []);
+            loadVariantGroups();
+            loadProducts(page);
+        } catch (e) { showToast(e.response?.data?.error || e.message, "error"); }
+    };
+    const vgDeleteGroup = async () => {
+        if (!vgActiveId) return;
+        if (!window.confirm("Grup silinecek; ürünlerdeki grup bağlantısı kalkar. Emin misiniz?")) return;
+        try {
+            await deleteVariantGroup(vgActiveId);
+            setVgDetailOpen(false); setVgActiveId(null);
+            showToast("Grup silindi");
+            loadVariantGroups();
+            loadProducts(page);
+        } catch (e) { showToast(e.response?.data?.error || e.message, "error"); }
+    };
+    const vgCopyMainId = () => {
+        const t = (vgFormMainId || "").trim();
+        if (t) navigator.clipboard?.writeText(t).then(() => showToast("Model kodu kopyalandı")).catch(() => {});
+        else showToast("Önce Trendyol model kodunu girin", "error");
+    };
+
+    const renderVariantGroups = () => (
+        <div className="ud-pm-wizard-tab">
+            <div className="ud-pm-wizard-tab-intro ud-pm-card" role="note">
+                <p className="ud-pm-wizard-tab-desc" style={{ marginBottom: 10 }}>
+                    <strong>Varyant grubu</strong> aynı ürün modelinin farklı <strong>renk / beden</strong> satırlarını tek çatı altında tutar.
+                    Trendyol’da ortak <strong>model kodu</strong> (<code style={{ color: "var(--ud-pm-accent)" }}>productMainId</code>) burada tanımlanır; her satırın kendi barkodu ve stok kodu kalır.
+                </p>
+                <p className="ud-pm-wizard-tab-desc" style={{ marginBottom: 0 }}>
+                    <FaInfoCircle style={{ color: "var(--ud-pm-accent)", marginRight: 6, verticalAlign: "middle" }} />
+                    <strong>Kullanım:</strong> Yeni grup → (isteğe bağlı) grupsuz ürünleri seçin → Trendyol model kodunu girin.
+                    Düzenle ile üye ekleyip çıkarın. Başka gruptaki ürün eklenemez.
+                </p>
+            </div>
+            <div className="ud-pm-card" style={{ marginTop: 14 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12, marginBottom: 16 }}>
+                    <h2 style={{ margin: 0, fontSize: "1rem", display: "flex", alignItems: "center", gap: 8 }}>
+                        <FaObjectGroup style={{ color: "var(--ud-pm-accent)" }} /> Gruplar
+                    </h2>
+                    <button type="button" className="ud-pm-btn accent" onClick={vgOpenCreate}><FaPlus /> Yeni grup</button>
+                </div>
+                {vgLoading ? (
+                    <div style={{ textAlign: "center", padding: 40, color: "var(--ud-pm-text-dim)" }}><FaSpinner className="spinner" /> Yükleniyor…</div>
+                ) : vgGroups.length === 0 ? (
+                    <div style={{ textAlign: "center", padding: 36, color: "var(--ud-pm-text-dim)" }}>
+                        <p>Henüz grup yok.</p>
+                        <button type="button" className="ud-pm-btn outline" onClick={vgOpenCreate}><FaPlus /> İlk grubu oluştur</button>
+                    </div>
+                ) : (
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 12 }}>
+                        {vgGroups.map((g) => (
+                            <div key={g._id} className="ud-pm-card" style={{ margin: 0, padding: 16 }}>
+                                <div style={{ fontWeight: 800, fontSize: "0.95rem", marginBottom: 10 }}>{g.name}</div>
+                                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
+                                    <span style={{
+                                        fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 999,
+                                        background: "rgba(78,205,196,0.12)", border: "1px solid rgba(78,205,196,0.35)", color: "var(--ud-pm-accent)",
+                                    }}>{(g.memberIds || []).length} ürün</span>
+                                    {g.trendyolProductMainId && (
+                                        <span style={{
+                                            fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 999,
+                                            border: "1px solid var(--ud-pm-border)", color: "var(--ud-pm-text-sub)",
+                                        }}>TY: {g.trendyolProductMainId}</span>
+                                    )}
+                                </div>
+                                <button type="button" className="ud-pm-btn sm outline" onClick={() => vgOpenDetail(g._id)}><FaEdit /> Düzenle</button>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+
+    /* ═══════════════════════════════════════════════════════════════
        ANA RENDER
        ═══════════════════════════════════════════════════════════════ */
     const tabs = [
         { id: "products", icon: <FaBox />, label: "Ürünler", count: total },
+        { id: "newProduct", icon: <FaRocket />, label: "Yeni ürün & dağıt" },
         { id: "uploadMp", icon: <FaCloudUploadAlt />, label: "Ürünleri Yükle" },
+        { id: "variants", icon: <FaObjectGroup />, label: "Varyant grupları", count: vgGroups.length > 0 ? vgGroups.length : undefined },
         { id: "pricestock", icon: <FaDollarSign />, label: "Fiyat & Stok" },
+        { id: "channel-prices", icon: <FaPercentage />, label: "Pazaryeri Fiyatları" },
         { id: "bulk", icon: <FaLayerGroup />, label: "Toplu İşlem", count: bulkSelected.size > 0 ? bulkSelected.size : undefined },
-        { id: "sync", icon: <FaSync />, label: "Senkronizasyon" },
+        { id: "sync", icon: <FaSync />, label: "Senkâronizasyon" },
     ];
 
     return (
         <div className="ud-pm-root">
             {/* Header */}
-            <div className="ud-pm-header">
+            <header className="ud-pm-header ud-pm-header--panel">
                 <h1><FaCubes /> Ürün Yönetim Merkezi</h1>
-                <p>Ürünlerinizi yönetin, platformlara dağıtın, stok ve fiyat senkronizasyonu yapın</p>
-            </div>
+                <p>Ürünlerinizi yönetin, platformlara dağıtın, stok ve fiyat senkronizasyonu yapın.</p>
+            </header>
 
             {/* Dashboard Cards */}
             {renderDashCards()}
 
             {/* Tab Bar */}
-            <div className="ud-pm-tabs">
-                {tabs.map(t => (
-                    <button key={t.id} className={`ud-pm-tab ${tab === t.id ? "active" : ""}`} onClick={() => setTab(t.id)}>
-                        <span className="ud-pm-tab-icon">{t.icon}</span>
-                        <span>{t.label}</span>
-                        {t.count !== undefined && <span className="ud-pm-tab-count">{t.count}</span>}
-                    </button>
-                ))}
-            </div>
+            <nav className="ud-pm-tabs-rail" aria-label="Bölümler">
+                <div className="ud-pm-tabs" role="tablist">
+                    {tabs.map(t => (
+                        <button
+                            key={t.id}
+                            type="button"
+                            role="tab"
+                            aria-selected={tab === t.id}
+                            className={`ud-pm-tab ${tab === t.id ? "active" : ""}`}
+                            onClick={() => setTab(t.id)}
+                        >
+                            <span className="ud-pm-tab-icon" aria-hidden>{t.icon}</span>
+                            <span className="ud-pm-tab-label">{t.label}</span>
+                            {t.count !== undefined && <span className="ud-pm-tab-count">{t.count}</span>}
+                        </button>
+                    ))}
+                </div>
+            </nav>
 
             {/* Tab Content */}
             <AnimatePresence mode="wait">
-                <motion.div key={tab} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: .18 }}>
+                <motion.div className="ud-pm-tab-panel" key={tab} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: .18 }} role="tabpanel">
                     {tab === "products" && renderProducts()}
+                    {tab === "newProduct" && renderNewProductWizard()}
                     {tab === "uploadMp" && renderUploadMarketplace()}
+                    {tab === "variants" && renderVariantGroups()}
                     {tab === "pricestock" && renderPriceStock()}
+                    {tab === "channel-prices" && renderChannelPrices()}
 
                     {tab === "bulk" && renderBulk()}
                     {tab === "sync" && renderSync()}
@@ -2412,6 +3438,9 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
 
             {/* Detail Modal */}
             {renderDetailModal()}
+
+            {/* Gönder → kategori seçimi */}
+            {renderDistributeModal()}
 
             {/* Delete Confirm Modal */}
             {renderDeleteConfirmModal()}
@@ -2425,6 +3454,335 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
                     </motion.div>
                 )}
             </AnimatePresence>
+
+            {ReactDOM.createPortal(
+            <AnimatePresence>
+                {vgCreateOpen && (
+                    <motion.div className="ud-pm-modal-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={vgCloseCreate}>
+                        <motion.div className="ud-pm-modal" initial={{ scale: .9 }} animate={{ scale: 1 }} exit={{ scale: .9 }} onClick={e => e.stopPropagation()} style={{
+                            width: "min(96vw, 900px)",
+                            maxHeight: "min(92vh, 720px)",
+                            display: "flex",
+                            flexDirection: "column",
+                            padding: 0,
+                            overflow: "hidden",
+                        }}>
+                            <div style={{ padding: "18px 20px 14px", borderBottom: "1px solid var(--ud-pm-border)", flexShrink: 0 }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                                    <span style={{
+                                        fontSize: 11, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase",
+                                        padding: "4px 10px", borderRadius: 999,
+                                        background: vgCreateStep === 1 ? "rgba(78,205,196,0.2)" : "var(--ud-pm-glass)",
+                                        color: vgCreateStep === 1 ? "var(--ud-pm-accent)" : "var(--ud-pm-text-dim)",
+                                    }}>1 · Grup bilgisi</span>
+                                    <span style={{ color: "var(--ud-pm-text-dim)", fontSize: 12 }}>→</span>
+                                    <span style={{
+                                        fontSize: 11, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase",
+                                        padding: "4px 10px", borderRadius: 999,
+                                        background: vgCreateStep === 2 ? "rgba(78,205,196,0.2)" : "var(--ud-pm-glass)",
+                                        color: vgCreateStep === 2 ? "var(--ud-pm-accent)" : "var(--ud-pm-text-dim)",
+                                    }}>2 · Ürün seçimi</span>
+                                </div>
+                                <h3 style={{ margin: 0, fontSize: 17, display: "flex", alignItems: "center", gap: 8, color: "var(--ud-pm-text)" }}>
+                                    <FaObjectGroup style={{ color: "var(--ud-pm-accent)" }} /> {vgCreateStep === 1 ? "Yeni varyant grubu" : "Hangi ürünler bu grupta?"}
+                                </h3>
+                                <p style={{ fontSize: 12, color: "var(--ud-pm-text-dim)", margin: "8px 0 0", lineHeight: 1.55 }}>
+                                    {vgCreateStep === 1
+                                        ? "Önce grubu tanımlayın. İsterseniz bir sonraki adımda grupsuz ürünleri tek seferde seçebilir veya hiç seçmeden boş grup oluşturup sonra düzenleyebilirsiniz."
+                                        : "Arama ile listede daraltın. Filtrede görünen tümünü seç veya tek tek işaretleyin. Seçim zorunlu değil — ürünleri daha sonra da ekleyebilirsiniz."}
+                                </p>
+                            </div>
+
+                            <div style={{ flex: 1, overflow: "auto", padding: "16px 20px" }}>
+                                {vgCreateStep === 1 ? (
+                                    <div style={{ display: "flex", flexDirection: "column", gap: 14, maxWidth: 520 }}>
+                                        <div className="ud-pm-field">
+                                            <label>Grup adı <span className="required">*</span></label>
+                                            <input className="ud-pm-inline-input" style={{ width: "100%", boxSizing: "border-box" }} value={vgFormName} onChange={(e) => setVgFormName(e.target.value)} placeholder="Örn. Yıldız model temassız aparat" />
+                                        </div>
+                                        <div className="ud-pm-field">
+                                            <label>Notlar (isteğe bağlı)</label>
+                                            <textarea className="ud-pm-inline-input" style={{ width: "100%", boxSizing: "border-box", minHeight: 72 }} rows={3} value={vgFormNotes} onChange={(e) => setVgFormNotes(e.target.value)} />
+                                        </div>
+                                        <div className="ud-pm-field">
+                                            <label>Trendyol model kodu (productMainId)</label>
+                                            <input className="ud-pm-inline-input" style={{ width: "100%", boxSizing: "border-box" }} value={vgFormMainId} onChange={(e) => setVgFormMainId(e.target.value)} placeholder="Tüm varyantlarda aynı olacak kod — boş bırakılabilir" />
+                                        </div>
+                                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                                            <div className="ud-pm-field">
+                                                <label>Varyant etiketi — renk</label>
+                                                <input className="ud-pm-inline-input" style={{ width: "100%", boxSizing: "border-box" }} value={vgFormColorLbl} onChange={(e) => setVgFormColorLbl(e.target.value)} />
+                                            </div>
+                                            <div className="ud-pm-field">
+                                                <label>Varyant etiketi — beden</label>
+                                                <input className="ud-pm-inline-input" style={{ width: "100%", boxSizing: "border-box" }} value={vgFormSizeLbl} onChange={(e) => setVgFormSizeLbl(e.target.value)} />
+                                            </div>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                                        <div style={{ position: "relative" }}>
+                                            <FaSearch style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "var(--ud-pm-text-dim)", fontSize: 14, pointerEvents: "none" }} />
+                                            <input
+                                                className="ud-pm-inline-input"
+                                                style={{ width: "100%", boxSizing: "border-box", paddingLeft: 36 }}
+                                                value={vgListSearch}
+                                                onChange={(e) => setVgListSearch(e.target.value)}
+                                                placeholder="Ürün adı, stok kodu veya barkod ile ara…"
+                                                aria-label="Ürün ara"
+                                            />
+                                        </div>
+                                        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, justifyContent: "space-between" }}>
+                                            <div style={{ fontSize: 12, color: "var(--ud-pm-text-sub)", fontWeight: 600 }}>
+                                                <strong style={{ color: "var(--ud-pm-accent)" }}>{vgCreatePick.size}</strong> seçili
+                                                <span style={{ color: "var(--ud-pm-text-dim)", fontWeight: 500 }}> · </span>
+                                                Liste: <strong>{vgFilteredUngrouped().length}</strong> / {vgPickerRows.length} grupsuz
+                                            </div>
+                                            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                                                <button type="button" className="ud-pm-btn sm outline" onClick={vgSelectAllFilteredCreate} disabled={vgFilteredUngrouped().length === 0}>Filtreyi tamamını seç</button>
+                                                <button type="button" className="ud-pm-btn sm outline" onClick={vgClearCreatePick} disabled={vgCreatePick.size === 0}>Seçimi temizle</button>
+                                            </div>
+                                        </div>
+                                        <div style={{
+                                            border: "1px solid var(--ud-pm-border)",
+                                            borderRadius: 10,
+                                            overflow: "hidden",
+                                            minHeight: 280,
+                                            maxHeight: "min(42vh, 380px)",
+                                            overflowY: "auto",
+                                            background: "var(--ud-pm-card-alt)",
+                                        }}>
+                                            {vgListLoading ? (
+                                                <div style={{ padding: 48, textAlign: "center", color: "var(--ud-pm-text-dim)" }}><FaSpinner className="spinner" /> Ürünler yükleniyor…</div>
+                                            ) : vgPickerRows.length === 0 ? (
+                                                <div style={{ padding: 28, textAlign: "center", fontSize: 13, color: "var(--ud-pm-text-dim)" }}>
+                                                    Grupsuz ürün yok. Önce ürün ekleyin veya mevcut ürünler başka grupta olabilir.
+                                                </div>
+                                            ) : vgFilteredUngrouped().length === 0 ? (
+                                                <div style={{ padding: 28, textAlign: "center", fontSize: 13, color: "var(--ud-pm-text-dim)" }}>
+                                                    Aramanızla eşleşen ürün yok. Filtreyi temizleyin veya farklı kelime deneyin.
+                                                </div>
+                                            ) : (
+                                                vgFilteredUngrouped().map((p) => {
+                                                    const thumb = vgProductThumb(p);
+                                                    return (
+                                                        <label
+                                                            key={p._id}
+                                                            style={{
+                                                                display: "flex",
+                                                                alignItems: "center",
+                                                                gap: 12,
+                                                                padding: "10px 14px",
+                                                                borderBottom: "1px solid var(--ud-pm-glass-border)",
+                                                                cursor: "pointer",
+                                                                fontSize: 12,
+                                                            }}
+                                                        >
+                                                            <input type="checkbox" checked={vgCreatePick.has(String(p._id))} onChange={() => vgToggleCreatePick(p._id)} style={{ width: 16, height: 16, flexShrink: 0 }} />
+                                                            {thumb ? (
+                                                                <img src={thumb} alt="" style={{ width: 44, height: 44, objectFit: "cover", borderRadius: 8, flexShrink: 0, background: "var(--ud-pm-surface)" }} />
+                                                            ) : (
+                                                                <div style={{ width: 44, height: 44, borderRadius: 8, background: "var(--ud-pm-glass)", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--ud-pm-text-dim)", fontSize: 10 }}>—</div>
+                                                            )}
+                                                            <div style={{ minWidth: 0, flex: 1 }}>
+                                                                <div style={{ fontWeight: 700, color: "var(--ud-pm-text)", lineHeight: 1.35, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{p.masterProduct?.name || "—"}</div>
+                                                                <div style={{ color: "var(--ud-pm-text-dim)", marginTop: 4, display: "flex", flexWrap: "wrap", gap: 8 }}>
+                                                                    <span>SKU: <strong style={{ color: "var(--ud-pm-text-sub)" }}>{p.masterProduct?.sku || "—"}</strong></span>
+                                                                    <span>Barkod: <strong style={{ color: "var(--ud-pm-text-sub)" }}>{p.masterProduct?.barcode || "—"}</strong></span>
+                                                                    <span>{summarizeVariantAttrs(p.masterProduct?.attributes)}</span>
+                                                                </div>
+                                                            </div>
+                                                        </label>
+                                                    );
+                                                })
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div style={{
+                                padding: "14px 20px",
+                                borderTop: "1px solid var(--ud-pm-border)",
+                                display: "flex",
+                                flexWrap: "wrap",
+                                gap: 10,
+                                justifyContent: "flex-end",
+                                alignItems: "center",
+                                flexShrink: 0,
+                                background: "rgba(0,0,0,0.12)",
+                            }}>
+                                {vgCreateStep === 2 && (
+                                    <button type="button" className="ud-pm-btn outline" style={{ marginRight: "auto" }} onClick={() => setVgCreateStep(1)}><FaChevronLeft /> Geri</button>
+                                )}
+                                <button type="button" className="ud-pm-btn outline" onClick={vgCloseCreate}>İptal</button>
+                                {vgCreateStep === 1 ? (
+                                    <button type="button" className="ud-pm-btn accent" onClick={() => setVgCreateStep(2)} disabled={vgFormName.trim().length < 2}>
+                                        İleri — ürün seç <FaChevronRight style={{ marginLeft: 4 }} />
+                                    </button>
+                                ) : (
+                                    <button type="button" className="ud-pm-btn accent" onClick={vgSubmitCreate} disabled={vgFormName.trim().length < 2}>
+                                        Grubu oluştur{vgCreatePick.size > 0 ? ` (${vgCreatePick.size} ürün)` : " (boş)"}
+                                    </button>
+                                )}
+                            </div>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>, document.body)}
+
+            {ReactDOM.createPortal(
+            <AnimatePresence>
+                {vgDetailOpen && vgActiveId && (
+                    <motion.div className="ud-pm-modal-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setVgDetailOpen(false)}>
+                        <motion.div className="ud-pm-modal" initial={{ scale: .9 }} animate={{ scale: 1 }} exit={{ scale: .9 }} onClick={e => e.stopPropagation()} style={{ maxWidth: 600, maxHeight: "92vh", overflow: "auto" }}>
+                            <h3 style={{ margin: "0 0 12px", fontSize: 16, color: "var(--ud-pm-text)" }}><FaEdit /> Grup düzenle</h3>
+                            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                                <label style={{ fontSize: 12, fontWeight: 600, color: "var(--ud-pm-text-sub)" }}>Grup adı</label>
+                                <input className="ud-pm-inline-input" value={vgFormName} onChange={(e) => setVgFormName(e.target.value)} />
+                                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                                    <div style={{ flex: 1 }}>
+                                        <label style={{ fontSize: 12, fontWeight: 600, color: "var(--ud-pm-text-sub)" }}>Trendyol model kodu</label>
+                                        <input className="ud-pm-inline-input" value={vgFormMainId} onChange={(e) => setVgFormMainId(e.target.value)} />
+                                    </div>
+                                    <button type="button" className="ud-pm-btn sm outline" style={{ marginTop: 20 }} onClick={vgCopyMainId}>Kopyala</button>
+                                </div>
+                                <label style={{ fontSize: 12, fontWeight: 600, color: "var(--ud-pm-text-sub)" }}>Notlar</label>
+                                <textarea className="ud-pm-inline-input" rows={2} value={vgFormNotes} onChange={(e) => setVgFormNotes(e.target.value)} />
+                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                                    <div><label style={{ fontSize: 11, color: "var(--ud-pm-text-dim)" }}>Renk etiketi</label><input className="ud-pm-inline-input" value={vgFormColorLbl} onChange={(e) => setVgFormColorLbl(e.target.value)} /></div>
+                                    <div><label style={{ fontSize: 11, color: "var(--ud-pm-text-dim)" }}>Beden etiketi</label><input className="ud-pm-inline-input" value={vgFormSizeLbl} onChange={(e) => setVgFormSizeLbl(e.target.value)} /></div>
+                                </div>
+                                <button type="button" className="ud-pm-btn sm accent" onClick={vgSaveDetailMeta}><FaSave /> Kaydet</button>
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
+                                    <strong style={{ fontSize: 13 }}>Ürünler ({vgMembers.length})</strong>
+                                    <button type="button" className="ud-pm-btn sm outline" onClick={vgOpenAddPicker}><FaPlus /> Ürün ekle</button>
+                                </div>
+                                <div style={{ maxHeight: 220, overflow: "auto", border: "1px solid var(--ud-pm-border)", borderRadius: 8 }}>
+                                    {vgMembers.length === 0 ? <p style={{ padding: 10, margin: 0, fontSize: 12 }}>Üye yok.</p> : vgMembers.map((m) => (
+                                        <div key={m._id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, padding: "10px 12px", borderBottom: "1px solid var(--ud-pm-glass-border)", fontSize: 12 }}>
+                                            <div style={{ minWidth: 0 }}>
+                                                <strong style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.masterProduct?.name}</strong>
+                                                <span style={{ color: "var(--ud-pm-text-dim)" }}>{m.masterProduct?.sku} · {m.masterProduct?.barcode} · {summarizeVariantAttrs(m.masterProduct?.attributes)} · stok: {m.stockTracking?.totalStock ?? "—"}</span>
+                                            </div>
+                                            <button type="button" className="ud-pm-btn sm red outline" onClick={() => vgRemoveMember(m._id)}>Çıkar</button>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                            <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "space-between", flexWrap: "wrap" }}>
+                                <button type="button" className="ud-pm-btn sm red" onClick={vgDeleteGroup}><FaTrash /> Grubu sil</button>
+                                <button type="button" className="ud-pm-btn outline" onClick={() => setVgDetailOpen(false)}>Kapat</button>
+                            </div>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>, document.body)}
+
+            {ReactDOM.createPortal(
+            <AnimatePresence>
+                {vgPickerOpen && (
+                    <motion.div className="ud-pm-modal-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={vgClosePicker}>
+                        <motion.div className="ud-pm-modal" initial={{ scale: .9 }} animate={{ scale: 1 }} exit={{ scale: .9 }} onClick={e => e.stopPropagation()} style={{
+                            width: "min(96vw, 640px)",
+                            maxHeight: "min(90vh, 640px)",
+                            display: "flex",
+                            flexDirection: "column",
+                            padding: 0,
+                            overflow: "hidden",
+                        }}>
+                            <div style={{ padding: "18px 20px 14px", borderBottom: "1px solid var(--ud-pm-border)", flexShrink: 0 }}>
+                                <h3 style={{ margin: 0, fontSize: 17, display: "flex", alignItems: "center", gap: 8, color: "var(--ud-pm-text)" }}><FaPlus style={{ color: "var(--ud-pm-accent)" }} /> Gruba ürün ekle</h3>
+                                <p style={{ fontSize: 12, color: "var(--ud-pm-text-dim)", margin: "8px 0 0", lineHeight: 1.55 }}>
+                                    Yalnızca henüz bir varyant grubuna bağlı olmayan ürünler listelenir (en fazla 300). Arama ile daraltıp toplu seçim yapabilirsiniz.
+                                </p>
+                            </div>
+                            <div style={{ flex: 1, overflow: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: 12 }}>
+                                <div style={{ position: "relative" }}>
+                                    <FaSearch style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", color: "var(--ud-pm-text-dim)", fontSize: 14, pointerEvents: "none" }} />
+                                    <input
+                                        className="ud-pm-inline-input"
+                                        style={{ width: "100%", boxSizing: "border-box", paddingLeft: 36 }}
+                                        value={vgListSearch}
+                                        onChange={(e) => setVgListSearch(e.target.value)}
+                                        placeholder="Ürün adı, stok kodu veya barkod ile ara…"
+                                        aria-label="Ürün ara"
+                                    />
+                                </div>
+                                <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, justifyContent: "space-between" }}>
+                                    <div style={{ fontSize: 12, color: "var(--ud-pm-text-sub)", fontWeight: 600 }}>
+                                        <strong style={{ color: "var(--ud-pm-accent)" }}>{vgPickerPick.size}</strong> seçili
+                                        <span style={{ color: "var(--ud-pm-text-dim)", fontWeight: 500 }}> · </span>
+                                        Liste: <strong>{vgFilteredUngrouped().length}</strong> / {vgPickerRows.length} grupsuz
+                                    </div>
+                                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                                        <button type="button" className="ud-pm-btn sm outline" onClick={vgSelectAllFilteredPicker} disabled={vgFilteredUngrouped().length === 0}>Filtreyi tamamını seç</button>
+                                        <button type="button" className="ud-pm-btn sm outline" onClick={vgClearPickerPick} disabled={vgPickerPick.size === 0}>Seçimi temizle</button>
+                                    </div>
+                                </div>
+                                <div style={{
+                                    border: "1px solid var(--ud-pm-border)",
+                                    borderRadius: 10,
+                                    overflow: "hidden",
+                                    minHeight: 260,
+                                    maxHeight: "min(48vh, 400px)",
+                                    overflowY: "auto",
+                                    background: "var(--ud-pm-card-alt)",
+                                }}>
+                                    {vgListLoading ? (
+                                        <div style={{ padding: 48, textAlign: "center", color: "var(--ud-pm-text-dim)" }}><FaSpinner className="spinner" /> Ürünler yükleniyor…</div>
+                                    ) : vgPickerRows.length === 0 ? (
+                                        <div style={{ padding: 28, textAlign: "center", fontSize: 13, color: "var(--ud-pm-text-dim)" }}>
+                                            Gruba eklenebilecek grupsuz ürün yok.
+                                        </div>
+                                    ) : vgFilteredUngrouped().length === 0 ? (
+                                        <div style={{ padding: 28, textAlign: "center", fontSize: 13, color: "var(--ud-pm-text-dim)" }}>
+                                            Aramanızla eşleşen ürün yok. Farklı kelime deneyin.
+                                        </div>
+                                    ) : (
+                                        vgFilteredUngrouped().map((p) => {
+                                            const thumb = vgProductThumb(p);
+                                            return (
+                                                <label
+                                                    key={p._id}
+                                                    style={{
+                                                        display: "flex",
+                                                        alignItems: "center",
+                                                        gap: 12,
+                                                        padding: "10px 14px",
+                                                        borderBottom: "1px solid var(--ud-pm-glass-border)",
+                                                        cursor: "pointer",
+                                                        fontSize: 12,
+                                                    }}
+                                                >
+                                                    <input type="checkbox" checked={vgPickerPick.has(String(p._id))} onChange={() => vgTogglePickerPick(p._id)} style={{ width: 16, height: 16, flexShrink: 0 }} />
+                                                    {thumb ? (
+                                                        <img src={thumb} alt="" style={{ width: 44, height: 44, objectFit: "cover", borderRadius: 8, flexShrink: 0, background: "var(--ud-pm-surface)" }} />
+                                                    ) : (
+                                                        <div style={{ width: 44, height: 44, borderRadius: 8, background: "var(--ud-pm-glass)", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--ud-pm-text-dim)", fontSize: 10 }}>—</div>
+                                                    )}
+                                                    <div style={{ minWidth: 0, flex: 1 }}>
+                                                        <div style={{ fontWeight: 700, color: "var(--ud-pm-text)", lineHeight: 1.35, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{p.masterProduct?.name || "—"}</div>
+                                                        <div style={{ color: "var(--ud-pm-text-dim)", marginTop: 4, display: "flex", flexWrap: "wrap", gap: 8 }}>
+                                                            <span>SKU: <strong style={{ color: "var(--ud-pm-text-sub)" }}>{p.masterProduct?.sku || "—"}</strong></span>
+                                                            <span>Barkod: <strong style={{ color: "var(--ud-pm-text-sub)" }}>{p.masterProduct?.barcode || "—"}</strong></span>
+                                                            <span>{summarizeVariantAttrs(p.masterProduct?.attributes)}</span>
+                                                        </div>
+                                                    </div>
+                                                </label>
+                                            );
+                                        })
+                                    )}
+                                </div>
+                            </div>
+                            <div style={{ padding: "14px 20px", borderTop: "1px solid var(--ud-pm-border)", display: "flex", gap: 10, justifyContent: "flex-end", flexShrink: 0, background: "rgba(0,0,0,0.12)" }}>
+                                <button type="button" className="ud-pm-btn outline" onClick={vgClosePicker}>İptal</button>
+                                <button type="button" className="ud-pm-btn accent" onClick={vgSubmitAddMembers} disabled={vgPickerPick.size === 0}>Ekle ({vgPickerPick.size})</button>
+                            </div>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>, document.body)}
         </div>
     );
 };

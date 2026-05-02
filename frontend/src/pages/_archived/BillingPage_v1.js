@@ -40,7 +40,7 @@ const PROVIDERS = [
         name: "Trendyol E-Faturam",
         logo: "🛍️",
         color: "#f27a1a",
-        description: "Trendyol E-Faturam ile e-Fatura, e-Arşiv ve e-İrsaliye işlemlerinizi yönetin.",
+        description: "Trendyol E-Faturam ile e-Fatura, e-Arşiv ve e-İrsaliye işlemlerİşinizi yönetin.",
         features: ["e-Fatura", "e-Arşiv", "e-İrsaliye", "Mükellef Sorgulama"],
         authType: "trendyol",
         fields: [
@@ -60,7 +60,7 @@ const PROVIDERS = [
         name: "QNB eSolutions",
         logo: "🏦",
         color: "#7c3aed",
-        description: "QNB eSolutions ile e-Fatura, e-Arşiv, e-İrsaliye ve e-Defter işlemlerinizi yönetin. Türkiye'nin en büyük e-belge pazarında lider. SOAP API entegrasyonu.",
+        description: "QNB eSolutions ile e-Fatura, e-Arşiv, e-İrsaliye ve e-Defter işlemlerİşinizi yönetin. Türkiye'nin en büyük e-belge pazarında lider. SOAP API entegrasyonu.",
         features: ["e-Fatura", "e-Arşiv", "e-İrsaliye", "Fatura Oluşturma", "Mükellef Sorgulama"],
         authType: "qnb",
         fields: [
@@ -427,7 +427,7 @@ const AdvancedAnalysis = React.memo(({ invoices, onInvoiceClick }) => {
     }, [invoices]);
 
     if (!data) return (
-        <EmptyState icon="📊" title="Analiz için veri yok" description="Gelişmiş analiz görüntülemek için önce belgelerinizin yüklenmesi gerekiyor." />
+        <EmptyState icon="📊" title="Analiz için veri yok" description="Gelişmiş analiz görüntülemek için önce belgelerİşinizin yüklenmesi gerekiyor." />
     );
 
     /* ── Yardımcı fonksiyonlar ── */
@@ -995,7 +995,7 @@ const BillingPage = () => {
         customerStreet: "", customerDistrict: "", customerCity: "Istanbul", customerTaxOffice: "",
         customerEmail: "", customerPhone: "",
         // Kalemler
-        lines: [{ name: "", quantity: 1, unit: "adet", unitPrice: 0, vatRate: 20, discountAmount: 0 }],
+        lines: [{ name: "", quantity: 1, unit: "İadet", unitPrice: 0, vatRate: 20, discountAmount: 0 }],
         // Genel
         note: "", currency: "TRY", sendingType: "ELEKTRONIK",
     });
@@ -1550,7 +1550,7 @@ const BillingPage = () => {
                 {/* KPI Kartları */}
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: "1rem", marginBottom: "1.5rem" }}>
                     {[
-                        { icon: <FaFileInvoice />, label: "Toplam Belge", value: stats.totalInvoices, sub: stats.totalInvoices === 0 ? "Henüz belge yok" : stats.totalInvoices + " adet belge", color: C.accent },
+                        { icon: <FaFileInvoice />, label: "Toplam Belge", value: stats.totalInvoices, sub: stats.totalInvoices === 0 ? "Henüz belge yok" : stats.totalInvoices + " İadet belge", color: C.accent },
                         { icon: <FaMoneyBillWave />, label: "Toplam Tutar", value: fmtCurrency(stats.totalAmount), sub: "KDV dahil toplam", color: C.green },
                         { icon: <FaClock />, label: "Bekleyen", value: stats.pendingCount, sub: stats.pendingCount === 0 ? "Bekleyen belge yok" : "Onay bekliyor", color: C.yellow },
                         { icon: <FaClipboardList />, label: "e-Arşiv", value: stats.eArchiveCount, sub: stats.eArchiveCount === 0 ? "Henüz e-Arşiv yok" : stats.eArchiveCount + " belge", color: C.blue },
@@ -1673,7 +1673,7 @@ const BillingPage = () => {
                             <EmptyState
                                 icon="📭"
                                 title="Henüz belge yok"
-                                description="Sağlayıcınızda kayıtlı belge bulunamadı. Yeni belge oluşturmak için 'Yeni Belge' butonunu kullanabilirsiniz."
+                                description="Sağlayıcınızda kayıtlıı belge bulunamadı. Yeni belge oluşturmak için 'Yeni Belge' butonunu kullanabilirsiniz."
                             />
                         )}
                     </GlassCard>
@@ -1851,7 +1851,7 @@ const BillingPage = () => {
                         description={
                             invoicesLoading
                                 ? "Belgeler yükleniyor..."
-                                : "Bu kategoride sağlayıcınızda kayıtlı belge bulunamadı. Yeni belge oluşturmak için 'Yeni Belge' butonunu kullanabilirsiniz."
+                                : "Bu kategoride sağlayıcınızda kayıtlıı belge bulunamadı. Yeni belge oluşturmak için 'Yeni Belge' butonunu kullanabilirsiniz."
                         }
                     />
                 )}
@@ -2303,7 +2303,7 @@ const BillingPage = () => {
                         <div style={{ fontSize: "3rem", marginBottom: "0.75rem" }}>⚙️</div>
                         <p style={{ color: C.muted, fontSize: "1rem", fontWeight: 600, margin: "0 0 0.35rem" }}>Ayarlar Yapılmadı</p>
                         <p style={{ color: C.dim, fontSize: "0.82rem", margin: "0 0 1.25rem", maxWidth: 400, marginLeft: "auto", marginRight: "auto", lineHeight: 1.5 }}>
-                            Otomatik fatura kesme için firma bilgilerinizi ve QNB bağlantı ayarlarınızı yapmanız gerekiyor.
+                            Otomatik fatura kesme için firma bilgilerİşinizi ve QNB bağlantı ayarlarınızı yapmanız gerekiyor.
                         </p>
                         <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
                             onClick={() => { initAutoConfigForm(); setShowAutoInvoiceConfig(true); }}
@@ -2611,7 +2611,7 @@ const BillingPage = () => {
                                             onClick={() => fetchQnbInvoices(qnbSearchQuery, qnbDateRange.start, qnbDateRange.end, qnbPagination.page - 1)}
                                             disabled={qnbPagination.page <= 1 || qnbInvoicesLoading}
                                             style={{ background: C.glass, border: "1px solid " + C.glassBr, borderRadius: 6, padding: "0.35rem 0.7rem", cursor: qnbPagination.page <= 1 ? "not-allowed" : "pointer", color: C.muted, fontSize: "0.75rem", opacity: qnbPagination.page <= 1 ? 0.4 : 1 }}>
-                                            ← Önceki
+                                            ← ÖÖnceki
                                         </motion.button>
                                         <span style={{ color: C.muted, fontSize: "0.78rem" }}>
                                             Sayfa {qnbPagination.page} / {qnbPagination.totalPages} ({qnbPagination.total} fatura)
@@ -3005,7 +3005,7 @@ const BillingPage = () => {
                             <FaFileInvoiceDollar style={{ WebkitTextFillColor: C.accent }} /> Faturalandırma & e-Belge Yönetimi
                         </h1>
                         <p style={{ color: C.dim, fontSize: "0.8rem", margin: "0.25rem 0 0" }}>
-                            e-Fatura, e-Arşiv, e-İrsaliye — Tüm e-belge işlemlerinizi tek yerden yönetin
+                            e-Fatura, e-Arşiv, e-İrsaliye — Tüm e-belge işlemlerİşinizi tek yerden yönetin
                         </p>
                     </div>
                     <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
@@ -3281,7 +3281,7 @@ const BillingPage = () => {
                                     newLines[idx] = { ...newLines[idx], [key]: val };
                                     setF("lines", newLines);
                                 };
-                                const addLine = () => setF("lines", [...iF.lines, { name: "", quantity: 1, unit: "adet", unitPrice: 0, vatRate: 20, discountAmount: 0 }]);
+                                const addLine = () => setF("lines", [...iF.lines, { name: "", quantity: 1, unit: "İadet", unitPrice: 0, vatRate: 20, discountAmount: 0 }]);
                                 const removeLine = (idx) => { if (iF.lines.length > 1) setF("lines", iF.lines.filter((_, i) => i !== idx)); };
 
                                 // Hesaplamalar
@@ -3351,7 +3351,7 @@ const BillingPage = () => {
                                                     lines: iF.lines.map(l => ({
                                                         name: l.name,
                                                         quantity: Number(l.quantity || 1),
-                                                        unit: l.unit || "adet",
+                                                        unit: l.unit || "İadet",
                                                         unitPrice: Number(l.unitPrice || 0),
                                                         vatRate: Number(l.vatRate != null ? l.vatRate : 20),
                                                         discountAmount: Number(l.discountAmount || 0),
@@ -3444,7 +3444,7 @@ const BillingPage = () => {
                                                         <div>
                                                             <label style={labelStyle}>Birim</label>
                                                             <select value={line.unit} onChange={e => setLine(idx, "unit", e.target.value)} style={{ ...inputStyle, cursor: "pointer" }}>
-                                                                {["adet", "kg", "lt", "m", "m2", "paket", "kutu", "saat", "gun", "ay"].map(u => (
+                                                                {["İadet", "kg", "lt", "m", "m2", "paket", "kutu", "saat", "gun", "ay"].map(u => (
                                                                     <option key={u} value={u} style={{ background: "#1a1f35" }}>{u}</option>
                                                                 ))}
                                                             </select>
@@ -3551,12 +3551,12 @@ const BillingPage = () => {
 
                                     <div style={{ display: "flex", gap: "0.5rem" }}>
                                         <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
-                                            onClick={() => { setShowCreateModal(false); setCreateStep(1); setCreateResult(null); setCreateError(""); setInvoiceForm({ customerName: "", customerVkn: "", customerFirstName: "", customerLastName: "", customerStreet: "", customerDistrict: "", customerCity: "Istanbul", customerTaxOffice: "", customerEmail: "", customerPhone: "", lines: [{ name: "", quantity: 1, unit: "adet", unitPrice: 0, vatRate: 20, discountAmount: 0 }], note: "", currency: "TRY", sendingType: "ELEKTRONIK" }); }}
+                                            onClick={() => { setShowCreateModal(false); setCreateStep(1); setCreateResult(null); setCreateError(""); setInvoiceForm({ customerName: "", customerVkn: "", customerFirstName: "", customerLastName: "", customerStreet: "", customerDistrict: "", customerCity: "Istanbul", customerTaxOffice: "", customerEmail: "", customerPhone: "", lines: [{ name: "", quantity: 1, unit: "İadet", unitPrice: 0, vatRate: 20, discountAmount: 0 }], note: "", currency: "TRY", sendingType: "ELEKTRONIK" }); }}
                                             style={{ flex: 1, background: C.glass, border: "1px solid " + C.glassBr, borderRadius: 10, padding: "0.7rem", cursor: "pointer", color: C.muted, fontSize: "0.85rem", fontWeight: 600 }}>
                                             Kapat
                                         </motion.button>
                                         <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
-                                            onClick={() => { setCreateStep(1); setCreateResult(null); setCreateError(""); setInvoiceForm({ customerName: "", customerVkn: "", customerFirstName: "", customerLastName: "", customerStreet: "", customerDistrict: "", customerCity: "Istanbul", customerTaxOffice: "", customerEmail: "", customerPhone: "", lines: [{ name: "", quantity: 1, unit: "adet", unitPrice: 0, vatRate: 20, discountAmount: 0 }], note: "", currency: "TRY", sendingType: "ELEKTRONIK" }); }}
+                                            onClick={() => { setCreateStep(1); setCreateResult(null); setCreateError(""); setInvoiceForm({ customerName: "", customerVkn: "", customerFirstName: "", customerLastName: "", customerStreet: "", customerDistrict: "", customerCity: "Istanbul", customerTaxOffice: "", customerEmail: "", customerPhone: "", lines: [{ name: "", quantity: 1, unit: "İadet", unitPrice: 0, vatRate: 20, discountAmount: 0 }], note: "", currency: "TRY", sendingType: "ELEKTRONIK" }); }}
                                             style={{ flex: 1, background: "linear-gradient(135deg, " + C.accent + ", #44a08d)", border: "none", borderRadius: 10, padding: "0.7rem", cursor: "pointer", color: "#fff", fontSize: "0.85rem", fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", gap: "0.4rem" }}>
                                             <FaPlus /> Yeni Fatura Oluştur
                                         </motion.button>
@@ -3588,7 +3588,7 @@ const BillingPage = () => {
                     const profileId = (hasDbData ? dbInv.profileId : "") || selectedInvoice.profileId || "";
                     const profileLabels = { EARSIVFATURA: "e-Arşiv Fatura", TICARIFATURA: "Ticari Fatura", TEMELFATURA: "Temel Fatura", IRSALIYE: "İrsaliye" };
                     const invoiceTypeCode = (hasDbData ? dbInv.invoiceTypeCode : "") || "";
-                    const typeLabels = { SATIS: "Satış", IADE: "İade", TEVKIFAT: "Tevkifat", ISTISNA: "İstisna", OZELMATRAH: "Özel Matrah", IHRACKAYITLI: "İhraç Kayıtlı" };
+                    const typeLabels = { SATIS: "Satış", IADE: "İİade", TEVKIFAT: "Tevkifat", ISTISNA: "İstisna", OZELMATRAH: "Özel Matrah", IHRACKAYITLI: "İhraç Kayıtlı" };
                     const invType = selectedInvoice.type || (profileId === "EARSIVFATURA" ? "e-arsiv" : profileId === "IRSALIYE" ? "e-irsaliye" : "e-fatura");
 
                     // Tutarlar

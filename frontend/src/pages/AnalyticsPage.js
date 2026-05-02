@@ -473,7 +473,7 @@ const AnalyticsPage = () => {
                     </div>
                 </motion.div>
 
-                {/* Hourly Sales Pattern */}
+                {/* Hourly Sales Patteürün */}
                 <motion.div
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}

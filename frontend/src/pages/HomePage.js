@@ -1,11 +1,11 @@
 /**
- * HomePage  Pazarynetim Landing Page
+ * HomePage  Pazaryönetim Landing Page
  *
- * Giri yapmam kullanclar iin ana sayfa.
- * Admin panelden ayarlanan paket fiyatlar ve zellikleri burada gsterilir.
+ * Giriş yapmamış kullanıcılar için ana sayfa.
+ * Admin panelden ayarlanan paket fiyatları ve özellikleri burada gösterilir.
  *
- *  Paket bilgileri /api/saas-admin/public/plans endpoint'inden dinamik olarak ekilir
- *  Admin panelden fiyat/zellik deitirildiinde annda yansr
+ *  Paket bilgileri /api/saas-admin/public/plans endpoint'inden dinamik olarak çekilir
+ *  Admin panelden fiyat/özellik değiştirildiğinde anında yansır
  */
 
 import React, { useState, useEffect } from "react";
@@ -34,7 +34,7 @@ const HomePage = () => {
                 setPlans(res.data.plans);
             }
         } catch (err) {
-            console.warn("Plan bilgileri yklenemedi:", err.message);
+            console.warn("Plan bilgileri yüklenemedi:", err.message);
         } finally {
             setLoading(false);
         }
@@ -46,12 +46,12 @@ const HomePage = () => {
     };
 
     const platformFeatures = [
-        { icon: <FaPlug />, title: "oklu Pazaryeri", desc: "Trendyol, Hepsiburada, N11, Amazon, iekSepeti tek panelden" },
-        { icon: <FaBoxOpen />, title: "rn Ynetimi", desc: "Stok, fiyat ve rn bilgilerini merkezi olarak ynetin" },
-        { icon: <FaChartLine />, title: "Gelimi Analitik", desc: "Sat, kr ve performans raporlar ile veriye dayal kararlar" },
-        { icon: <FaBrain />, title: "AI Asistan", desc: "Yapay zeka destekli rn nerileri ve fiyat optimizasyonu" },
-        { icon: <FaShieldAlt />, title: "Gvenli Altyap", desc: "256-bit SSL, 2FA ve KVKK uyumlu veri gvenlii" },
-        { icon: <FaGlobe />, title: "7/24 Eriim", desc: "Bulut tabanl altyap ile her yerden, her cihazdan eriim" },
+        { icon: <FaPlug />, title: "Çoklu Pazaryeri", desc: "Trendyol, Hepsiburada, N11, Amazon, ÇiçekSepeti tek panelden" },
+        { icon: <FaBoxOpen />, title: "Ürün Yönetimi", desc: "Stok, fiyat ve ürün bilgilerini merkezi olarak yönetin" },
+        { icon: <FaChartLine />, title: "Gelişmiş Analitik", desc: "Satış, kâr ve performans raporları ile veriye dayalı kararlar" },
+        { icon: <FaBrain />, title: "AI Asistan", desc: "Yapay zeka destekli ürün önerileri ve fiyat optimizasyonu" },
+        { icon: <FaShieldAlt />, title: "Güvenli Altyapı", desc: "256-bit SSL, 2FA ve KVKK uyumlu veri güvenliği" },
+        { icon: <FaGlobe />, title: "7/24 Erişim", desc: "Bulut tabanlı altyapı ile her yerden, her cihazdan erişim" },
     ];
 
     const planOrder = ["basic", "pro", "enterprise"];
@@ -62,24 +62,24 @@ const HomePage = () => {
             <header style={S.hero}>
                 <div style={S.heroContent}>
                     <div style={S.heroBadge}>
-                        <FaRocket style={{ fontSize: 12 }} /> E-Ticaret Ynetim Platformu
+                        <FaRocket style={{ fontSize: 12 }} /> E-Ticaret Yönetim Platformu
                     </div>
                     <h1 style={S.heroTitle}>
-                        Tm Pazaryerlerinizi
+                        Tüm Pazaryerlerinizi
                         <span style={S.heroGradient}> Tek Panelden </span>
-                        Ynetin
+                        Yönetin
                     </h1>
                     <p style={S.heroDesc}>
-                        Pazarynetim ile Trendyol, Hepsiburada, N11, Amazon ve daha fazlasn
-                        tek bir merkezden kontrol edin. Stok, sipari, fiyat ve raporlarnz
-                        her zaman gncel.
+                        Pazaryönetim ile Trendyol, Hepsiburada, N11, Amazon ve daha fazlasını
+                        tek bir merkezden kontrol edin. Stok, sipariş, fiyat ve raporlarınız
+                        her zaman güncel.
                     </p>
                     <div style={S.heroBtns}>
                         <button style={S.btnPrimary} onClick={() => navigate("/register")}>
-                            cretsiz Dene <FaArrowRight />
+                            Ücretsiz Dene <FaArrowRight />
                         </button>
                         <button style={S.btnSecondary} onClick={() => navigate("/login")}>
-                            Giri Yap
+                            Giriş Yap
                         </button>
                     </div>
                     <div style={S.heroStats}>
@@ -95,17 +95,17 @@ const HomePage = () => {
                         <div style={S.heroStatDivider} />
                         <div style={S.heroStat}>
                             <div style={S.heroStatVal}>7/24</div>
-                            <div style={S.heroStatLabel}>Eriim</div>
+                            <div style={S.heroStatLabel}>Erişim</div>
                         </div>
                     </div>
                 </div>
             </header>
 
-            {/*  ZELLKLER  */}
+            {/*  ÖZELLİKLER  */}
             <section style={S.section}>
                 <div style={S.sectionInner}>
-                    <h2 style={S.sectionTitle}>Neden Pazarynetim?</h2>
-                    <p style={S.sectionDesc}>E-ticaret operasyonlarnz glendiren zellikler</p>
+                    <h2 style={S.sectionTitle}>Neden Pazaryönetim?</h2>
+                    <p style={S.sectionDesc}>E-ticaret operasyonlarınızı güçlendiren özellikler</p>
                     <div style={S.featuresGrid}>
                         {platformFeatures.map((f, i) => (
                             <div key={i} style={S.featureCard}>
@@ -118,13 +118,13 @@ const HomePage = () => {
                 </div>
             </section>
 
-            {/*  FYATLANDIRMA  */}
+            {/*  FİYATLANDIRMA  */}
             <section style={S.pricingSection} id="pricing">
                 <div style={S.sectionInner}>
                     <h2 style={S.sectionTitle}>
-                        <FaCrown style={{ color: "#fbbf24" }} /> Paketler & Fiyatlandrma
+                        <FaCrown style={{ color: "#fbbf24" }} /> Paketler & Fiyatlandırma
                     </h2>
-                    <p style={S.sectionDesc}>letmenize uygun paketi sein, hemen balayn</p>
+                    <p style={S.sectionDesc}>İşletmenize uygun paketi seçin, hemen başlayın</p>
 
                     {/* Billing Toggle */}
                     <div style={S.billingToggle}>
@@ -132,20 +132,20 @@ const HomePage = () => {
                             style={S.toggleBtn(billingCycle === "monthly")}
                             onClick={() => setBillingCycle("monthly")}
                         >
-                            Aylk
+                            Aylık
                         </button>
                         <button
                             style={S.toggleBtn(billingCycle === "yearly")}
                             onClick={() => setBillingCycle("yearly")}
                         >
-                            Yllk <span style={S.saveBadge}>Tasarruf</span>
+                            Yıllık <span style={S.saveBadge}>Tasarruf</span>
                         </button>
                     </div>
 
                     {/* Plan Cards */}
                     {loading ? (
                         <div style={{ textAlign: "center", padding: "60px 20px", color: "#64748b" }}>
-                            Paketler ykleniyor...
+                            Paketler yükleniyor...
                         </div>
                     ) : (
                         <div style={S.plansGrid}>
@@ -154,7 +154,7 @@ const HomePage = () => {
                                 const price = billingCycle === "yearly"
                                     ? (plan.yearlyPrice || Math.round((plan.monthlyPrice || plan.price || 0) * 10))
                                     : (plan.monthlyPrice || plan.price || 0);
-                                const isPopular = (plan.badge || "").includes("POPLER");
+                                const isPopular = (plan.badge || "").includes("POPÜLER");
                                 const monthlyEquiv = billingCycle === "yearly" ? Math.round(price / 12) : price;
 
                                 return (
@@ -172,7 +172,7 @@ const HomePage = () => {
                                             {fmtPrice(price)}
                                         </div>
                                         <div style={S.planPeriod}>
-                                            /{billingCycle === "yearly" ? "yl" : "ay"}
+                                            /{billingCycle === "yearly" ? "yıl" : "ay"}
                                             {billingCycle === "yearly" && (
                                                 <span style={S.planMonthly}> ({fmtPrice(monthlyEquiv)}/ay)</span>
                                             )}
@@ -192,15 +192,15 @@ const HomePage = () => {
                                         <div style={S.planLimits}>
                                             <div style={S.planLimit}>
                                                 <FaBoxOpen style={{ fontSize: 10 }} />
-                                                {(plan.limits?.maxProducts ?? 0) >= 999999 ? "Snrsz" : fmtPrice(plan.limits?.maxProducts)} rn
+                                                {(plan.limits?.maxProducts ?? 0) >= 999999 ? "Sınırsız" : fmtPrice(plan.limits?.maxProducts)} ürün
                                             </div>
                                             <div style={S.planLimit}>
                                                 <FaPlug style={{ fontSize: 10 }} />
-                                                {(plan.limits?.maxMarketplaces ?? 0) >= 999 ? "Snrsz" : plan.limits?.maxMarketplaces} pazaryeri
+                                                {(plan.limits?.maxMarketplaces ?? 0) >= 999 ? "Sınırsız" : plan.limits?.maxMarketplaces} pazaryeri
                                             </div>
                                             <div style={S.planLimit}>
                                                 <FaUsers style={{ fontSize: 10 }} />
-                                                {(plan.limits?.maxUsers ?? 0) >= 999 ? "Snrsz" : plan.limits?.maxUsers} kullanc
+                                                {(plan.limits?.maxUsers ?? 0) >= 999 ? "Sınırsız" : plan.limits?.maxUsers} kullanıcı
                                             </div>
                                         </div>
 
@@ -208,7 +208,7 @@ const HomePage = () => {
                                             style={S.planBtn(isPopular)}
                                             onClick={() => navigate("/register")}
                                         >
-                                            Hemen Bala <FaArrowRight style={{ fontSize: 12 }} />
+                                            Hemen Başla <FaArrowRight style={{ fontSize: 12 }} />
                                         </button>
                                     </div>
                                 );
@@ -221,15 +221,15 @@ const HomePage = () => {
                         <div style={S.trialBanner}>
                             <FaRocket style={{ color: "#fbbf24", fontSize: 18 }} />
                             <div>
-                                <strong>cretsiz {plans.trial.duration || 14} Gn Deneyin!</strong>
+                                <strong>Ücretsiz {plans.trial.duration || 14} Gün Deneyin!</strong>
                                 <div style={{ fontSize: 13, color: "#94a3b8", marginTop: 2 }}>
-                                    Kredi kart gerekmez. Tm temel zelliklere eriim.
-                                    {plans.trial.limits?.maxProducts && ` ${plans.trial.limits.maxProducts} rn, `}
-                                    {plans.trial.limits?.maxOrders && `${plans.trial.limits.maxOrders} sipari/ay.`}
+                                    Kredi kartı gerekmez. Tüm temel özelliklere erişim.
+                                    {plans.trial.limits?.maxProducts && ` ${plans.trial.limits.maxProducts} ürün, `}
+                                    {plans.trial.limits?.maxOrders && `${plans.trial.limits.maxOrders} sipariş/ay.`}
                                 </div>
                             </div>
                             <button style={S.trialBtn} onClick={() => navigate("/register")}>
-                                cretsiz Bala
+                                Ücretsiz Başla
                             </button>
                         </div>
                     )}
@@ -238,16 +238,16 @@ const HomePage = () => {
 
             {/*  CTA  */}
             <section style={S.ctaSection}>
-                <h2 style={S.ctaTitle}>E-Ticaretinizi Bir st Seviyeye Tayn</h2>
+                <h2 style={S.ctaTitle}>E-Ticaretinizi Bir Üst Seviyeye Taşıyın</h2>
                 <p style={S.ctaDesc}>
-                    Hemen kayt olun, cretsiz deneme srenizle platformu kefedin.
+                    Hemen kayıt olun, ücretsiz deneme sürenizle platformu keşfedin.
                 </p>
                 <div style={S.heroBtns}>
                     <button style={S.btnPrimary} onClick={() => navigate("/register")}>
-                        cretsiz Kayt Ol <FaArrowRight />
+                        Ücretsiz Kayıt Ol <FaArrowRight />
                     </button>
                     <button style={S.btnSecondary} onClick={() => navigate("/login")}>
-                        Giri Yap
+                        Giriş Yap
                     </button>
                 </div>
             </section>
@@ -257,15 +257,15 @@ const HomePage = () => {
                 <div style={S.footerInner}>
                     <div style={S.footerBrand}>
                         <div style={S.footerLogo}>LE</div>
-                        <span style={S.footerName}>Pazarynetim</span>
+                        <span style={S.footerName}>Pazaryönetim</span>
                     </div>
                     <div style={S.footerLinks}>
-                        <a href="/privacy" style={S.footerLink}>Gizlilik Politikas</a>
-                        <a href="/terms" style={S.footerLink}>Kullanm Koullar</a>
-                        <a href="/distance-sales" style={S.footerLink}>Mesafeli Sat Szlemesi</a>
+                        <a href="/privacy" style={S.footerLink}>Gizlilik Politikası</a>
+                        <a href="/terms" style={S.footerLink}>Kullanım Koşulları</a>
+                        <a href="/distance-sales" style={S.footerLink}>Mesafeli Satış Sözleşmesi</a>
                     </div>
                     <div style={S.footerCopy}>
-                         {new Date().getFullYear()} Pazarynetim. Tm haklar sakldr.
+                         {new Date().getFullYear()} Pazaryönetim. Tüm hakları saklıdır.
                     </div>
                 </div>
             </footer>

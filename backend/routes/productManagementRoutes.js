@@ -3,6 +3,7 @@ const router = express.Router();
 const { authMiddleware } = require("../middlewares/authMiddleware");
 const { subscriptionMiddleware } = require("../middlewares/subscriptionMiddleware");
 const controller = require("../controllers/productManagementController");
+const variantGroupController = require("../controllers/variantGroupController");
 
 // ✅ Tüm route'lara auth + subscription kontrolü uygula
 router.use(authMiddleware, subscriptionMiddleware);
@@ -22,6 +23,7 @@ router.post("/products", controller.createProduct);
 router.get("/products", controller.getProducts);
 router.get("/products/:productId", controller.getProductDetail);
 router.put("/products/:productId", controller.updateProduct);
+router.patch("/products/:productId/channel-prices", controller.updateChannelPricesLocal);
 router.delete("/products/:productId", controller.deleteProduct);
 
 // ═══════════════════════════════════════════════════════════════
@@ -112,5 +114,16 @@ router.get("/debug/platform-check",          controller.debugPlatformCheck);
 // 🏷️ TRENDYOL KATEGORİ ÇEK
 // ═══════════════════════════════════════════════════════════════
 router.get("/trendyol/categories",           controller.getTrendyolCategories);
+
+// ═══════════════════════════════════════════════════════════════
+// 🧩 VARYANT GRUPLARI (ürün ailesi — Trendyol productMainId hizalama)
+// ═══════════════════════════════════════════════════════════════
+router.get("/variant-groups",                      variantGroupController.listVariantGroups);
+router.get("/variant-groups/:groupId",             variantGroupController.getVariantGroup);
+router.post("/variant-groups",                     variantGroupController.createVariantGroup);
+router.patch("/variant-groups/:groupId",           variantGroupController.updateVariantGroup);
+router.post("/variant-groups/:groupId/members",    variantGroupController.addVariantGroupMembers);
+router.post("/variant-groups/:groupId/members/remove", variantGroupController.removeVariantGroupMembers);
+router.delete("/variant-groups/:groupId",         variantGroupController.deleteVariantGroup);
 
 module.exports = router;

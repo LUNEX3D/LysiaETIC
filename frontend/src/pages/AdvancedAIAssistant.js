@@ -50,10 +50,10 @@ const AIAnalyzer = {
             const health = score >= 80 ? 'excellent' : score >= 60 ? 'good' : score >= 40 ? 'warning' : 'critical';
 
             let recommendation;
-            if (score >= 80) recommendation = `${name} mkemmel performans gsteriyor! Stok artrm dnebilirsiniz.`;
+            if (score >= 80) recommendation = `${name} mükemmel performans gösteriyor! Stok artırımı düşünebilirsiniz.`;
             else if (score >= 60) recommendation = `${name} iyi durumda. Kk optimizasyonlar yaplabilir.`;
-            else if (score >= 40) recommendation = `${name} dikkat gerektiriyor. Fiyat ve stok optimizasyonu nerilir.`;
-            else recommendation = `${name} kritik durumda! Acil mdahale gerekli.`;
+            else if (score >= 40) recommendation = `${name} dikkat gerektiriyor. Fiyat ve stok optimizasyonu önerilir.`;
+            else recommendation = `${name} kritik durumda! Acil müdahale gerekli.`;
 
             return {
                 marketplace: name,
@@ -75,14 +75,14 @@ const AIAnalyzer = {
         if (summary.lowStockProducts > 0) {
             decisions.push({
                 id: 'low_stock',
-                title: `${summary.lowStockProducts} rn Dk Stokta`,
-                description: 'Bu rnlerin stoklar kritik seviyede. Tedarik planlamas yaplmal.',
+                title: `${summary.lowStockProducts} ürün Dk Stokta`,
+                description: 'Bu ürünlerin stokları kritik seviyede. Tedarik planlaması yapılmalı.',
                 priority: 'critical',
                 estimatedTime: 'Acil',
                 type: 'stock',
                 icon: '',
-                actions: ['Stok yenileme siparii ver', 'Tedariki ile iletiime ge'],
-                details: `Dk stoklu rnler sat kaybna neden olabilir. Tahmini kayp: ${formatCurrency((summary.lowStockProducts || 0) * 150)}/gn`
+                actions: ['Stok yenileme siparişi ver', 'Tedariki ile iİletişime ge'],
+                details: `Dk stoklu ürünler sat kaybna neden olabilir. Tahmini kayp: ${formatCurrency((summary.lowStockProducts || 0) * 150)}/gn`
             });
         }
 
@@ -92,14 +92,14 @@ const AIAnalyzer = {
             const errorMarkets = marketAnalysis.filter(m => m.errors > 0).map(m => m.marketplace);
             decisions.push({
                 id: 'sync_errors',
-                title: `${totalErrors} Senkronizasyon Hatas`,
-                description: `${errorMarkets.join(', ')} platformlarnda senkronizasyon hatalar tespit edildi.`,
+                title: `${totalErrors} Senkâronizasyon Hatas`,
+                description: `${errorMarkets.join(', ')} platformlarnda senkâronizasyon hatalar tespit edildi.`,
                 priority: 'critical',
                 estimatedTime: '15 dakika',
                 type: 'sync',
                 icon: '',
-                actions: ['Balantlar kontrol et', 'API anahtarlarn yenile', 'Destek talebi olutur'],
-                details: `Senkronizasyon hatalar stok ve fiyat tutarszlna yol aar. ${errorMarkets.length} pazaryerinde sorun var.`
+                actions: ['Başlantlar kontrol et', 'API anahtarlaürün yenile', 'Destek talebi oluştur'],
+                details: `Senkâronizasyon hatalar stok ve fiyat tutarszlna yol aar. ${errorMarkets.length} pazaryerinde sorun var.`
             });
         }
 
@@ -114,23 +114,23 @@ const AIAnalyzer = {
                 estimatedTime: '30 dakika',
                 type: 'performance',
                 icon: '',
-                actions: ['Fiyat optimizasyonu yap', 'rn aklamalarn gncelle', 'Kampanya olutur'],
-                details: weakMarkets.map(m => `${m.marketplace}: Skor ${m.performanceScore}/100, ${m.orders} sipari, ${formatCurrency(m.revenue)} gelir`).join(' | ')
+                actions: ['Fiyat optimizasyonu yap', 'ürün aklamalaürün güncelle', 'Kampanya oluştur'],
+                details: weakMarkets.map(m => `${m.marketplace}: Skor ${m.performanceScore}/100, ${m.orders} sipariş, ${formatCurrency(m.revenue)} gelir`).join(' | ')
             });
         }
 
-        // Sipari yoksa
+        // Sipariş yoksa
         if ((summary.todayOrders || 0) === 0) {
             decisions.push({
                 id: 'no_orders',
-                title: 'Bugn Sipari Yok',
-                description: 'Henz bugn sipari alnmad. Acil aksiyon gerekli.',
+                title: 'Bugn Sipariş Yok',
+                description: 'Henüz bugn sipariş alnmad. Acil aksiyon gerekli.',
                 priority: 'warning',
                 estimatedTime: '1 saat',
                 type: 'sales',
                 icon: '',
                 actions: ['Flash indirim kampanyas balat', 'Sosyal medya paylam yap', 'Fiyatlar gzden geir'],
-                details: 'Sipari gelmemesi fiyat, grnrlk veya stok sorununa iaret edebilir. Rakip fiyatlarn kontrol edin.'
+                details: 'Sipariş gelmemesi fiyat, grnrlk veya stok sorununa iaret edebilir. Rakip fiyatlaürün kontrol edin.'
             });
         }
 
@@ -146,23 +146,23 @@ const AIAnalyzer = {
                 estimatedTime: '2 saat',
                 type: 'revenue',
                 icon: '',
-                actions: ['Kampanya dzenle', 'ne kan rnleri gncelle', 'Fiyat analizi yap'],
+                actions: ['Kampanya dzenle', 'ne kan ürünleri güncelle', 'Fiyat analizi yap'],
                 details: `Gnlk ortalama: ${formatCurrency(avgRevenue)}. Bugn: ${formatCurrency(todayRevenue)}. Fark: ${formatCurrency(avgRevenue - todayRevenue)}`
             });
         }
 
-        // rn eitlilii analizi
+        // ürün eitlilii analizi
         if ((summary.totalProducts || 0) > 0 && (summary.totalProducts || 0) < 20) {
             decisions.push({
                 id: 'low_product_count',
-                title: 'rn eitlilii Dk',
-                description: `Sadece ${summary.totalProducts} rnnz var. Daha fazla rn eklemek satlar artrr.`,
+                title: 'ürün eitlilii Dk',
+                description: `Sİadece ${summary.totalProducts} ürününüz var. Daha fazla ürün eklemek satlar artrr.`,
                 priority: 'info',
                 estimatedTime: '1-2 gn',
                 type: 'product',
                 icon: '',
-                actions: ['Yeni rn ekle', 'Varyant olutur', 'Rakip rnlerini incele'],
-                details: 'Pazaryerlerinde 50+ rn olan maazalar ortalama %40 daha fazla sat yapyor.'
+                actions: ['Yeni ürün ekle', 'Varyant oluştur', 'Rakip ürünlerini incele'],
+                details: 'Pazaryerlerinde 50+ ürün olan maazalar ortalama %40 daha fazla sat yapyor.'
             });
         }
 
@@ -180,25 +180,25 @@ const AIAnalyzer = {
                     estimatedTime: '1 hafta',
                     type: 'market',
                     icon: '',
-                    actions: ['Zayf pazaryerinde kampanya yap', 'rn listelemelerini optimize et', 'Fiyat stratejisini gzden geir'],
+                    actions: ['Zayf pazaryerinde kampanya yap', 'ürün listelemelerini optimize et', 'Fiyat stratejisini gzden geir'],
                     details: `En gl: %${maxShare.toFixed(1)} pazar pay. En zayf: %${minShare.toFixed(1)}. Dengeleme potansiyel geliri %${Math.round((maxShare - minShare) / 2)} artrabilir.`
                 });
             }
         }
 
-        // Top rn analizi
+        // Top ürün analizi
         if (topProducts.length > 0) {
             const topProduct = topProducts[0];
             decisions.push({
                 id: 'top_product_insight',
                 title: `En ok Satan: ${topProduct.name?.substring(0, 40) || 'rn'}`,
-                description: `${topProduct.sales} sat, ${formatCurrency(topProduct.revenue)} gelir. Bu rn ne karn!`,
+                description: `${topProduct.sales} sat, ${formatCurrency(topProduct.revenue)} gelir. Bu ürün ne karn!`,
                 priority: 'success',
                 estimatedTime: 'Srekli',
                 type: 'product_star',
                 icon: '',
-                actions: ['Stok seviyesini artr', 'Reklam btesi ayr', 'Benzer rnler ekle'],
-                details: `Bu rn toplam gelirinizin nemli bir ksmn oluturuyor. Trend: ${topProduct.trend > 0 ? '+' : ''}${topProduct.trend}%`
+                actions: ['Stok seviyesini artr', 'Reklam btesi ayr', 'Benzer ürünler ekle'],
+                details: `Bu ürün toplam gelirİşinizin nemli bir ksmn oluşturuyor. Trend: ${topProduct.trend > 0 ? '+' : ''}${topProduct.trend}%`
             });
         }
 
@@ -214,7 +214,7 @@ const AIAnalyzer = {
         if (strongMarkets.length > 0) {
             opportunities.push({
                 title: 'Gl Pazaryerlerinde Byme',
-                description: `${strongMarkets.map(m => m.marketplace).join(', ')} platformlarnda performans yksek. rn eitliliini artrabilirsiniz.`,
+                description: `${strongMarkets.map(m => m.marketplace).join(', ')} platformlarnda performans yksek. ürün eitliliçini artrabilirsiniz.`,
                 potential: 'Yksek',
                 impact: 'Gelir Art',
                 icon: '',
@@ -225,8 +225,8 @@ const AIAnalyzer = {
         if ((summary.totalProducts || 0) > 0) {
             const avgOrderValue = (summary.todayOrders || 0) > 0 ? (summary.todayRevenue || 0) / summary.todayOrders : 0;
             opportunities.push({
-                title: 'apraz Sat Frsat',
-                description: `${summary.totalProducts} rnnz var. Paket sat ve apraz sat stratejileri uygulayabilirsiniz.${avgOrderValue > 0 ? ` Ort. sepet: ${formatCurrency(avgOrderValue)}` : ''}`,
+                title: 'apraz Sat Fırsat',
+                description: `${summary.totalProducts} ürününüz var. Paket sat ve apraz sat stratejileri uygulayabilirsiniz.${avgOrderValue > 0 ? ` Ort. sepet: ${formatCurrency(avgOrderValue)}` : ''}`,
                 potential: 'Orta',
                 impact: 'Sepet Art',
                 icon: '',
@@ -255,26 +255,26 @@ const AIAnalyzer = {
             4: ' Anneler Gn frsat',
             5: ' Babalar Gn frsat',
             6: ' Yaz indirimleri sezonu',
-            7: ' Okula dn sezonu',
+            7: ' Okula dön sezonu',
             8: ' Sonbahar koleksiyonu',
             9: ' Ekim kampanyalar',
             10: ' Black Friday / 11.11 frsat',
             11: ' Ylba alveri sezonu'
         };
         opportunities.push({
-            title: 'Sezonsal Frsat',
-            description: `${seasonalEvents[month]}. Bu dneme zel kampanya ve rn stratejisi oluturun.`,
+            title: 'Sezonsal Fırsat',
+            description: `${seasonalEvents[month]}. Bu döneme zel kampanya ve ürün stratejisi oluşturun.`,
             potential: 'Yksek',
             impact: 'Sat Art',
             icon: '',
             estimatedGain: ''
         });
 
-        // Top rn bazl frsat
+        // Top ürün bazl frsat
         if (topProducts.length >= 2) {
             opportunities.push({
-                title: 'rn Paketi Oluturma',
-                description: `"${topProducts[0]?.name?.substring(0, 30)}" ve "${topProducts[1]?.name?.substring(0, 30)}" rnlerini paket olarak satabilirsiniz.`,
+                title: 'ürün Paketi Oluturma',
+                description: `"${topProducts[0]?.name?.substring(0, 30)}" ve "${topProducts[1]?.name?.substring(0, 30)}" ürünlerini paket olarak satabilirsiniz.`,
                 potential: 'Orta',
                 impact: 'Sepet Bytme',
                 icon: '',
@@ -299,7 +299,7 @@ const AIAnalyzer = {
             }));
         }
 
-        // Gerek veri yoksa bo dizi dndr - sahte veri retme
+        // Gerek veri yoksa bo dizi döndr - sahte veri retme
         return [];
     },
 
@@ -318,7 +318,7 @@ const AIAnalyzer = {
             }));
         }
 
-        // Gerek veri yoksa bo durum gster - sahte kategori retme
+        // Gerek veri yoksa bo durum göster - sahte kategori retme
         return [{ name: 'Kategori verisi bulunamad', revenue: 0, orders: 0, growth: 0, margin: 0, percentage: 0 }];
     },
 
@@ -336,7 +336,7 @@ const AIAnalyzer = {
     generateRevenueForecast(dashData) {
         const todayRevenue = dashData?.summary?.todayRevenue || 0;
 
-        // Gerek gelir verisi yoksa bo dizi dndr
+        // Gerek gelir verisi yoksa bo dizi döndr
         if (todayRevenue === 0) {
             return [];
         }
@@ -351,7 +351,7 @@ const AIAnalyzer = {
                 // Gemi aylar: gerek veriye dayal tahmin
                 return { month, predicted: Math.floor(base * 30), actual: Math.floor(base * 30) };
             }
-            // Gelecek aylar: sadece tahmin gster
+            // Gelecek aylar: sadece tahmin göster
             return { month, predicted: Math.floor(base * 30), actual: null };
         });
     },
@@ -359,15 +359,15 @@ const AIAnalyzer = {
     generateConversionFunnel(dashData) {
         const orders = dashData?.summary?.todayOrders || 0;
 
-        // Gerek sipari verisi yoksa bo dizi dndr
+        // Gerek sipariş verisi yoksa bo dizi döndr
         if (orders === 0) {
             return [];
         }
 
-        // Sipari verisi varsa, sadece gerek sipari saysna dayal gster
-        // Not: Ziyareti verisi pazaryerlerinden alnamad iin sadece sipari gsterilir
+        // Sipariş verisi varsa, sadece gerek sipariş saysna dayal göster
+        // Not: Ziyareti verisi pazaryerlerinden alınamadı için sadece sipariş gösterilir
         return [
-            { stage: 'Sipari Alnd', count: orders, conversion: 100 },
+            { stage: 'Sipariş Alnd', count: orders, conversion: 100 },
             { stage: 'leme Alnd', count: Math.floor(orders * 0.9), conversion: 90 },
             { stage: 'Kargoya Verildi', count: Math.floor(orders * 0.75), conversion: 75 },
             { stage: 'Teslim Edildi', count: Math.floor(orders * 0.6), conversion: 60 }
@@ -388,8 +388,8 @@ const AIAnalyzer = {
         const criticalPercent = total > 0 ? Math.round((criticalCount / total) * 100) : 0;
 
         return [
-            { category: 'Salkl Stok', count: healthyCount, color: '#22c55e', percent: healthyPercent, icon: '', description: 'Stok seviyesi yeterli' },
-            { category: 'Dk Stok', count: lowCount, color: '#f59e0b', percent: lowPercent, icon: '', description: 'Tedarik planlamas gerekli' },
+            { category: 'Sağlıklı Stok', count: healthyCount, color: '#22c55e', percent: healthyPercent, icon: '', description: 'Stok seviyesi yeterli' },
+            { category: 'Düşük Stok', count: lowCount, color: '#f59e0b', percent: lowPercent, icon: '', description: 'Tedarik planlamas gerekli' },
             { category: 'Kritik Stok', count: criticalCount, color: '#ef4444', percent: criticalPercent, icon: '', description: 'Acil stok yenileme gerekli' }
         ];
     },
@@ -397,13 +397,13 @@ const AIAnalyzer = {
     generateProfitability(dashData) {
         const todayRevenue = dashData?.summary?.todayRevenue || 0;
 
-        // Gerek gelir verisi yoksa bo dizi dndr - sahte veri retme
+        // Gerek gelir verisi yoksa bo dizi döndr - sahte veri retme
         if (todayRevenue === 0) {
             return [];
         }
 
-        // Gerek veriye dayal basit karllk gsterimi
-        // Not: Gerek maliyet verisi olmad iin sadece gelir gsterilir
+        // Gerek veriye dayal basit karllk gösterimi
+        // Not: Gerek maliyet verisi olmad için sadece gelir gösterilir
         const trends = dashData?.trends || {};
         const labels = trends.labels || [];
         const revenueTotals = trends.revenueTotals || [];
@@ -414,7 +414,7 @@ const AIAnalyzer = {
                 return {
                     month: label,
                     revenue,
-                    cost: 0, // Gerek maliyet verisi mevcut deil
+                    cost: 0, // Gerek maliyet verisi mevcut değil
                     profit: revenue, // Maliyet verisi olmadan net kar hesaplanamaz
                     margin: 0
                 };
@@ -438,7 +438,7 @@ const AIAnalyzer = {
 
         if (lower.includes('merhaba') || lower.includes('selam') || lower.includes('hey')) {
             return {
-                text: ' Merhaba! Ben Lysia AI, sizin akll ticaret asistannzm. Size nasl yardmc olabilirim?\n\n unlar sorabilirsiniz:\n "Maazam analiz et"\n "Satlarm nasl?"\n "Fiyat nerisi ver"\n "Stok durumum ne?"',
+                text: ' Merhaba! Ben Lysia AI, sizin akll ticaret asistannzm. Size nasl yardmc olabilirim?\n\n unlar sorabilirsiniz:\n "Maazam analiz et"\n "Satlarm nasl?"\n "Fiyat önerisi ver"\n "Stok durumum ne?"',
                 mood: 'happy'
             };
         }
@@ -451,16 +451,16 @@ const AIAnalyzer = {
             const mpCount = marketAnalysis.length;
 
             return {
-                text: ` **Maaza Analiz Raporu**\n\n Genel Performans Skoru: **${score}/100**\n\n Toplam rn: **${products}**\n Bugnk Sipari: **${orders}**\n Bugnk Gelir: **${formatCurrency(revenue)}**\n Aktif Pazaryeri: **${mpCount}**\n\n${score >= 70 ? ' Maazanz iyi durumda! Byle devam edin.' : score >= 40 ? ' Baz iyiletirmeler yaplabilir. Detaylar iin analiz paneline bakn.' : ' Acil mdahale gerekli! Kritik kararlar blmn kontrol edin.'}`,
+                text: ` **Maaza Analiz Raporu**\n\n Genel Performans Skoru: **${score}/100**\n\n Toplam Örn: **${products}**\n Bugnk Sipariş: **${orders}**\n Bugnk Gelir: **${formatCurrency(revenue)}**\n Aktif Pazaryeri: **${mpCount}**\n\n${score >= 70 ? ' Maazanz iyi durumda! Byle devam edin.' : score >= 40 ? ' Baz iyiletirmeler yaplabilir. Detaylar için analiz paneline bakn.' : ' Acil mdahale gerekli! Kâritik kararlar blmn kontrol edin.'}`,
                 mood: score >= 70 ? 'happy' : score >= 40 ? 'focused' : 'concerned'
             };
         }
 
-        if (lower.includes('sat') || lower.includes('sipari') || lower.includes('gelir')) {
+        if (lower.includes('sat') || lower.includes('sipariş') || lower.includes('gelir')) {
             const orders = dashData?.summary?.todayOrders || 0;
             const revenue = dashData?.summary?.todayRevenue || 0;
             return {
-                text: ` **Sat zeti**\n\n Bugnk Sipari: **${orders}**\n Bugnk Gelir: **${formatCurrency(revenue)}**\n Ortalama Sepet: **${orders > 0 ? formatCurrency(revenue / orders) : '0'}**\n\n${orders > 0 ? ' Sipariler geliyor, harika!' : ' Henz sipari yok. Kampanya dzenlemeyi dnebilirsiniz.'}`,
+                text: ` **Sat zeti**\n\n Bugnk Sipariş: **${orders}**\n Bugnk Gelir: **${formatCurrency(revenue)}**\n Ortalama Sepet: **${orders > 0 ? formatCurrency(revenue / orders) : '0'}**\n\n${orders > 0 ? ' Siparişler geliyor, harika!' : ' Henüz sipariş yok. Kampanya dzenlemeyi dönebilirsiniz.'}`,
                 mood: orders > 0 ? 'happy' : 'concerned'
             };
         }
@@ -468,19 +468,19 @@ const AIAnalyzer = {
         if (lower.includes('stok') || lower.includes('envanter') || lower.includes('rn')) {
             const products = dashData?.summary?.totalProducts || 0;
             return {
-                text: ` **Stok Durumu**\n\n Toplam rn: **${products}**\n Salkl: **${Math.floor(products * 0.7)}**\n Dk Stok: **${Math.floor(products * 0.2)}**\n Kritik: **${Math.floor(products * 0.1)}**\n\n${products > 0 ? ' Dk stoklu rnleri tedarik etmenizi neririm.' : ' Henz rn eklenmemi. rn ekleyerek balayn.'}`,
+                text: ` **Stok Durumu**\n\n Toplam Örn: **${products}**\n Sağlıklı: **${Math.floor(products * 0.7)}**\n Düşük Stok: **${Math.floor(products * 0.2)}**\n Kritik: **${Math.floor(products * 0.1)}**\n\n${products > 0 ? ' Düşük stoklu ürünleri tedarik etmenizi öneririm.' : ' Henüz ürün eklenmemiş. Ürün ekleyerek başlayın.'}`,
                 mood: products > 0 ? 'focused' : 'concerned'
             };
         }
 
-        if (lower.includes('fiyat') || lower.includes('neri') || lower.includes('tavsiye')) {
+        if (lower.includes('fiyat') || lower.includes('öneri') || lower.includes('tavsiye')) {
             return {
-                text: ` **Fiyat nerileri**\n\n Mevcut verilerinize gre:\n\n1 **Yksek talep** gren rnlerde %5-10 fiyat art dnebilirsiniz\n2 **Dk satl** rnlerde %10-15 indirim satlar artrabilir\n3 **Rakip fiyatlarn** dzenli takip edin\n4 **Kargo dahil** fiyatlandrma dnm artrr\n\n Detayl fiyat analizi iin sol paneldeki "Fiyat nerileri" blmne bakn.`,
+                text: ` **Fiyat önerileri**\n\n Mevcut verilerinize gre:\n\n1 **Yksek talep** gren ürünlerde %5-10 fiyat art dönebilirsiniz\n2 **Dk satl** ürünlerde %10-15 indirim satlar artrabilir\n3 **Rakip fiyatlarn** dzenli takip edin\n4 **Kargo dahil** fiyatlandırma dönm artrr\n\n Detayl fiyat analizi için sol paneldeki "Fiyat önerileri" blmne bakn.`,
                 mood: 'focused'
             };
         }
 
-        if (lower.includes('teekkr') || lower.includes('saol') || lower.includes('eyvallah')) {
+        if (lower.includes('teşekkür') || lower.includes('saol') || lower.includes('eyvallah')) {
             return {
                 text: ' Rica ederim! Her zaman buradaym. Baka bir sorunuz olursa ekinmeyin! ',
                 mood: 'happy'
@@ -489,7 +489,7 @@ const AIAnalyzer = {
 
         // Default
         return {
-            text: ` Anlyorum. Size yardmc olmak istiyorum!\n\n unlar deneyebilirsiniz:\n **"Maazam analiz et"** - Genel durum raporu\n **"Satlarm nasl?"** - Sat zeti\n **"Stok durumum"** - Envanter analizi\n **"Fiyat nerisi"** - Fiyatlandrma tavsiyeleri\n\nYa da dorudan sol paneldeki analizleri inceleyebilirsiniz! `,
+            text: ` Anlyorum. Size yardmc olmak istiyorum!\n\n unlar deneyebilirsiniz:\n **"Maazam analiz et"** - Genel durum raporu\n **"Satlarm nasl?"** - Sat zeti\n **"Stok durumum"** - Envanter analizi\n **"Fiyat önerisi"** - Fiyatlandrma tavsiyeleri\n\nYa da doğrudan sol paneldeki analizleri inceleyebilirsiniz! `,
             mood: 'happy'
         };
     }
@@ -527,7 +527,7 @@ const AdvancedAIAssistant = ({ userId }) => {
     const [profitability, setProfitability] = useState([]);
     const [priceRecommendations, setPriceRecommendations] = useState([]);
 
-    // AI Personality - localStorage'dan renme verisini ykle
+    // AI Personality - localStorage'dan öğrenme verisini yükle
     const getStoredLearning = () => {
         try {
             const stored = JSON.parse(localStorage.getItem(`lysia_ai_learning_${userId}`) || '{}');
@@ -545,7 +545,7 @@ const AdvancedAIAssistant = ({ userId }) => {
     };
 
     const calculateLearningProgress = (data) => {
-        // Her faktrn arlkl katks (toplam max = 100)
+        // Her faktürün arlkl katks (toplam max = 100)
         const analysisScore = Math.min(15, data.totalAnalyses * 1.5);       // max 15 (10 analiz)
         const chatScore = Math.min(15, data.totalChats * 1.5);              // max 15 (10 chat)
         const marketplaceScore = Math.min(15, data.marketplacesAnalyzed * 5); // max 15 (3 pazaryeri)
@@ -563,7 +563,7 @@ const AdvancedAIAssistant = ({ userId }) => {
             { label: 'Analiz', value: Math.min(15, data.totalAnalyses * 1.5), max: 15, icon: '', detail: `${data.totalAnalyses} analiz yapld` },
             { label: 'Chat', value: Math.min(15, data.totalChats * 1.5), max: 15, icon: '', detail: `${data.totalChats} sohbet` },
             { label: 'Pazaryeri', value: Math.min(15, data.marketplacesAnalyzed * 5), max: 15, icon: '', detail: `${data.marketplacesAnalyzed} pazaryeri` },
-            { label: 'rnler', value: Math.min(15, ((data.productsAnalyzed || 0) > 0 ? 10 : 0) + ((data.productsAnalyzed || 0) > 50 ? 5 : 0)), max: 15, icon: '', detail: `${data.productsAnalyzed || 0} rn` },
+            { label: 'ürünler', value: Math.min(15, ((data.productsAnalyzed || 0) > 0 ? 10 : 0) + ((data.productsAnalyzed || 0) > 50 ? 5 : 0)), max: 15, icon: '', detail: `${data.productsAnalyzed || 0} ürün` },
             { label: 'Kategoriler', value: Math.min(10, (data.categoriesAnalyzed || 0) * 2.5), max: 10, icon: '', detail: `${data.categoriesAnalyzed || 0} kategori` },
             { label: 'Kararlar', value: Math.min(10, data.decisionsGenerated * 2), max: 10, icon: '', detail: `${data.decisionsGenerated} karar` },
             { label: 'Oturumlar', value: Math.min(10, data.sessionsCount * 2), max: 10, icon: '', detail: `${data.sessionsCount} oturum` },
@@ -586,7 +586,7 @@ const AdvancedAIAssistant = ({ userId }) => {
         totalAnalyses: getStoredLearning().totalAnalyses
     });
 
-    // learningData deitiinde localStorage'a kaydet ve progress gncelle
+    // learningData değitiçinde localStorage'a kaydet ve progress güncelle
     useEffect(() => {
         saveLearningData(learningData);
         const progress = calculateLearningProgress(learningData);
@@ -600,9 +600,9 @@ const AdvancedAIAssistant = ({ userId }) => {
     // Chat States
     const [messages, setMessages] = useState([{
         id: 1, type: 'ai',
-        content: ' **Merhaba! Ben Lysia AI, akll ticaret asistannzm.**\n\n u anda maazanz analiz ediyorum. Sol panelde tm analizleri grebilirsiniz.\n\n Bana her eyi sorabilirsiniz!',
+        content: ' **Merhaba! Ben Lysia AI, akll ticaret asistannzm.**\n\n u anda maazanz analiz ediyorum. Sol panelde tüm analizleri görebilirsiniz.\n\n Bana her eyi sorabilirsiniz!',
         timestamp: new Date(), mood: 'happy',
-        suggestions: ['Maazam analiz et', 'Satlarm nasl?', 'Stok durumum ne?', 'Fiyat nerisi ver']
+        suggestions: ['Maazam analiz et', 'Satlarm nasl?', 'Stok durumum ne?', 'Fiyat önerisi ver']
     }]);
     const [inputMessage, setInputMessage] = useState('');
     const [isTyping, setIsTyping] = useState(false);
@@ -628,7 +628,7 @@ const AdvancedAIAssistant = ({ userId }) => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }, [messages]);
 
-    // Gerek rnleri pazaryerlerinden ek
+    // Gerek ürünleri pazaryerlerinden ek
     const fetchRealProducts = async (mps) => {
         const allProducts = [];
         for (const mp of mps) {
@@ -638,13 +638,13 @@ const AdvancedAIAssistant = ({ userId }) => {
                     allProducts.push(...res.data.products.map(p => ({ ...p, marketplace: mp.marketplaceName || mp.name })));
                 }
             } catch (e) {
-                console.log(`${mp.marketplaceName || mp.name} rnleri ekilemedi:`, e.message);
+                console.log(`${mp.marketplaceName || mp.name} ürünleri ekilemedi:`, e.message);
             }
         }
         return allProducts;
     };
 
-    // Top rnleri analytics'ten ek
+    // Top ürünleri analytics'ten ek
     const fetchTopProducts = async () => {
         try {
             const res = await API.get('/analytics/top-products?limit=20');
@@ -679,13 +679,13 @@ const AdvancedAIAssistant = ({ userId }) => {
             setTopProducts(topProds);
             setRealCategories(catData);
 
-            // Gerek rnleri arka planda ek (yava olabilir)
+            // Gerek ürünleri arka planda ek (yava olabilir)
             fetchRealProducts(mps).then(products => {
                 setRealProducts(products);
-                // rnler gelince fiyat nerilerini gncelle
+                // ürünler gelince fiyat önerilerini güncelle
                 if (products.length > 0) {
                     setPriceRecommendations(generateRealPriceRecommendations(products, topProds));
-                    // rn verisi renme
+                    // ürün verisi öğrenme
                     setLearningData(prev => ({
                         ...prev,
                         productsAnalyzed: products.length,
@@ -698,7 +698,7 @@ const AdvancedAIAssistant = ({ userId }) => {
             const enrichedDashData = { ...dashData, categoryDistribution: catData, topProducts: topProds };
             runAnalysis(mps, enrichedDashData, topProds);
 
-            // renme verisini gncelle
+            // öğrenme verisini güncelle
             setLearningData(prev => ({
                 ...prev,
                 totalAnalyses: prev.totalAnalyses + 1,
@@ -714,19 +714,19 @@ const AdvancedAIAssistant = ({ userId }) => {
         } catch (error) {
             console.error("Veri ykleme hatas:", error);
             runAnalysis([], null, []);
-            addAIMessage(" Baz veriler yklenemedi ama mevcut verilerle analiz yapyorum.", "concerned");
+            addAIMessage(" Baz veriler yüklenemedi ama mevcut verilerle analiz yapyorum.", "concerned");
         } finally {
             setLoading(false);
             setAnalyzing(false);
         }
     };
 
-    // Gerek rnlerden fiyat nerileri olutur
+    // Gerek ürünlerden fiyat önerileri oluştur
     const generateRealPriceRecommendations = (products, topProds) => {
         const recommendations = [];
         const topProductNames = new Set(topProds.map(p => p.name));
 
-        // rnleri fiyat ve stok durumuna gre analiz et
+        // ürünleri fiyat ve stok durumuna gre analiz et
         const validProducts = products.filter(p => p.productName && p.productName !== 'Bilinmiyor' && (p.price > 0 || p.salePrice > 0));
 
         validProducts.forEach(product => {
@@ -736,7 +736,7 @@ const AdvancedAIAssistant = ({ userId }) => {
             const isTopSeller = topProductNames.has(product.productName);
             const discountRate = listPrice > 0 ? ((listPrice - currentPrice) / listPrice * 100) : 0;
 
-            // Yksek satl rn - fiyat art nerisi
+            // Yksek satl ürün - fiyat art önerisi
             if (isTopSeller && stock > 10) {
                 const increase = Math.round(currentPrice * 1.08); // %8 art
                 recommendations.push({
@@ -748,14 +748,14 @@ const AdvancedAIAssistant = ({ userId }) => {
                     currentPrice,
                     listPrice,
                     recommendedPrice: increase,
-                    reason: ' ok satan rn - Talep yksek, fiyat art uygun',
+                    reason: ' ok satan ürün - Talep yksek, fiyat art uygun',
                     confidence: 88,
                     impact: 'high',
                     changePercent: '+8%'
                 });
             }
 
-            // Stok fazlas olan rn - indirim nerisi
+            // Stok fazlas olan ürün - indirim önerisi
             if (!isTopSeller && stock > 50 && discountRate < 10) {
                 const decrease = Math.round(currentPrice * 0.88); // %12 indirim
                 recommendations.push({
@@ -774,7 +774,7 @@ const AdvancedAIAssistant = ({ userId }) => {
                 });
             }
 
-            // Liste fiyatna ok yakn sat - rekabeti fiyat nerisi
+            // Liste fiyatna ok yakn sat - rekabeti fiyat önerisi
             if (discountRate < 5 && discountRate >= 0 && currentPrice > 50) {
                 const competitive = Math.round(currentPrice * 0.93); // %7 indirim
                 recommendations.push({
@@ -786,14 +786,14 @@ const AdvancedAIAssistant = ({ userId }) => {
                     currentPrice,
                     listPrice,
                     recommendedPrice: competitive,
-                    reason: ' ndirim oran dk - Rekabeti fiyat dnm artrr',
+                    reason: ' ndirim oran dk - Rekabeti fiyat dönm artrr',
                     confidence: 72,
                     impact: 'medium',
                     changePercent: '-7%'
                 });
             }
 
-            // Dk stoklu ama ucuz rn - fiyat art
+            // Dk stoklu ama ucuz ürün - fiyat art
             if (stock > 0 && stock <= 5 && currentPrice < listPrice * 0.7) {
                 const increase = Math.round(currentPrice * 1.15); // %15 art
                 recommendations.push({
@@ -805,7 +805,7 @@ const AdvancedAIAssistant = ({ userId }) => {
                     currentPrice,
                     listPrice,
                     recommendedPrice: Math.min(increase, listPrice),
-                    reason: ' Dk stok + yksek indirim - Fiyat art krll artrr',
+                    reason: ' Dk stok + yksek indirim - Fiyat art kârll artrr',
                     confidence: 84,
                     impact: 'high',
                     changePercent: '+15%'
@@ -813,7 +813,7 @@ const AdvancedAIAssistant = ({ userId }) => {
             }
         });
 
-        // En yksek gvenli nerileri nce gster, max 15 neri
+        // En yksek güvenli önerileri nce göster, max 15 öneri
         return recommendations
             .sort((a, b) => b.confidence - a.confidence)
             .slice(0, 15);
@@ -869,11 +869,11 @@ const AdvancedAIAssistant = ({ userId }) => {
                         }))];
                     });
                 }
-                // Backend'den insight alnd - renme verisine ekle
+                // Backend'den insight alındı - öğrenme verisine ekle
                 setLearningData(prev => ({ ...prev, insightsFetched: prev.insightsFetched + 1 }));
             }
         } catch (e) {
-            // Backend AI mevcut deilse sessizce devam et
+            // Backend AI mevcut değilse sessizce devam et
             console.log("Backend AI opsiyonel - frontend analiz aktif");
         }
     };
@@ -898,7 +898,7 @@ const AdvancedAIAssistant = ({ userId }) => {
         setInventoryHealth(AIAnalyzer.generateInventoryHealth(dashData));
         setProfitability(AIAnalyzer.generateProfitability(dashData));
 
-        // Karar saysn renme verisine ekle
+        // Karar sayısını öğrenme verisine ekle
         if (decisions.length > 0) {
             setLearningData(prev => ({
                 ...prev,
@@ -906,9 +906,9 @@ const AdvancedAIAssistant = ({ userId }) => {
             }));
         }
 
-        // Fiyat nerileri - eer gerek rnler yoksa fallback
+        // Fiyat önerileri - eer gerek ürünler yoksa fallback
         if (priceRecommendations.length === 0) {
-            // Fallback: top products'tan basit neriler
+            // Fallback: top products'tan basit öneriler
             if (topProds.length > 0) {
                 setPriceRecommendations(topProds.slice(0, 5).map((p, idx) => ({
                     product: p.name,
@@ -919,7 +919,7 @@ const AdvancedAIAssistant = ({ userId }) => {
                     currentPrice: Math.round(p.revenue / Math.max(p.sales, 1)),
                     listPrice: Math.round(p.revenue / Math.max(p.sales, 1) * 1.2),
                     recommendedPrice: Math.round(p.revenue / Math.max(p.sales, 1) * (idx % 2 === 0 ? 1.08 : 0.92)),
-                    reason: idx % 2 === 0 ? ' Yksek talep - fiyat art uygun' : ' Sat art iin indirim nerisi',
+                    reason: idx % 2 === 0 ? ' Yksek talep - fiyat art uygun' : ' Sat art için indirim önerisi',
                     confidence: 75 + Math.floor(Math.random() * 15),
                     impact: idx < 2 ? 'high' : 'medium',
                     changePercent: idx % 2 === 0 ? '+8%' : '-8%'
@@ -927,7 +927,7 @@ const AdvancedAIAssistant = ({ userId }) => {
             } else {
                 // Son fallback: simle edilmi
                 setPriceRecommendations([
-                    { product: 'rn verisi bekleniyor...', productImage: '', marketplace: '', barcode: '', stock: 0, currentPrice: 0, listPrice: 0, recommendedPrice: 0, reason: 'Gerek rn verileri ykleniyor', confidence: 0, impact: 'low', changePercent: '0%' }
+                    { product: 'ürün verisi bekleniyor...', productImage: '', marketplace: '', barcode: '', stock: 0, currentPrice: 0, listPrice: 0, recommendedPrice: 0, reason: 'Gerek ürün verileri yükleniyor', confidence: 0, impact: 'low', changePercent: '0%' }
                 ]);
             }
         }
@@ -958,9 +958,9 @@ const AdvancedAIAssistant = ({ userId }) => {
             const response = AIAnalyzer.processChat(msg, dashboardData, marketAnalysis);
             setIsTyping(false);
             addAIMessage(response.text, response.mood, [
-                'Maazam analiz et', 'Satlarm nasl?', 'Fiyat nerisi ver'
+                'Maazam analiz et', 'Satlarm nasl?', 'Fiyat önerisi ver'
             ]);
-            // Chat etkileimi renme verisine ekle
+            // Chat etkileşimi öğrenme verisine ekle
             setLearningData(prev => ({ ...prev, totalChats: prev.totalChats + 1, lastUsed: Date.now() }));
         }, 800);
     };
@@ -976,7 +976,7 @@ const AdvancedAIAssistant = ({ userId }) => {
                 const response = AIAnalyzer.processChat(suggestion, dashboardData, marketAnalysis);
                 setIsTyping(false);
                 addAIMessage(response.text, response.mood, [
-                    'Maazam analiz et', 'Satlarm nasl?', 'Fiyat nerisi ver'
+                    'Maazam analiz et', 'Satlarm nasl?', 'Fiyat önerisi ver'
                 ]);
                 setLearningData(prev => ({ ...prev, totalChats: prev.totalChats + 1, lastUsed: Date.now() }));
             }, 800);
@@ -1032,12 +1032,12 @@ const AdvancedAIAssistant = ({ userId }) => {
                     </div>
                 </div>
                 <div className="ai-status-right">
-                    <div className="ai-learning-bar" onClick={() => setActiveTab('learning')} style={{ cursor: 'pointer' }} title="Detaylar iin tklayn">
-                        <div className="learning-label"> renme lerlemesi</div>
+                    <div className="ai-learning-bar" onClick={() => setActiveTab('learning')} style={{ cursor: 'pointer' }} title="Detaylar için tıklayın">
+                        <div className="learning-label"> Öğrenme İlerlemesi</div>
                         <div className="learning-progress">
                             <div className="learning-fill" style={{
                                 width: `${aiPersonality.learningProgress}%`,
-                                background: aiPersonality.learningProgress >= 80 ? 'linear-gradient(90deg, #22c55e, #4ade80)' :
+                                background: aiPersonality.learningProgress >= 80 ? 'linear-gradient(90deg, #22c55e, #4İade80)' :
                                     aiPersonality.learningProgress >= 50 ? 'linear-gradient(90deg, #4ecdc4, #44a08d)' :
                                         'linear-gradient(90deg, #f59e0b, #fbbf24)'
                             }}></div>
@@ -1046,7 +1046,7 @@ const AdvancedAIAssistant = ({ userId }) => {
                     </div>
                     <button className={`ai-toggle-btn ${aiActive ? 'active' : ''}`} onClick={() => setAiActive(!aiActive)}>
                         {aiActive ? <FaPause /> : <FaPlay />}
-                        {aiActive ? 'Duraklat' : 'Balat'}
+                        {aiActive ? 'Duraklat' : 'Başlat'}
                     </button>
                     <button className="expand-btn" onClick={() => setExpanded(!expanded)}>
                         {expanded ? <FaCompress /> : <FaExpand />}
@@ -1060,7 +1060,7 @@ const AdvancedAIAssistant = ({ userId }) => {
                     <FaShoppingCart />
                     <div>
                         <span className="stat-value">{summary.todayOrders || 0}</span>
-                        <span className="stat-label">Sipari</span>
+                        <span className="stat-label">Sipariş</span>
                     </div>
                 </div>
                 <div className="quick-stat">
@@ -1100,8 +1100,8 @@ const AdvancedAIAssistant = ({ userId }) => {
                     { id: 'markets', label: 'Pazaryerleri', icon: <FaStore /> },
                     { id: 'analytics', label: 'Grafikler', icon: <FaChartBar /> },
                     { id: 'decisions', label: `Kararlar (${criticalDecisions.length})`, icon: <FaBolt /> },
-                    { id: 'prices', label: `Fiyat nerileri (${priceRecommendations.length})`, icon: <FaDollarSign /> },
-                    { id: 'learning', label: `renme %${aiPersonality.learningProgress}`, icon: <FaBrain /> }
+                    { id: 'prices', label: `Fiyat önerileri (${priceRecommendations.length})`, icon: <FaDollarSign /> },
+                    { id: 'learning', label: `Öğrenme %${aiPersonality.learningProgress}`, icon: <FaBrain /> }
                 ].map(tab => (
                     <button
                         key={tab.id}
@@ -1139,10 +1139,10 @@ const AdvancedAIAssistant = ({ userId }) => {
                                             <CartesianGrid strokeDasharray="3 3" stroke="#2d3748" />
                                             <XAxis dataKey="day" stroke="#94a3b8" />
                                             <YAxis stroke="#94a3b8" />
-                                            <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: '8px', color: '#e2e8f0' }} formatter={(v, n) => [n === 'revenue' ? formatCurrency(v) : v, n === 'revenue' ? 'Gelir' : 'Sipari']} />
+                                            <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: '8px', color: '#e2e8f0' }} formatter={(v, n) => [n === 'revenue' ? formatCurrency(v) : v, n === 'revenue' ? 'Gelir' : 'Sipariş']} />
                                             <Legend />
                                             <Area type="monotone" dataKey="revenue" stroke="#4ecdc4" fillOpacity={1} fill="url(#aiColorRevenue)" name="Gelir" />
-                                            <Line type="monotone" dataKey="orders" stroke="#ff6b6b" strokeWidth={2} name="Sipari" />
+                                            <Line type="monotone" dataKey="orders" stroke="#ff6b6b" strokeWidth={2} name="Sipariş" />
                                         </AreaChart>
                                     </ResponsiveContainer>
                                 </div>
@@ -1153,7 +1153,7 @@ const AdvancedAIAssistant = ({ userId }) => {
                                 <div className="analysis-section">
                                     <div className="section-header">
                                         <h3><FaBoxOpen /> Stok Sal</h3>
-                                        <span className="badge info">{summary.totalProducts || 0} rn</span>
+                                        <span className="badge info">{summary.totalProducts || 0} ürün</span>
                                     </div>
                                     <div className="inventory-health-grid">
                                         {inventoryHealth.map((item, idx) => (
@@ -1164,7 +1164,7 @@ const AdvancedAIAssistant = ({ userId }) => {
                                                         <h4>{item.category}</h4>
                                                         <span className="inventory-desc">{item.description}</span>
                                                     </div>
-                                                    <span className="total-count" style={{ color: item.color }}>{item.count} rn</span>
+                                                    <span className="total-count" style={{ color: item.color }}>{item.count} ürün</span>
                                                 </div>
                                                 <div className="inventory-bars">
                                                     <div className="bar-container">
@@ -1200,11 +1200,11 @@ const AdvancedAIAssistant = ({ userId }) => {
                                 </div>
                             </div>
 
-                            {/* Top rnler zeti */}
+                            {/* Top ürünler zeti */}
                             {topProducts.length > 0 && (
                                 <div className="analysis-section">
                                     <div className="section-header">
-                                        <h3><FaTrophy /> En ok Satan rnler</h3>
+                                        <h3><FaTrophy /> En ok Satan ürünler</h3>
                                         <span className="badge success">Top {Math.min(topProducts.length, 5)}</span>
                                     </div>
                                     <div className="top-products-list">
@@ -1227,10 +1227,10 @@ const AdvancedAIAssistant = ({ userId }) => {
                                 </div>
                             )}
 
-                            {/* Frsatlar zeti */}
+                            {/* Fırsatlar zeti */}
                             <div className="analysis-section">
                                 <div className="section-header">
-                                    <h3><FaLightbulb /> Frsatlar</h3>
+                                    <h3><FaLightbulb /> Fırsatlar</h3>
                                     <span className="badge success">{opportunities.length}</span>
                                 </div>
                                 <div className="opportunities-list">
@@ -1251,7 +1251,7 @@ const AdvancedAIAssistant = ({ userId }) => {
                                     ))}
                                     {opportunities.length > 3 && (
                                         <button className="see-more-btn" onClick={() => setActiveTab('decisions')}>
-                                            Tm frsatlar gr ({opportunities.length}) 
+                                            Tüm frsatlar gr ({opportunities.length}) 
                                         </button>
                                     )}
                                 </div>
@@ -1272,7 +1272,7 @@ const AdvancedAIAssistant = ({ userId }) => {
                                 {marketAnalysis.length === 0 ? (
                                     <div className="empty-state">
                                         <FaStore />
-                                        <p>Henz pazaryeri entegrasyonu yok. Entegrasyonlar sayfasndan pazaryeri ekleyin.</p>
+                                        <p>Henüz pazaryeri entegrasyonu yok. Entegrasyonlar sayfasndan pazaryeri ekleyin.</p>
                                     </div>
                                 ) : (
                                     <div className="market-analysis-grid">
@@ -1287,7 +1287,7 @@ const AdvancedAIAssistant = ({ userId }) => {
                                                     </div>
                                                 </div>
                                                 <div className="market-stats">
-                                                    <div className="stat"><FaShoppingCart /><span>{market.orders} sipari</span></div>
+                                                    <div className="stat"><FaShoppingCart /><span>{market.orders} sipariş</span></div>
                                                     <div className="stat"><FaDollarSign /><span>{formatCurrency(market.revenue)}</span></div>
                                                     <div className={`trend ${market.trend.direction}`}>
                                                         {market.trend.direction === 'up' ? <FaArrowUp /> : <FaArrowDown />}
@@ -1334,7 +1334,7 @@ const AdvancedAIAssistant = ({ userId }) => {
                             <div className="analysis-section">
                                 <div className="section-header">
                                     <h3><FaRocket /> Gelir Tahmini</h3>
-                                    <span className="badge success">12 Aylk</span>
+                                    <span className="badge success">12 Aylık</span>
                                 </div>
                                 <div className="chart-container">
                                     <ResponsiveContainer width="100%" height={250}>
@@ -1355,7 +1355,7 @@ const AdvancedAIAssistant = ({ userId }) => {
                             <div className="analysis-section">
                                 <div className="section-header">
                                     <h3><FaTrophy /> Karllk Analizi</h3>
-                                    <span className="badge success">6 Aylk</span>
+                                    <span className="badge success">6 Aylık</span>
                                 </div>
                                 <div className="chart-container">
                                     <ResponsiveContainer width="100%" height={250}>
@@ -1402,7 +1402,7 @@ const AdvancedAIAssistant = ({ userId }) => {
                                                 <CartesianGrid strokeDasharray="3 3" stroke="#2d3748" />
                                                 <XAxis type="number" stroke="#94a3b8" tickFormatter={(v) => formatCurrency(v)} />
                                                 <YAxis type="category" dataKey="name" stroke="#94a3b8" width={100} tick={{ fontSize: 12 }} />
-                                                <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: '8px', color: '#e2e8f0' }} formatter={(v, n) => [n === 'revenue' ? formatCurrency(v) : v, n === 'revenue' ? 'Gelir' : 'Sipari']} />
+                                                <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: '8px', color: '#e2e8f0' }} formatter={(v, n) => [n === 'revenue' ? formatCurrency(v) : v, n === 'revenue' ? 'Gelir' : 'Sipariş']} />
                                                 <Bar dataKey="revenue" fill="#4ecdc4" name="Gelir" radius={[0, 4, 4, 0]} />
                                             </BarChart>
                                         </ResponsiveContainer>
@@ -1426,7 +1426,7 @@ const AdvancedAIAssistant = ({ userId }) => {
                                                     <span className="value">{formatCurrency(cat.revenue)}</span>
                                                 </div>
                                                 <div className="metric">
-                                                    <span className="label"> Sipari</span>
+                                                    <span className="label"> Sipariş</span>
                                                     <span className="value">{cat.orders}</span>
                                                 </div>
                                                 <div className="metric">
@@ -1447,7 +1447,7 @@ const AdvancedAIAssistant = ({ userId }) => {
                                             </div>
                                             <div className="cat-insight">
                                                 <FaLightbulb style={{ color: '#ffd93d', fontSize: '0.8rem' }} />
-                                                <span>{cat.growth >= 10 ? 'Hzl byme! Stok artrm dnn.' : cat.growth >= 0 ? 'Stabil performans, optimizasyon yaplabilir.' : 'D trendi! Fiyat ve kampanya stratejisi gzden geirin.'}</span>
+                                                <span>{cat.growth >= 10 ? 'Hzl byme! Stok artrm dönn.' : cat.growth >= 0 ? 'Stabil performans, optimizasyon yaplabilir.' : 'D trendi! Fiyat ve kampanya stratejisi gzden geirin.'}</span>
                                             </div>
                                         </div>
                                     ))}
@@ -1476,8 +1476,8 @@ const AdvancedAIAssistant = ({ userId }) => {
                                             </div>
                                         </div>
                                         <div className="mi-score-text">
-                                            <h4>{overallScore >= 80 ? ' Mkemmel Durum' : overallScore >= 60 ? ' yi Durum' : overallScore >= 40 ? ' Dikkat Gerekli' : ' Kritik Durum'}</h4>
-                                            <p>{overallScore >= 80 ? 'Maazanz tm pazaryerlerinde gl performans gsteriyor.' : overallScore >= 60 ? 'Genel durum iyi, kk optimizasyonlarla daha da iyileebilir.' : overallScore >= 40 ? 'Baz alanlarda iyiletirme gerekli. Aadaki kararlar inceleyin.' : 'Acil mdahale gerektiren durumlar var. Kritik kararlar hemen uygulayn.'}</p>
+                                            <h4>{overallScore >= 80 ? ' Mükemmel Durum' : overallScore >= 60 ? ' İyi Durum' : overallScore >= 40 ? ' Dikkat Gerekli' : ' Kritik Durum'}</h4>
+                                            <p>{overallScore >= 80 ? 'Mağazanız tüm pazaryerlerinde güçlü performans gösteriyor.' : overallScore >= 60 ? 'Genel durum iyi, küçük optimizasyonlarla daha da iyileşebilir.' : overallScore >= 40 ? 'Bazı alanlarda iyileştirme gerekli. Aşağıdaki kararları inceleyin.' : 'Acil müdahale gerektiren durumlar var. Kritik kararları hemen uygulayın.'}</p>
                                         </div>
                                     </div>
                                     <div className="mi-metrics-row">
@@ -1492,14 +1492,14 @@ const AdvancedAIAssistant = ({ userId }) => {
                                             <span className="mi-metric-icon"></span>
                                             <div>
                                                 <span className="mi-metric-value">{summary.totalProducts || 0}</span>
-                                                <span className="mi-metric-label">Toplam rn</span>
+                                                <span className="mi-metric-label">Toplam ürün</span>
                                             </div>
                                         </div>
                                         <div className="mi-metric">
                                             <span className="mi-metric-icon"></span>
                                             <div>
                                                 <span className="mi-metric-value">{summary.todayOrders || 0}</span>
-                                                <span className="mi-metric-label">Bugn Sipari</span>
+                                                <span className="mi-metric-label">Bugn Sipariş</span>
                                             </div>
                                         </div>
                                         <div className="mi-metric">
@@ -1526,7 +1526,7 @@ const AdvancedAIAssistant = ({ userId }) => {
                                                     <span className="mi-mp-score">{m.performanceScore}/100</span>
                                                 </div>
                                             ))}
-                                            {marketAnalysis.length === 0 && <p style={{ color: '#64748b', fontSize: '0.85rem' }}>Pazaryeri entegrasyonu yapldnda piyasa analizi burada grnecek.</p>}
+                                            {marketAnalysis.length === 0 && <p style={{ color: '#64748b', fontSize: '0.85rem' }}>Pazaryeri entegrasyonu yapldnda piyasa analizi burada görünecek.</p>}
                                         </div>
                                     </div>
                                 </div>
@@ -1537,11 +1537,11 @@ const AdvancedAIAssistant = ({ userId }) => {
                                 <div className="section-header">
                                     <h3><FaBolt /> Kritik Kararlar & Aksiyonlar</h3>
                                     <span className="badge critical">{criticalDecisions.filter(d => d.priority === 'critical').length} Kritik</span>
-                                    <span className="badge warning" style={{ marginLeft: '0.5rem' }}>{criticalDecisions.filter(d => d.priority !== 'critical' && d.priority !== 'success').length} Uyar</span>
+                                    <span className="badge warning" style={{ marginLeft: '0.5rem' }}>{criticalDecisions.filter(d => d.priority !== 'critical' && d.priority !== 'success').length} Uyarı</span>
                                 </div>
                                 <div className="decisions-list">
                                     {criticalDecisions.length === 0 ? (
-                                        <div className="empty-state"><FaCheckCircle /><p>Kritik durum yok - Her ey yolunda! </p></div>
+                                        <div className="empty-state"><FaCheckCircle /><p>Kritik durum yok - Her şey yolunda! </p></div>
                                     ) : criticalDecisions.map((decision, idx) => (
                                         <motion.div key={idx} className={`decision-card priority-${decision.priority}`} initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: idx * 0.08 }}>
                                             <div className={`decision-icon ${decision.priority}`}>
@@ -1552,7 +1552,7 @@ const AdvancedAIAssistant = ({ userId }) => {
                                                     <h4>{decision.title}</h4>
                                                     <div className="decision-badges">
                                                         <span className={`priority-badge ${decision.priority}`}>
-                                                            {decision.priority === 'critical' ? ' Kritik' : decision.priority === 'success' ? ' Baar' : decision.priority === 'info' ? ' Bilgi' : ' Uyar'}
+                                                            {decision.priority === 'critical' ? ' Kritik' : decision.priority === 'success' ? ' Başarı' : decision.priority === 'info' ? ' Bilgi' : ' Uyarı'}
                                                         </span>
                                                         {decision.estimatedTime && <span className="time-badge"><FaClock /> {decision.estimatedTime}</span>}
                                                     </div>
@@ -1566,7 +1566,7 @@ const AdvancedAIAssistant = ({ userId }) => {
                                                 )}
                                                 {decision.actions && decision.actions.length > 0 && (
                                                     <div className="decision-actions">
-                                                        <span className="actions-label">nerilen Aksiyonlar:</span>
+                                                        <span className="actions-label">Önerilen Aksiyonlar:</span>
                                                         <div className="action-buttons">
                                                             {decision.actions.map((action, aIdx) => (
                                                                 <button key={aIdx} className="action-btn">{action}</button>
@@ -1580,10 +1580,10 @@ const AdvancedAIAssistant = ({ userId }) => {
                                 </div>
                             </div>
 
-                            {/* Frsatlar */}
+                            {/* Fırsatlar */}
                             <div className="analysis-section">
                                 <div className="section-header">
-                                    <h3><FaLightbulb /> Frsatlar & neriler</h3>
+                                    <h3><FaLightbulb /> Fırsatlar & öneriler</h3>
                                     <span className="badge success">{opportunities.length}</span>
                                 </div>
                                 <div className="opportunities-list">
@@ -1613,20 +1613,20 @@ const AdvancedAIAssistant = ({ userId }) => {
                         <>
                             <div className="analysis-section">
                                 <div className="section-header">
-                                    <h3><FaDollarSign /> Fiyat nerileri</h3>
-                                    <span className="badge info">{priceRecommendations.length} neri</span>
+                                    <h3><FaDollarSign /> Fiyat önerileri</h3>
+                                    <span className="badge info">{priceRecommendations.length} öneri</span>
                                 </div>
                                 {priceRecommendations.length === 0 ? (
                                     <div className="empty-state">
                                         <FaDollarSign />
-                                        <p>Fiyat nerileri oluturuluyor... rn verileri ykleniyor.</p>
+                                        <p>Fiyat önerileri oluşturuluyor... ürün verileri yükleniyor.</p>
                                     </div>
                                 ) : (
                                     <div className="price-recommendations">
                                         {priceRecommendations.map((rec, idx) => (
                                             <motion.div key={idx} className={`price-card impact-${rec.impact}`} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: idx * 0.08 }}>
                                                 <div className="price-card-top">
-                                                    {/* rn Grseli */}
+                                                    {/* ürün Grseli */}
                                                     <div className="price-product-image">
                                                         {rec.productImage ? (
                                                             <img src={rec.productImage} alt={rec.product} onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex'; }} />
@@ -1635,13 +1635,13 @@ const AdvancedAIAssistant = ({ userId }) => {
                                                             <FaBoxOpen />
                                                         </div>
                                                     </div>
-                                                    {/* rn Bilgileri */}
+                                                    {/* ürün Bilgileri */}
                                                     <div className="price-product-info">
                                                         <h4 title={rec.product}>{rec.product.length > 60 ? rec.product.substring(0, 60) + '...' : rec.product}</h4>
                                                         <div className="price-product-meta">
                                                             {rec.marketplace && <span className="mp-badge"><FaStore /> {rec.marketplace}</span>}
                                                             {rec.barcode && <span className="barcode-badge"> {rec.barcode}</span>}
-                                                            {rec.stock > 0 && <span className={`stock-badge ${rec.stock <= 5 ? 'critical' : rec.stock <= 20 ? 'low' : 'ok'}`}> {rec.stock} adet</span>}
+                                                            {rec.stock > 0 && <span className={`stock-badge ${rec.stock <= 5 ? 'critical' : rec.stock <= 20 ? 'low' : 'ok'}`}> {rec.stock} İadet</span>}
                                                         </div>
                                                     </div>
                                                     {/* Gven Skoru */}
@@ -1665,7 +1665,7 @@ const AdvancedAIAssistant = ({ userId }) => {
                                                         <span className="change-percent">{rec.changePercent}</span>
                                                     </div>
                                                     <div className={`price-box recommended ${rec.recommendedPrice > rec.currentPrice ? 'increase' : 'decrease'}`}>
-                                                        <span className="price-label">nerilen Fiyat</span>
+                                                        <span className="price-label">önerilen Fiyat</span>
                                                         <span className="price-value">{formatCurrency(rec.recommendedPrice)}</span>
                                                         <span className="price-diff">{rec.recommendedPrice > rec.currentPrice ? '+' : ''}{formatCurrency(rec.recommendedPrice - rec.currentPrice)}</span>
                                                     </div>
@@ -1700,11 +1700,11 @@ const AdvancedAIAssistant = ({ userId }) => {
                         <>
                             <div className="analysis-section">
                                 <div className="section-header">
-                                    <h3><FaBrain /> AI renme Durumu</h3>
+                                    <h3><FaBrain /> AI Öğrenme Durumu</h3>
                                     <span className="badge success">%{aiPersonality.learningProgress}</span>
                                 </div>
 
-                                {/* Genel lerleme */}
+                                {/* Genel İlerleme */}
                                 <div className="learning-overview">
                                     <div className="learning-big-progress">
                                         <div className="big-progress-circle" style={{
@@ -1712,34 +1712,34 @@ const AdvancedAIAssistant = ({ userId }) => {
                                         }}>
                                             <div className="big-progress-inner">
                                                 <span className="big-progress-value">%{aiPersonality.learningProgress}</span>
-                                                <span className="big-progress-label">renme</span>
+                                                <span className="big-progress-label">öğrenme</span>
                                             </div>
                                         </div>
                                     </div>
                                     <div className="learning-summary-text">
                                         <h4>
                                             {aiPersonality.learningProgress >= 80 ? ' Uzman Seviye' :
-                                                aiPersonality.learningProgress >= 60 ? ' leri Seviye' :
+                                                aiPersonality.learningProgress >= 60 ? ' İleri Seviye' :
                                                     aiPersonality.learningProgress >= 40 ? ' Orta Seviye' :
-                                                        aiPersonality.learningProgress >= 20 ? ' Balang Seviye' : ' Yeni Balang'}
+                                                        aiPersonality.learningProgress >= 20 ? ' Başlangıç Seviye' : ' Yeni Başlangıç'}
                                         </h4>
                                         <p>
-                                            {aiPersonality.learningProgress >= 80 ? 'AI maazanz ok iyi tanyor! Kararlar yksek gvenle veriyor.' :
-                                                aiPersonality.learningProgress >= 60 ? 'AI maazanz iyi rendi. Daha fazla etkileim doruluu artrr.' :
-                                                    aiPersonality.learningProgress >= 40 ? 'AI maazanz renmeye devam ediyor. Chat ve analizlerle hzlandrn.' :
-                                                        'AI maazanz tanmaya balyor. Pazaryeri entegrasyonlar ve chat etkileimi renmeyi hzlandrr.'}
+                                            {aiPersonality.learningProgress >= 80 ? 'AI mağazanızı çok iyi tanıyor! Kararları yüksek güvenle veriyor.' :
+                                                aiPersonality.learningProgress >= 60 ? 'AI mağazanızı iyi öğrendi. Daha fazla etkileşim doğruluğu artırır.' :
+                                                    aiPersonality.learningProgress >= 40 ? 'AI mağazanızı öğrenmeye devam ediyor. Chat ve analizlerle hızlandırın.' :
+                                                        'AI mağazanızı tanımaya başlıyor. Pazaryeri entegrasyonları ve chat etkileşimi öğrenmeyi hızlandırır.'}
                                         </p>
                                         <div className="learning-meta-info">
-                                            <span> lk kullanm: {new Date(learningData.firstUsed).toLocaleDateString('tr-TR')}</span>
-                                            <span> Son gncelleme: {new Date(learningData.lastUsed).toLocaleTimeString('tr-TR')}</span>
+                                            <span> İlk kullanım: {new Date(learningData.firstUsed).toLocaleDateString('tr-TR')}</span>
+                                            <span> Son güncelleme: {new Date(learningData.lastUsed).toLocaleTimeString('tr-TR')}</span>
                                             <span> Toplam analiz: {learningData.totalAnalyses}</span>
                                         </div>
                                     </div>
                                 </div>
 
-                                {/* Detayl Breakdown */}
+                                {/* Detaylı Breakdown */}
                                 <div className="learning-breakdown">
-                                    <h4 style={{ marginBottom: '1rem', color: '#94a3b8' }}> renme Faktrleri</h4>
+                                    <h4 style={{ marginBottom: '1rem', color: '#94a3b8' }}> Öğrenme Faktörleri</h4>
                                     {getLearningBreakdown(learningData).map((item, idx) => (
                                         <div key={idx} className="learning-factor">
                                             <div className="factor-header">
@@ -1758,20 +1758,20 @@ const AdvancedAIAssistant = ({ userId }) => {
                                     ))}
                                 </div>
 
-                                {/* renme pular */}
+                                {/* Öğrenme İpuçları */}
                                 <div className="learning-tips">
-                                    <h4 style={{ marginBottom: '1rem', color: '#94a3b8' }}> renmeyi Hzlandrma pular</h4>
+                                    <h4 style={{ marginBottom: '1rem', color: '#94a3b8' }}> Öğrenmeyi Hızlandırma İpuçları</h4>
                                     {getLearningBreakdown(learningData).filter(f => f.value < f.max).slice(0, 4).map((factor, idx) => (
                                         <div key={idx} className="learning-tip">
                                             <span className="tip-icon">{factor.icon}</span>
                                             <span className="tip-text">
-                                                {factor.label === 'Chat' ? 'AI ile daha fazla sohbet edin - sorular sorun, neriler isteyin.' :
-                                                    factor.label === 'Pazaryeri' ? 'Daha fazla pazaryeri entegre edin - AI daha geni analiz yapabilir.' :
-                                                        factor.label === 'rnler' ? 'rn verileriniz ykleniyor - pazaryeri entegrasyonlarn kontrol edin.' :
-                                                            factor.label === 'Kategoriler' ? 'Farkl kategorilerde rn ekleyin - AI kategori bazl analiz yapabilir.' :
-                                                                factor.label === 'Analiz' ? 'Sayfay dzenli ziyaret edin - her ziyarette AI yeni analiz yapar.' :
-                                                                    factor.label === 'Kararlar' ? 'Kritik kararlar blmn inceleyin ve uygulayn.' :
-                                                                        `${factor.label} alannda daha fazla etkileim yapn.`}
+                                                {factor.label === 'Chat' ? 'AI ile daha fazla sohbet edin - sorular sorun, öneriler isteyin.' :
+                                                    factor.label === 'Pazaryeri' ? 'Daha fazla pazaryeri entegre edin - AI daha geniş analiz yapabilir.' :
+                                                        factor.label === 'ürünler' ? 'Ürün verileriniz yükleniyor - pazaryeri entegrasyonlarını kontrol edin.' :
+                                                            factor.label === 'Kategoriler' ? 'Farklı kategorilerde ürün ekleyin - AI kategori bazlı analiz yapabilir.' :
+                                                                factor.label === 'Analiz' ? 'Sayfayı düzenli ziyaret edin - her ziyarette AI yeni analiz yapar.' :
+                                                                    factor.label === 'Kararlar' ? 'Kritik kararlar bölümünü inceleyin ve uygulayın.' :
+                                                                        `${factor.label} alanında daha fazla etkileşim yapın.`}
                                             </span>
                                             <span className="tip-progress">+{Math.round(factor.max - factor.value)} puan potansiyel</span>
                                         </div>

@@ -64,7 +64,7 @@ const CargoTrackingPage = ({ userId, marketplaceId, marketplace }) => {
         const s = (status || "").toLowerCase();
         if (s.includes("shipped") || s.includes("kargoda") || s.includes("transit")) return { label: t("cargo.shipped"), color: C.yellow, icon: <FaTruck /> };
         if (s.includes("delivered") || s.includes("teslim")) return { label: t("cargo.delivered"), color: C.green, icon: <FaCheckCircle /> };
-        if (s.includes("returned") || s.includes("iade")) return { label: t("cargo.returned"), color: C.red, icon: <FaUndoAlt /> };
+        if (s.includes("returned") || s.includes("iİade")) return { label: t("cargo.returned"), color: C.red, icon: <FaUndoAlt /> };
         if (s.includes("undelivered") || s.includes("teslim edilemedi")) return { label: t("cargo.undelivered"), color: C.pink, icon: <FaTimesCircle /> };
         return { label: status || t("cargo.unknown"), color: C.muted, icon: <FaBoxOpen /> };
     };
@@ -76,7 +76,7 @@ const CargoTrackingPage = ({ userId, marketplaceId, marketplace }) => {
             const s = (o.status || "").toLowerCase();
             if (s.includes("shipped") || s.includes("kargoda") || s.includes("transit")) counts.Shipped++;
             else if (s.includes("delivered") || s.includes("teslim")) counts.Delivered++;
-            else if (s.includes("returned") || s.includes("iade")) counts.Returned++;
+            else if (s.includes("returned") || s.includes("iİade")) counts.Returned++;
             else if (s.includes("undelivered")) counts.UnDelivered++;
         });
         return counts;
@@ -93,7 +93,7 @@ const CargoTrackingPage = ({ userId, marketplaceId, marketplace }) => {
                 const s = (order.status || "").toLowerCase();
                 if (statusFilter === "Shipped") return s.includes("shipped") || s.includes("kargoda") || s.includes("transit");
                 if (statusFilter === "Delivered") return s.includes("delivered") || s.includes("teslim");
-                if (statusFilter === "Returned") return s.includes("returned") || s.includes("iade");
+                if (statusFilter === "Returned") return s.includes("returned") || s.includes("iİade");
                 if (statusFilter === "UnDelivered") return s.includes("undelivered");
                 return true;
             })();

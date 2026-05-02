@@ -6,7 +6,8 @@ import {
     FaExclamationTriangle, FaCalendarAlt, FaFileExcel,
     FaFilePdf, FaArrowDown, FaClock, FaBox,
     FaChartBar, FaTable, FaSpinner, FaChevronDown,
-    FaTrendingUp, FaTrendingDown, FaInfoCircle
+    FaTrendingUp, FaTrendingDown, FaInfoCircle,
+    FaStore
 } from "react-icons/fa";
 import {
     LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
@@ -23,8 +24,19 @@ dayjs.locale("tr");
 const fmt = (v) => new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY", maximumFractionDigits: 2 }).format(Number(v || 0));
 
 const COLORS = ["#4ecdc4", "#44a08d", "#f59e0b", "#8b5cf6", "#ef4444", "#22c55e", "#06b6d4", "#ec4899"];
-const MP_LOGO = { Trendyol: "\u{1F6CD}\uFE0F", Hepsiburada: "\u{1F6D2}", N11: "\u{1F3EA}", n11: "\u{1F3EA}", Amazon: "\u{1F4E6}", "Amazon T\u00FCrkiye": "\u{1F4E6}", "Amazon Europe": "\u{1F4E6}", "Amazon USA": "\u{1F4E6}", "\u00C7i\u00E7ekSepeti": "\u{1F338}", "\u00C7i\u00E7eksepeti": "\u{1F338}" };
-const getLogo = (n) => MP_LOGO[n] || "\u{1F3EC}";
+const MP_LOGO = {
+    Trendyol: <FaStore style={{ color: "#f27a1a" }} />,
+    Hepsiburada: <FaStore style={{ color: "#ff6000" }} />,
+    N11: <FaStore style={{ color: "#8b5cf6" }} />,
+    n11: <FaStore style={{ color: "#8b5cf6" }} />,
+    Amazon: <FaStore style={{ color: "#f59e0b" }} />,
+    "Amazon Türkiye": <FaStore style={{ color: "#f59e0b" }} />,
+    "Amazon Europe": <FaStore style={{ color: "#f59e0b" }} />,
+    "Amazon USA": <FaStore style={{ color: "#f59e0b" }} />,
+    "ÇiçekSepeti": <FaStore style={{ color: "#ec4899" }} />,
+    "Çiçeksepeti": <FaStore style={{ color: "#ec4899" }} />
+};
+const getLogo = (n) => MP_LOGO[n] || <FaStore />;
 
 const ttip = { background: "rgba(10,14,26,0.95)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "8px", color: "#fff" };
 
@@ -89,7 +101,7 @@ const FinancePage = ({ userId, marketplaceId, marketplace, marketplaces: propMar
         const sett = mpData.settlements || [];
         const oth = mpData.otherFinancials || [];
         const sales = sett.filter(s => /^(Sale|Sat[ıi][sş])$/i.test(s.transactionType || ""));
-        const rets = sett.filter(s => /^(Return|[İI]ade)$/i.test(s.transactionType || ""));
+        const rets = sett.filter(s => /^(Return|[İI]İade)$/i.test(s.transactionType || ""));
         const discs = sett.filter(s => /^(Discount|[İI]ndirim)$/i.test(s.transactionType || ""));
         const coups = sett.filter(s => /^(Coupon|Kupon)$/i.test(s.transactionType || ""));
 
@@ -120,7 +132,7 @@ const FinancePage = ({ userId, marketplaceId, marketplace, marketplaces: propMar
             daily[d].revenue += Number(s.sellerRevenue || 0);
             daily[d].commission += Number(s.commissionAmount || 0);
             if (/^(Sale|Sat[ıi][sş])$/i.test(s.transactionType || "")) { daily[d].orders += 1; daily[d].sales += Number(s.credit || 0); }
-            if (/^(Return|[İI]ade)$/i.test(s.transactionType || "")) daily[d].returns += Number(s.debt || 0);
+            if (/^(Return|[İI]İade)$/i.test(s.transactionType || "")) daily[d].returns += Number(s.debt || 0);
             daily[d].netRevenue = daily[d].sales - daily[d].returns - daily[d].commission;
         });
         const trendData = Object.values(daily).sort((a, b) => dayjs(a.date, "DD MMM").valueOf() - dayjs(b.date, "DD MMM").valueOf());
@@ -143,19 +155,19 @@ const FinancePage = ({ userId, marketplaceId, marketplace, marketplaces: propMar
     }, [financeData, selectedMp]);
 
     const kpiCards = [
-        { id: "totalSales", label: "Toplam Satis", value: fmt(analytics.totalSales), sub: `${analytics.orderCount} siparis`, icon: FaShoppingCart, color: "#10b981", details: [{ l: "Gunluk Ort.", v: fmt(analytics.avgDailyRevenue) }, { l: "Siparis Basina", v: fmt(analytics.avgOrderValue) }, { l: "Toplam Gun", v: `${analytics.daysCount} gun` }, { l: "Gunluk Siparis", v: `${analytics.avgDailyOrders.toFixed(1)} adet` }] },
-        { id: "netRevenue", label: "Net Gelir", value: fmt(analytics.totalRevenue), sub: "Komisyon oncesi", icon: FaMoneyBillWave, color: "#4ecdc4", details: [{ l: "Brut Satis", v: fmt(analytics.totalSales) }, { l: "Iadeler", v: fmt(analytics.totalReturns) }, { l: "Indirimler", v: fmt(analytics.totalDiscounts) }, { l: "Kuponlar", v: fmt(analytics.totalCoupons) }] },
-        { id: "commission", label: "Toplam Komisyon", value: fmt(analytics.totalCommission), sub: `Ort. %${analytics.avgCommissionRate.toFixed(1)}`, icon: FaPercentage, color: "#f59e0b", details: [{ l: "Komisyon Orani", v: `%${analytics.avgCommissionRate.toFixed(2)}` }, { l: "Brut Marj", v: `%${analytics.grossMargin.toFixed(2)}` }, { l: "Satistan Kesinti", v: fmt(analytics.totalCommission) }, { l: "Gunluk Ort.", v: fmt(analytics.totalCommission / analytics.daysCount) }] },
-        { id: "netProfit", label: "Net Kar", value: fmt(analytics.netProfit), sub: "Tum kesintiler sonrasi", icon: FaWallet, color: analytics.netProfit >= 0 ? "#8b5cf6" : "#ef4444", details: [{ l: "Kar Marji", v: `%${analytics.profitMargin.toFixed(2)}` }, { l: "Gunluk Ort. Kar", v: fmt(analytics.avgDailyProfit) }, { l: "Toplam Gelir", v: fmt(analytics.totalRevenue) }, { l: "Toplam Gider", v: fmt(analytics.totalCommission + analytics.totalDeductions) }] },
-        { id: "returnRate", label: "Iade Orani", value: `%${analytics.returnRate.toFixed(1)}`, sub: `${analytics.returnCount} iade`, icon: FaArrowDown, color: analytics.returnRate > 10 ? "#ef4444" : "#22c55e", details: [{ l: "Toplam Iade", v: `${analytics.returnCount} adet` }, { l: "Iade Tutari", v: fmt(analytics.totalReturns) }, { l: "Basarili Siparis", v: `${analytics.orderCount - analytics.returnCount} adet` }, { l: "Iade/Satis", v: `%${analytics.returnRate.toFixed(2)}` }] },
-        { id: "avgBasket", label: "Ortalama Sepet", value: fmt(analytics.avgOrderValue), sub: "Siparis basina", icon: FaBox, color: "#06b6d4", details: [{ l: "Toplam Siparis", v: `${analytics.orderCount} adet` }, { l: "Toplam Tutar", v: fmt(analytics.totalSales) }, { l: "Gunluk Ort. Siparis", v: `${analytics.avgDailyOrders.toFixed(1)} adet` }, { l: "Gunluk Ort. Ciro", v: fmt(analytics.totalSales / analytics.daysCount) }] },
-        { id: "payments", label: "Odeme Alinan", value: fmt(analytics.totalPayments), sub: "Hesaba gecen", icon: FaCheckCircle, color: "#22c55e", details: [{ l: "Odeme Sayisi", v: `${analytics.txTypes.payments?.count || 0} adet` }, { l: "Ort. Odeme", v: fmt(analytics.totalPayments / Math.max(analytics.txTypes.payments?.count || 1, 1)) }, { l: "Bekleyen Gelir", v: fmt(analytics.totalRevenue - analytics.totalPayments) }, { l: "Odeme Orani", v: `%${((analytics.totalPayments / Math.max(analytics.totalRevenue, 1)) * 100).toFixed(1)}` }] },
-        { id: "deductions", label: "Kesintiler", value: fmt(analytics.totalDeductions), sub: "Kargo, platform vb.", icon: FaCreditCard, color: "#ef4444", details: [{ l: "Kesinti Sayisi", v: `${analytics.txTypes.deductions?.count || 0} adet` }, { l: "Ort. Kesinti", v: fmt(analytics.totalDeductions / Math.max(analytics.txTypes.deductions?.count || 1, 1)) }, { l: "Gelire Orani", v: `%${((analytics.totalDeductions / Math.max(analytics.totalRevenue, 1)) * 100).toFixed(2)}` }, { l: "Gunluk Ort.", v: fmt(analytics.totalDeductions / analytics.daysCount) }] }
+        { id: "totalSales", label: "Toplam Satış", value: fmt(analytics.totalSales), sub: `${analytics.orderCount} sipariş`, icon: FaShoppingCart, color: "#10b981", details: [{ l: "Günlük Ort.", v: fmt(analytics.avgDailyRevenue) }, { l: "Sipariş Başına", v: fmt(analytics.avgOrderValue) }, { l: "Toplam Gün", v: `${analytics.daysCount} gün` }, { l: "Günlük Sipariş", v: `${analytics.avgDailyOrders.toFixed(1)} adet` }] },
+        { id: "netRevenue", label: "Net Gelir", value: fmt(analytics.totalRevenue), sub: "Komisyon öncesi", icon: FaMoneyBillWave, color: "#4ecdc4", details: [{ l: "Brüt Satış", v: fmt(analytics.totalSales) }, { l: "İadeler", v: fmt(analytics.totalReturns) }, { l: "İndirimler", v: fmt(analytics.totalDiscounts) }, { l: "Kuponlar", v: fmt(analytics.totalCoupons) }] },
+        { id: "commission", label: "Toplam Komisyon", value: fmt(analytics.totalCommission), sub: `Ort. %${analytics.avgCommissionRate.toFixed(1)}`, icon: FaPercentage, color: "#f59e0b", details: [{ l: "Komisyon Oranı", v: `%${analytics.avgCommissionRate.toFixed(2)}` }, { l: "Brüt Marj", v: `%${analytics.grossMargin.toFixed(2)}` }, { l: "Satıştan Kesinti", v: fmt(analytics.totalCommission) }, { l: "Günlük Ort.", v: fmt(analytics.totalCommission / analytics.daysCount) }] },
+        { id: "netProfit", label: "Net Kâr", value: fmt(analytics.netProfit), sub: "Tüm kesintiler sonrası", icon: FaWallet, color: analytics.netProfit >= 0 ? "#8b5cf6" : "#ef4444", details: [{ l: "Kâr Marjı", v: `%${analytics.profitMargin.toFixed(2)}` }, { l: "Günlük Ort. Kâr", v: fmt(analytics.avgDailyProfit) }, { l: "Toplam Gelir", v: fmt(analytics.totalRevenue) }, { l: "Toplam Gider", v: fmt(analytics.totalCommission + analytics.totalDeductions) }] },
+        { id: "returnRate", label: "İade Oranı", value: `%${analytics.returnRate.toFixed(1)}`, sub: `${analytics.returnCount} iade`, icon: FaArrowDown, color: analytics.returnRate > 10 ? "#ef4444" : "#22c55e", details: [{ l: "Toplam İade", v: `${analytics.returnCount} adet` }, { l: "İade Tutarı", v: fmt(analytics.totalReturns) }, { l: "Başarılı Sipariş", v: `${analytics.orderCount - analytics.returnCount} adet` }, { l: "İade/Satış", v: `%${analytics.returnRate.toFixed(2)}` }] },
+        { id: "avgBasket", label: "Ortalama Sepet", value: fmt(analytics.avgOrderValue), sub: "Sipariş başına", icon: FaBox, color: "#06b6d4", details: [{ l: "Toplam Sipariş", v: `${analytics.orderCount} adet` }, { l: "Toplam Tutar", v: fmt(analytics.totalSales) }, { l: "Günlük Ort. Sipariş", v: `${analytics.avgDailyOrders.toFixed(1)} adet` }, { l: "Günlük Ort. Ciro", v: fmt(analytics.totalSales / analytics.daysCount) }] },
+        { id: "payments", label: "Ödeme Alınan", value: fmt(analytics.totalPayments), sub: "Hesaba geçen", icon: FaCheckCircle, color: "#22c55e", details: [{ l: "Ödeme Sayısı", v: `${analytics.txTypes.payments?.count || 0} adet` }, { l: "Ort. Ödeme", v: fmt(analytics.totalPayments / Math.max(analytics.txTypes.payments?.count || 1, 1)) }, { l: "Bekleyen Gelir", v: fmt(analytics.totalRevenue - analytics.totalPayments) }, { l: "Ödeme Oranı", v: `%${((analytics.totalPayments / Math.max(analytics.totalRevenue, 1)) * 100).toFixed(1)}` }] },
+        { id: "deductions", label: "Kesintiler", value: fmt(analytics.totalDeductions), sub: "Kargo, platform vb.", icon: FaCreditCard, color: "#ef4444", details: [{ l: "Kesinti Sayısı", v: `${analytics.txTypes.deductions?.count || 0} adet` }, { l: "Ort. Kesinti", v: fmt(analytics.totalDeductions / Math.max(analytics.txTypes.deductions?.count || 1, 1)) }, { l: "Gelir Oranı", v: `%${((analytics.totalDeductions / Math.max(analytics.totalRevenue, 1)) * 100).toFixed(2)}` }, { l: "Günlük Ort.", v: fmt(analytics.totalDeductions / analytics.daysCount) }] }
     ];
 
     const exportToExcel = () => {
         if (currentSettlements.length === 0) return alert("Disa aktarilacak veri yok!");
-        const h = ["Tarih", "Siparis No", "Barkod", "Islem Tipi", "Alacak", "Borc", "Komisyon", "Net Gelir"];
+        const h = ["Tarih", "Siparişs No", "Barkod", "Islem Tipi", "Alacak", "Borc", "Komisyon", "Net Gelir"];
         const rows = currentSettlements.map(i => [dayjs(i.transactionDate).format("DD/MM/YYYY"), i.orderNumber || "-", i.barcode || "-", i.transactionType, i.credit > 0 ? i.credit.toFixed(2) : "-", i.debt > 0 ? i.debt.toFixed(2) : "-", (i.commissionAmount || 0).toFixed(2), (i.sellerRevenue || 0).toFixed(2)]);
         let csv = "data:text/csv;charset=utf-8,\uFEFF" + h.join(",") + "\n";
         rows.forEach(r => { csv += r.join(",") + "\n"; });
@@ -206,14 +218,14 @@ const FinancePage = ({ userId, marketplaceId, marketplace, marketplaces: propMar
                                 <input type="date" value={dateRange.end} onChange={e => setDateRange({ ...dateRange, end: e.target.value })} style={{ background: "transparent", border: "none", color: "#fff", outline: "none", fontSize: "0.875rem", width: "130px" }} />
                             </div>
                             <Btn onClick={loadFinanceData} disabled={loading} bg={loading ? "rgba(78,205,196,0.3)" : "linear-gradient(135deg,#4ecdc4,#44a08d)"}>
-                                {loading ? <><FaSpinner style={{ animation: "spin 1s linear infinite" }} /> Yukleniyor...</> : <><FaSync /> Yenile</>}
+                                {loading ? <><FaSpinner style={{ animation: "spin 1s linear infinite" }} /> Yükleniyor...</> : <><FaSync /> Yenile</>}
                             </Btn>
                         </>
                     )}
                 </div>
             </div>
 
-            {/* Marketplace Selector — genel modda pazaryeri secimi */}
+            {/* Marketplace Selector — genel modda pazaryeri seçimi */}
             {!isSingleMode && marketplaces.length > 1 && (
                 <div style={{ background: "rgba(78,205,196,0.05)", borderBottom: "1px solid rgba(78,205,196,0.15)", padding: "0.75rem 2rem", display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap" }}>
                     <span style={{ color: "#94a3b8", fontSize: "0.8rem", fontWeight: 600 }}>Pazaryeri:</span>
@@ -250,7 +262,7 @@ const FinancePage = ({ userId, marketplaceId, marketplace, marketplaces: propMar
                     <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} style={{ background: "rgba(239,68,68,0.1)", border: "2px solid rgba(239,68,68,0.3)", borderRadius: "12px", padding: "3rem", textAlign: "center", maxWidth: "600px", margin: "4rem auto" }}>
                         <FaExclamationTriangle style={{ fontSize: "4rem", color: "#ef4444", marginBottom: "1.5rem" }} />
                         <h3 style={{ fontSize: "1.5rem", marginBottom: "1rem", color: "#fff" }}>Pazaryeri Entegrasyonu Bulunamadi</h3>
-                        <p style={{ color: "#94a3b8", fontSize: "1rem" }}>Finans verilerini goruntulemek icin once bir pazaryeri entegrasyonu eklemelisiniz.</p>
+                        <p style={{ color: "#94a3b8", fontSize: "1rem" }}>Finans verilerini görüntulemek için once bir pazaryeri entegrasyonu eklemelisiniz.</p>
                     </motion.div>
                 </div>
             )}
@@ -276,7 +288,7 @@ const FinancePage = ({ userId, marketplaceId, marketplace, marketplaces: propMar
                     {error && (
                         <motion.div key="error" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} style={{ background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: "12px", padding: "2rem", textAlign: "center", marginBottom: "2rem" }}>
                             <FaExclamationTriangle style={{ fontSize: "3rem", color: "#ef4444", marginBottom: "1rem" }} />
-                            <h3 style={{ color: "#fff", marginBottom: "0.5rem" }}>Hata Olustu</h3>
+                            <h3 style={{ color: "#fff", marginBottom: "0.5rem" }}>Hata Oluştu</h3>
                             <p style={{ color: "#94a3b8" }}>{error}</p>
                         </motion.div>
                     )}
@@ -286,7 +298,7 @@ const FinancePage = ({ userId, marketplaceId, marketplace, marketplaces: propMar
                         <motion.div key="unsupported" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} style={{ background: "rgba(245,158,11,0.1)", border: "1px solid rgba(245,158,11,0.3)", borderRadius: "12px", padding: "2rem", textAlign: "center" }}>
                             <FaInfoCircle style={{ fontSize: "3rem", color: "#f59e0b", marginBottom: "1rem" }} />
                             <h3 style={{ color: "#fff", marginBottom: "0.5rem" }}>Finans API Henuz Desteklenmiyor</h3>
-                            <p style={{ color: "#94a3b8" }}>{analytics.message || `${selectedMp?.marketplaceName} icin finans API entegrasyonu gelistirme asamasinda.`}</p>
+                            <p style={{ color: "#94a3b8" }}>{analytics.message || `${selectedMp?.marketplaceName} için finans API entegrasyonu gelistirme asamasinda.`}</p>
                         </motion.div>
                     )}
 
@@ -295,7 +307,7 @@ const FinancePage = ({ userId, marketplaceId, marketplace, marketplaces: propMar
                         <motion.div key="no-mp" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} style={{ background: "#1a1f35", borderRadius: "12px", padding: "3rem", textAlign: "center" }}>
                             <FaExclamationTriangle style={{ fontSize: "3rem", color: "#f59e0b", marginBottom: "1rem" }} />
                             <h3 style={{ color: "#f8fafc", marginBottom: "0.5rem", fontSize: "1.5rem" }}>Pazaryeri Secilmedi</h3>
-                            <p style={{ color: "#94a3b8" }}>Lutfen soldaki menuden bir pazaryeri secin.</p>
+                            <p style={{ color: "#94a3b8" }}>Lütfen soldaki menüden bir pazaryeri seçin.</p>
                         </motion.div>
                     )}
 
@@ -357,7 +369,7 @@ const FinancePage = ({ userId, marketplaceId, marketplace, marketplaces: propMar
                                 </motion.div>
                                 {/* Orders */}
                                 <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.1 }} style={{ background: cardBg, border: "1px solid rgba(68,160,141,0.2)", padding: "1.5rem", borderRadius: "12px" }}>
-                                    <h3 style={{ fontSize: "1.25rem", marginBottom: "1.5rem", color: "#fff" }}>📦 Siparis Sayisi</h3>
+                                    <h3 style={{ fontSize: "1.25rem", marginBottom: "1.5rem", color: "#fff" }}>📦 Siparişs Sayisi</h3>
                                     <ResponsiveContainer width="100%" height={300}>
                                         <BarChart data={analytics.trendData}>
                                             <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
@@ -386,7 +398,7 @@ const FinancePage = ({ userId, marketplaceId, marketplace, marketplaces: propMar
                                     <h3 style={{ fontSize: "1.25rem", marginBottom: "1.5rem", color: "#fff" }}>🎯 Islem Dagilimi</h3>
                                     <ResponsiveContainer width="100%" height={300}>
                                         <PieChart>
-                                            <Pie data={[{ name: "Satis", value: analytics.orderCount }, { name: "Iade", value: analytics.returnCount }, { name: "Diger", value: currentSettlements.filter(s => !/^(Sale|Sat[\u0131i][s\u015f]|Return|[\u0130I]ade)$/i.test(s.transactionType || "")).length }]} cx="50%" cy="50%" labelLine={false} label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`} outerRadius={100} fill="#8884d8" dataKey="value">
+                                            <Pie data={[{ name: "Satis", value: analytics.orderCount }, { name: "Iİade", value: analytics.returnCount }, { name: "Diger", value: currentSettlements.filter(s => !/^(Sale|Sat[\u0131i][s\u015f]|Return|[\u0130I]İade)$/i.test(s.transactionType || "")).length }]} cx="50%" cy="50%" labelLine={false} label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`} outerRadius={100} fill="#8884d8" dataKey="value">
                                                 {COLORS.map((c, i) => <Cell key={`c-${i}`} fill={c} />)}
                                             </Pie>
                                             <Tooltip contentStyle={ttip} />
@@ -411,7 +423,7 @@ const FinancePage = ({ userId, marketplaceId, marketplace, marketplaces: propMar
                                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                                     <thead>
                                         <tr style={{ borderBottom: "2px solid rgba(255,255,255,0.1)" }}>
-                                            {["Tarih", "Siparis No", "Barkod", "Islem Tipi"].map(h => <th key={h} style={{ padding: "1rem", textAlign: "left", color: "#94a3b8", fontWeight: 600, fontSize: "0.875rem" }}>{h}</th>)}
+                                            {["Tarih", "Siparişs No", "Barkod", "Islem Tipi"].map(h => <th key={h} style={{ padding: "1rem", textAlign: "left", color: "#94a3b8", fontWeight: 600, fontSize: "0.875rem" }}>{h}</th>)}
                                             {["Alacak", "Borc", "Komisyon", "Net Gelir"].map(h => <th key={h} style={{ padding: "1rem", textAlign: "right", color: "#94a3b8", fontWeight: 600, fontSize: "0.875rem" }}>{h}</th>)}
                                         </tr>
                                     </thead>
@@ -422,7 +434,7 @@ const FinancePage = ({ userId, marketplaceId, marketplace, marketplaces: propMar
                                                 <td style={{ padding: "1rem", color: "#e2e8f0", fontSize: "0.875rem" }}>{item.orderNumber || "-"}</td>
                                                 <td style={{ padding: "1rem", color: "#94a3b8", fontSize: "0.875rem" }}>{item.barcode || "-"}</td>
                                                 <td style={{ padding: "1rem", fontSize: "0.875rem" }}>
-                                                    <span style={{ background: /^(Sale|Sat[\u0131i][s\u015f])$/i.test(item.transactionType || "") ? "rgba(34,197,94,0.2)" : /^(Return|[\u0130I]ade)$/i.test(item.transactionType || "") ? "rgba(239,68,68,0.2)" : "rgba(245,158,11,0.2)", color: /^(Sale|Sat[\u0131i][s\u015f])$/i.test(item.transactionType || "") ? "#22c55e" : /^(Return|[\u0130I]ade)$/i.test(item.transactionType || "") ? "#ef4444" : "#f59e0b", padding: "0.25rem 0.75rem", borderRadius: "6px", fontSize: "0.75rem", fontWeight: 600 }}>{item.transactionType}</span>
+                                                    <span style={{ background: /^(Sale|Sat[\u0131i][s\u015f])$/i.test(item.transactionType || "") ? "rgba(34,197,94,0.2)" : /^(Return|[\u0130I]İade)$/i.test(item.transactionType || "") ? "rgba(239,68,68,0.2)" : "rgba(245,158,11,0.2)", color: /^(Sale|Sat[\u0131i][s\u015f])$/i.test(item.transactionType || "") ? "#22c55e" : /^(Return|[\u0130I]İade)$/i.test(item.transactionType || "") ? "#ef4444" : "#f59e0b", padding: "0.25rem 0.75rem", borderRadius: "6px", fontSize: "0.75rem", fontWeight: 600 }}>{item.transactionType}</span>
                                                 </td>
                                                 <td style={{ padding: "1rem", textAlign: "right", color: "#22c55e", fontWeight: 600, fontSize: "0.875rem" }}>{item.credit > 0 ? fmt(item.credit) : "-"}</td>
                                                 <td style={{ padding: "1rem", textAlign: "right", color: "#ef4444", fontWeight: 600, fontSize: "0.875rem" }}>{item.debt > 0 ? fmt(item.debt) : "-"}</td>

@@ -451,6 +451,73 @@ exports.updateProduct = async (req, res) => {
 };
 
 /**
+ * Pazaryeri bazlı satış / liste fiyatını yalnızca veritabanında güncelle (API'ye push yok)
+ * PATCH /product-management/products/:productId/channel-prices
+ * Body: { channels: [ { marketplaceName: "Trendyol", price: 99.9, listPrice: 119 } ] }
+ */
+exports.updateChannelPricesLocal = async (req, res) => {
+    try {
+        const userId = toObjectId(req.user?._id || req.user?.id);
+        if (!userId) return res.status(401).json({ error: "Yetkilendirme hatası" });
+
+        const { productId } = req.params;
+        const { channels } = req.body || {};
+        if (!Array.isArray(channels) || channels.length === 0) {
+            return res.status(400).json({ error: "channels dizisi gerekli" });
+        }
+
+        const doc = await ProductMapping.findOne({ _id: productId, userId });
+        if (!doc) return res.status(404).json({ error: "Ürün bulunamadı" });
+
+        const results = [];
+        for (const ch of channels) {
+            const rawName = ch.marketplaceName || ch.platform;
+            const canon = normalizeMarketplaceName(rawName);
+            if (!canon) {
+                results.push({ marketplace: rawName, status: "error", message: "Geçersiz platform" });
+                continue;
+            }
+
+            const sale = ch.price != null && ch.price !== "" ? parseFloat(ch.price) : null;
+            const listRaw = ch.listPrice != null && ch.listPrice !== "" ? parseFloat(ch.listPrice) : null;
+
+            if (sale != null && (Number.isNaN(sale) || sale <= 0)) {
+                return res.status(400).json({ error: `${canon} için geçersiz satış fiyatı` });
+            }
+            if (listRaw != null && (Number.isNaN(listRaw) || listRaw <= 0)) {
+                return res.status(400).json({ error: `${canon} için geçersiz liste fiyatı` });
+            }
+
+            const mpMapping = doc.marketplaceMappings.find(
+                (m) => normalizeMarketplaceName(m.marketplaceName) === canon
+            );
+            if (!mpMapping) {
+                results.push({ marketplace: canon, status: "skipped", message: "Bu platformda listeleme yok" });
+                continue;
+            }
+
+            const listPrice = listRaw != null ? listRaw : (sale != null ? sale : null);
+            if (sale != null) mpMapping.price = sale;
+            if (listPrice != null) mpMapping.listPrice = listPrice;
+            if (sale != null && listRaw == null) mpMapping.listPrice = sale;
+
+            results.push({ marketplace: canon, status: "ok" });
+        }
+
+        await doc.save();
+        return res.status(200).json({
+            success: true,
+            message: "Pazaryeri fiyatları güncellendi",
+            results,
+            product: doc
+        });
+    } catch (error) {
+        logger.error("[CHANNEL PRICES LOCAL] Hata:", error.message);
+        return res.status(500).json({ error: "Fiyatlar güncellenemedi", details: error.message });
+    }
+};
+
+/**
  * Ürün sil (pazaryerlerinden de zorunlu kaldırır)
  *
  * DELETE /product-management/products/:productId

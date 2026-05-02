@@ -92,7 +92,9 @@ app.use(additionalSecurityHeaders);
 // ─── 7. CORS — Whitelist bazlı ───────────────────────────────────────────────
 const allowedOrigins = [
     "http://localhost:3000",
+    "http://127.0.0.1:3000",
     "http://localhost:5000",
+    "http://127.0.0.1:5000",
     // Production — hem HTTP hem HTTPS (SSL sertifikası eklenene kadar HTTP de gerekli)
     "http://13.51.158.124",
  
@@ -111,10 +113,44 @@ const allowedOrigins = [
     "http://www.xn--pazarynetim-wfb.com"
 ];
 
+// Örn: CORS_EXTRA_ORIGINS=http://192.168.1.108:3000,http://10.0.0.5:3000
+if (process.env.CORS_EXTRA_ORIGINS) {
+    process.env.CORS_EXTRA_ORIGINS.split(",").map(s => s.trim()).filter(Boolean).forEach(o => {
+        if (!allowedOrigins.includes(o)) allowedOrigins.push(o);
+    });
+}
+
+/** RFC1918 özel ağ: LAN'dan telefon/tablet ile test (örn. http://192.168.1.108:3000) */
+function isPrivateLanOrigin(origin) {
+    try {
+        const u = new URL(origin);
+        const protocol = u.protocol;
+        if (protocol !== "http:" && protocol !== "https:") return false;
+        const h = u.hostname;
+        if (h === "localhost" || h === "127.0.0.1") return false;
+        const p = h.split(".").map(Number);
+        if (p.length !== 4 || p.some(n => Number.isNaN(n) || n < 0 || n > 255)) return false;
+        const [a, b] = p;
+        if (a === 10) return true;
+        if (a === 172 && b >= 16 && b <= 31) return true;
+        if (a === 192 && b === 168) return true;
+        return false;
+    } catch {
+        return false;
+    }
+}
+
+const corsAllowLan =
+    process.env.CORS_ALLOW_LAN === "1" ||
+    process.env.CORS_ALLOW_LAN === "true" ||
+    process.env.NODE_ENV !== "production";
+
 app.use(cors({
     origin: function (origin, callback) {
         // Server-to-server istekler (origin yok) veya whitelist'teki origin'ler
         if (!origin || allowedOrigins.includes(origin)) {
+            callback(null, true);
+        } else if (corsAllowLan && isPrivateLanOrigin(origin)) {
             callback(null, true);
         } else {
             logger.warn(`CORS engellendi: ${origin}`);

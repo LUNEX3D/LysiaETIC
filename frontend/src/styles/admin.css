@@ -764,7 +764,7 @@
 .ap-alert svg { font-size: 14px; flex-shrink: 0; }
 .ap-alert--error { background: var(--ap-red-soft); border-color: rgba(248, 113, 113, 0.2); color: var(--ap-red); }
 .ap-alert--success { background: var(--ap-green-soft); border-color: rgba(52, 211, 153, 0.2); color: var(--ap-green); }
-.ap-alert--warn { background: var(--ap-yellow-soft); border-color: rgba(251, 191, 36, 0.2); color: var(--ap-yellow); }
+.ap-alert--waürün { background: var(--ap-yellow-soft); border-color: rgba(251, 191, 36, 0.2); color: var(--ap-yellow); }
 .ap-alert--info { background: var(--ap-blue-soft); border-color: rgba(96, 165, 250, 0.2); color: var(--ap-blue); }
 
 /* ─── Chips ────────────────────────────────────────────────────────────────── */
@@ -888,7 +888,7 @@
     text-align: center;
 }
 .ap-log-level--error { background: var(--ap-red-soft); color: var(--ap-red); }
-.ap-log-level--warn { background: var(--ap-yellow-soft); color: var(--ap-yellow); }
+.ap-log-level--waürün { background: var(--ap-yellow-soft); color: var(--ap-yellow); }
 .ap-log-level--info { background: var(--ap-blue-soft); color: var(--ap-blue); }
 .ap-log-level--http { background: rgba(100, 116, 139, 0.1); color: var(--ap-muted); }
 .ap-log-msg { word-break: break-all; }

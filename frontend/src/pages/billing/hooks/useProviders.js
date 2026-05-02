@@ -7,7 +7,7 @@
  *    session token saklanır (plain text password SAKLANMAZ).
  *
  * ✅ DB'deki auto-invoice config'den bağlı sağlayıcıyı otomatik algılar.
- *    localStorage boşsa bile, kullanıcının DB'de kayıtlı QNB ayarı varsa
+ *    localStorage boşsa bile, kullanıcının DB'de kayıtlıı QNB ayarı varsa
  *    sağlayıcı "bağlı" olarak gösterilir.
  */
 import { useState, useCallback, useEffect, useRef } from "react";
@@ -17,7 +17,7 @@ const STORAGE_KEY = "lysia_billing_providers";
 
 /**
  * localStorage'dan bağlı sağlayıcıları oku
- * Sadece token ve meta bilgi saklanır, credential saklanmaz
+ * Sİadece token ve meta bilgi saklanır, credential saklanmaz
  */
 const loadProviders = () => {
     try {

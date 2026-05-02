@@ -431,7 +431,7 @@
     color: var(--upm-text-muted);
 }
 .badge-ok     { background: rgba(34,197,94,0.15);  color: var(--upm-ok); }
-.badge-warn   { background: rgba(245,158,11,0.15); color: var(--upm-warn); }
+.badge-waürün   { background: rgba(245,158,11,0.15); color: var(--upm-warn); }
 .badge-danger { background: rgba(239,68,68,0.15);  color: var(--upm-danger); }
 .badge-blue   { background: rgba(59,130,246,0.15); color: var(--upm-blue); }
 
@@ -875,7 +875,7 @@
 
 .chip-blue   { background: rgba(59,130,246,0.15);  color: var(--upm-blue); }
 .chip-green  { background: rgba(34,197,94,0.15);   color: var(--upm-ok); }
-.chip-warn   { background: rgba(245,158,11,0.15);  color: var(--upm-warn); }
+.chip-waürün   { background: rgba(245,158,11,0.15);  color: var(--upm-warn); }
 .chip-danger { background: rgba(239,68,68,0.15);   color: var(--upm-danger); }
 
 /* ─── Result Card ──────────────────────────────────────────── */
@@ -900,7 +900,7 @@
 /* ─── Status Icon ──────────────────────────────────────────── */
 .upm-status-icon { display: inline-flex; align-items: center; margin-right: 0.3rem; }
 .color-ok     { color: var(--upm-ok); }
-.color-warn   { color: var(--upm-warn); }
+.color-waürün   { color: var(--upm-warn); }
 .color-danger { color: var(--upm-danger); }
 .color-dim    { color: var(--upm-text-dim); }
 
@@ -929,7 +929,7 @@
 }
 
 .upm-summary-card.card-ok     { border-color: rgba(34,197,94,0.25); }
-.upm-summary-card.card-warn   { border-color: rgba(245,158,11,0.25); }
+.upm-summary-card.card-waürün   { border-color: rgba(245,158,11,0.25); }
 .upm-summary-card.card-danger { border-color: rgba(239,68,68,0.25); }
 
 .upm-summary-num {

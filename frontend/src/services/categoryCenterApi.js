@@ -195,3 +195,15 @@ export const searchCategories = async (marketplaceName, query) => {
     });
     return res.data;
 };
+
+/**
+ * Ürün dağıtımı için Kategori Merkezi satırından hedef platform kategori ID/yolunu çöz
+ * @param {string} productId - ProductMapping _id
+ * @param {string} targetPlatform - "Trendyol" | "N11" | ...
+ */
+export const resolveForDistribute = async (productId, targetPlatform) => {
+    const res = await API.get(`${BASE}/resolve-for-distribute`, {
+        params: { productId, targetPlatform }
+    });
+    return res.data;
+};

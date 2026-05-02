@@ -432,7 +432,7 @@ const SupportTicketsPage = () => {
                                 <FaInfoCircle style={{ color: C.accent, fontSize: "0.85rem", marginTop: "0.15rem", flexShrink: 0 }} />
                                 <p style={{ color: C.muted, fontSize: "0.76rem", margin: 0, lineHeight: 1.5 }}>
                                     {tr
-                                        ? "Sorununuzu detaylı açıklayın. Ekran görüntüsü veya hata mesajı paylaşmanız çözüm sürecini hızlandırır."
+                                        ? "Sorununuzu detaylı açıklayın. Ekâran görüntüsü veya hata mesajı paylaşmanız çözüm sürecini hızlandırır."
                                         : "Describe your issue in detail. Sharing screenshots or error messages will speed up the resolution process."
                                     }
                                 </p>

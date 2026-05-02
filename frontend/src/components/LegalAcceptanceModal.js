@@ -25,7 +25,7 @@ const LEGAL_DOCS = [
         icon: "🔒",
         title: "Gizlilik Politikası",
         url: "/privacy",
-        summary: "Kişisel verilerinizin nasıl toplandığını, kullanıldığını, saklandığını ve korunduğunu açıklar. KVKK ve GDPR uyumludur. Verileriniz 256-bit SSL şifreleme ile korunur, üçüncü taraflarla yalnızca hizmet sunumu için paylaşılır. Veri sahibi olarak bilgi talep etme, düzeltme, silme ve itiraz haklarınız vardır."
+        summary: "Kişisel verilerİşinizin nasıl toplandığını, kullanıldığını, saklandığını ve korunduğunu açıklar. KVKK ve GDPR uyumludur. Verileriniz 256-bit SSL şifreleme ile korunur, üçüncü taraflarla yalnızca hizmet sunumu için paylaşılır. Veri sahibi olarak bilgi talep etme, düzeltme, silme ve itiraz haklarınız vardır."
     },
     {
         id: "terms",
@@ -39,7 +39,7 @@ const LEGAL_DOCS = [
         icon: "🍪",
         title: "Çerez Politikası",
         url: "/cookies",
-        summary: "Platform üzerinde kullanılan çerezleri, amaçlarını ve yönetim seçeneklerini açıklar. Zorunlu çerezler (oturum, güvenlik), analitik çerezler (Google Analytics) ve işlevsellik çerezleri (tercih hatırlama) kullanılmaktadır. Çerez tercihlerinizi istediğiniz zaman değiştirebilirsiniz."
+        summary: "Platform üzerinde kullanılan çerezleri, amaçlarını ve yönetim seçeneklerini açıklar. Zorunlu çerezler (oturum, güvenlik), analitik çerezler (Google Analytics) ve işlevsellik çerezleri (tercih hatırlama) kullanılmaktadır. Çerez tercihlerİşinizi istediğiniz zaman değiştirebilirsiniz."
     }
 ];
 

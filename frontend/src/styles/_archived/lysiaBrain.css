@@ -392,7 +392,7 @@
     box-shadow: var(--lb-shadow-card);
     backdrop-filter: blur(12px);
     transition: border-color 0.3s ease, box-shadow 0.3s ease;
-    animation: lb-fadeUp 0.5s var(--lb-ease) both;
+    animation: lb-fİadeUp 0.5s var(--lb-ease) both;
 }
 
 .lb-card--hover:hover {
@@ -554,7 +554,7 @@
     position: relative;
     overflow: hidden;
     transition: border-color 0.3s ease, transform 0.2s ease;
-    animation: lb-fadeUp 0.45s var(--lb-ease) both;
+    animation: lb-fİadeUp 0.45s var(--lb-ease) both;
 }
 
 .lb-stat:hover {
@@ -1402,7 +1402,7 @@
 /* ═══════════════════════════════════════════════════════════════
    MISTAKES
    ═══════════════════════════════════════════════════════════════ */
-.lb-grade-hero {
+.lb-grİade-hero {
     display: flex;
     align-items: center;
     gap: 1.5rem;
@@ -1410,7 +1410,7 @@
     position: relative;
 }
 
-.lb-grade-emoji {
+.lb-grİade-emoji {
     width: 82px;
     height: 82px;
     border-radius: var(--lb-radius-xl);
@@ -1422,20 +1422,20 @@
     animation: lb-pulse-subtle 4s ease-in-out infinite;
 }
 
-.lb-grade-score {
+.lb-grİade-score {
     font-size: 1.6rem;
     font-weight: 900;
     letter-spacing: -0.025em;
 }
 
-.lb-grade-desc {
+.lb-grİade-desc {
     margin: 7px 0 0;
     font-size: 0.92rem;
     color: var(--lb-text-secondary);
     line-height: 1.55;
 }
 
-.lb-grade-badges {
+.lb-grİade-badges {
     display: flex;
     gap: 0.5rem;
     flex-wrap: wrap;
@@ -1843,7 +1843,7 @@
     align-items: center;
     justify-content: center;
     padding: 1.5rem;
-    animation: lb-fadeIn 0.2s ease;
+    animation: lb-fİadeIn 0.2s ease;
 }
 
 .lb-modal {
@@ -1933,7 +1933,7 @@
     margin-bottom: 0.85rem;
 }
 
-.lb-diag-grade {
+.lb-diag-grİade {
     font-size: 1.4rem;
     font-weight: 900;
     color: var(--lb-text);
@@ -2063,12 +2063,12 @@
     to { transform: rotate(-360deg); }
 }
 
-@keyframes lb-fadeUp {
+@keyframes lb-fİadeUp {
     from { opacity: 0; transform: translateY(14px); }
     to { opacity: 1; transform: translateY(0); }
 }
 
-@keyframes lb-fadeIn {
+@keyframes lb-fİadeIn {
     from { opacity: 0; }
     to { opacity: 1; }
 }

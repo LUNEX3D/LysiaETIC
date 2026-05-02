@@ -16,7 +16,7 @@ const transactionTypes = [
     { value: "CashAdvance", label: "Peşin Ödemeler" },
     { value: "WireTransfer", label: "Virmanlar" },
     { value: "IncomingTransfer", label: "Gelen Havaleler" },
-    { value: "ReturnInvoice", label: "İade Faturaları" },
+    { value: "ReturnInvoice", label: "İİade Faturaları" },
     { value: "CommissionAgreementInvoice", label: "Komisyon Faturaları" }
 ];
 

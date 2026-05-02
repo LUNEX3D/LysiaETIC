@@ -10,8 +10,37 @@ import axios from "axios";
 
 // ✅ Production'da REACT_APP_API_URL boş string = Nginx reverse proxy (/api)
 // Development'ta REACT_APP_API_URL=http://localhost:5000
-// ?? operatörü: sadece null/undefined'da fallback kullanır, boş string "" geçerli kalır
-const BASE_URL = process.env.REACT_APP_API_URL ?? "http://localhost:5000";
+// LAN: Sayfa http://192.168.x.x:3000 ile açıldıysa ve env hâlâ localhost:5000 ise,
+//      istekleri aynı makinenin LAN IP'sine yönlendir (telefon/test için).
+function resolveApiBase() {
+    const defaultLocal = "http://localhost:5000";
+    const fromEnv = process.env.REACT_APP_API_URL;
+    const envVal = fromEnv !== undefined && fromEnv !== null && fromEnv !== ""
+        ? fromEnv
+        : defaultLocal;
+
+    if (typeof window === "undefined") return envVal;
+
+    const h = window.location.hostname;
+    const onPrivateLan =
+        /^(192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})$/i.test(h);
+
+    if (process.env.NODE_ENV !== "development" || !onPrivateLan) return envVal;
+
+    try {
+        const apiUrl = new URL(envVal);
+        const apiHost = apiUrl.hostname;
+        if (apiHost === "localhost" || apiHost === "127.0.0.1") {
+            const port = apiUrl.port || "5000";
+            return `${apiUrl.protocol}//${h}:${port}`;
+        }
+    } catch {
+        /* env geçersiz URL — olduğu gibi kullan */
+    }
+    return envVal;
+}
+
+const BASE_URL = resolveApiBase();
 
 // ─── 429 Rate Limit Event — UI bildirim sistemi ────────────────────────────────
 // Herhangi bir component dinleyebilir: window.addEventListener("api:rate-limited", handler)

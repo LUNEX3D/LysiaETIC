@@ -49,7 +49,7 @@ const SaasAuditLogs = () => {
     return (
         <AdminLayout
             title="İşlem Logları (Audit Trail)"
-            subtitle="Tüm admin ve kullanıcı işlemlerini izle — debug kralı modu 🔍"
+            subtitle="Tüm admin ve kullanıcı işlemlerini izle — debug kâralı modu 🔍"
             actions={
                 <button className="ap-btn ap-btn--ghost" onClick={loadLogs} disabled={loading}>
                     <FaSync /> Yenile

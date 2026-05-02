@@ -16,6 +16,42 @@ const toOid = (v) => {
     try { return new mongoose.Types.ObjectId(v); } catch { return null; }
 };
 
+/** [start, end) UTC anları — Europe/Istanbul yerel günü */
+const getTodayBoundsIstanbul = () => {
+    const now = new Date();
+    const parts = new Intl.DateTimeFormat("en-US", {
+        timeZone: "Europe/Istanbul",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+    }).formatToParts(now);
+    const y = parts.find((p) => p.type === "year").value;
+    const mo = parts.find((p) => p.type === "month").value;
+    const d = parts.find((p) => p.type === "day").value;
+    const start = new Date(`${y}-${mo}-${d}T00:00:00+03:00`);
+    const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+    return { start, end };
+};
+
+/** Sipariş bildirimleri: sadece İstanbul’daki bugünkü siparişler çanda / sayaçta görünsün */
+const orderNotifDayClause = () => {
+    const { start, end } = getTodayBoundsIstanbul();
+    return {
+        $or: [
+            { type: { $ne: "order" } },
+            { type: "order", "orderData.orderDate": { $gte: start, $lt: end } },
+        ],
+    };
+};
+
+const isOrderDateTodayIstanbul = (orderDate) => {
+    if (!orderDate) return false;
+    const t = new Date(orderDate);
+    if (Number.isNaN(t.getTime())) return false;
+    const { start, end } = getTodayBoundsIstanbul();
+    return t >= start && t < end;
+};
+
 // ═══════════════════════════════════════════════════════════════
 // 📥 BİLDİRİMLERİ GETİR (Kullanıcı)
 // GET /notifications
@@ -28,26 +64,29 @@ exports.getNotifications = async (req, res) => {
 
         const { lastCheck, type, limit = 50 } = req.query;
 
-        // Kullanıcıya özel + broadcast bildirimler
+        // Kullanıcıya özel + broadcast bildirimler (+ sipariş tipi yalnızca bugün İstanbul günü)
         const filter = {
             isActive: true,
-            $or: [
-                { userId: userId },
-                { userId: null, "adminData.targetAudience": "all" },
-                { userId: null, type: "system" }
+            dismissedBy: { $ne: userId },
+            $and: [
+                {
+                    $or: [
+                        { userId: userId },
+                        { userId: null, "adminData.targetAudience": "all" },
+                        { userId: null, type: "system" },
+                    ],
+                },
+                orderNotifDayClause(),
             ],
-            dismissedBy: { $ne: userId }
         };
 
-        // Sadece yeni bildirimleri çek (polling optimizasyonu)
         if (lastCheck) {
-            filter.createdAt = { $gt: new Date(lastCheck) };
+            filter.$and.push({ createdAt: { $gt: new Date(lastCheck) } });
         }
 
-        // Tip filtresi
         if (type) {
             const types = type.split(",").map(t => t.trim()).filter(Boolean);
-            if (types.length > 0) filter.type = { $in: types };
+            if (types.length > 0) filter.$and.push({ type: { $in: types } });
         }
 
         const notifications = await Notification.find(filter)
@@ -68,23 +107,28 @@ exports.getNotifications = async (req, res) => {
             return { ...n, isRead, readBy: undefined }; // readBy array'ini client'a gönderme
         });
 
-        // Okunmamış sayıları hesapla
+        // Okunmamış sayıları hesapla (sipariş: yalnızca bugünkü kayıtlar)
         const unreadFilter = {
             isActive: true,
-            $or: [
-                { userId: userId, isRead: false },
+            dismissedBy: { $ne: userId },
+            $and: [
                 {
-                    userId: null,
-                    "adminData.targetAudience": "all",
-                    "readBy.userId": { $ne: userId }
+                    $or: [
+                        { userId: userId, isRead: false },
+                        {
+                            userId: null,
+                            "adminData.targetAudience": "all",
+                            "readBy.userId": { $ne: userId },
+                        },
+                        {
+                            userId: null,
+                            type: "system",
+                            "readBy.userId": { $ne: userId },
+                        },
+                    ],
                 },
-                {
-                    userId: null,
-                    type: "system",
-                    "readBy.userId": { $ne: userId }
-                }
+                orderNotifDayClause(),
             ],
-            dismissedBy: { $ne: userId }
         };
 
         const allUnread = await Notification.find(unreadFilter).select("type").lean();
@@ -226,10 +270,14 @@ exports.createOrderNotification = async (req, res) => {
         const userId = toOid(req.user?._id || req.user?.id);
         if (!userId) return res.status(401).json({ error: "Yetkilendirme hatası" });
 
-        const { orderNumber, marketplace, totalPrice, itemCount, customerName, status } = req.body;
+        const { orderNumber, marketplace, totalPrice, itemCount, customerName, status, orderDate } = req.body;
 
         if (!orderNumber || !marketplace) {
             return res.status(400).json({ error: "orderNumber ve marketplace zorunlu" });
+        }
+
+        if (!isOrderDateTodayIstanbul(orderDate)) {
+            return res.json({ success: true, message: "Yalnızca bugünkü siparişler bildirim oluşturur", skipped: true });
         }
 
         // Aynı sipariş için tekrar bildirim oluşturma
@@ -248,7 +296,7 @@ exports.createOrderNotification = async (req, res) => {
             title: "🛒 Yeni Sipariş!",
             message: `${marketplace} — #${orderNumber} — ${totalPrice ? Number(totalPrice).toLocaleString("tr-TR") + " ₺" : ""}`,
             icon: "🛒",
-            orderData: { orderNumber, marketplace, totalPrice, itemCount, customerName, status },
+            orderData: { orderNumber, marketplace, totalPrice, itemCount, customerName, status, orderDate: new Date(orderDate) },
             actionLink: "orders"
         });
 
@@ -284,8 +332,9 @@ exports.createBulkOrderNotifications = async (req, res) => {
         const existingSet = new Set(existingOrderNumbers.map(n => n.orderData?.orderNumber));
 
         const newNotifs = orders
-            .filter(o => o.orderNumber && !existingSet.has(o.orderNumber))
-            .map(o => ({
+            .filter((o) => o.orderNumber && !existingSet.has(o.orderNumber))
+            .filter((o) => isOrderDateTodayIstanbul(o.orderDate))
+            .map((o) => ({
                 userId,
                 type: "order",
                 priority: "high",
@@ -298,7 +347,8 @@ exports.createBulkOrderNotifications = async (req, res) => {
                     totalPrice: o.totalPrice,
                     itemCount: o.itemCount,
                     customerName: o.customerName,
-                    status: o.status
+                    status: o.status,
+                    orderDate: o.orderDate ? new Date(o.orderDate) : undefined,
                 },
                 actionLink: "orders"
             }));

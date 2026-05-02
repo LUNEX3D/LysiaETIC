@@ -289,7 +289,7 @@ const BillingPage = () => {
                             <EmptyState
                                 icon="📭"
                                 title="Henüz belge yok"
-                                description="Sağlayıcınızda kayıtlı belge bulunamadı."
+                                description="Sağlayıcınızda kayıtlıı belge bulunamadı."
                             />
                         )}
                     </motion.div>
@@ -406,7 +406,7 @@ const BillingPage = () => {
                             Faturalandırma & e-Belge Yönetimi
                         </h1>
                         <p style={{ color: colors.dim, fontSize: "0.8rem", margin: "0.25rem 0 0" }}>
-                            e-Fatura, e-Arşiv, e-İrsaliye — Tüm e-belge işlemlerinizi tek yerden yönetin
+                            e-Fatura, e-Arşiv, e-İrsaliye — Tüm e-belge işlemlerİşinizi tek yerden yönetin
                         </p>
                     </div>
                     <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>

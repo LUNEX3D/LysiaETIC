@@ -100,7 +100,7 @@ export const splashScreen = {
         if (!isNative()) return;
         try {
             const { SplashScreen } = await import("@capacitor/splash-screen");
-            await SplashScreen.hide({ fadeOutDuration: 500 });
+            await SplashScreen.hide({ fİadeOutDuration: 500 });
         } catch (e) { /* not available */ }
     },
 

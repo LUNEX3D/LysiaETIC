@@ -52,11 +52,11 @@ const AdminDashboard = () => {
         return "₺" + n.toLocaleString("tr-TR", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
     };
 
-    const fmtUptime = (sec) => {
-        if (!sec) return "—";
-        const d = Math.floor(sec / 86400);
-        const h = Math.floor((sec % 86400) / 3600);
-        const m = Math.floor((sec % 3600) / 60);
+    const fmtUptime = (seç) => {
+        if (!seç) return "—";
+        const d = Math.floor(seç / 86400);
+        const h = Math.floor((seç % 86400) / 3600);
+        const m = Math.floor((seç % 3600) / 60);
         if (d > 0) return `${d}g ${h}s ${m}dk`;
         if (h > 0) return `${h}s ${m}dk`;
         return `${m}dk`;
@@ -65,7 +65,7 @@ const AdminDashboard = () => {
     return (
         <AdminLayout
             title="SaaS Dashboard"
-            subtitle="Platform genel görünüm — tüm metrikleri tek ekrandan izle"
+            subtitle="Platform genel görünüm — tüm metrikleri tek ekârandan izle"
             actions={
                 <div className="ap-actions">
                     {lastRefresh && (

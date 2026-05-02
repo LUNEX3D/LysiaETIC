@@ -4,6 +4,9 @@
    ═══════════════════════════════════════════════════════════════ */
 
 :root {
+    /* Eski yanlış yazımlarla uyumluluk (bazı inline stillerde kalmış olabilir) */
+    --rk-text-seç: var(--rk-text-sec);
+    --rk-bg-seç: var(--rk-glass);
     --rk-bg: #0f1419;
     --rk-surface: rgba(26, 31, 53, 0.85);
     --rk-card: rgba(26, 31, 53, 0.92);
@@ -301,6 +304,8 @@
     font-size: 12px;
     color: var(--rk-text-dim);
     transition: var(--rk-transition);
+    flex-shrink: 0;
+    margin-left: 8px;
 }
 
 .rk-cat-item.expanded .rk-cat-chevron {
@@ -445,6 +450,7 @@
 .rk-sort-left {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: 8px;
 }
 
@@ -488,6 +494,149 @@
     color: var(--rk-text-dim);
     font-variant-numeric: tabular-nums;
     opacity: 0.8;
+}
+
+.rk-sort-bar-stack {
+    flex-direction: column;
+    align-items: stretch;
+}
+
+.rk-sort-bar-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px;
+    width: 100%;
+}
+
+.rk-radar-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding-top: 4px;
+    border-top: 1px solid rgba(78, 205, 196, 0.12);
+    margin-top: 4px;
+}
+
+.rk-radar-filter-wrap {
+    flex: 1;
+    min-width: 200px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--rk-surface);
+    border: 1px solid var(--rk-border);
+    border-radius: var(--rk-radius-xs);
+    padding: 6px 10px;
+}
+
+.rk-radar-filter-icon {
+    color: var(--rk-text-dim);
+    font-size: 14px;
+    flex-shrink: 0;
+}
+
+.rk-radar-filter-input {
+    flex: 1;
+    min-width: 0;
+    background: transparent;
+    border: none;
+    color: var(--rk-text);
+    font-size: 13px;
+    outline: none;
+}
+
+.rk-radar-filter-input::placeholder {
+    color: var(--rk-text-dim);
+}
+
+.rk-radar-filter-clear {
+    flex-shrink: 0;
+    background: transparent;
+    border: none;
+    color: var(--rk-accent);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 4px 6px;
+    border-radius: 6px;
+}
+
+.rk-radar-filter-clear:hover {
+    background: rgba(78, 205, 196, 0.1);
+}
+
+.rk-csv-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    background: rgba(78, 205, 196, 0.12);
+    border: 1px solid rgba(78, 205, 196, 0.35);
+    border-radius: var(--rk-radius-xs);
+    color: var(--rk-accent);
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: var(--rk-transition);
+    flex-shrink: 0;
+}
+
+.rk-csv-btn:hover:not(:disabled) {
+    background: rgba(78, 205, 196, 0.2);
+    border-color: var(--rk-accent);
+}
+
+.rk-csv-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.rk-filter-hint {
+    color: var(--rk-text-dim);
+    font-weight: 500;
+}
+
+.rk-fetched-at {
+    color: var(--rk-text-dim);
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+}
+
+.rk-toast {
+    position: fixed;
+    bottom: 28px;
+    right: 28px;
+    z-index: 9999;
+    padding: 12px 18px;
+    background: var(--rk-card);
+    border: 1px solid var(--rk-border-hover);
+    border-radius: var(--rk-radius-sm);
+    color: var(--rk-text);
+    font-size: 13px;
+    font-weight: 600;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    animation: rk-toast-in 0.25s ease;
+}
+
+@keyframes rk-toast-in {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.rk-sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
 }
 
 /* ── Data Source Badge ── */
@@ -610,6 +759,9 @@
     transition: var(--rk-transition);
     cursor: pointer;
     position: relative;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
 }
 
 .rk-product-card:hover {
@@ -668,6 +820,48 @@
     z-index: 2;
 }
 
+.rk-card-actions {
+    position: absolute;
+    bottom: 8px;
+    right: 8px;
+    display: flex;
+    gap: 4px;
+    z-index: 3;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+}
+
+.rk-product-card:hover .rk-card-actions {
+    opacity: 1;
+}
+
+.rk-card-action-btn {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: 8px;
+    background: rgba(15, 20, 25, 0.85);
+    color: var(--rk-accent);
+    cursor: pointer;
+    font-size: 13px;
+    backdrop-filter: blur(6px);
+    transition: var(--rk-transition);
+}
+
+.rk-card-action-btn:hover {
+    background: rgba(78, 205, 196, 0.25);
+    color: var(--rk-text);
+}
+
+@media (hover: none) {
+    .rk-card-actions {
+        opacity: 1;
+    }
+}
+
 .rk-badge {
     padding: 3px 8px;
     border-radius: 6px;
@@ -702,6 +896,10 @@
 
 .rk-product-body {
     padding: 14px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
 }
 
 .rk-product-brand {
@@ -719,10 +917,12 @@
     color: var(--rk-text);
     line-height: 1.4;
     margin-bottom: 10px;
+    min-height: 2.8em;
     display: -webkit-box;
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
+    word-break: break-word;
 }
 
 .rk-product-price-row {
@@ -747,7 +947,10 @@
 .rk-product-meta {
     display: grid;
     grid-template-columns: 1fr 1fr;
-    gap: 6px;
+    gap: 8px 10px;
+    margin-top: auto;
+    min-height: 52px;
+    align-content: start;
 }
 
 .rk-meta-item {

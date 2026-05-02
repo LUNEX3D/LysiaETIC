@@ -311,7 +311,7 @@ const CatalogTab = ({ marketplaces, addToast }) => {
             {/* Sayfalama */}
             {totalPages > 1 && (
                 <div className="upm-pagination">
-                    <button className="upm-btn upm-btn-ghost" disabled={page === 0} onClick={() => setPage(p => p - 1)}>‹ Önceki</button>
+                    <button className="upm-btn upm-btn-ghost" disabled={page === 0} onClick={() => setPage(p => p - 1)}>‹ ÖÖnceki</button>
                     <span className="upm-page-info">{page + 1} / {totalPages} ({fmtNum(total)} ürün)</span>
                     <button className="upm-btn upm-btn-ghost" disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)}>Sonraki ›</button>
                 </div>
@@ -477,7 +477,7 @@ const ProductDetailModal = ({ product, onClose }) => {
                                 <div className="upm-detail-row"><span>Marka</span><strong>{mp.brand || "—"}</strong></div>
                                 <div className="upm-detail-row"><span>Satış Fiyatı</span><strong className="upm-price">{fmt(mp.price)}</strong></div>
                                 <div className="upm-detail-row"><span>Liste Fiyatı</span><strong>{fmt(mp.listPrice)}</strong></div>
-                                <div className="upm-detail-row"><span>Stok</span><strong>{fmtNum(st.totalStock ?? mp.stock ?? 0)} adet</strong></div>
+                                <div className="upm-detail-row"><span>Stok</span><strong>{fmtNum(st.totalStock ?? mp.stock ?? 0)} İadet</strong></div>
                                 <div className="upm-detail-row"><span>Renk</span><strong>{mp.attributes?.color || "—"}</strong></div>
                                 <div className="upm-detail-row"><span>Beden</span><strong>{mp.attributes?.size || "—"}</strong></div>
                             </div>
@@ -622,7 +622,7 @@ const ImportTab = ({ addToast }) => {
                             <FaFileExcel className="upm-info-icon" style={{ color: "#22c55e" }} />
                             <div>
                                 <strong>Excel Şablonu</strong>
-                                <p>Ürünlerinizi toplu yüklemek için hazır şablonu indirin. Zorunlu alanlar: Ürün Adı, Barkod, SKU, Fiyat, Stok.</p>
+                                <p>Ürünlerİşinizi toplu yüklemek için hazır şablonu indirin. Zorunlu alanlar: Ürün Adı, Barkod, SKU, Fiyat, Stok.</p>
                             </div>
                         </div>
                         <button className="upm-btn upm-btn-success" onClick={handleDownloadTemplate}>
@@ -764,7 +764,7 @@ const ImportTab = ({ addToast }) => {
                             <FaFileExport className="upm-info-icon" style={{ color: "#4ecdc4" }} />
                             <div>
                                 <strong>Ürünleri Dışa Aktar</strong>
-                                <p>Tüm ürünlerinizi veya filtrelenmiş ürünleri Excel dosyası olarak indirin. Pazaryeri durumları da dahil edilir.</p>
+                                <p>Tüm ürünlerİşinizi veya filtrelenmiş ürünleri Excel dosyası olarak indirin. Pazaryeri durumları da dahil edilir.</p>
                             </div>
                         </div>
                     </div>
@@ -880,7 +880,7 @@ const ComparisonTab = ({ marketplaces, addToast }) => {
                     </div>
                     <label className="upm-checkbox-label">
                         <input type="checkbox" checked={missingOnly} onChange={e => { setMissingOnly(e.target.checked); setPage(0); }} />
-                        Sadece eksik olanlar
+                        Sİadece eksik olanlar
                     </label>
                 </div>
                 <div className="upm-toolbar-right">
@@ -940,7 +940,7 @@ const ComparisonTab = ({ marketplaces, addToast }) => {
             {/* Sayfalama */}
             {totalPages > 1 && (
                 <div className="upm-pagination">
-                    <button className="upm-btn upm-btn-ghost" disabled={page === 0} onClick={() => setPage(p => p - 1)}>‹ Önceki</button>
+                    <button className="upm-btn upm-btn-ghost" disabled={page === 0} onClick={() => setPage(p => p - 1)}>‹ ÖÖnceki</button>
                     <span className="upm-page-info">{page + 1} / {totalPages} ({fmtNum(total)} ürün)</span>
                     <button className="upm-btn upm-btn-ghost" disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)}>Sonraki ›</button>
                 </div>
@@ -1056,7 +1056,7 @@ const DistributeTab = ({ marketplaces, addToast }) => {
                                         <input type="checkbox" checked={selectedIds.has(p._id)} onChange={() => toggleProduct(p._id)} />
                                         <div className="upm-distribute-product-info">
                                             <span className="upm-product-name">{mp.name}</span>
-                                            <span className="upm-dim">{mp.barcode} · {fmt(mp.price)} · {fmtNum(st.totalStock ?? mp.stock ?? 0)} adet</span>
+                                            <span className="upm-dim">{mp.barcode} · {fmt(mp.price)} · {fmtNum(st.totalStock ?? mp.stock ?? 0)} İadet</span>
                                         </div>
                                     </label>
                                 );
@@ -1210,7 +1210,7 @@ const LogsTab = ({ addToast }) => {
 
             {totalPages > 1 && (
                 <div className="upm-pagination">
-                    <button className="upm-btn upm-btn-ghost" disabled={page === 0} onClick={() => setPage(p => p - 1)}>‹ Önceki</button>
+                    <button className="upm-btn upm-btn-ghost" disabled={page === 0} onClick={() => setPage(p => p - 1)}>‹ ÖÖnceki</button>
                     <span className="upm-page-info">{page + 1} / {totalPages} ({fmtNum(total)} log)</span>
                     <button className="upm-btn upm-btn-ghost" disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)}>Sonraki ›</button>
                 </div>

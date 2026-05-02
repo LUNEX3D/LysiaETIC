@@ -54,7 +54,7 @@ const BrainRetro = ({ t, onError }) => {
                     <CardHeader icon="⚠️" title={t("retro.mistakes_title")} subtitle={t("retro.mistakes_sub")} color={T.red} badge={`${data.mistakes.length}`} />
                     <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
                         {data.mistakes.map((m, i) => {
-                            const isPrice = m.type === "pricing_mistake";
+                            const isPrice = m.type === "priçing_mistake";
                             return (
                                 <div key={i} style={{
                                     display: "flex", gap: "0.75rem", padding: "0.85rem 1rem",

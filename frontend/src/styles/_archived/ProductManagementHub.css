@@ -21,7 +21,7 @@
 }
 
 /* ─── Fade In Animation ─────────────────────────────────────────────────────── */
-.pmh-fade-in {
+.pmh-fİade-in {
     animation: pmhFadeIn 0.3s ease-out;
 }
 
@@ -408,7 +408,7 @@
 
 .pmh-log-dot.ok { background: #22c55e; }
 .pmh-log-dot.err { background: #ef4444; }
-.pmh-log-dot.warn { background: #f59e0b; }
+.pmh-log-dot.waürün { background: #f59e0b; }
 
 .pmh-log-action { color: #94a3b8; font-weight: 600; white-space: nowrap; }
 .pmh-log-product { color: #64748b; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
@@ -1272,7 +1272,7 @@
     margin-left: 0.4rem;
 }
 
-.pmh-tab-badge-warn {
+.pmh-tab-badge-waürün {
     background: #f59e0b !important;
     color: #000 !important;
 }

@@ -763,7 +763,7 @@ const ProductManagementHub = () => {
 
                         {totalPages > 1 && (
                             <div className="pmh-pagination">
-                                <button className="pmh-pg-btn" disabled={page === 0} onClick={() => setPage(p => p - 1)}>← Önceki</button>
+                                <button className="pmh-pg-btn" disabled={page === 0} onClick={() => setPage(p => p - 1)}>← ÖÖnceki</button>
                                 <span className="pmh-pg-info">Sayfa {page + 1} / {totalPages}</span>
                                 <button className="pmh-pg-btn" disabled={(page + 1) * PAGE_SIZE >= totalProducts} onClick={() => setPage(p => p + 1)}>Sonraki →</button>
                             </div>
@@ -1222,7 +1222,7 @@ const ProductManagementHub = () => {
                     <div className="pmh-search-box"><FaSearch className="pmh-search-icon" /><input type="text" placeholder="Ürün adı, barkod veya SKU ara..." value={compSearch} onChange={e => { setCompSearch(e.target.value); setCompPage(0); }} className="pmh-search-input" /></div>
                     <label className={`pmh-filter-toggle ${missingOnly ? "active" : ""}`}>
                         <input type="checkbox" checked={missingOnly} onChange={e => { setMissingOnly(e.target.checked); setCompPage(0); }} />
-                        Sadece eksik olanlar
+                        Sİadece eksik olanlar
                     </label>
                     <button className="pmh-btn pmh-btn-outline" onClick={loadComparison}><FaSync /> Yenile</button>
                 </div>
@@ -1290,7 +1290,7 @@ const ProductManagementHub = () => {
                     </div>
                 )}
 
-                {compTotal > PAGE_SIZE && <div className="pmh-pagination"><button className="pmh-pg-btn" disabled={compPage === 0} onClick={() => setCompPage(p => p - 1)}>← Önceki</button><span className="pmh-pg-info">Sayfa {compPage + 1} / {Math.ceil(compTotal / PAGE_SIZE)}</span><button className="pmh-pg-btn" disabled={(compPage + 1) * PAGE_SIZE >= compTotal} onClick={() => setCompPage(p => p + 1)}>Sonraki →</button></div>}
+                {compTotal > PAGE_SIZE && <div className="pmh-pagination"><button className="pmh-pg-btn" disabled={compPage === 0} onClick={() => setCompPage(p => p - 1)}>← ÖÖnceki</button><span className="pmh-pg-info">Sayfa {compPage + 1} / {Math.ceil(compTotal / PAGE_SIZE)}</span><button className="pmh-pg-btn" disabled={(compPage + 1) * PAGE_SIZE >= compTotal} onClick={() => setCompPage(p => p + 1)}>Sonraki →</button></div>}
             </div>
         );
     };
@@ -1358,7 +1358,7 @@ const ProductManagementHub = () => {
 
                         {logsTotal > 50 && (
                             <div className="pmh-pagination">
-                                <button className="pmh-pg-btn" disabled={logsPage === 0} onClick={() => setLogsPage(p => p - 1)}>← Önceki</button>
+                                <button className="pmh-pg-btn" disabled={logsPage === 0} onClick={() => setLogsPage(p => p - 1)}>← ÖÖnceki</button>
                                 <span className="pmh-pg-info">Sayfa {logsPage + 1} / {Math.ceil(logsTotal / 50)}</span>
                                 <button className="pmh-pg-btn" disabled={(logsPage + 1) * 50 >= logsTotal} onClick={() => setLogsPage(p => p + 1)}>Sonraki →</button>
                             </div>
@@ -1417,7 +1417,7 @@ const ProductManagementHub = () => {
                         <div className="pmh-card">
                             <div className="pmh-card-head"><h3><FaDownload style={{ color: "#3b82f6" }} /> Excel Dışa Aktar</h3></div>
                             <div className="pmh-card-body">
-                                <div className="pmh-info-banner"><FaInfoCircle /> <span>Tüm ürünlerinizi Excel formatında indirin.</span></div>
+                                <div className="pmh-info-banner"><FaInfoCircle /> <span>Tüm ürünlerİşinizi Excel formatında indirin.</span></div>
                                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "1rem", background: "rgba(255,255,255,0.02)", borderRadius: "10px", border: "1px solid rgba(255,255,255,0.06)" }}>
                                     <div><strong>{totalProducts}</strong> ürün dışa aktarılacak</div>
                                     <button className="pmh-btn pmh-btn-primary" onClick={handleExport} disabled={excelExporting}>{excelExporting ? <Spinner /> : <FaFileExcel />} İndir</button>

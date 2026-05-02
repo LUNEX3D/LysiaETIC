@@ -25,6 +25,7 @@ const xlsx = require("xlsx");
 const Marketplace = require("../models/Marketplace");
 const MasterCategoryMapping = require("../models/MasterCategoryMapping");
 const CategoryCache = require("../models/CategoryCache");
+const ProductMapping = require("../models/ProductMapping");
 const logger = require("../config/logger");
 const { decryptCredentials } = require("../utils/encryption");
 const { ok, badRequest, notFound, serverError, paginated } = require("../utils/apiResponse");
@@ -712,6 +713,119 @@ exports.getMappings = async (req, res) => {
         return paginated(res, "Eşleştirmeler getirildi", decodedRows, { page, limit, total });
     } catch (error) {
         logger.error("[CATEGORY CENTER] Mapping listeleme hatası:", error.message);
+        return serverError(res, error);
+    }
+};
+
+/**
+ * Dağıtım öncesi: ürünün Kategori Merkezi satırını bulup hedef platformdaki ID/yolu döndür
+ * GET /api/category-center/resolve-for-distribute?productId=&targetPlatform=Trendyol
+ */
+const mapTargetPlatformToMappingFields = (platformName) => {
+    const n = normalizePlatformName(platformName || "");
+    if (n.includes("trendyol")) return { idKey: "trendyolId", pathKey: "trendyolPath", label: "Trendyol" };
+    if (n === "n11") return { idKey: "n11Id", pathKey: "n11Path", label: "N11" };
+    if (n.includes("cicek")) return { idKey: "ciceksepetiId", pathKey: "ciceksepetiPath", label: "ÇiçekSepeti" };
+    if (n.includes("hepsiburada")) return { idKey: "hepsiburadaId", pathKey: "hepsiburadaPath", label: "Hepsiburada" };
+    if (n.includes("amazon")) return { idKey: "amazonId", pathKey: "amazonPath", label: "Amazon" };
+    return null;
+};
+
+const buildMappingSearchRegex = (q) => {
+    const turkishVariant = q
+        .replace(/ç/gi, "[çc]").replace(/ğ/gi, "[ğg]").replace(/ı/gi, "[ıi]")
+        .replace(/ö/gi, "[öo]").replace(/ş/gi, "[şs]").replace(/ü/gi, "[üu]")
+        .replace(/i/gi, "[iİı]").replace(/c/gi, "[cç]").replace(/g/gi, "[gğ]")
+        .replace(/o/gi, "[oö]").replace(/s/gi, "[sş]").replace(/u/gi, "[uü]");
+    const escaped = turkishVariant.replace(/[.*+?^${}()|\\]/g, "\\$&");
+    return new RegExp(escaped, "i");
+};
+
+exports.resolveForDistribute = async (req, res) => {
+    try {
+        const userId = req.user?._id || req.user?.id;
+        if (!userId) return badRequest(res, "Yetkilendirme hatası");
+
+        const productId = (req.query.productId || "").trim();
+        const targetPlatform = (req.query.targetPlatform || "").trim();
+        if (!productId || !targetPlatform) {
+            return badRequest(res, "productId ve targetPlatform gerekli");
+        }
+
+        const targetSpec = mapTargetPlatformToMappingFields(targetPlatform);
+        if (!targetSpec) {
+            return badRequest(res, "Desteklenmeyen hedef platform");
+        }
+
+        const product = await ProductMapping.findOne({ _id: productId, userId }).lean();
+        if (!product) return notFound(res, "Ürün bulunamadı");
+
+        let row = null;
+        let matchedBy = null;
+
+        const tyMap = (product.marketplaceMappings || []).find((m) => {
+            const n = normalizePlatformName(m.marketplaceName || "");
+            return n.includes("trendyol");
+        });
+        if (tyMap && tyMap.categoryId != null && String(tyMap.categoryId).trim() !== "") {
+            const tid = parseInt(String(tyMap.categoryId).replace(/[^\d]/g, ""), 10);
+            if (!Number.isNaN(tid)) {
+                row = await MasterCategoryMapping.findOne({ trendyolId: tid }).lean();
+                if (row) matchedBy = "trendyol_listing_category";
+            }
+        }
+
+        const catHint = product.masterProduct && product.masterProduct.category
+            ? String(product.masterProduct.category).trim()
+            : "";
+        if (!row && catHint.length >= 2) {
+            const parts = catHint.split(/\s*>\s*/).map((s) => s.trim()).filter(Boolean);
+            const leafHint = parts.length ? parts[parts.length - 1] : catHint;
+            const q = leafHint.length >= 2 ? leafHint : catHint;
+            const regex = buildMappingSearchRegex(q);
+            row = await MasterCategoryMapping.findOne({
+                $or: [
+                    { masterPath: regex },
+                    { masterName: regex },
+                    { trendyolPath: regex }
+                ]
+            })
+                .sort({ masterPath: 1 })
+                .lean();
+            if (row) matchedBy = "master_product_category_text";
+        }
+
+        if (!row) {
+            return ok(res, "Kategori merkezinde eşleşme bulunamadı", {
+                resolved: false,
+                matchedBy: null,
+                master: null,
+                hint: catHint || null,
+                platformCategory: null
+            });
+        }
+
+        const idVal = row[targetSpec.idKey];
+        const pathVal = row[targetSpec.pathKey] || "";
+        const platformCategory = {
+            platform: targetSpec.label,
+            categoryId: idVal != null && idVal !== "" ? String(idVal) : null,
+            categoryPath: decodeHtmlEntities(String(pathVal || "")),
+            isComplete: idVal != null && idVal !== ""
+        };
+
+        return ok(res, "Kategori merkezi eşlemesi hazır", {
+            resolved: true,
+            matchedBy,
+            master: {
+                masterId: row.masterId,
+                masterName: decodeHtmlEntities(row.masterName),
+                masterPath: decodeHtmlEntities(row.masterPath)
+            },
+            platformCategory
+        });
+    } catch (error) {
+        logger.error("[CATEGORY CENTER] resolve-for-distribute hatası:", error.message);
         return serverError(res, error);
     }
 };

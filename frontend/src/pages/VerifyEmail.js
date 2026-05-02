@@ -59,7 +59,7 @@ const VerifyEmail = () => {
                     <div className="auth-logo-icon" style={{ width: 40, height: 40, fontSize: 18 }}>
                         <FaChartLine />
                     </div>
-                    <span className="auth-logo-text" style={{ fontSize: 20 }}>LysiaETİC</span>
+                    <span className="auth-logo-text" style={{ fontSize: 20 }}>Pazaryönetim</span>
                 </div>
 
                 {/* Status Icon */}

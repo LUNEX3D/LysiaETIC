@@ -435,7 +435,7 @@ const AdvancedProductManagementPage = () => {
             <div className="apm-header">
                 <div className="apm-header-left">
                     <h1><FaLayerGroup /> Ürün Yönetimi</h1>
-                    <p className="apm-header-sub">Tüm pazaryerlerinizi tek panelden yönetin</p>
+                    <p className="apm-header-sub">Tüm pazaryerlerİşinizi tek panelden yönetin</p>
                 </div>
                 <div className="apm-header-right">
                     <button className="apm-btn apm-btn-secondary" onClick={handleAutoSync} disabled={loading}>
@@ -669,7 +669,7 @@ const AdvancedProductManagementPage = () => {
                                                     </p>
                                                     <div className="apm-product-price-row">
                                                         <span className="apm-price">₺{price.toLocaleString("tr-TR")}</span>
-                                                        <span className="apm-stock">{stock} adet</span>
+                                                        <span className="apm-stock">{stock} İadet</span>
                                                     </div>
 
                                                     {/* Pazaryeri eşleştirmeleri */}
@@ -723,7 +723,7 @@ const AdvancedProductManagementPage = () => {
                                         className="apm-btn apm-btn-sm apm-btn-outline"
                                         disabled={currentPage === 0}
                                         onClick={() => setCurrentPage(p => Math.max(0, p - 1))}
-                                    >Önceki</button>
+                                    >ÖÖnceki</button>
                                     <span>Sayfa {currentPage + 1} / {Math.ceil(totalProducts / 24)}</span>
                                     <button
                                         className="apm-btn apm-btn-sm apm-btn-outline"

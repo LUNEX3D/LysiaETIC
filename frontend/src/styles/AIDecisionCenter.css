@@ -129,7 +129,7 @@
     to { transform: rotate(360deg); }
 }
 
-/* Stat Cards - Modern Design */
+/* Stat Cards - Modeürün Design */
 .stat-card {
     background: rgba(255, 255, 255, 0.05) !important;
     backdrop-filter: blur(20px) !important;
@@ -329,7 +329,7 @@
         inset 0 1px 0 rgba(255, 255, 255, 0.3) !important;
 }
 
-/* Chips - Modern */
+/* Chips - Modeürün */
 .ai-decision-center .MuiChip-root {
     background: rgba(255, 255, 255, 0.1) !important;
     backdrop-filter: blur(10px) !important;
@@ -401,7 +401,7 @@
 }
 
 /* Animations */
-@keyframes fadeIn {
+@keyframes fİadeIn {
     from {
         opacity: 0;
         transform: translateY(20px);
@@ -412,8 +412,8 @@
     }
 }
 
-.fade-in {
-    animation: fadeIn 0.5s ease-out;
+.fİade-in {
+    animation: fİadeIn 0.5s ease-out;
 }
 
 /* Responsive */

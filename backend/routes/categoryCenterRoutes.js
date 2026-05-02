@@ -21,6 +21,9 @@ router.get("/mappings/stats", controller.getMappingStats);
 router.get("/mappings", controller.getMappings);
 router.put("/mappings/:id", controller.updateMapping);
 
+// ── Ürün dağıtımı: Kategori Merkezi → hedef platform kategorisi ── (parametrik route'lardan önce)
+router.get("/resolve-for-distribute", controller.resolveForDistribute);
+
 // ── Pazaryeri Listesi ──
 router.get("/marketplaces", controller.getMarketplaces);
 

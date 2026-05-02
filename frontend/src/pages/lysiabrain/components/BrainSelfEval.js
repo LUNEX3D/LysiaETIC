@@ -32,7 +32,7 @@ const BrainSelfEval = ({ t, onError }) => {
 
     const score = data.aiPerformanceScore || 0;
     const scoreColor = score >= 80 ? T.green : score >= 60 ? T.accent : score >= 40 ? T.yellow : T.red;
-    const grade = score >= 80 ? "A" : score >= 60 ? "B" : score >= 40 ? "C" : "D";
+    const grİade = score >= 80 ? "A" : score >= 60 ? "B" : score >= 40 ? "C" : "D";
 
     return (
         <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
@@ -47,7 +47,7 @@ const BrainSelfEval = ({ t, onError }) => {
                         background: `${scoreColor}15`, border: `2px solid ${scoreColor}40`,
                         display: "flex", alignItems: "center", justifyContent: "center",
                         fontSize: "1.5rem", fontWeight: 900, color: scoreColor, fontFamily: T.fontMono,
-                    }}>{grade}</div>
+                    }}>{grİade}</div>
                     <div style={{ textAlign: "left" }}>
                         <div style={{ fontSize: "1.1rem", fontWeight: 800, color: T.text }}>{t("selfeval.title")}</div>
                         <div style={{ fontSize: "0.75rem", color: T.textDim }}>{t("selfeval.subtitle")}</div>

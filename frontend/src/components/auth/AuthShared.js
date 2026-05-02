@@ -26,7 +26,7 @@ export const GoogleIcon = () => (
 
 export const AuthFooter = () => (
     <div className="auth-footer">
-        <span>© {new Date().getFullYear()} Lunexetic. Tüm hakları saklıdır.</span>
+        <span>© {new Date().getFullYear()} Pazaryönetim. Tüm hakları saklıdır.</span>
         <span className="auth-footer-dot" />
         <a href="/privacy" target="_blank" rel="noopener noreferrer">Gizlilik Politikası</a>
         <span className="auth-footer-dot" />

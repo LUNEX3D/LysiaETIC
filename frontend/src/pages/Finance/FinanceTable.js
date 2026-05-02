@@ -20,7 +20,7 @@ import { formatCurrency, formatDate } from "../../utils/helpers";
 const TransactionTypeIcon = ({ type }) => {
     const icons = {
         "Satış": <AttachMoneyIcon fontSize="small" color="success" />,
-        "İade": <AssignmentReturnIcon fontSize="small" color="error" />,
+        "İİade": <AssignmentReturnIcon fontSize="small" color="error" />,
         "İndirim": <DiscountIcon fontSize="small" color="warning" />,
         "Kupon": <DiscountIcon fontSize="small" color="secondary" />,
         "Kargo Faturası": <LocalShippingIcon fontSize="small" color="info" />,
@@ -209,7 +209,7 @@ const FinanceTable = ({ data = [], title = "Finansal Hareketler", onRowClick, lo
                                                 borderColor: theme.palette.success.main,
                                                 color: theme.palette.success.main
                                             }),
-                                            ...(row.transactionType === 'İade' && {
+                                            ...(row.transactionType === 'İİade' && {
                                                 borderColor: theme.palette.error.main,
                                                 color: theme.palette.error.main
                                             }),

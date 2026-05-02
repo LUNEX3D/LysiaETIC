@@ -1,6 +1,6 @@
 /**
  * 
- * AI CHAT WIDGET  Pazarynetim AI Operatör
+ * AI CHAT WIDGET  Pazaryönetim AI Operatör
  * 
  *
  * Floating chat widget  her sayfada görünür.
@@ -173,7 +173,7 @@ const AIChatWidget = () => {
             } else {
                 setMessages(prev => [...prev, {
                     role: "ai",
-                    content: "Bir hata olutu. Lütfen tekrar deneyin. ",
+                    content: "Bir hata oluştu. Lütfen tekrar deneyin. ",
                     timestamp: new Date().toISOString(),
                     metadata: { suggestions: ["Tekrar dene"] },
                 }]);
@@ -181,7 +181,7 @@ const AIChatWidget = () => {
         } catch (err) {
             setMessages(prev => [...prev, {
                 role: "ai",
-                content: "Balantı hatası. Sunucu eriilebilir olduundan emin olun. ",
+                content: "Bağlantı hatası. Sunucu eriilebilir olduundan emin olun. ",
                 timestamp: new Date().toISOString(),
                 metadata: { suggestions: ["Tekrar dene"] },
             }]);
@@ -353,7 +353,7 @@ const AIChatWidget = () => {
                                             Merhaba! 
                                         </Typography>
                                         <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 2 }}>
-                                            Ben Pazarynetim AI Operatör.<br />
+                                            Ben Pazaryönetim AI Operatör.<br />
                                             İletmenizi yönetmek için buradayım.
                                         </Typography>
                                         <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, justifyContent: "center" }}>

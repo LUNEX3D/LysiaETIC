@@ -106,6 +106,10 @@ const getHeaders = (merchantId, secretKey, userAgent) => ({
  * @returns {object} Doğru endpoint seti (HB_ENDPOINTS veya HB_SIT_ENDPOINTS)
  */
 const getEndpoints = (credentials) => {
+    // Canlı mağaza anahtarı yanlışlıkla SIT'e gidiyorsa: HEPSIBURADA_FORCE_PRODUCTION=true
+    if (process.env.HEPSIBURADA_FORCE_PRODUCTION === "true") {
+        return HB_ENDPOINTS;
+    }
     // credentials içinde useSit flag'i varsa veya env değişkeni varsa SIT kullan
     const useSit = credentials?.useSit === true ||
                    credentials?.useSit === "true" ||

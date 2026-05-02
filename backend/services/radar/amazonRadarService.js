@@ -21,10 +21,7 @@
 const logger = require("../../config/logger");
 const axios = require("axios");
 const crypto = require("crypto");
-
-// ── Konfigürasyon ──
-const SERPAPI_KEY = process.env.SERPAPI_KEY || "";
-const SERPAPI_BASE = "https://serpapi.com/search.json";
+const { getSerpJson, hasSerpKey } = require("./serpApiClient");
 
 // Amazon PA-API 5.0
 const PAAPI_ACCESS_KEY = process.env.AMAZON_PAAPI_ACCESS_KEY || "";
@@ -35,7 +32,7 @@ const PAAPI_REGION = "eu-west-1";
 
 // ── In-memory cache ──
 const amazonCache = new Map();
-const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 saat
+const CACHE_TTL_MS = 8 * 60 * 60 * 1000; // 8 saat
 
 // ── BSR → Tahmini Satış Tablosu (Amazon.com.tr yaklaşık) ──
 const BSR_TO_SALES = [
@@ -67,7 +64,7 @@ async function getAmazonMarketData(keyword, opts = {}) {
     }
 
     // 1. SerpAPI ile dene (en güvenilir scraping)
-    if (SERPAPI_KEY) {
+    if (hasSerpKey()) {
         try {
             const result = await fetchFromSerpAPI(keyword, marketplace, maxResults);
             if (result && result.totalProducts > 0) {
@@ -117,10 +114,9 @@ async function fetchFromSerpAPI(keyword, marketplace, maxResults) {
         engine: "amazon",
         amazon_domain: domain,
         k: keyword,
-        api_key: SERPAPI_KEY,
     };
 
-    const response = await axios.get(SERPAPI_BASE, { params, timeout: 15000 });
+    const response = await getSerpJson(params, { timeout: 25000 });
     const results = response.data?.organic_results || [];
 
     if (results.length === 0) return null;
@@ -341,7 +337,7 @@ async function getBulkAmazonData(keywords, opts = {}) {
  * @returns {Promise<object[]>}
  */
 async function getAmazonBestSellers(category = "", marketplace = "TR") {
-    if (!SERPAPI_KEY) return [];
+    if (!hasSerpKey()) return [];
 
     try {
         const domain = getAmazonDomain(marketplace);
@@ -352,10 +348,9 @@ async function getAmazonBestSellers(category = "", marketplace = "TR") {
             engine: "amazon",
             amazon_domain: domain,
             k: category || "best seller",
-            api_key: SERPAPI_KEY,
         };
 
-        const response = await axios.get(SERPAPI_BASE, { params, timeout: 15000 });
+        const response = await getSerpJson(params, { timeout: 25000 });
 
         // SerpAPI Amazon response: { organic_results: [ { position, title, asin, ... }, ... ] }
         const results = response.data?.organic_results || [];

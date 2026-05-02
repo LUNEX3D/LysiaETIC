@@ -120,6 +120,14 @@ const ProductMappingSchema = new mongoose.Schema({
         bestSellingMarketplace: { type: String }
     },
 
+    // Varyant grubu (panel — ürün ailesi / Trendyol model kodu hizalama)
+    variantGroupId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "VariantGroup",
+        default: null,
+        index: true
+    },
+
     // Log ve geçmiş
     syncHistory: [{
         date: { type: Date, default: Date.now },

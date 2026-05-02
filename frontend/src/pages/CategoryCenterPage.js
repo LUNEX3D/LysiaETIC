@@ -241,7 +241,7 @@ const CategorySearchPopup = ({ platform, mappingId, currentId, currentPath, C, i
                                                 ✓ LEAF
                                             </span>
                                         )}
-                                        {/* Sadece leaf ama available değil */}
+                                        {/* Sİadece leaf ama available değil */}
                                         {item.leaf && item.available === false && (
                                             <span style={{
                                                 background: `${C.yellow || "#f59e0b"}18`, color: C.yellow || "#f59e0b",
@@ -655,7 +655,7 @@ const CategoryCenterPage = ({ userId }) => {
     // ✅ FIX: hbError koşulu kaldırıldı — hata sonrası tekrar tıklayınca yeniden yüklenebilsin
     useEffect(() => {
         if (activeTab === "hb-categories" && hbTree.length === 0 && !hbLoading) {
-            setHbError(""); // Önceki hatayı temizle
+            setHbError(""); // ÖÖnceki hatayı temizle
             loadHBCategories(hbSearchQuery);
         }
     }, [activeTab, hbTree.length, hbLoading, hbSearchQuery, loadHBCategories]);
@@ -1009,7 +1009,7 @@ const CategoryCenterPage = ({ userId }) => {
                                             display: "flex", alignItems: "center", gap: "0.35rem",
                                         }}>
                                             <span style={{ fontSize: "0.8rem" }}>{pf?.icon}</span>
-                                            Sadece {pf?.label}
+                                            Sİadece {pf?.label}
                                         </button>
                                     );
                                 })}
@@ -1675,7 +1675,7 @@ const CategoryCenterPage = ({ userId }) => {
                                         </div>
                                     )}
 
-                                    {/* ── Aktif Öneri Kartı ── */}
+                                    {/* ── Aktif Ööneri Kartı ── */}
                                     {!wizardLoading && current && !isFinished && (
                                         <div>
                                             {/* Master Kategori */}
@@ -1711,10 +1711,10 @@ const CategoryCenterPage = ({ userId }) => {
                                                 <span style={{ color: C.dim, fontSize: "0.65rem" }}>eşleştirmesi:</span>
                                             </div>
 
-                                            {/* Manuel mod değilse: Öneri + Alternatifler */}
+                                            {/* Manuel mod değilse: Ööneri + Alternatifler */}
                                             {!wizardManualMode ? (
                                                 <div>
-                                                    {/* Ana Öneri */}
+                                                    {/* Ana Ööneri */}
                                                     <div
                                                         onClick={() => setWizardSelectedAlt(null)}
                                                         style={{
@@ -1873,7 +1873,7 @@ const CategoryCenterPage = ({ userId }) => {
                                         display: "flex", alignItems: "center", gap: "0.4rem",
                                         flexWrap: "wrap",
                                     }}>
-                                        {/* Sol: Manuel / Öneriler toggle */}
+                                        {/* Sol: Manuel / Ööneriler toggle */}
                                         <button
                                             onClick={() => {
                                                 setWizardManualMode(!wizardManualMode);
@@ -1891,7 +1891,7 @@ const CategoryCenterPage = ({ userId }) => {
                                             }}
                                         >
                                             {wizardManualMode ? (
-                                                <><FaChevronLeft style={{ fontSize: "0.55rem" }} /> Önerilere Dön</>
+                                                <><FaChevronLeft style={{ fontSize: "0.55rem" }} /> Öönerilere Dön</>
                                             ) : (
                                                 <><FaSearch style={{ fontSize: "0.55rem" }} /> Manuel Ara</>
                                             )}

@@ -41,7 +41,7 @@ export function getTransactionColor(type) {
         case "Satış":
         case "Sale":
             return "success";
-        case "İade":
+        case "İİade":
         case "Return":
             return "error";
         case "İndirim":

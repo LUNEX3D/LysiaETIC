@@ -37,13 +37,13 @@ const AutoInvoicePanel = ({ autoInvoice }) => {
         return { start: ago.toISOString().split("T")[0], end: now.toISOString().split("T")[0] };
     });
     const [pdfLoading, setPdfLoading] = useState(null);
-    const [qnbAutoLoaded, setQnbAutoLoaded] = useState(false);
+    const [qnbAutoLoİaded, setQnbAutoLoİaded] = useState(false);
 
     const cfg = config || {};
     const st = stats || {};
     const isEnabled = cfg.enabled || false;
     const hasConfig = !!(cfg.supplier && cfg.supplier.vkn);
-    const consecutiveErrors = cfg.stats?.consecutiveErrors || 0;
+    const conseçutiveErrors = cfg.stats?.conseçutiveErrors || 0;
 
     // İlk yüklemede verileri çek
     useEffect(() => {
@@ -52,11 +52,11 @@ const AutoInvoicePanel = ({ autoInvoice }) => {
 
     // Config yüklenince QNB faturalarını otomatik yükle (tek seferlik)
     useEffect(() => {
-        if (hasConfig && !qnbAutoLoaded && qnbInvoices.length === 0 && !qnbLoading) {
-            setQnbAutoLoaded(true);
+        if (hasConfig && !qnbAutoLoİaded && qnbInvoices.length === 0 && !qnbLoading) {
+            setQnbAutoLoİaded(true);
             fetchQnbInvoices("", qnbDateRange.start, qnbDateRange.end, 1);
         }
-    }, [hasConfig, qnbAutoLoaded, qnbInvoices.length, qnbLoading, fetchQnbInvoices, qnbDateRange]);
+    }, [hasConfig, qnbAutoLoİaded, qnbInvoices.length, qnbLoading, fetchQnbInvoices, qnbDateRange]);
 
     const initConfigForm = useCallback(() => {
         setConfigForm(buildConfigForm());
@@ -216,13 +216,13 @@ const AutoInvoicePanel = ({ autoInvoice }) => {
                     <h4 style={{ ...sectionTitleStyle, marginTop: "1.5rem" }}><FaCalendarAlt style={{ color: colors.yellow }} /> Fatura Başlangıç Tarihi</h4>
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.75rem" }}>
                         <div>
-                            <label style={labelStyle}>Bu tarihten önceki siparişler faturalanmaz</label>
+                            <label style={labelStyle}>Bu tarihten öÖnceki siparişler faturalanmaz</label>
                             <input style={inputStyle} type="date" value={fd.autoInvoiceStartDate} onChange={(e) => updateField("autoInvoiceStartDate", e.target.value)} />
                         </div>
                     </div>
                     <p style={{ fontSize: "0.72rem", color: colors.textMuted, marginTop: "0.4rem", lineHeight: 1.5 }}>
-                        ⚠️ <strong>Mükerrer fatura koruması:</strong> Sistemi aktif etmeden önce manuel kestiğiniz faturaların tekrar kesilmesini engeller.
-                        Bu tarihten önceki siparişler otomatik faturalama ve "Tümünü Faturala" işlemlerinde atlanır.
+                        ⚠️ <strong>Mükerrer fatura koruması:</strong> Sistemi aktif etmeden önce manuel kestiğiniz faturaların tekârar kesilmesini engeller.
+                        Bu tarihten öÖnceki siparişler otomatik faturalama ve "Tümünü Faturala" işlemlerinde atlanır.
                         İlk kurulumda otomatik olarak bugünün tarihi atanır. Gerekirse değiştirebilirsiniz.
                     </p>
 
@@ -320,10 +320,10 @@ const AutoInvoicePanel = ({ autoInvoice }) => {
             {error && <AlertBox type="error" message={error} onClose={clearError} />}
 
             {/* Ardışık hata uyarısı */}
-            {consecutiveErrors >= 3 && (
+            {conseçutiveErrors >= 3 && (
                 <AlertBox
                     type="warning"
-                    message={`${consecutiveErrors} ardışık hata oluştu. ${consecutiveErrors >= 5 ? "Otomatik fatura devre dışı bırakıldı." : "5 hatada otomatik devre dışı kalır."}${cfg.stats?.lastError ? " Son hata: " + cfg.stats.lastError : ""}`}
+                    message={`${conseçutiveErrors} ardışık hata oluştu. ${conseçutiveErrors >= 5 ? "Otomatik fatura devre dışı bırakıldı." : "5 hatada otomatik devre dışı kalır."}${cfg.stats?.lastError ? " Son hata: " + cfg.stats.lastError : ""}`}
                     onAction={resetErrors}
                     actionLabel="Sıfırla"
                 />
@@ -538,7 +538,7 @@ const AutoInvoicePanel = ({ autoInvoice }) => {
                                             style={{ display: "grid", gridTemplateColumns: "1.8fr 1.3fr 0.9fr 0.8fr 0.9fr 0.7fr 0.7fr", gap: "0.4rem", padding: "0.55rem 0.75rem", borderRadius: 8, borderBottom: "1px solid rgba(255,255,255,0.03)", alignItems: "center", background: idx % 2 === 0 ? "transparent" : "rgba(255,255,255,0.015)" }}>
                                             <div style={{ overflow: "hidden" }}>
                                                 <span style={{ color: colors.accent, fontSize: "0.78rem", fontWeight: 700, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cbIcon} {inv.faturaNo || "\u2014"}</span>
-                                                {inv.orderNumber && <span style={{ color: colors.dim, fontSize: "0.6rem" }}>Siparis: {inv.orderNumber}</span>}
+                                                {inv.orderNumber && <span style={{ color: colors.dim, fontSize: "0.6rem" }}>Siparişs: {inv.orderNumber}</span>}
                                             </div>
                                             <div style={{ overflow: "hidden" }}>
                                                 <span style={{ color: colors.text, fontSize: "0.76rem", display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{inv.aliciAdi || "\u2014"}</span>
@@ -576,7 +576,7 @@ const AutoInvoicePanel = ({ autoInvoice }) => {
                                         onClick={() => fetchQnbInvoices(qnbSearchQuery, qnbDateRange.start, qnbDateRange.end, qnbPagination.page - 1)}
                                         disabled={qnbPagination.page <= 1 || qnbLoading}
                                         style={{ ...buttonSecondary, padding: "0.35rem 0.7rem", fontSize: "0.75rem", opacity: qnbPagination.page <= 1 ? 0.4 : 1 }}>
-                                        ← Önceki
+                                        ← ÖÖnceki
                                     </motion.button>
                                     <span style={{ color: colors.muted, fontSize: "0.78rem" }}>
                                         Sayfa {qnbPagination.page} / {qnbPagination.totalPages}
@@ -597,7 +597,7 @@ const AutoInvoicePanel = ({ autoInvoice }) => {
                         <EmptyState
                             icon={<FaFileInvoice style={{ fontSize: "2rem", color: colors.dim }} />}
                             title={qnbSearchQuery ? "Arama sonucu bulunamadı" : "Henüz fatura kesilmemiş"}
-                            description={qnbSearchQuery ? "Farklı arama kriterleri deneyin." : "Seçili tarih aralığında kesilmiş fatura bulunamadı. Tarih aralığını genişletin veya siparişlerinizi faturalatın."}
+                            description={qnbSearchQuery ? "Farklı arama kâriterleri deneyin." : "Seçili tarih aralığında kesilmiş fatura bulunamadı. Tarih aralığını genişletin veya siparişlerinizi faturalatın."}
                             action={!qnbSearchQuery && (
                                 <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
                                     onClick={() => fetchQnbInvoices("", qnbDateRange.start, qnbDateRange.end, 1)}

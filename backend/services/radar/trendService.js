@@ -52,24 +52,11 @@ async function getKeywordTrend(keyword, opts = {}) {
         const results = {};
         let dataSourceCount = 0;
 
-        // ── 1. Paralel veri toplama ──
-        const promises = [];
+        // ── 1. SerpAPI çakışmasını azalt: Google Trends ve Amazon sırayla; diğerleri paralel ──
+        const parallel = [];
 
-        // Google Trends
-        if (!opts.skipGoogle) {
-            promises.push(
-                googleTrendsService.getGoogleTrend(keyword)
-                    .then(data => { results.google = data; })
-                    .catch(err => {
-                        logger.debug(`[TrendService] Google Trends hatası (${keyword}): ${err.message}`);
-                        results.google = null;
-                    })
-            );
-        }
-
-        // Sosyal medya (kullanıcı bağlantısı varsa)
         if (!opts.skipSocial && userId) {
-            promises.push(
+            parallel.push(
                 socialService.getSocialMediaData(keyword, userId)
                     .then(data => { results.social = data; })
                     .catch(err => {
@@ -79,20 +66,7 @@ async function getKeywordTrend(keyword, opts = {}) {
             );
         }
 
-        // Amazon
-        if (!opts.skipAmazon) {
-            promises.push(
-                amazonRadarService.getAmazonMarketData(keyword)
-                    .then(data => { results.amazon = data; })
-                    .catch(err => {
-                        logger.debug(`[TrendService] Amazon hatası (${keyword}): ${err.message}`);
-                        results.amazon = null;
-                    })
-            );
-        }
-
-        // Trendyol (her zaman çalışır — yerel pazar)
-        promises.push(
+        parallel.push(
             fetchTrendyolTrend(keyword)
                 .then(data => { results.trendyol = data; })
                 .catch(err => {
@@ -101,7 +75,26 @@ async function getKeywordTrend(keyword, opts = {}) {
                 })
         );
 
-        await Promise.all(promises);
+        await Promise.all(parallel);
+
+        if (!opts.skipGoogle) {
+            try {
+                results.google = await googleTrendsService.getGoogleTrend(keyword);
+            } catch (err) {
+                logger.debug(`[TrendService] Google Trends hatası (${keyword}): ${err.message}`);
+                results.google = null;
+            }
+        }
+
+        if (!opts.skipAmazon) {
+            await new Promise(r => setTimeout(r, 600));
+            try {
+                results.amazon = await amazonRadarService.getAmazonMarketData(keyword);
+            } catch (err) {
+                logger.debug(`[TrendService] Amazon hatası (${keyword}): ${err.message}`);
+                results.amazon = null;
+            }
+        }
 
         // ── 2. Kaynak skorlarını hesapla ──
         const sourceScores = {};

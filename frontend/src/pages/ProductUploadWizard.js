@@ -193,7 +193,7 @@ const PlatformCategoryPanel = memo(({ platformName, ps, onSearch, onSelect, onCl
                                 <div style={{ flex: 1, minWidth: 0 }}>
                                     <div style={{ fontSize: 11, fontWeight: 600, color: "var(--puw-text)" }}>{cName}</div>
                                     {cPath && <div style={{ fontSize: 9, color: "var(--puw-text-dim)", marginTop: 1 }}>{cPath}</div>}
-                                    {!selectable && <div style={{ fontSize: 9, color: "var(--puw-yellow)", marginTop: 1 }}>Bu kayitta categoryId yok</div>}
+                                    {!selectable && <div style={{ fontSize: 9, color: "var(--puw-yellow)", marginTop: 1 }}>Bu kayıtta categoryId yok</div>}
                                 </div>
                                 {isSel && <FaCheckCircle style={{ color: "var(--puw-green)", fontSize: 11, flexShrink: 0 }} />}
                             </div>
@@ -296,7 +296,7 @@ const ProductUploadWizard = ({ userId }) => {
         try {
             const r = await suggestCodes(uf.name.trim(), uf.brand, "");
             setCodeSugg(r.suggestions);
-        } catch { showToast("Öneri alınamadı", "error"); }
+        } catch { showToast("Ööneri alınamadı", "error"); }
         finally { setCodeLoading(false); }
     };
 
@@ -329,16 +329,16 @@ const ProductUploadWizard = ({ userId }) => {
         }
         setImgUploading(true);
         try {
-            const uploadedUrls = [];
+            const uploİadedUrls = [];
             for (const file of toUpload) {
                 const r = await uploadProductImage(file);
-                if (r?.url) uploadedUrls.push(r.url);
+                if (r?.url) uploİadedUrls.push(r.url);
             }
-            if (uploadedUrls.length > 0) {
-                ufSet("imageUrls", [...uf.imageUrls, ...uploadedUrls].slice(0, 8));
-                showToast(`${uploadedUrls.length} gorsel yuklendi`);
+            if (uploİadedUrls.length > 0) {
+                ufSet("imageUrls", [...uf.imageUrls, ...uploİadedUrls].slice(0, 8));
+                showToast(`${uploİadedUrls.length} gorsel yuklendi`);
             }
-            if (uploadedUrls.length < toUpload.length) {
+            if (uploİadedUrls.length < toUpload.length) {
                 showToast("Bazi gorseller yuklenemedi", "error");
             }
         } catch (err) {
@@ -493,7 +493,7 @@ const ProductUploadWizard = ({ userId }) => {
             const hasOnlyLocalFiles = remoteUrls.length === 0 && imgFiles.length > 0;
             if (hasOnlyLocalFiles && uf.targetMarketplaces.length > 0) {
                 return showToast(
-                    "Yerel dosya görselleri pazaryerine gönderilemez. Lütfen Adım 2'de en az 1 adet https:// görsel URL ekleyin.",
+                    "Yerel dosya görselleri pazaryerine gönderilemez. Lütfen Adım 2'de en az 1 İadet https:// görsel URL ekleyin.",
                     "error"
                 );
             }
@@ -508,7 +508,7 @@ const ProductUploadWizard = ({ userId }) => {
                     const validCategoryId = /^\d+$/.test(selectedId) && Number(selectedId) > 0;
                     if (!validCategoryId) {
                         return showToast(
-                            `${pName} icin secilen kategori gecersiz (categoryId yok). Lutfen agactan baska bir kategori secin.`,
+                            `${pName} için seçilen kategori geçersiz (categoryId yok). Lütfen ağaçtan başka bir kategori seçin.`,
                             "error"
                         );
                     }
@@ -607,27 +607,41 @@ const ProductUploadWizard = ({ userId }) => {
 
     return (
         <div className="puw-root">
+            <div className="puw-shell">
             {/* Header */}
-            <div className="puw-header">
-                <h1><FaCloudUploadAlt /> Ürün Yükle & Dağıt</h1>
-                <p>Ürün bilgilerini girin, önizleyin, platform kategorilerini seçin ve tüm pazaryerlerine gönderin</p>
-            </div>
+            <header className="puw-header">
+                <div className="puw-header-inner">
+                    <div>
+                        <h1><FaCloudUploadAlt /> Ürün Yükle & Dağıt</h1>
+                        <p>Ürün bilgilerini girin, ön izleyin, platform kategorilerini seçin ve bağlı pazaryerlerinize gönderin.</p>
+                    </div>
+                    <span className="puw-hero-badge">Sihirbaz · 4 adım</span>
+                </div>
+            </header>
 
             {/* Steps Bar */}
-            <div className="puw-steps">
-                {steps.map(s => (
-                    <button key={s.num}
-                        className={`puw-step ${step === s.num ? "active" : ""} ${step > s.num ? "done" : ""}`}
-                        onClick={() => setStep(s.num)}>
-                        <span className="step-num">
-                            {step > s.num ? <FaCheck /> : s.icon}
-                        </span>
-                        <div>
-                            <div className="step-label">Adım {s.num}</div>
-                            <div className="step-desc">{s.label}</div>
-                        </div>
-                    </button>
-                ))}
+            <div className="puw-steps-wrap">
+                <div className="puw-steps" role="tablist" aria-label="Ürün yükleme adımları">
+                    {steps.map(s => (
+                        <button
+                            key={s.num}
+                            type="button"
+                            role="tab"
+                            aria-selected={step === s.num}
+                            aria-current={step === s.num ? "step" : undefined}
+                            className={`puw-step ${step === s.num ? "active" : ""} ${step > s.num ? "done" : ""}`}
+                            onClick={() => setStep(s.num)}
+                        >
+                            <span className="step-num">
+                                {step > s.num ? <FaCheck /> : s.icon}
+                            </span>
+                            <div>
+                                <div className="step-label">Adım {s.num}</div>
+                                <div className="step-desc">{s.label}</div>
+                            </div>
+                        </button>
+                    ))}
+                </div>
             </div>
 
             {/* Step Content */}
@@ -638,7 +652,7 @@ const ProductUploadWizard = ({ userId }) => {
                         ADIM 1: TEMEL BİLGİLER
                         ═══════════════════════════════════════════ */}
                     {step === 1 && (
-                        <div className="puw-step-content">
+                        <div className="puw-step-content puw-step-content--wide-split">
                             <div className="puw-card">
                                 <div className="puw-card-header">
                                     <span className="icon"><FaEdit /></span>
@@ -689,7 +703,7 @@ const ProductUploadWizard = ({ userId }) => {
                                 {codeSugg && (
                                     <div className="puw-grid-2" style={{ marginTop: 12 }}>
                                         <div>
-                                            <div className="puw-sugg-label">Barkod Önerileri</div>
+                                            <div className="puw-sugg-label">Barkod önerileri</div>
                                             <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
                                                 {(codeSugg.barcodes || []).map((b, i) => (
                                                     <button key={i} className={`puw-code-chip ${!b.available ? "unavailable" : ""}`}
@@ -700,7 +714,7 @@ const ProductUploadWizard = ({ userId }) => {
                                             </div>
                                         </div>
                                         <div>
-                                            <div className="puw-sugg-label">SKU Önerileri</div>
+                                            <div className="puw-sugg-label">SKU önerileri</div>
                                             <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
                                                 {(codeSugg.skus || []).map((s, i) => (
                                                     <button key={i} className={`puw-code-chip ${!s.available ? "unavailable" : ""}`}
@@ -727,7 +741,7 @@ const ProductUploadWizard = ({ userId }) => {
                         ADIM 2: GÖRSELLER & AÇIKLAMA
                         ═══════════════════════════════════════════ */}
                     {step === 2 && (
-                        <div className="puw-step-content">
+                        <div className="puw-step-content puw-step-content--wide-split">
                             <div className="puw-card">
                                 <div className="puw-card-header">
                                     <span className="icon"><FaImage /></span>
@@ -748,7 +762,7 @@ const ProductUploadWizard = ({ userId }) => {
                                 {imgFiles.length > 0 && (
                                     <div style={{ color: "var(--puw-yellow)", fontSize: 10, marginBottom: 8 }}>
                                         <FaInfoCircle style={{ marginRight: 4 }} />
-                                        Yerel dosyalar sadece on izleme icindir. Pazaryeri yuklemesi icin https:// gorsel URL ekleyin.
+                                        Yerel dosyalar yalnızca ön izleme içindir. Pazaryeri yüklemesi için https:// görsel URL ekleyin.
                                     </div>
                                 )}
                                 {totalImgs > 0 ? (
@@ -900,7 +914,7 @@ const ProductUploadWizard = ({ userId }) => {
                                             ["Barkod", uf.barcode ? "✓" : "✗", uf.barcode ? "var(--puw-green)" : "var(--puw-red)"],
                                             ["SKU", uf.sku ? "✓" : "✗", uf.sku ? "var(--puw-green)" : "var(--puw-red)"],
                                             ["Fiyat", uf.price ? fmt(uf.price) : "✗", uf.price ? "var(--puw-green)" : "var(--puw-red)"],
-                                            ["Görseller", totalImgs > 0 ? `${totalImgs} adet` : "Yok", totalImgs > 0 ? "var(--puw-green)" : "var(--puw-yellow)"],
+                                            ["Görseller", totalImgs > 0 ? `${totalImgs} İadet` : "Yok", totalImgs > 0 ? "var(--puw-green)" : "var(--puw-yellow)"],
                                             ["Açıklama", uf.description ? "✓" : "Yok", uf.description ? "var(--puw-green)" : "var(--puw-yellow)"],
                                             ["Platformlar", uf.targetMarketplaces.length > 0 ? `${uf.targetMarketplaces.length} seçili` : "Seçilmedi", uf.targetMarketplaces.length > 0 ? "var(--puw-green)" : "var(--puw-yellow)"],
                                         ].map(([k, v, c]) => (
@@ -1015,6 +1029,8 @@ const ProductUploadWizard = ({ userId }) => {
                     )}
                 </motion.div>
             </AnimatePresence>
+
+            </div>
 
             {/* Toast */}
             <AnimatePresence>

@@ -747,10 +747,10 @@ w/* ========================================
 
 /* Tab Content */
 .ai-tab-content {
-    animation: fadeIn 0.3s ease;
+    animation: fİadeIn 0.3s ease;
 }
 
-@keyframes fadeIn {
+@keyframes fİadeIn {
     from { opacity: 0; transform: translateY(10px); }
     to { opacity: 1; transform: translateY(0); }
 }
@@ -1092,8 +1092,8 @@ w/* ========================================
     animation: pulse 2s ease-in-out infinite;
 }
 
-.fade-in {
-    animation: fadeIn 0.5s ease;
+.fİade-in {
+    animation: fİadeIn 0.5s ease;
 }
 
 .slide-in {

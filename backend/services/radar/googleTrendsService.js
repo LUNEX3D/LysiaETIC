@@ -19,15 +19,16 @@
  */
 const logger = require("../../config/logger");
 const axios = require("axios");
+const { getSerpJson, hasSerpKey } = require("./serpApiClient");
 
 // ── Konfigürasyon ──
-const SERPAPI_KEY = process.env.SERPAPI_KEY || "";
-const SERPAPI_BASE = "https://serpapi.com/search.json";
 const TRENDS_EMBED_BASE = "https://trends.google.com/trends/api";
 
 // ── In-memory cache (SerpAPI çağrılarını azaltmak için) ──
 const trendsCache = new Map();
-const CACHE_TTL_MS = 4 * 60 * 60 * 1000; // 4 saat
+const CACHE_TTL_MS = 8 * 60 * 60 * 1000; // 8 saat
+
+const serpGap = () => new Promise((r) => setTimeout(r, 400));
 
 /**
  * Google Trends'ten keyword verisi çek
@@ -47,7 +48,7 @@ async function getGoogleTrend(keyword, opts = {}) {
     }
 
     // 1. SerpAPI ile dene (en güvenilir)
-    if (SERPAPI_KEY) {
+    if (hasSerpKey()) {
         try {
             const result = await fetchFromSerpAPI(keyword, geo, timeRange);
             if (result && result.interestOverTime > 0) {
@@ -86,10 +87,9 @@ async function fetchFromSerpAPI(keyword, geo, timeRange) {
         geo,
         date: timeRange,
         data_type: "TIMESERIES",
-        api_key: SERPAPI_KEY,
     };
 
-    const iotRes = await axios.get(SERPAPI_BASE, { params: iotParams, timeout: 15000 });
+    const iotRes = await getSerpJson(iotParams, { timeout: 25000 });
     const iotData = iotRes.data;
 
     // Zaman serisi verisi
@@ -121,15 +121,15 @@ async function fetchFromSerpAPI(keyword, geo, timeRange) {
     let isBreakout = false;
 
     try {
+        await serpGap();
         const rqParams = {
             engine: "google_trends",
             q: keyword,
             geo,
             date: timeRange,
             data_type: "RELATED_QUERIES",
-            api_key: SERPAPI_KEY,
         };
-        const rqRes = await axios.get(SERPAPI_BASE, { params: rqParams, timeout: 15000 });
+        const rqRes = await getSerpJson(rqParams, { timeout: 25000 });
 
         const rising = rqRes.data?.related_queries?.rising || [];
         const top = rqRes.data?.related_queries?.top || [];
@@ -148,15 +148,15 @@ async function fetchFromSerpAPI(keyword, geo, timeRange) {
     }
 
     try {
+        await serpGap();
         const rtParams = {
             engine: "google_trends",
             q: keyword,
             geo,
             date: timeRange,
             data_type: "RELATED_TOPICS",
-            api_key: SERPAPI_KEY,
         };
-        const rtRes = await axios.get(SERPAPI_BASE, { params: rtParams, timeout: 15000 });
+        const rtRes = await getSerpJson(rtParams, { timeout: 25000 });
 
         const risingTopics = rtRes.data?.related_topics?.rising || [];
         const topTopics = rtRes.data?.related_topics?.top || [];
@@ -272,7 +272,7 @@ async function fetchFromTrendsEmbed(keyword, geo) {
  */
 async function getBulkGoogleTrends(keywords, opts = {}) {
     const results = {};
-    const delayMs = opts.delayMs || 2000;
+    const delayMs = opts.delayMs || 3000;
 
     for (const kw of keywords.slice(0, 20)) { // Max 20 keyword
         try {
@@ -294,16 +294,15 @@ async function getBulkGoogleTrends(keywords, opts = {}) {
  * @returns {Promise<string[]>}
  */
 async function getTrendingSearches(geo = "TR") {
-    if (!SERPAPI_KEY) return [];
+    if (!hasSerpKey()) return [];
 
     try {
         const params = {
             engine: "google_trends_trending_now",
             geo,
-            api_key: SERPAPI_KEY,
         };
 
-        const response = await axios.get(SERPAPI_BASE, { params, timeout: 15000 });
+        const response = await getSerpJson(params, { timeout: 25000 });
 
         // SerpAPI response formatı: { trending_searches: [ { query, search_volume, ... }, ... ] }
         const trendingSearches = response.data?.trending_searches || [];

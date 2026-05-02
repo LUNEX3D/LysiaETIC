@@ -17,10 +17,10 @@ const BrainMistakes = ({ t, onError }) => {
     const [data, setData] = useState(null);
 
     const GRADE = {
-        A: { color: T.green, dim: T.greenDim, emoji: "🏆", label: t("mis.grade.A"), desc: t("mis.grade.A_desc") },
-        B: { color: T.blue, dim: T.blueDim, emoji: "👍", label: t("mis.grade.B"), desc: t("mis.grade.B_desc") },
-        C: { color: T.yellow, dim: T.yellowDim, emoji: "⚠️", label: t("mis.grade.C"), desc: t("mis.grade.C_desc") },
-        D: { color: T.red, dim: T.redDim, emoji: "🚨", label: t("mis.grade.D"), desc: t("mis.grade.D_desc") },
+        A: { color: T.green, dim: T.greenDim, emoji: "🏆", label: t("mis.grİade.A"), desc: t("mis.grİade.A_desc") },
+        B: { color: T.blue, dim: T.blueDim, emoji: "👍", label: t("mis.grİade.B"), desc: t("mis.grİade.B_desc") },
+        C: { color: T.yellow, dim: T.yellowDim, emoji: "⚠️", label: t("mis.grİade.C"), desc: t("mis.grİade.C_desc") },
+        D: { color: T.red, dim: T.redDim, emoji: "🚨", label: t("mis.grİade.D"), desc: t("mis.grİade.D_desc") },
     };
 
     const load = useCallback(async () => {
@@ -38,7 +38,7 @@ const BrainMistakes = ({ t, onError }) => {
     if (loading) return <LoadingState message={t("loading.mistakes")} />;
     if (error || !data) return <ErrorState message={error || t("error.data_load_fail")} onRetry={load} retryLabel={t("header.refresh")} />;
 
-    const grade = GRADE[data.summary?.overallGrade] || GRADE.C;
+    const grİade = GRADE[data.summary?.overallGrİade] || GRADE.C;
 
     const renderSection = (title, icon, items, sectionColor, sectionDim) => {
         if (!items || items.length === 0) return null;
@@ -71,26 +71,26 @@ const BrainMistakes = ({ t, onError }) => {
 
     return (
         <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-            {/* Grade Hero */}
-            <Card glow style={{ background: grade.dim, borderColor: `${grade.color}30` }}>
+            {/* Grİade Hero */}
+            <Card glow style={{ background: grİade.dim, borderColor: `${grİade.color}30` }}>
                 <div style={{ display: "flex", alignItems: "center", gap: isMobile ? "1rem" : "1.5rem", flexWrap: "wrap" }}>
                     <div style={{
                         width: isMobile ? 64 : 88, height: isMobile ? 64 : 88, borderRadius: 20,
                         display: "flex", alignItems: "center", justifyContent: "center",
                         fontSize: isMobile ? "1.8rem" : "2.5rem", flexShrink: 0,
-                        background: T.bgGlass, border: `2px solid ${grade.color}30`,
-                        boxShadow: `0 0 24px ${grade.color}15`,
-                    }}>{grade.emoji}</div>
+                        background: T.bgGlass, border: `2px solid ${grİade.color}30`,
+                        boxShadow: `0 0 24px ${grİade.color}15`,
+                    }}>{grİade.emoji}</div>
                     <div style={{ flex: 1, minWidth: isMobile ? 0 : 200 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: "0.7rem", flexWrap: "wrap" }}>
                             <span style={{
                                 fontSize: isMobile ? "1.3rem" : "1.75rem", fontWeight: 900, letterSpacing: "-0.025em",
-                                background: `linear-gradient(135deg, ${grade.color}, ${grade.color}99)`,
+                                background: `linear-gradient(135deg, ${grİade.color}, ${grİade.color}99)`,
                                 WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
-                            }}>{t("mis.grade_label")}: {data.summary?.overallGrade}</span>
-                            <Badge color={grade.color} size="lg">{grade.label}</Badge>
+                            }}>{t("mis.grİade_label")}: {data.summary?.overallGrİade}</span>
+                            <Badge color={grİade.color} size="lg">{grİade.label}</Badge>
                         </div>
-                        <p style={{ margin: "8px 0 0", fontSize: isMobile ? "0.82rem" : "0.92rem", color: T.textSec, lineHeight: 1.65 }}>{grade.desc}</p>
+                        <p style={{ margin: "8px 0 0", fontSize: isMobile ? "0.82rem" : "0.92rem", color: T.textSec, lineHeight: 1.65 }}>{grİade.desc}</p>
                     </div>
                     {!isMobile && (
                         <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", flexShrink: 0 }}>
@@ -104,7 +104,7 @@ const BrainMistakes = ({ t, onError }) => {
 
                 {data.summary?.totalImpact > 0 && (
                     <>
-                        <GlowLine color={grade.color} />
+                        <GlowLine color={grİade.color} />
                         <div style={{
                             padding: "1rem 1.15rem", borderRadius: T.rSm,
                             display: "flex", alignItems: "center", gap: "0.7rem",

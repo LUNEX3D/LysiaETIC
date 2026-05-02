@@ -46,7 +46,9 @@ const NotificationSchema = new mongoose.Schema({
         totalPrice: Number,
         itemCount: Number,
         customerName: String,
-        status: String
+        status: String,
+        /** Siparişin pazaryeri / DB tarihi — bildirim yalnızca bu gün İstanbul takvimine göre “bugün” ise gösterilir */
+        orderDate: Date,
     },
 
     // AI bildirimi detayları

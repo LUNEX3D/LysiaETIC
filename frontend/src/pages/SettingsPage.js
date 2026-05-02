@@ -259,7 +259,7 @@ const SettingsPage = ({ userId }) => {
 
     const handleSaveProdPrefs = async () => {
         setProdPrefsLoading(true);
-        try { await updateUserPreferences(prodPrefs); flash(setProdPrefsMsg, "success", tr ? "rn ayarlar kaydedildi!" : "Product settings saved!"); }
+        try { await updateUserPreferences(prodPrefs); flash(setProdPrefsMsg, "success", tr ? "ürün ayarlar kaydedildi!" : "Product settings saved!"); }
         catch { flash(setProdPrefsMsg, "error", tr ? "Kaydetme hatas!" : "Save error!", 4000); }
         finally { setProdPrefsLoading(false); }
     };
@@ -295,7 +295,7 @@ const SettingsPage = ({ userId }) => {
             const res = await toggleMarketplaceInvoice(mpName);
             if (res.success) {
                 setInvoiceConfig(prev => ({ ...prev, enabledMarketplaces: res.enabledMarketplaces || [] }));
-                // mpStats' da gncelle
+                // mpStats' da güncelle
                 setMpStats(prev => {
                     if (!prev?.marketplaces) return prev;
                     return {
@@ -311,14 +311,14 @@ const SettingsPage = ({ userId }) => {
 
     const handleChangePassword = async () => {
         setPasswordMsg({ type: "", text: "" });
-        if (passwordForm.newPassword !== passwordForm.confirmPassword) { flash(setPasswordMsg, "error", tr ? "ifreler elemiyor!" : "Passwords don't match!"); return; }
-        if (passwordForm.newPassword.length < 6) { flash(setPasswordMsg, "error", tr ? "ifre en az 6 karakter olmal!" : "Min 6 characters!"); return; }
+        if (passwordForm.newPassword !== passwordForm.confirmPassword) { flash(setPasswordMsg, "error", tr ? "şifreler eşleşmiyor!" : "Passwords don't match!"); return; }
+        if (passwordForm.newPassword.length < 6) { flash(setPasswordMsg, "error", tr ? "şifre en az 6 karakter olmal!" : "Min 6 characters!"); return; }
         setSaving(true);
         try {
             await axios.put("/user/change-password", { currentPassword: passwordForm.currentPassword, newPassword: passwordForm.newPassword }, { headers: { Authorization: `Bearer ${token}` } });
-            flash(setPasswordMsg, "success", tr ? "ifre baaryla deitirildi!" : "Password changed!");
+            flash(setPasswordMsg, "success", tr ? "şifre başarıyla değiştirildi!" : "Password changed!");
             setPasswordForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
-        } catch (e) { flash(setPasswordMsg, "error", e.response?.data?.message || (tr ? "ifre deitirilemedi!" : "Failed!")); }
+        } catch (e) { flash(setPasswordMsg, "error", e.response?.data?.message || (tr ? "şifre değiştirilemedi!" : "Failed!")); }
         finally { setSaving(false); }
     };
 
@@ -476,12 +476,12 @@ const SettingsPage = ({ userId }) => {
     const tabs = [
         { id: "appearance", icon: <FaPalette />, label: tr ? "Grnm" : "Appearance" },
         { id: "notifications", icon: <FaBell />, label: tr ? "Bildirimler" : "Notifications" },
-        { id: "productMatch", icon: <FaBox />, label: tr ? "rn Ynetimi" : "Products" },
+        { id: "productMatch", icon: <FaBox />, label: tr ? "ürün Yönetimi" : "Products" },
         { id: "marketplace", icon: <FaStore />, label: tr ? "Pazaryeri" : "Marketplace" },
-        { id: "autoOrder", icon: <FaShippingFast />, label: tr ? "Sipari leme" : "Order Processing" },
+        { id: "autoOrder", icon: <FaShippingFast />, label: tr ? "Sipariş leme" : "Order Processing" },
         { id: "invoice", icon: <FaFileInvoice />, label: tr ? "Fatura" : "Invoice" },
         { id: "account", icon: <FaUser />, label: tr ? "Hesap" : "Account" },
-        { id: "security", icon: <FaShieldAlt />, label: tr ? "Gvenlik" : "Security" },
+        { id: "security", icon: <FaShieldAlt />, label: tr ? "Güvenlik" : "Security" },
     ];
 
     /* 
@@ -501,7 +501,7 @@ const SettingsPage = ({ userId }) => {
                          {t("settings.title")}
                     </h1>
                     <p style={{ color: C.muted, fontSize: "0.8rem", margin: "0.2rem 0 0 0" }}>
-                        {tr ? "Tm program ayarlarnz buradan ynetin" : "Manage all your application settings here"}
+                        {tr ? "Tüm program ayarlarınızı buradan yönetin" : "Manage all your application settings here"}
                     </p>
                 </div>
             </div>
@@ -588,7 +588,7 @@ const SettingsPage = ({ userId }) => {
     {/* Dil  sa st */}
     <div style={card}>
         <SH icon="" title={tr ? "Arayz Dili" : "Interface Language"}
-            desc={tr ? "Tm men ve aklamalarn gsterilecei dili sein. Annda uygulanr." : "Choose the language for all menus. Applied instantly."} />
+            desc={tr ? "Tüm men ve aklamalaürün gösterilecei dili sein. Annda uygulanr." : "Choose the language for all menus. Applied instantly."} />
         <div style={{ display: "flex", gap: "0.6rem" }}>
             {[
                 { id: "tr", flag: "", label: "Trke" },
@@ -616,15 +616,15 @@ const SettingsPage = ({ userId }) => {
     {/* Grntleme Tercihleri  tam genilik */}
     <div style={{ ...card, gridColumn: "1 / -1" }}>
         <SH icon="" title={tr ? "Grntleme Tercihleri" : "Display Preferences"}
-            desc={tr ? "Tablolarda, raporlarda ve faturalarda kullanlacak para birimi, tarih format ve sayfa boyutu." : "Currency, date format and page size used in tables, reports and invoices."} />
+            desc={tr ? "Tablolarda, raporlarda ve faturalarda kullanılacak para birimi, tarih formatı ve sayfa boyutu." : "Currency, date format and page size used in tables, reports and invoices."} />
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "1rem" }}>
             <SF icon={<FaDollarSign />} label={tr ? "Para Birimi" : "Currency"} value={displayPrefs.currency} onChange={v => setDisplayPrefs(p => ({ ...p, currency: v }))} help={tr ? "Fiyat ve raporlarda" : "In prices & reports"}>
                 <option value="TRY"> TRY</option><option value="USD">$ USD</option><option value="EUR"> EUR</option>
             </SF>
-            <SF icon={<FaClock />} label={tr ? "Zaman Dilimi" : "Timezone"} value={displayPrefs.timezone} onChange={v => setDisplayPrefs(p => ({ ...p, timezone: v }))} help={tr ? "Sipari zamanlar" : "Order timestamps"}>
+            <SF icon={<FaClock />} label={tr ? "Zaman Dilimi" : "Timezone"} value={displayPrefs.timezone} onChange={v => setDisplayPrefs(p => ({ ...p, timezone: v }))} help={tr ? "Sipariş zamanlar" : "Order timestamps"}>
                 <option value="Europe/Istanbul">Istanbul (UTC+3)</option><option value="Europe/London">London (UTC+0)</option><option value="Europe/Berlin">Berlin (UTC+1)</option><option value="America/New_York">New York (UTC-5)</option>
             </SF>
-            <SF icon={<FaCalendarAlt />} label={tr ? "Tarih Format" : "Date Format"} value={displayPrefs.dateFormat} onChange={v => setDisplayPrefs(p => ({ ...p, dateFormat: v }))} help={tr ? "Tm tarih gsterimleri" : "All date displays"}>
+            <SF icon={<FaCalendarAlt />} label={tr ? "Tarih Format" : "Date Format"} value={displayPrefs.dateFormat} onChange={v => setDisplayPrefs(p => ({ ...p, dateFormat: v }))} help={tr ? "Tüm tarih gösterimleri" : "All date displays"}>
                 <option value="DD/MM/YYYY">DD/MM/YYYY</option><option value="MM/DD/YYYY">MM/DD/YYYY</option><option value="YYYY-MM-DD">YYYY-MM-DD</option>
             </SF>
             <SF icon={<FaTable />} label={tr ? "Tablo Satr" : "Page Size"} value={displayPrefs.tablePageSize} onChange={v => setDisplayPrefs(p => ({ ...p, tablePageSize: Number(v) }))} help={tr ? "Sayfa ba satr" : "Rows per page"}>
@@ -643,17 +643,17 @@ const SettingsPage = ({ userId }) => {
 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.25rem" }}>
     <div style={{ gridColumn: "1 / -1" }}>
         <Info color={C.accent}>
-            {tr ? "Bildirim ayarlar, hangi olaylarda ve hangi kanallardan haberdar olacanz belirler. Kritik stok uyarlar her zaman aktiftir." : "Notification settings determine which events and channels you'll be notified through. Critical stock alerts are always active."}
+            {tr ? "Bildirim ayarları, hangi olaylarda ve hangi kanallardan haberdar olacağınızı belirler. Kritik stok uyarıları her zaman aktiftir." : "Notification settings determine which events and channels you'll be notified through. Critical stock alerts are always active."}
         </Info>
     </div>
 
     {/* Sol: Bildirim Trleri */}
     <div style={card}>
         <SH icon="" title={tr ? "Bildirim Trleri" : "Notification Types"}
-            desc={tr ? "Hangi olaylarda bildirim almak istediinizi sein." : "Choose which events trigger notifications."} />
+            desc={tr ? "Hangi olaylarda bildirim almak istediİşinizi sein." : "Choose which events trigger notifications."} />
         <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-            <TR icon="" label={tr ? "Sipari Bildirimleri" : "Order Notifications"} desc={tr ? "Yeni sipari, iptal, iade" : "New order, cancel, return"} value={notifPrefs.orderNotif} onChange={v => setNotifPrefs(p => ({ ...p, orderNotif: v }))} />
-            <TR icon="" label={tr ? "Stok Bildirimleri" : "Stock Notifications"} desc={tr ? "Dk stok, tkenen rn" : "Low stock, out of stock"} value={notifPrefs.stockNotif} onChange={v => setNotifPrefs(p => ({ ...p, stockNotif: v }))} />
+            <TR icon="" label={tr ? "Sipariş Bildirimleri" : "Order Notifications"} desc={tr ? "Yeni sipariş, iptal, iİade" : "New order, cancel, return"} value={notifPrefs.orderNotif} onChange={v => setNotifPrefs(p => ({ ...p, orderNotif: v }))} />
+            <TR icon="" label={tr ? "Stok Bildirimleri" : "Stock Notifications"} desc={tr ? "Dk stok, tkenen ürün" : "Low stock, out of stock"} value={notifPrefs.stockNotif} onChange={v => setNotifPrefs(p => ({ ...p, stockNotif: v }))} />
             <TR icon="" label={tr ? "Finans Bildirimleri" : "Finance Notifications"} desc={tr ? "Fatura, deme, komisyon" : "Invoice, payment, commission"} value={notifPrefs.financeNotif} onChange={v => setNotifPrefs(p => ({ ...p, financeNotif: v }))} />
             <TR icon="" label={tr ? "Sync Hata Bildirimleri" : "Sync Error Notifications"} desc={tr ? "Platform balant hatalar" : "Platform connection errors"} value={notifPrefs.syncErrorNotif} onChange={v => setNotifPrefs(p => ({ ...p, syncErrorNotif: v }))} />
         </div>
@@ -665,20 +665,20 @@ const SettingsPage = ({ userId }) => {
             <SH icon="" title={tr ? "Bildirim Kanallar" : "Channels"}
                 desc={tr ? "Bildirimlerin hangi yollarla ulaacan belirleyin." : "Choose how notifications reach you."} />
             <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-                <TR icon="" label={tr ? "E-posta" : "Email"} desc={tr ? "nemli gncellemeler" : "Important updates"} value={notifPrefs.emailNotif} onChange={v => setNotifPrefs(p => ({ ...p, emailNotif: v }))} />
+                <TR icon="" label={tr ? "E-posta" : "Email"} desc={tr ? "nemli güncellemeler" : "Important updates"} value={notifPrefs.emailNotif} onChange={v => setNotifPrefs(p => ({ ...p, emailNotif: v }))} />
                 <TR icon="" label="SMS" desc={tr ? "Acil bildirimler (ek cret)" : "Urgent (extra charge)"} value={notifPrefs.smsNotif} onChange={v => setNotifPrefs(p => ({ ...p, smsNotif: v }))} />
                 <TR icon="" label="Push" desc={tr ? "Tarayc anlk bildirim" : "Browser push"} value={notifPrefs.pushNotif} onChange={v => setNotifPrefs(p => ({ ...p, pushNotif: v }))} />
             </div>
         </div>
         <div style={card}>
-            <SH icon="" title={tr ? "Kritik Stok Eii" : "Low Stock Threshold"}
-                desc={tr ? "Stok bu saynn altna dnce bildirim gnderilir." : "Notification sent when stock falls below this."} />
+            <SH icon="" title={tr ? "Kritik Stok Eşiği" : "Low Stock Threshold"}
+                desc={tr ? "Stok bu sayının altına düşünce bildirim gönderilir." : "Notification sent when stock falls below this."} />
             <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
                 <input type="number" min={0} max={1000} value={notifPrefs.lowStockThreshold}
                     onChange={e => setNotifPrefs(p => ({ ...p, lowStockThreshold: Number(e.target.value) || 0 }))}
                     style={{ ...inp, width: 100, textAlign: "center", fontSize: "1rem", fontWeight: 700 }}
                     onFocus={focusRing} onBlur={blurRing} />
-                <span style={{ color: C.dim, fontSize: "0.82rem", fontWeight: 600 }}>{tr ? "adet" : "units"}</span>
+                <span style={{ color: C.dim, fontSize: "0.82rem", fontWeight: 600 }}>{tr ? "İadet" : "units"}</span>
             </div>
         </div>
     </div>
@@ -694,20 +694,20 @@ const SettingsPage = ({ userId }) => {
 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.25rem" }}>
     <div style={{ gridColumn: "1 / -1" }}>
         <Info color={C.purple}>
-            {tr ? "Bu ayarlar, rnlerin pazaryerleri arasnda nasl eletirileceini, stok/fiyat senkronizasyonunu ve yeni rnler iin varsaylan deerleri belirler." : "These settings control how products are matched across marketplaces, stock/price sync, and default values for new products."}
+            {tr ? "Bu ayarlar, ürünlerin pazaryerleri arasında nasıl eşleştirileceğini, stok/fiyat senkâronizasyonunu ve yeni ürünler için varsayılan değerleri belirler." : "These settings control how products are matched across marketplaces, stock/price sync, and default values for new products."}
         </Info>
     </div>
 
     {/* Sol: Eletirme ncelii */}
     <div style={card}>
         <SH icon="" title={tr ? "Eletirme ncelik Sras" : "Matching Priority"}
-            desc={tr ? "Pazaryerlerinden rn ekerken hangi alann ncelikli kullanlacan belirler." : "Determines which field is used first when matching products."} />
+            desc={tr ? "Pazaryerlerinden ürün ekerken hangi alann ncelikli kullanlacan belirler." : "Determines which field is used first when matching products."} />
         <div style={{ display: "flex", flexDirection: "column", gap: "0.45rem", marginBottom: "1rem" }}>
             {[matchPriority.primary, matchPriority.secondary, matchPriority.tertiary].map((field, idx) => {
                 const labels = {
                     sku: { label: tr ? "Model Kodu (SKU)" : "SKU", icon: <FaTag />, color: "#8b5cf6", desc: tr ? "retici model numaras" : "Manufacturer model" },
                     barcode: { label: tr ? "Barkod" : "Barcode", icon: <FaBarcode />, color: "#f59e0b", desc: tr ? "EAN/UPC barkod" : "EAN/UPC barcode" },
-                    name: { label: tr ? "rn Ad" : "Name", icon: <FaFont />, color: "#22c55e", desc: tr ? "Balk eletirme" : "Title matching" }
+                    name: { label: tr ? "ürün Ad" : "Name", icon: <FaFont />, color: "#22c55e", desc: tr ? "Balk eletirme" : "Title matching" }
                 };
                 const info = labels[field] || { label: field, icon: <FaBox />, color: C.accent, desc: "" };
                 return (
@@ -743,27 +743,27 @@ const SettingsPage = ({ userId }) => {
     {/* Sa: Sync + Varsaylanlar */}
     <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
         <div style={card}>
-            <SH icon="" title={tr ? "Otomatik Senkronizasyon" : "Auto Sync"}
-                desc={tr ? "Stok ve fiyat deiikliklerinin platformlara otomatik yanstlmas." : "Auto-push stock and price changes to platforms."} />
+            <SH icon="" title={tr ? "Otomatik Senkâronizasyon" : "Auto Sync"}
+                desc={tr ? "Stok ve fiyat değişikliklerinin platformlara otomatik yanstlmas." : "Auto-push stock and price changes to platforms."} />
             <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", marginBottom: "1rem" }}>
                 <TR icon="" label={tr ? "Otomatik Sync" : "Auto Sync"} desc={tr ? "Ana anahtar" : "Master switch"} value={prodPrefs.autoSyncEnabled} onChange={v => setProdPrefs(p => ({ ...p, autoSyncEnabled: v }))} />
                 <TR icon="" label={tr ? "Stok Sync" : "Stock Sync"} value={prodPrefs.autoSyncStock} onChange={v => setProdPrefs(p => ({ ...p, autoSyncStock: v }))} />
                 <TR icon="" label={tr ? "Fiyat Sync" : "Price Sync"} value={prodPrefs.autoSyncPrice} onChange={v => setProdPrefs(p => ({ ...p, autoSyncPrice: v }))} />
             </div>
-            <SF icon={<FaClock />} label={tr ? "Sync Aral" : "Sync Interval"} value={prodPrefs.autoSyncInterval} onChange={v => setProdPrefs(p => ({ ...p, autoSyncInterval: Number(v) }))} help={tr ? "Platformlar bu aralkta gncellenir" : "Platforms updated at this interval"}>
+            <SF icon={<FaClock />} label={tr ? "Sync Aral" : "Sync Interval"} value={prodPrefs.autoSyncInterval} onChange={v => setProdPrefs(p => ({ ...p, autoSyncInterval: Number(v) }))} help={tr ? "Platformlar bu aralkta güncellenir" : "Platforms updated at this interval"}>
                 <option value={5}>5 dk</option><option value={10}>10 dk</option><option value={15}>15 dk</option><option value={30}>30 dk</option><option value={60}>60 dk</option>
             </SF>
         </div>
         <div style={card}>
             <SH icon="" title={tr ? "Varsaylan Deerler" : "Defaults"}
-                desc={tr ? "Yeni rn eklerken otomatik atanacak deerler." : "Auto-assigned values for new products."} />
+                desc={tr ? "Yeni ürün eklerken otomatik atanacak deerler." : "Auto-assigned values for new products."} />
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.85rem" }}>
                 <div>
-                    <label style={{ color: C.muted, fontSize: "0.73rem", fontWeight: 600, display: "flex", alignItems: "center", gap: "0.3rem", marginBottom: "0.35rem" }}> {tr ? "Gvenlik Stou" : "Safety Stock"}</label>
+                    <label style={{ color: C.muted, fontSize: "0.73rem", fontWeight: 600, display: "flex", alignItems: "center", gap: "0.3rem", marginBottom: "0.35rem" }}> {tr ? "Güvenlik Stoğu" : "Safety Stock"}</label>
                     <input type="number" min={0} max={9999} value={prodPrefs.defaultSafetyStock} onChange={e => setProdPrefs(p => ({ ...p, defaultSafetyStock: Number(e.target.value) || 0 }))} style={inp} onFocus={focusRing} onBlur={blurRing} />
-                    <p style={{ color: C.dim, fontSize: "0.66rem", margin: "0.2rem 0 0 0" }}>{tr ? "Platform stok = gerek  gvenlik" : "Platform = real  safety"}</p>
+                    <p style={{ color: C.dim, fontSize: "0.66rem", margin: "0.2rem 0 0 0" }}>{tr ? "Platform stok = gerek  güvenlik" : "Platform = real  safety"}</p>
                 </div>
-                <SF icon={<FaPercent />} label={tr ? "KDV Oran" : "VAT Rate"} value={prodPrefs.defaultVatRate} onChange={v => setProdPrefs(p => ({ ...p, defaultVatRate: Number(v) }))} help={tr ? "Yeni rnlere atanr" : "Assigned to new products"}>
+                <SF icon={<FaPercent />} label={tr ? "KDV Oran" : "VAT Rate"} value={prodPrefs.defaultVatRate} onChange={v => setProdPrefs(p => ({ ...p, defaultVatRate: Number(v) }))} help={tr ? "Yeni ürünlere atanr" : "Assigned to new products"}>
                     <option value={0}>%0</option><option value={1}>%1</option><option value={10}>%10</option><option value={20}>%20</option>
                 </SF>
             </div>
@@ -784,14 +784,14 @@ const SettingsPage = ({ userId }) => {
 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.25rem" }}>
     <div style={{ gridColumn: "1 / -1" }}>
         <Info color="#f27a1a">
-            {tr ? "Her pazaryerinin komisyon orann ve fiyat arpann ayarlayn. Komisyon kr hesabnda, arpan otomatik fiyatlandrmada kullanlr." : "Set commission rates and price multipliers. Commission is used in profit calculation, multiplier in automatic pricing."}
+            {tr ? "Her pazaryerinin komisyon oranını ve fiyat çarpanını ayarlayın. Komisyon kâr hesabında, çarpan otomatik fiyatlandırmada kullanılır." : "Set commission rates and price multipliers. Commission is used in profit calculation, multiplier in automatic priçing."}
         </Info>
     </div>
 
     {/* Sol: Komisyon */}
     <div style={card}>
         <SH icon="" title={tr ? "Komisyon Oranlar" : "Commission Rates"}
-            desc={tr ? "Net kr hesaplamasnda sat fiyatndan dlr." : "Deducted from sale price in net profit calculation."} />
+            desc={tr ? "Net kâr hesaplamasnda sat fiyatndan dlr." : "Deducted from sale price in net profit calculation."} />
         <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
             {PLATFORMS.map(pl => (
                 <div key={pl} style={{ display: "flex", alignItems: "center", gap: "0.6rem", padding: "0.65rem 0.85rem", borderRadius: 10, background: rgba(PL_COLOR[pl], 0.04), border: `1px solid ${rgba(PL_COLOR[pl], 0.12)}` }}>
@@ -812,7 +812,7 @@ const SettingsPage = ({ userId }) => {
     {/* Sa: arpanlar */}
     <div style={card}>
         <SH icon="" title={tr ? "Fiyat arpanlar" : "Price Multipliers"}
-            desc={tr ? "Platforma gnderilen fiyata eklenen % fark. Negatif = indirim." : "% difference added to platform price. Negative = discount."} />
+            desc={tr ? "Platforma gönderilen fiyata eklenen % fark. Negatif = indirim." : "% difference added to platform price. Negative = discount."} />
         <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
             {PLATFORMS.map(pl => (
                 <div key={pl} style={{ display: "flex", alignItems: "center", gap: "0.6rem", padding: "0.65rem 0.85rem", borderRadius: 10, background: rgba(C.text, 0.02), border: `1px solid ${rgba(C.text, 0.05)}` }}>
@@ -851,28 +851,28 @@ const SettingsPage = ({ userId }) => {
     {!invoiceConfig ? (
         <div style={{ ...card, textAlign: "center", padding: "3rem" }}>
             <Spinner size={22} color={C.muted} />
-            <p style={{ color: C.muted, marginTop: "0.6rem", fontSize: "0.82rem" }}>{tr ? "Fatura ayarlar ykleniyor..." : "Loading..."}</p>
+            <p style={{ color: C.muted, marginTop: "0.6rem", fontSize: "0.82rem" }}>{tr ? "Fatura ayarlar yükleniyor..." : "Loading..."}</p>
         </div>
     ) : (
     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.25rem" }}>
         <div style={{ gridColumn: "1 / -1" }}>
             <Info color={C.purple}>
-                {tr ? "Otomatik fatura sistemi, yeni sipari geldiinde e-Ariv fatura keser. Salayc API bilgilerinizin doru olduundan emin olun." : "Auto invoice generates e-Archive invoices on new orders. Make sure your provider API credentials are correct."}
+                {tr ? "Otomatik fatura sistemi, yeni sipariş geldiğinde e-Arşiv fatura keser. Sağlayıcı API bilgilerinin doğru olduğundan emin olun." : "Auto invoice generates e-Archive invoices on new orders. Make sure your provider API credentials are correct."}
             </Info>
         </div>
 
         {/* Sol: Genel Ayarlar */}
         <div style={card}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "1rem" }}>
-                <SH icon="" title={tr ? "Otomatik Fatura" : "Auto Invoice"} desc={tr ? "Sipari geldiinde otomatik e-Ariv fatura kesilir." : "Auto e-Archive invoice on new orders."} />
+                <SH icon="" title={tr ? "Otomatik Fatura" : "Auto Invoice"} desc={tr ? "Sipariş geldiğinde otomatik e-Arşiv fatura kesilir." : "Auto e-Archive invoice on new orders."} />
                 <Toggle value={invoiceConfig.enabled || false} onChange={handleToggleInvoice} />
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.85rem" }}>
-                <SF icon="" label={tr ? "Salayc" : "Provider"} value={invoiceConfig.provider || "qnb"} onChange={v => setInvoiceConfig(p => ({ ...p, provider: v }))}>
+                <SF icon="" label={tr ? "Sağlayıcı" : "Provider"} value={invoiceConfig.provider || "qnb"} onChange={v => setInvoiceConfig(p => ({ ...p, provider: v }))}>
                     <option value="qnb">QNB Finansbank</option><option value="sovos">Sovos</option><option value="parasut">Parat</option><option value="odeal">Odeal</option>
                 </SF>
                 <SF icon="" label={tr ? "Belge Tipi" : "Doc Type"} value={invoiceConfig.documentType || "EARSIVFATURA"} onChange={v => setInvoiceConfig(p => ({ ...p, documentType: v }))}>
-                    <option value="EARSIVFATURA">e-Ariv Fatura</option><option value="TICARIFATURA">Ticari Fatura</option><option value="TEMELFATURA">Temel Fatura</option>
+                    <option value="EARSIVFATURA">e-Arşiv Fatura</option><option value="TICARIFATURA">Ticari Fatura</option><option value="TEMELFATURA">Temel Fatura</option>
                 </SF>
                 <IF icon="" label={tr ? "Seri Kodu" : "Series Code"} value={invoiceConfig.invoiceSeriesCode || "LYS"} onChange={v => setInvoiceConfig(p => ({ ...p, invoiceSeriesCode: v }))} help={tr ? "Maks. 5 karakter" : "Max 5 chars"} />
                 <SF icon={<FaPercent />} label={tr ? "KDV %" : "VAT %"} value={invoiceConfig.defaultVatRate ?? 20} onChange={v => setInvoiceConfig(p => ({ ...p, defaultVatRate: Number(v) }))}>
@@ -884,7 +884,7 @@ const SettingsPage = ({ userId }) => {
         {/* Sa: Firma Bilgileri */}
         <div style={card}>
             <SH icon="" title={tr ? "Firma Bilgileri" : "Company Info"}
-                desc={tr ? "Faturalarda grnecek firma bilgileri. Yasal zorunluluktur." : "Company info on invoices. Legally required."} />
+                desc={tr ? "Faturalarda görünecek firma bilgileri. Yasal zorunluluktur." : "Company info on invoices. Legally required."} />
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.85rem" }}>
                 <IF icon="" label={tr ? "VKN / TCKN" : "Tax ID"} value={invoiceConfig.supplier?.vkn || ""} onChange={v => setInvoiceConfig(p => ({ ...p, supplier: { ...p.supplier, vkn: v } }))} />
                 <IF icon="" label={tr ? "Firma Ad" : "Company"} value={invoiceConfig.supplier?.name || ""} onChange={v => setInvoiceConfig(p => ({ ...p, supplier: { ...p.supplier, name: v } }))} />
@@ -903,14 +903,14 @@ const SettingsPage = ({ userId }) => {
                 desc={tr ? "Her faturann altna otomatik eklenen not." : "Note automatically added to every invoice."} />
             <textarea value={invoiceConfig.defaultNote || ""} onChange={e => setInvoiceConfig(p => ({ ...p, defaultNote: e.target.value }))}
                 rows={2} style={{ ...inp, resize: "vertical", lineHeight: 1.5 }}
-                placeholder={tr ? "rn: Bizi tercih ettiiniz iin teekkr ederiz..." : "E.g.: Thank you for choosing us..."}
+                placeholder={tr ? "ÖÖrn: Bizi tercih ettiğiniz için teşekkür ederiz..." : "E.g.: Thank you for choosing us..."}
                 onFocus={focusRing} onBlur={blurRing} />
         </div>
 
         {/* Pazaryeri Bazl Otomatik Fatura  tam genilik */}
         <div style={{ ...card, gridColumn: "1 / -1" }}>
             <SH icon="" title={tr ? "Pazaryeri Bazl Otomatik Fatura" : "Per-Marketplace Auto Invoice"}
-                desc={tr ? "Her pazaryeri iin otomatik faturay ayr ayr ap kapatabilirsiniz. Bo brakrsanz tm pazaryerleri aktif olur." : "Enable/disable auto invoice per marketplace. Leave empty to enable all."} />
+                desc={tr ? "Her pazaryeri için otomatik faturayı ayrı ayrı açıp kapatabilirsiniz. Boş bırakırsanız tüm pazaryerleri aktif olur." : "Enable/disable auto invoice per marketplace. Leave empty to enable all."} />
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "0.7rem", marginTop: "0.8rem" }}>
                 {[
                     { name: "Trendyol", icon: "", color: "#f27a1a" },
@@ -922,7 +922,7 @@ const SettingsPage = ({ userId }) => {
                     { name: "Amazon USA", icon: "", color: "#ff9900" },
                 ].map(mp => {
                     const enabledList = (invoiceConfig.enabledMarketplaces || []);
-                    // Bo liste = tm aktif
+                    // Bo liste = tüm aktif
                     const isActive = enabledList.length === 0 || enabledList.includes(mp.name);
                     const mpStat = mpStats?.marketplaces?.find(m => m.marketplace === mp.name);
                     return (
@@ -960,7 +960,7 @@ const SettingsPage = ({ userId }) => {
             </div>
             {(invoiceConfig.enabledMarketplaces || []).length === 0 && (
                 <div style={{ marginTop: "0.6rem", fontSize: "0.72rem", color: C.muted, fontStyle: "italic" }}>
-                     {tr ? "Hibir pazaryeri seilmedi  tm pazaryerlerinden gelen sipariler otomatik faturalanr." : "No marketplace selected  orders from all marketplaces will be auto-invoiced."}
+                     {tr ? "Hiçbir pazaryeri seçilmedi  tüm pazaryerlerinden gelen siparişler otomatik faturalanır." : "No marketplace selected  orders from all marketplaces will be auto-invoiced."}
                 </div>
             )}
         </div>
@@ -981,7 +981,7 @@ const SettingsPage = ({ userId }) => {
 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.25rem" }}>
     <div style={{ gridColumn: "1 / -1" }}>
         <Info>
-            {tr ? "Hesap bilgileriniz faturalarda, kargo etiketlerinde ve resmi yazmalarda kullanlr. Gncel tutun." : "Your account info is used in invoices, shipping labels and official correspondence. Keep it up to date."}
+            {tr ? "Hesap bilgileriniz faturalarda, kargo etiketlerinde ve resmi yazışmalarda kullanılır. Güncel tutun." : "Your account info is used in invoices, shipping labels and official correspondence. Keep it up to date."}
         </Info>
     </div>
 
@@ -989,11 +989,11 @@ const SettingsPage = ({ userId }) => {
     <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
         <div style={card}>
             <SH icon="" title={tr ? "Kiisel Bilgiler" : "Personal Info"}
-                desc={tr ? "Hesap sahibinin temel iletiim bilgileri." : "Account holder's basic contact info."} />
+                desc={tr ? "Hesap sahibinin temel iletişim bilgileri." : "Account holder's basic contact info."} />
             {loading ? <div style={{ textAlign: "center", padding: "1.5rem" }}><Spinner size={22} color={C.muted} /></div> : (
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.85rem" }}>
                     <IF icon="" label={tr ? "Ad Soyad" : "Full Name"} value={profileForm.name} onChange={v => setProfileForm(p => ({ ...p, name: v }))} />
-                    <IF icon="" label="E-posta" value={profileForm.email} disabled help={tr ? "Deitirilemez" : "Cannot be changed"} />
+                    <IF icon="" label="E-posta" value={profileForm.email} disabled help={tr ? "Değiştirilemez" : "Cannot be changed"} />
                     <IF icon="" label={tr ? "Telefon" : "Phone"} value={profileForm.phone} onChange={v => setProfileForm(p => ({ ...p, phone: v }))} placeholder="05XX XXX XX XX" />
                     <IF icon="" label={tr ? "irket" : "Company"} value={profileForm.company} onChange={v => setProfileForm(p => ({ ...p, company: v }))} />
                 </div>
@@ -1001,7 +1001,7 @@ const SettingsPage = ({ userId }) => {
         </div>
         <div style={card}>
             <SH icon="" title={tr ? "Vergi Bilgileri" : "Tax Info"}
-                desc={tr ? "Fatura ve resmi ilemler iin gerekli. Doru girilmesi yasal zorunluluktur." : "Required for invoicing. Accurate entry is legally required."} />
+                desc={tr ? "Fatura ve resmi işlemler için gerekli. Doğru girilmesi yasal zorunluluktur." : "Required for invoiçing. Accurate entry is legally required."} />
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.85rem" }}>
                 <IF icon={<FaIdCard />} label={tr ? "VKN / TCKN" : "Tax Number"} value={profileForm.taxNumber} onChange={v => setProfileForm(p => ({ ...p, taxNumber: v }))} help={tr ? "10 veya 11 hane" : "10 or 11 digits"} />
                 <IF icon={<FaBuilding />} label={tr ? "Vergi Dairesi" : "Tax Office"} value={profileForm.taxOffice} onChange={v => setProfileForm(p => ({ ...p, taxOffice: v }))} />
@@ -1013,7 +1013,7 @@ const SettingsPage = ({ userId }) => {
     <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
         <div style={card}>
             <SH icon="" title={tr ? "Adres Bilgileri" : "Address"}
-                desc={tr ? "Fatura adresi ve kargo gnderim adresi olarak kullanlr." : "Used as invoice and shipping origin address."} />
+                desc={tr ? "Fatura adresi ve kargo gönderim adresi olarak kullanlr." : "Used as invoice and shipping origin address."} />
             <div style={{ display: "flex", flexDirection: "column", gap: "0.85rem" }}>
                 <IF icon={<FaMapMarkerAlt />} label={tr ? "Sokak / Cadde" : "Street"} value={profileForm.street} onChange={v => setProfileForm(p => ({ ...p, street: v }))} placeholder={tr ? "Mahalle, sokak, bina no" : "Street, building no"} />
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.85rem" }}>
@@ -1055,19 +1055,19 @@ const SettingsPage = ({ userId }) => {
 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.25rem" }}>
     <div style={{ gridColumn: "1 / -1" }}>
         <Info color={C.red || "#ef4444"}>
-            {tr ? "Hesap gvenliiniz iin ifrenizi dzenli deitirin, tanmadnz oturumlar sonlandrn ve API anahtarlarnz gvende tutun." : "Change your password regularly, revoke unknown sessions, and keep your API keys safe."}
+            {tr ? "Hesap güvenliğiniz için şifrenizi düzenli değiştirin, tanımadığınız oturumları sonlandırın ve API anahtarlarınızı güvende tutun." : "Change your password regularly, revoke unknown sessions, and keep your API keys safe."}
         </Info>
     </div>
 
-    {/* Sol: ifre */}
+    {/* Sol: şifre */}
     <div style={card}>
-        <SH icon="" title={tr ? "ifre Deitir" : "Change Password"}
-            desc={tr ? "Gl ifre: en az 8 karakter, byk/kk harf ve rakam." : "Strong password: min 8 chars, upper/lowercase and numbers."} />
+        <SH icon="" title={tr ? "şifre Değiştir" : "Change Password"}
+            desc={tr ? "Gl şifre: en az 8 karakter, byk/kk harf ve rakam." : "Strong password: min 8 chars, upper/lowercase and numbers."} />
         <div style={{ display: "flex", flexDirection: "column", gap: "0.85rem" }}>
             {[
-                { key: "currentPassword", label: tr ? "Mevcut ifre" : "Current Password", show: "current" },
-                { key: "newPassword", label: tr ? "Yeni ifre" : "New Password", show: "new" },
-                { key: "confirmPassword", label: tr ? "ifre Tekrar" : "Confirm Password", show: "confirm" },
+                { key: "currentPassword", label: tr ? "Mevcut şifre" : "Current Password", show: "current" },
+                { key: "newPassword", label: tr ? "Yeni şifre" : "New Password", show: "new" },
+                { key: "confirmPassword", label: tr ? "Şifre Tekrar" : "Confirm Password", show: "confirm" },
             ].map(f => (
                 <div key={f.key}>
                     <label style={{ color: C.muted, fontSize: "0.73rem", fontWeight: 600, marginBottom: "0.35rem", display: "flex", alignItems: "center", gap: "0.3rem" }}> {f.label}</label>
@@ -1088,7 +1088,7 @@ const SettingsPage = ({ userId }) => {
                     onClick={handleChangePassword} disabled={saving || !passwordForm.currentPassword || !passwordForm.newPassword}
                     style={{ ...btnP, opacity: (!passwordForm.currentPassword || !passwordForm.newPassword || saving) ? 0.5 : 1, cursor: (!passwordForm.currentPassword || !passwordForm.newPassword || saving) ? "not-allowed" : "pointer" }}>
                     {saving ? <Spinner size={14} color="#fff" /> : <FaShieldAlt />}
-                    {tr ? "ifreyi Deitir" : "Change Password"}
+                    {tr ? "şifreyi Değiştir" : "Change Password"}
                 </motion.button>
                 {user?.security?.lastPasswordChange && <p style={{ color: C.dim, fontSize: "0.7rem", margin: 0 }}>{tr ? "Son:" : "Last:"} {new Date(user.security.lastPasswordChange).toLocaleDateString("tr-TR")}</p>}
             </div>
@@ -1099,11 +1099,11 @@ const SettingsPage = ({ userId }) => {
     <div style={card}>
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: "0.75rem" }}>
             <SH icon="" title={tr ? "Aktif Oturumlar" : "Active Sessions"}
-                desc={tr ? "Hesabnza bal cihazlar." : "Devices connected to your account."} />
+                desc={tr ? "Hesabınıza bal cihazlar." : "Devices connected to your account."} />
             {sessions.activeSessions.length > 0 && (
                 <motion.button whileTap={{ scale: 0.97 }} onClick={handleRevokeAllSessions}
                     style={{ padding: "0.4rem 0.7rem", background: rgba(C.red || "#ef4444", 0.07), border: `1px solid ${rgba(C.red || "#ef4444", 0.2)}`, borderRadius: 8, color: C.red || "#ef4444", fontSize: "0.72rem", fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: "0.3rem", flexShrink: 0 }}>
-                    <FaSignOutAlt /> {tr ? "Tmn Kapat" : "Revoke All"}
+                    <FaSignOutAlt /> {tr ? "Tümünü Kapat" : "Revoke All"}
                 </motion.button>
             )}
         </div>
@@ -1139,7 +1139,7 @@ const SettingsPage = ({ userId }) => {
     {/* API Anahtarlar  tam genilik */}
     <div style={{ ...card, gridColumn: "1 / -1" }}>
         <SH icon="" title={tr ? "API Anahtarlar" : "API Keys"}
-            desc={tr ? "Harici uygulamalar iin API anahtar oluturun. Anahtarlar yalnzca oluturulduunda gsterilir." : "Generate API keys for external apps. Keys are only shown once when created."} />
+            desc={tr ? "Harici uygulamalar için API anahtarı oluşturun. Anahtarlar yalnızca oluşturulduğunda gösterilir." : "Generate API keys for external apps. Keys are only shown once when created."} />
 
         {apiKeys.length > 0 && (
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", marginBottom: "1rem" }}>
@@ -1156,7 +1156,7 @@ const SettingsPage = ({ userId }) => {
                         </div>
                         <motion.button whileTap={{ scale: 0.95 }} onClick={() => handleRevokeApiKey(k._id)}
                             style={{ background: rgba(C.red || "#ef4444", 0.07), border: `1px solid ${rgba(C.red || "#ef4444", 0.18)}`, borderRadius: 7, padding: "0.3rem 0.55rem", color: C.red || "#ef4444", cursor: "pointer", fontSize: "0.68rem", fontWeight: 600, display: "flex", alignItems: "center", gap: "0.2rem" }}>
-                            <FaTrash /> {tr ? "ptal" : "Revoke"}
+                            <FaTrash /> {tr ? "İptal" : "Revoke"}
                         </motion.button>
                     </div>
                 ))}
@@ -1166,7 +1166,7 @@ const SettingsPage = ({ userId }) => {
         <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", padding: "0.85rem", background: rgba(C.text, 0.02), border: `1px solid ${rgba(C.text, 0.05)}`, borderRadius: 10 }}>
             <FaPlus style={{ color: C.dim, flexShrink: 0 }} />
             <input type="text" value={newKeyName} onChange={e => setNewKeyName(e.target.value)}
-                placeholder={tr ? "Anahtar ad (rn: Mobil App)" : "Key name (e.g.: Mobile App)"}
+                placeholder={tr ? "Anahtar ad (Örn: Mobil App)" : "Key name (e.g.: Mobile App)"}
                 style={{ ...inp, flex: 1 }} onKeyDown={e => e.key === "Enter" && handleCreateApiKey()} onFocus={focusRing} onBlur={blurRing} />
             <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}
                 onClick={handleCreateApiKey} disabled={apiKeyLoading || !newKeyName.trim()}
@@ -1180,7 +1180,7 @@ const SettingsPage = ({ userId }) => {
             <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
                 style={{ marginTop: "0.85rem", padding: "0.85rem 1rem", borderRadius: 10, background: rgba(C.green || "#22c55e", 0.06), border: `1px solid ${rgba(C.green || "#22c55e", 0.18)}` }}>
                 <p style={{ color: C.green || "#22c55e", fontSize: "0.78rem", fontWeight: 700, margin: "0 0 0.4rem 0" }}>
-                     {tr ? "Anahtar oluturuldu! imdi kopyalayn  tekrar gsterilmeyecek:" : "Key created! Copy now  won't be shown again:"}
+                     {tr ? "Anahtar oluşturuldu! Şimdi kopyalayın - tekrar gösterilmeyecek:" : "Key created! Copy now - won't be shown again:"}
                 </p>
                 <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
                     <code style={{ color: C.text, fontSize: "0.73rem", background: rgba(C.text, 0.04), padding: "0.45rem 0.65rem", borderRadius: 7, flex: 1, wordBreak: "break-all", border: `1px solid ${rgba(C.text, 0.07)}`, fontFamily: "monospace" }}>{newKeyResult}</code>
@@ -1196,7 +1196,7 @@ const SettingsPage = ({ userId }) => {
     {/* Danger Zone  tam genilik */}
     <div style={{ ...card, gridColumn: "1 / -1", borderColor: rgba(C.red || "#ef4444", 0.18), background: `linear-gradient(135deg, ${C.card}, ${rgba(C.red || "#ef4444", 0.02)})` }}>
         <SH icon="" title={tr ? "Tehlikeli Blge" : "Danger Zone"}
-            desc={tr ? "Bu ilem geri alnamaz! Hesabnz, tm rnleriniz ve entegrasyonlarnz kalc olarak silinir." : "This action is irreversible! Your account, all products and integrations will be permanently deleted."} />
+            desc={tr ? "Bu ilem geri alnamaz! Hesabınız, tüm ürünleriniz ve entegrasyonlarnz kalc olarak silinir." : "This action is irreversible! Your account, all products and integrations will be permanently deleted."} />
         <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}
             style={{ padding: "0.6rem 1.1rem", background: rgba(C.red || "#ef4444", 0.08), border: `1px solid ${rgba(C.red || "#ef4444", 0.25)}`, borderRadius: 10, color: C.red || "#ef4444", fontSize: "0.82rem", fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "0.35rem" }}>
             <FaTrash /> {tr ? "Hesabm Kalc Olarak Sil" : "Permanently Delete My Account"}

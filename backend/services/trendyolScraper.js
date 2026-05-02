@@ -131,6 +131,76 @@ function fetchPage(url, timeoutSec = 20) {
     return fetchWithCurlImpersonate(url, timeoutSec);
 }
 
+/** Trendyol CDN / ara katman önbelleğinde aynı HTML'in dönmesini azaltır */
+function withCacheBuster(url) {
+    const sep = url.includes("?") ? "&" : "?";
+    return `${url}${sep}_=${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function bestsellerHeuristicScore(p) {
+    return (p.favoriteCount || 0) + (p.orderCount || 0) * 10;
+}
+
+/** Aynı id birden fazla kategoride geçiyorsa en yüksek skorlu kaydı tut */
+function dedupeProductsKeepBestScore(products) {
+    const byId = new Map();
+    for (const p of products) {
+        const id = p.id;
+        if (id == null || id === "") continue;
+        const prev = byId.get(id);
+        if (!prev || bestsellerHeuristicScore(p) > bestsellerHeuristicScore(prev)) {
+            byId.set(id, p);
+        }
+    }
+    return [...byId.values()];
+}
+
+/**
+ * Tüm ürünleri tek global sıraya göre kesmek yerine kategori round-robin —
+ * aksi halde her seferinde aynı "mega" ürünler ilk 100'e dolar.
+ */
+function diversifyBestSellersByCategory(products, limit) {
+    const scoreFn = bestsellerHeuristicScore;
+    const byCat = new Map();
+    for (const p of products) {
+        const k = p.sourceCategory || "Diğer";
+        if (!byCat.has(k)) byCat.set(k, []);
+        byCat.get(k).push(p);
+    }
+    for (const arr of byCat.values()) {
+        arr.sort((a, b) => scoreFn(b) - scoreFn(a));
+    }
+    const keys = [...byCat.keys()].sort((a, b) => a.localeCompare(b, "tr"));
+    const out = [];
+    const seen = new Set();
+    let round = 0;
+    while (out.length < limit) {
+        let progressed = false;
+        for (const k of keys) {
+            const bucket = byCat.get(k);
+            const item = bucket[round];
+            if (item && !seen.has(item.id)) {
+                seen.add(item.id);
+                out.push(item);
+                progressed = true;
+                if (out.length >= limit) break;
+            }
+        }
+        if (!progressed) break;
+        round++;
+    }
+    if (out.length < limit) {
+        const rest = products
+            .filter(p => p.id != null && !seen.has(p.id))
+            .sort((a, b) => scoreFn(b) - scoreFn(a));
+        for (const p of rest) {
+            out.push(p);
+            if (out.length >= limit) break;
+        }
+    }
+    return out;
+}
+
 /**
  * HTML içinden gömülü JSON'u çıkar
  * @param {string} html - HTML içeriği
@@ -171,11 +241,11 @@ function extractPropsFromHtml(html, propsKey) {
 async function fetchTrendyolPage(url, propsKey, retries = 2) {
     for (let attempt = 0; attempt <= retries; attempt++) {
         try {
-            const html = await fetchPage(url);
+            const html = await fetchPage(withCacheBuster(url));
 
             if (!html) {
                 if (attempt === retries) {
-                    logger.warn(`[TrendyolScraper] Sayfa çekilemedi (${retries + 1} deneme): ${url}`);
+                    logger.warn(`[TrendyolScraper] Sayfa çekilemedi (${retries + 1} deneme): ${url.split("?")[0]}`);
                     return null;
                 }
                 await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
@@ -421,8 +491,8 @@ async function getBestSellers(categoryKey = "", limit = 20, sort = "BEST_SELLER"
 
     // Genel en çok satanlar — TÜM ana kategorilerden paralel çek ve birleştir
     const allCategoryKeys = Object.keys(TRENDYOL_CATEGORIES);
-    // Her kategoriden eşit pay çek, minimum 24 (1 sayfa)
-    const perCategory = Math.max(24, Math.ceil(limit / allCategoryKeys.length) + 4);
+    // En az ~2 sayfa (48+) ürün / kategori — tek sayfa hep aynı SKU'ları veriyordu
+    const perCategory = Math.max(56, Math.ceil(limit / allCategoryKeys.length) + 12);
 
     try {
         const results = await Promise.allSettled(
@@ -441,35 +511,28 @@ async function getBestSellers(categoryKey = "", limit = 20, sort = "BEST_SELLER"
         });
 
         if (allProducts.length > 0) {
-            // Sıralama — sort parametresine göre
+            allProducts = dedupeProductsKeepBestScore(allProducts);
+
+            let finalProducts;
             if (sort === "PRICE_BY_ASC") {
                 allProducts.sort((a, b) => (a.price || 0) - (b.price || 0));
+                finalProducts = allProducts.slice(0, limit);
             } else if (sort === "PRICE_BY_DESC") {
                 allProducts.sort((a, b) => (b.price || 0) - (a.price || 0));
+                finalProducts = allProducts.slice(0, limit);
             } else if (sort === "MOST_RATED") {
                 allProducts.sort((a, b) => (b.ratingCount || 0) - (a.ratingCount || 0));
+                finalProducts = allProducts.slice(0, limit);
             } else if (sort === "MOST_RECENT") {
-                // Trendyol zaten sıralı döndürüyor, karıştırmayalım
+                finalProducts = allProducts.slice(0, limit);
             } else {
-                // BEST_SELLER default — favori + sipariş sayısına göre
-                allProducts.sort((a, b) => {
-                    const scoreA = (a.favoriteCount || 0) + (a.orderCount || 0) * 10;
-                    const scoreB = (b.favoriteCount || 0) + (b.orderCount || 0) * 10;
-                    return scoreB - scoreA;
-                });
+                // BEST_SELLER — kategori round-robin + kalanı skorla doldur
+                finalProducts = diversifyBestSellersByCategory(allProducts, limit);
             }
 
-            // Duplicate'leri kaldır (aynı id)
-            const seen = new Set();
-            allProducts = allProducts.filter(p => {
-                if (seen.has(p.id)) return false;
-                seen.add(p.id);
-                return true;
-            });
-
-            logger.info(`[TrendyolScraper] En çok satanlar: ${allProducts.length} ürün (${allCategoryKeys.length} kategoriden)`);
+            logger.info(`[TrendyolScraper] En çok satanlar: ${finalProducts.length} ürün (${allCategoryKeys.length} kategoriden, çeşitlendirilmiş)`);
             return {
-                products: allProducts.slice(0, limit),
+                products: finalProducts,
                 totalCount: allProducts.length,
                 source: "trendyol_multi_category_live",
             };
@@ -523,7 +586,7 @@ async function getFlashProducts(categoryKey = "", limit = 24) {
     const allCategoryKeys = Object.keys(TRENDYOL_CATEGORIES);
     try {
         const results = await Promise.allSettled(
-            allCategoryKeys.map(catKey => getCategoryProducts(catKey, { sort: "BEST_SELLER", limit: 48 }))
+            allCategoryKeys.map(catKey => getCategoryProducts(catKey, { sort: "BEST_SELLER", limit: 56 }))
         );
 
         let allFlash = [...butikFlash]; // Butik flaş ürünleri de ekle

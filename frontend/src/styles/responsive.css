@@ -1138,7 +1138,7 @@ h3 {
 .network-status.online {
     background: linear-gradient(135deg, #22c55e, #16a34a);
     color: white;
-    animation: slideDown 0.3s ease-out, fadeOut 2s ease-out 2s forwards;
+    animation: slideDown 0.3s ease-out, fİadeOut 2s ease-out 2s forwards;
 }
 
 @keyframes slideDown {
@@ -1152,7 +1152,7 @@ h3 {
     }
 }
 
-@keyframes fadeOut {
+@keyframes fİadeOut {
     from {
         opacity: 1;
     }
@@ -1222,7 +1222,7 @@ h3 {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
-   ✅ CONTAINER QUERY SUPPORT — Modern responsive components
+   ✅ CONTAINER QUERY SUPPORT — Modeürün responsive components
    Components adapt to their container, not just viewport
    ═══════════════════════════════════════════════════════════════════════ */
 .summary-cards,

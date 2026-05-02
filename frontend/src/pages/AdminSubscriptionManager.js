@@ -358,7 +358,7 @@ const AdminSubscriptionManager = () => {
                                     style={modalStyles.input}
                                     value={grantForm.note}
                                     onChange={(e) => setGrantForm({ ...grantForm, note: e.target.value })}
-                                    placeholder="Örn: Özel kampanya, test amaçlı..."
+                                    placeholder="ÖÖrn: Özel kampanya, test amaçlı..."
                                 />
                             </div>
                         </div>

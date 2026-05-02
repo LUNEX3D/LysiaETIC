@@ -660,7 +660,7 @@ const AdvancedProductManagementPageV2 = () => {
                                             </div>
                                             <div className="apm-product-stock">
                                                 <StockBadge stock={master.stock || 0} threshold={product.stockTracking?.lowStockThreshold || 10} />
-                                                <span>{master.stock || 0} adet</span>
+                                                <span>{master.stock || 0} İadet</span>
                                             </div>
                                             <div className="apm-product-marketplaces">
                                                 {(product.marketplaceMappings || []).map((mp, mpIdx) => (
@@ -713,7 +713,7 @@ const AdvancedProductManagementPageV2 = () => {
                                     disabled={currentPage === 0}
                                     onClick={() => setCurrentPage(p => p - 1)}
                                 >
-                                    Önceki
+                                    ÖÖnceki
                                 </button>
                                 <span>Sayfa {currentPage + 1} / {Math.ceil(totalProducts / 24)}</span>
                                 <button

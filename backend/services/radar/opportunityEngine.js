@@ -35,7 +35,7 @@ const explanationService = require("./explanationService");
 
 // ── Konfigürasyon ──
 const MAX_KEYWORDS = 20;           // Analiz edilecek max keyword (artırıldı)
-const KEYWORD_DELAY_MS = 2000;     // Keyword'ler arası bekleme (azaltıldı — paralel toplama)
+const KEYWORD_DELAY_MS = 3200;     // Keyword'ler arası bekleme (SerpAPI / harici API)
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 saat cache
 const MIN_SCORE_THRESHOLD = 25;    // Bu skorun altındaki fırsatlar filtrelenir
 const MAX_OPPORTUNITIES = 15;      // Kullanıcıya sunulacak max fırsat (artırıldı)
@@ -100,9 +100,6 @@ async function analyzeOpportunities(userId, opts = {}) {
                     skipAmazon: false,
                     skipGoogle: false,
                 });
-
-                // Rate limit bekleme (azaltıldı — paralel toplama sayesinde)
-                await sleep(KEYWORD_DELAY_MS);
 
                 // 4b. Pazar verisi (Trendyol + Amazon çapraz analiz)
                 const marketData = await marketplaceDataService.getMarketplaceData(keyword, {

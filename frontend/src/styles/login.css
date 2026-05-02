@@ -215,8 +215,12 @@
 }
 
 .auth-navbar-link svg {
+    width: 1.15em;
+    height: 1.15em;
+    flex-shrink: 0;
     font-size: 17px;
-    opacity: 0.5;
+    opacity: 0.55;
+    display: block;
     transition: all 0.3s ease;
 }
 
@@ -260,13 +264,21 @@
 /* ── Fullpage mode — Features & Pricing tam ekran ── */
 .auth-main--fullpage {
     flex-direction: column;
+    width: 100%;
+    min-width: 0;
+    overflow-x: hidden;
 }
 
 .auth-hero--fullpage {
     flex: 1;
-    padding: 0 64px 30px;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    padding: 12px clamp(16px, 4vw, 56px) 36px;
     justify-content: flex-start;
-    overflow: visible;
+    overflow-x: hidden;
+    overflow-y: visible;
 }
 
 .auth-hero-title {
@@ -1224,11 +1236,13 @@
 /* ═══════════════════════════════════════════════════════════════════════════
    ANIMATIONS
    ═══════════════════════════════════════════════════════════════════════════ */
-.auth-fade-in {
+.auth-fade-in,
+.auth-fİade-in {
     animation: authFadeIn 0.7s ease-out both;
 }
 
-.auth-fade-in-delay {
+.auth-fade-in-delay,
+.auth-fİade-in-delay {
     animation: authFadeIn 0.7s ease-out 0.2s both;
 }
 
@@ -1287,8 +1301,11 @@
 /* ── FULLPAGE MODE — Features & Pricing tam sayfa ── */
 .auth-tab-fullpage {
     max-width: 100%;
+    width: 100%;
+    box-sizing: border-box;
     padding: 0 0 40px;
-    padding-right: 16px;
+    padding-right: 0;
+    overflow-x: hidden;
 }
 
 .auth-tab-title {
@@ -1419,7 +1436,8 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 24px;
+    font-size: 1.45rem;
+    line-height: 1;
     margin-bottom: 18px;
     box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
 }
@@ -1490,7 +1508,8 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 22px;
+    font-size: 1.35rem;
+    line-height: 1;
 }
 
 .ft-detail-body h4 {
@@ -1598,7 +1617,8 @@
 }
 
 .ft-ai-feat > span {
-    font-size: 24px;
+    font-size: 1.25rem;
+    line-height: 1;
     flex-shrink: 0;
     width: 42px;
     height: 42px;
@@ -1648,8 +1668,13 @@
 }
 
 .ft-tech-icon {
-    font-size: 32px;
-    margin-bottom: 12px;
+    font-size: 1.75rem;
+    line-height: 1;
+    margin: 0 auto 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 2.5rem;
 }
 
 .ft-tech-item h5 {
@@ -1767,7 +1792,7 @@
 .pr-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 18px;
+    gap: clamp(18px, 2vw, 28px);
     align-items: start;
 }
 
@@ -1793,12 +1818,12 @@
     background: linear-gradient(135deg, rgba(124, 92, 252, 0.08), rgba(168, 85, 247, 0.04));
     border-color: rgba(124, 92, 252, 0.3);
     box-shadow: 0 8px 36px rgba(124, 92, 252, 0.12);
-    transform: scale(1.03);
+    transform: scale(1.02);
     z-index: 2;
 }
 
 .pr-card--popular:hover {
-    transform: scale(1.03) translateY(-4px);
+    transform: scale(1.02) translateY(-4px);
     box-shadow: 0 20px 56px rgba(124, 92, 252, 0.22);
 }
 
@@ -1827,8 +1852,11 @@
     box-shadow: 0 16px 48px rgba(245, 158, 11, 0.08);
 }
 
-/* Card Header */
+/* Kart üst bilgi — JSX: .pr-card-header */
 .pr-card-header {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
     padding: 28px 24px 20px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
@@ -1844,7 +1872,8 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 22px;
+    font-size: 1.35rem;
+    line-height: 1;
     margin-bottom: 14px;
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
 }
@@ -2052,12 +2081,12 @@
     border-bottom: none;
 }
 
-.pr-compare-header {
+.pr-compare-row.pr-compare-header {
     background: rgba(255, 255, 255, 0.03);
 }
 
-.pr-compare-header .pr-compare-feature,
-.pr-compare-header .pr-compare-val {
+.pr-compare-row.pr-compare-header .pr-compare-feature,
+.pr-compare-row.pr-compare-header .pr-compare-val {
     font-size: 11px;
     font-weight: 700;
     color: #8a8aa8;

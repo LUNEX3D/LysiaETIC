@@ -27,26 +27,26 @@ const C = {
 };
 
 const MODES = {
-    passive: { label: "Pasif Gzlemci", color: C.green, emoji: "", icon: "", gradient: `linear-gradient(135deg, ${C.green}, #059669)`, desc: "Sadece analiz ve neri", glow: `0 0 20px rgba(0,255,136,0.3)` },
-    assisted: { label: "Asistan Mod", color: C.yellow, emoji: "", icon: "", gradient: `linear-gradient(135deg, ${C.yellow}, #d97706)`, desc: "AI nerir, siz onaylarsnz", glow: `0 0 20px rgba(255,204,0,0.3)` },
-    autonomous: { label: "Otonom Pilot", color: C.red, emoji: "", icon: "", gradient: `linear-gradient(135deg, ${C.red}, #dc2626)`, desc: "Tam otomatik ynetim", glow: `0 0 20px rgba(255,51,102,0.3)` },
+    passive: { label: "Pasif Gözlemci", color: C.green, emoji: "👁️", icon: "", gradient: `linear-gradient(135deg, ${C.green}, #059669)`, desc: "Sadece analiz ve öneri", glow: `0 0 20px rgba(0,255,136,0.3)` },
+    assisted: { label: "Asistan Modu", color: C.yellow, emoji: "🤝", icon: "", gradient: `linear-gradient(135deg, ${C.yellow}, #d97706)`, desc: "AI önerir, siz onaylarsınız", glow: `0 0 20px rgba(255,204,0,0.3)` },
+    autonomous: { label: "Otonom Pilot", color: C.red, emoji: "✈️", icon: "", gradient: `linear-gradient(135deg, ${C.red}, #dc2626)`, desc: "Tam otomatik yönetim", glow: `0 0 20px rgba(255,51,102,0.3)` },
 };
 
 const RATINGS = {
-    excellent: { color: C.green, label: "Mkemmel", emoji: "" },
-    good: { color: C.blue, label: "yi", emoji: "" },
-    warning: { color: C.yellow, label: "Dikkat", emoji: "" },
-    critical: { color: C.red, label: "Kritik", emoji: "" },
-    unknown: { color: C.dim, label: "Bilinmiyor", emoji: "" },
+    excellent: { color: C.green, label: "Mükemmel", emoji: "🌟" },
+    good: { color: C.blue, label: "İyi", emoji: "✅" },
+    warning: { color: C.yellow, label: "Dikkat", emoji: "⚠️" },
+    critical: { color: C.red, label: "Kritik", emoji: "🚨" },
+    unknown: { color: C.dim, label: "Bilinmiyor", emoji: "❓" },
 };
 
 const CYCLE_PHASES = [
-    { key: "observe", label: "GZLEM", icon: "", color: "#00f0ff", desc: "Veri toplama" },
-    { key: "analyze", label: "ANALZ", icon: "", color: "#a855f7", desc: "Metrik hesaplama" },
-    { key: "decide", label: "KARAR", icon: "", color: "#ffcc00", desc: "Strateji belirleme" },
-    { key: "act", label: "AKSYON", icon: "", color: "#00ff88", desc: "Uygulama" },
-    { key: "verify", label: "DORULA", icon: "", color: "#3b82f6", desc: "Sonu kontrol" },
-    { key: "learn", label: "REN", icon: "", color: "#ff61d8", desc: "Hafzaya kaydet" },
+    { key: "observe", label: "GÖZLEM", icon: "👁️", color: "#00f0ff", desc: "Veri toplama" },
+    { key: "analyze", label: "ANALİZ", icon: "📊", color: "#a855f7", desc: "Metrik hesaplama" },
+    { key: "decide", label: "KARAR", icon: "🧠", color: "#ffcc00", desc: "Strateji belirleme" },
+    { key: "act", label: "AKSİYON", icon: "⚡", color: "#00ff88", desc: "Uygulama" },
+    { key: "verify", label: "DOĞRULA", icon: "✅", color: "#3b82f6", desc: "Sonuç kontrolü" },
+    { key: "learn", label: "ÖĞREN", icon: "🎓", color: "#ff61d8", desc: "Hafızaya kaydet" },
 ];
 
 const particlesConfig = {
@@ -240,7 +240,7 @@ const TypingIndicator = () => (
     */
 const AIOperatorPanel = () => {
     const { theme: _theme } = useApp();
-    void _theme; // tema deiikliinde re-render tetiklenir
+    void _theme; // tema değiikliçinde re-render tetiklenir
     const [loading, setLoading] = useState(true);
     const [cycleLoading, setCycleLoading] = useState(false);
     const [operatorStatus, setOperatorStatus] = useState(null);
@@ -273,7 +273,7 @@ const AIOperatorPanel = () => {
             if (alertsRes.data.success) setAlerts(alertsRes.data.alerts || []);
             if (statsRes.data.success) setQuickStats(statsRes.data.stats);
         } catch (err) {
-            setError("Operatr durumu yklenemedi: " + (err.response?.data?.message || err.message));
+            setError("Operatr durumu yüklenemedi: " + (err.response?.data?.message || err.message));
         } finally { setLoading(false); }
     }, []);
 
@@ -285,7 +285,7 @@ const AIOperatorPanel = () => {
             playSound("whoosh");
             const res = await API.post("/ai-chat/operator/mode", { mode });
             if (res.data.success) { setOperatorStatus(prev => ({ ...prev, operationMode: mode })); playSound("success"); }
-        } catch (err) { setError("Mod deitirilemedi: " + (err.response?.data?.message || err.message)); }
+        } catch (err) { setError("Mod değiştirilemedi: " + (err.response?.data?.message || err.message)); }
     };
 
     const runCycle = async () => {
@@ -313,10 +313,10 @@ const AIOperatorPanel = () => {
                 setChatMessages(prev => [...prev, { role: "ai", content: res.data.response.content, ts: new Date().toISOString(), suggestions: res.data.response.suggestions || [] }]);
                 playSound("success");
             } else {
-                setChatMessages(prev => [...prev, { role: "ai", content: "Bir hata olutu. Tekrar deneyin. ", ts: new Date().toISOString(), suggestions: ["Tekrar dene"] }]);
+                setChatMessages(prev => [...prev, { role: "ai", content: "Bir hata oluştu. Tekrar deneyin. ", ts: new Date().toISOString(), suggestions: ["Tekrar dene"] }]);
             }
         } catch {
-            setChatMessages(prev => [...prev, { role: "ai", content: "Balant hatas. Sunucu eriilebilir olduundan emin olun. ", ts: new Date().toISOString(), suggestions: ["Tekrar dene"] }]);
+            setChatMessages(prev => [...prev, { role: "ai", content: "Bağlantı hatası. Sunucu erişilebilir olduğundan emin olun. ", ts: new Date().toISOString(), suggestions: ["Tekrar dene"] }]);
         } finally { setChatLoading(false); scrollChat(); }
     };
 
@@ -328,7 +328,7 @@ const AIOperatorPanel = () => {
     const healthScore = operatorStatus?.businessHealth?.score || 0;
     const criticalAlerts = alerts.filter(a => a.severity === "critical" || a.severity === "high");
     const lastSuggestions = chatMessages.length > 0 ? ([...chatMessages].reverse().find(m => m.role === "ai")?.suggestions || []) : [];
-    // SEC: nce HTML entity escape  XSS korumas, sonra gvenli markdown dnmleri
+    // SEC: nce HTML entity escape  XSS korumas, sonra güvenli markdown dönmleri
     const renderContent = (text) => {
         if (!text) return "";
         const escaped = text
@@ -344,8 +344,8 @@ const AIOperatorPanel = () => {
 
     const TABS = [
         { id: "overview", label: "Genel Bak", icon: "", color: C.accent },
-        { id: "alerts", label: `Uyarlar (${alerts.length})`, icon: "", color: criticalAlerts.length > 0 ? C.red : C.green },
-        { id: "memory", label: "Hafza & renme", icon: "", color: C.purple },
+        { id: "alerts", label: `Uyarılar (${alerts.length})`, icon: "🔔", color: criticalAlerts.length > 0 ? C.red : C.green },
+        { id: "memory", label: "Hafıza & Öğrenme", icon: "🧠", color: C.purple },
         { id: "chat", label: "AI Sohbet", icon: "", color: C.accentAlt },
         { id: "cycle", label: "Dng Sonular", icon: "", color: C.blue },
     ];
@@ -430,16 +430,16 @@ const AIOperatorPanel = () => {
                     {activeTab === "overview" && (
                         <motion.div key="ov" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }}>
                             <div style={{ display: "flex", gap: "0.75rem", marginBottom: "1.25rem", flexWrap: "wrap" }}>
-                                <StatCard icon="" label="Toplam rn" value={operatorStatus?.stats?.productCount || 0} color={C.accent} delay={0.1} />
-                                <StatCard icon="" label="Sipari (30g)" value={operatorStatus?.stats?.orderCount || 0} color={C.green} delay={0.15} />
-                                <StatCard icon="" label="Bekleyen neri" value={operatorStatus?.stats?.pendingRecs || 0} color={C.yellow} delay={0.2} />
+                                <StatCard icon="" label="Toplam ürün" value={operatorStatus?.stats?.productCount || 0} color={C.accent} delay={0.1} />
+                                <StatCard icon="" label="Sipariş (30g)" value={operatorStatus?.stats?.orderCount || 0} color={C.green} delay={0.15} />
+                                <StatCard icon="" label="Bekleyen öneri" value={operatorStatus?.stats?.pendingRecs || 0} color={C.yellow} delay={0.2} />
                                 <StatCard icon="" label="AI Hafza" value={operatorStatus?.memory?.totalMemories || 0} color={C.purple} delay={0.25} />
                                 <StatCard icon="" label="Uyar" value={alerts.length} color={alerts.length > 0 ? C.red : C.green} delay={0.3} />
                             </div>
                             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: "1.25rem", marginBottom: "1.25rem" }}>
                                 {/* Health */}
                                 <GlassCard delay={0.15} glow={`0 0 30px ${rating.color}15`}>
-                                    <SectionTitle icon="" title="letme Sal" color={rating.color} />
+                                    <SectionTitle icon="🏥" title="İşletme Sağlığı" color={rating.color} />
                                     <div style={{ display: "flex", alignItems: "center", gap: "1.5rem", justifyContent: "center", flexWrap: "wrap" }}>
                                         <HoloRing size={170} score={healthScore} color={rating.color}>
                                             <motion.span initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ delay: 0.5, type: "spring", stiffness: 200 }} style={{ fontSize: "2.5rem", fontWeight: 900, color: rating.color, textShadow: `0 0 20px ${rating.color}60`, lineHeight: 1 }}>{healthScore}</motion.span>
@@ -447,7 +447,7 @@ const AIOperatorPanel = () => {
                                             <Pill color={rating.color} style={{ marginTop: 4, fontSize: "0.65rem" }}>{rating.emoji} {rating.label}</Pill>
                                         </HoloRing>
                                         <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-                                            {[{ l: "rn", v: operatorStatus?.stats?.productCount || 0, i: "", c: C.accent }, { l: "Sipari", v: operatorStatus?.stats?.orderCount || 0, i: "", c: C.green }, { l: "Bekleyen", v: operatorStatus?.stats?.pendingRecs || 0, i: "", c: C.yellow }].map((s, idx) => (
+                                            {[{ l: "rn", v: operatorStatus?.stats?.productCount || 0, i: "", c: C.accent }, { l: "Sipariş", v: operatorStatus?.stats?.orderCount || 0, i: "", c: C.green }, { l: "Bekleyen", v: operatorStatus?.stats?.pendingRecs || 0, i: "", c: C.yellow }].map((s, idx) => (
                                                 <motion.div key={s.l} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.6 + idx * 0.1 }} style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
                                                     <span style={{ fontSize: "1rem" }}>{s.i}</span>
                                                     <span style={{ color: C.muted, fontSize: "0.75rem", fontWeight: 600, minWidth: 65 }}>{s.l}</span>
@@ -483,10 +483,10 @@ const AIOperatorPanel = () => {
                                 </GlassCard>
                                 {/* Guardrails */}
                                 <GlassCard delay={0.25}>
-                                    <SectionTitle icon="" title="Gvenlik Limitleri" color={C.yellow} />
+                                    <SectionTitle icon="" title="Güvenlik Limitleri" color={C.yellow} />
                                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem" }}>
                                         {operatorStatus?.guardrails && Object.entries(operatorStatus.guardrails).map(([key, value]) => {
-                                            const cfg = { maxPriceChangePercent: { l: "Max Fiyat Deiimi", i: "", u: "%", c: C.yellow }, maxStockOrderQuantity: { l: "Max Stok Siparii", i: "", u: " adet", c: C.blue }, minProfitMarginPercent: { l: "Min Kr Marj", i: "", u: "%", c: C.green }, maxActionsPerHour: { l: "Max Aksiyon/Saat", i: "", u: "", c: C.accent }, requireApprovalForCritical: { l: "Kritik Onay", i: "", u: "", c: C.red }, cooldownMinutes: { l: "Cooldown", i: "", u: " dk", c: C.purple } };
+                                            const cfg = { maxPriceChangePercent: { l: "Max Fiyat Değişimi", i: "", u: "%", c: C.yellow }, maxStockOrderQuantity: { l: "Max Stok Siparişi", i: "", u: " Adet", c: C.blue }, minProfitMarginPercent: { l: "Min Kâr Marjı", i: "", u: "%", c: C.green }, maxActionsPerHour: { l: "Max Aksiyon/Saat", i: "", u: "", c: C.accent }, requireApprovalForCritical: { l: "Kritik Onay", i: "", u: "", c: C.red }, cooldownMinutes: { l: "Cooldown", i: "", u: " dk", c: C.purple } };
                                             const cc = cfg[key] || { l: key, i: "", u: "", c: C.dim };
                                             return (
                                                 <div key={key} style={{ background: `${cc.c}06`, border: `1px solid ${cc.c}15`, borderRadius: 12, padding: "0.7rem 0.8rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
@@ -509,10 +509,10 @@ const AIOperatorPanel = () => {
                                         { label: "Genel Durum", msg: "Nasl gidiyor?", icon: "", color: C.accent },
                                         { label: "Sat Analizi", msg: "Satlarm nasl?", icon: "", color: C.green },
                                         { label: "Stok Kontrol", msg: "Stok durumu nedir?", icon: "", color: C.blue },
-                                        { label: "Sorun Tespiti", msg: "Sorunlar gster", icon: "", color: C.red },
-                                        { label: "neriler", msg: "Ne yapmalym?", icon: "", color: C.yellow },
+                                        { label: "Sorun Tespiti", msg: "Sorunlar göster", icon: "", color: C.red },
+                                        { label: "öneriler", msg: "Ne yapmalym?", icon: "", color: C.yellow },
                                         { label: "Pazaryeri Karlatr", msg: "Pazaryerlerini karlatr", icon: "", color: C.purple },
-                                        { label: "Kr Analizi", msg: "Kr marjlarm nasl?", icon: "", color: C.pink },
+                                        { label: "Kâr Analizi", msg: "Kâr marjlarm nasl?", icon: "", color: C.pink },
                                         { label: "Tahmin", msg: "nmzdeki hafta tahmini", icon: "", color: C.accentAlt },
                                     ].map((cmd, i) => (
                                         <motion.button key={cmd.label} initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.3 + i * 0.04 }}
@@ -532,12 +532,12 @@ const AIOperatorPanel = () => {
                     {activeTab === "alerts" && (
                         <motion.div key="al" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }}>
                             <GlassCard delay={0.1}>
-                                <SectionTitle icon="" title="Proaktif Uyarlar" badge={`${alerts.length} uyar`} color={criticalAlerts.length > 0 ? C.red : C.green} />
+                                    <SectionTitle icon="🔔" title="Proaktif Uyarılar" badge={`${alerts.length} uyarı`} color={criticalAlerts.length > 0 ? C.red : C.green} />
                                 {alerts.length === 0 ? (
                                     <div style={{ textAlign: "center", padding: "3rem 1rem" }}>
                                         <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: "spring" }} style={{ fontSize: "3.5rem", marginBottom: "1rem" }}></motion.div>
-                                        <p style={{ color: C.green, fontSize: "1.1rem", fontWeight: 800, margin: 0, textShadow: `0 0 20px ${C.green}40` }}>Tm sistemler normal!</p>
-                                        <p style={{ color: C.dim, fontSize: "0.82rem", margin: "0.4rem 0 0" }}>Kritik uyar bulunmuyor.</p>
+                                        <p style={{ color: C.green, fontSize: "1.1rem", fontWeight: 800, margin: 0, textShadow: `0 0 20px ${C.green}40` }}>Tüm sistemler normal!</p>
+                                        <p style={{ color: C.dim, fontSize: "0.82rem", margin: "0.4rem 0 0" }}>Kritik uyarı bulunmuyor.</p>
                                     </div>
                                 ) : (
                                     <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
@@ -552,7 +552,7 @@ const AIOperatorPanel = () => {
                                                     <div style={{ flex: 1 }}>
                                                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.25rem" }}>
                                                             <span style={{ color: "#fff", fontSize: "0.88rem", fontWeight: 700 }}>{alert.title}</span>
-                                                            <Pill color={sc}>{alert.severity === "critical" ? "Kritik" : alert.severity === "high" ? "Yksek" : "Bilgi"}</Pill>
+                                                            <Pill color={sc}>{alert.severity === "critical" ? "Kritik" : alert.severity === "high" ? "Yüksek" : "Bilgi"}</Pill>
                                                         </div>
                                                         <p style={{ color: C.muted, fontSize: "0.78rem", margin: 0, lineHeight: 1.5 }}>{alert.message}</p>
                                                         {alert.suggestion && <div style={{ marginTop: "0.4rem" }}><span style={{ fontSize: "0.75rem" }}></span> <span style={{ color: C.accent, fontSize: "0.72rem", fontWeight: 600 }}>{alert.suggestion}</span></div>}
@@ -572,11 +572,11 @@ const AIOperatorPanel = () => {
                             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: "1.25rem" }}>
                                 <GlassCard delay={0.1}>
                                     <SectionTitle icon="" title="AI Hafza statistikleri" color={C.purple} />
-                                    <ProgressBar label="Toplam Hafza" value={operatorStatus?.memory?.totalMemories || 0} max={200} color={C.accentAlt} sublabel={`${operatorStatus?.memory?.totalMemories || 0} kayt`} />
+                                    <ProgressBar label="Toplam Hafza" value={operatorStatus?.memory?.totalMemories || 0} max={200} color={C.accentAlt} sublabel={`${operatorStatus?.memory?.totalMemories || 0} kayıt`} />
                                     <ProgressBar label="Aksiyon Sonular" value={operatorStatus?.memory?.actionMemories || 0} max={100} color={C.green} sublabel={`${operatorStatus?.memory?.actionMemories || 0} sonu`} />
-                                    <ProgressBar label="renilen Patternler" value={operatorStatus?.memory?.learnedPatterns || 0} max={50} color={C.yellow} sublabel={`${operatorStatus?.memory?.learnedPatterns || 0} pattern`} />
-                                    <ProgressBar label="Kullanc Tercihleri" value={operatorStatus?.memory?.userPreferences || 0} max={30} color={C.purple} sublabel={`${operatorStatus?.memory?.userPreferences || 0} tercih`} />
-                                    <ProgressBar label="Pazar grleri" value={operatorStatus?.memory?.marketInsights || 0} max={50} color={C.blue} sublabel={`${operatorStatus?.memory?.marketInsights || 0} igr`} />
+                                    <ProgressBar label="renilen Patteürünler" value={operatorStatus?.memory?.learnedPatterns || 0} max={50} color={C.yellow} sublabel={`${operatorStatus?.memory?.learnedPatterns || 0} pattern`} />
+                                    <ProgressBar label="Kullanıcı Tercihleri" value={operatorStatus?.memory?.userPreferences || 0} max={30} color={C.purple} sublabel={`${operatorStatus?.memory?.userPreferences || 0} tercih`} />
+                                    <ProgressBar label="Pazar Görüleri" value={operatorStatus?.memory?.marketInsights || 0} max={50} color={C.blue} sublabel={`${operatorStatus?.memory?.marketInsights || 0} igr`} />
                                 </GlassCard>
                                 <GlassCard delay={0.15}>
                                     <SectionTitle icon="" title="Son AI Aksiyonlar" color={C.green} />
@@ -597,20 +597,20 @@ const AIOperatorPanel = () => {
                                     ) : (
                                         <div style={{ textAlign: "center", padding: "2.5rem 1rem" }}>
                                             <span style={{ fontSize: "2.5rem", display: "block", marginBottom: "0.5rem" }}></span>
-                                            <p style={{ color: C.dim, fontSize: "0.88rem", margin: 0, fontWeight: 600 }}>Henz aksiyon kayd yok</p>
+                                            <p style={{ color: C.dim, fontSize: "0.88rem", margin: 0, fontWeight: 600 }}>Henüz aksiyon kayd yok</p>
                                             <p style={{ color: C.dim, fontSize: "0.72rem", margin: "0.3rem 0 0" }}>Dng altrarak AI'n renmesini balatn</p>
                                         </div>
                                     )}
                                 </GlassCard>
                                 <GlassCard delay={0.2}>
-                                    <SectionTitle icon="" title="renme Dngs" color={C.pink} />
+                                    <SectionTitle icon="🎓" title="Öğrenme Döngüsü" color={C.pink} />
                                     <div style={{ display: "flex", flexDirection: "column", gap: "0.65rem" }}>
                                         {[
-                                            { icon: "", title: "Otonom Dng", desc: "6 fazl dng: Gzlem  Analiz  Karar  Aksiyon  Dorulama  renme", color: C.accent },
-                                            { icon: "", title: "Veri Toplama", desc: "rnler, sipariler, pazaryeri verileri srekli izleniyor", color: C.blue },
-                                            { icon: "", title: "Pattern Tanma", desc: "Baarl/baarsz aksiyonlar hafzaya kaydediliyor", color: C.purple },
-                                            { icon: "", title: "Srekli yileme", desc: "Her dngde AI daha iyi kararlar almay reniyor", color: C.green },
-                                            { icon: "", title: "Gvenlik Katman", desc: "Guardrail limitleri alamaz, kritik aksiyonlar onay gerektirir", color: C.yellow },
+                                            { icon: "", title: "Otonom Döngü", desc: "6 fazlı döngü: Gözlem - Analiz - Karar - Aksiyon - Doğrulama - Öğrenme", color: C.accent },
+                                            { icon: "", title: "Veri Toplama", desc: "Ürünler, siparişler, pazaryeri verileri sürekli izleniyor", color: C.blue },
+                                            { icon: "", title: "Pattern Tanıma", desc: "Başarılı/başarısız aksiyonlar hafızaya kaydediliyor", color: C.purple },
+                                            { icon: "", title: "Sürekli İyileşme", desc: "Her döngüde AI daha iyi kararlar almayı öğreniyor", color: C.green },
+                                            { icon: "", title: "Güvenlik Katmanı", desc: "Guardrail limitleri aşılamaz, kritik aksiyonlar onay gerektirir", color: C.yellow },
                                         ].map((item, i) => (
                                             <motion.div key={item.title} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 + i * 0.06 }}
                                                 style={{ background: `${item.color}05`, border: `1px solid ${item.color}12`, borderRadius: 12, padding: "0.75rem 0.9rem", display: "flex", alignItems: "flex-start", gap: "0.65rem" }}>
@@ -650,7 +650,7 @@ const AIOperatorPanel = () => {
                                         <div style={{ textAlign: "center", padding: "2.5rem 1rem" }}>
                                             <motion.div initial={{ scale: 0, rotate: -180 }} animate={{ scale: 1, rotate: 0 }} transition={{ type: "spring", stiffness: 200 }} style={{ fontSize: "3.5rem", marginBottom: "1rem" }}></motion.div>
                                             <p style={{ color: "#fff", fontSize: "1.1rem", fontWeight: 800, margin: 0 }}>Merhaba! </p>
-                                            <p style={{ color: C.muted, fontSize: "0.85rem", margin: "0.4rem 0 1.2rem" }}>Ben Pazarynetim AI Operatr. letmenizi ynetmek iin buradaym.</p>
+                                            <p style={{ color: C.muted, fontSize: "0.85rem", margin: "0.4rem 0 1.2rem" }}>Ben Pazaryönetim AI Operatr. letmenizi yönetmek için buradaym.</p>
                                             <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem", justifyContent: "center" }}>
                                                 {["Nasl gidiyor?", "Satlarm nasl?", "Stok durumu", "Ne yapmalym?"].map((s, i) => (
                                                     <motion.button key={s} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 + i * 0.1 }}
@@ -699,7 +699,7 @@ const AIOperatorPanel = () => {
                         <motion.div key="cy" initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }}>
                             {cycleResult ? (<>
                                 <div style={{ display: "flex", gap: "0.75rem", marginBottom: "1.25rem", flexWrap: "wrap" }}>
-                                    {[{ l: "AI Skor", v: cycleResult.analysis?.aiScore?.overall || 0, c: C.accentAlt, i: "" }, { l: "Kararlar", v: cycleResult.decisions?.decisions?.length || 0, c: C.yellow, i: "" }, { l: "Uygulanan", v: cycleResult.actionResults?.length || 0, c: C.green, i: "" }, { l: "Kritik", v: cycleResult.decisions?.criticalCount || 0, c: C.red, i: "" }, { l: "Sre", v: `${cycleResult.durationMs || 0}`, c: C.blue, i: "", s: "ms" }].map((s, i) => (
+                                    {[{ l: "AI Skor", v: cycleResult.analysis?.aiScore?.overall || 0, c: C.accentAlt, i: "" }, { l: "Kararlar", v: cycleResult.decisions?.decisions?.length || 0, c: C.yellow, i: "" }, { l: "Uygulanan", v: cycleResult.actionResults?.length || 0, c: C.green, i: "" }, { l: "Kritik", v: cycleResult.decisions?.criticalCount || 0, c: C.red, i: "" }, { l: "Süre", v: `${cycleResult.durationMs || 0}`, c: C.blue, i: "", s: "ms" }].map((s, i) => (
                                         <StatCard key={s.l} icon={s.i} label={s.l} value={s.v} color={s.c} delay={i * 0.08} suffix={s.s} />
                                     ))}
                                 </div>
@@ -747,8 +747,8 @@ const AIOperatorPanel = () => {
                                 <GlassCard delay={0.1}>
                                     <div style={{ textAlign: "center", padding: "3rem 1rem" }}>
                                         <motion.div animate={{ rotate: [0, 10, -10, 0] }} transition={{ duration: 4, repeat: Infinity }} style={{ fontSize: "3.5rem", marginBottom: "1rem" }}></motion.div>
-                                        <p style={{ color: "#fff", fontSize: "1.1rem", fontWeight: 800, margin: 0 }}>Henz dng altrlmad</p>
-                                        <p style={{ color: C.dim, fontSize: "0.85rem", margin: "0.4rem 0 1.2rem" }}>Yukardaki "Dng altr" butonuna tklayarak AI'n tam analiz dngsn balatn.</p>
+                                        <p style={{ color: "#fff", fontSize: "1.1rem", fontWeight: 800, margin: 0 }}>Henüz döng altrlmad</p>
+                                        <p style={{ color: C.dim, fontSize: "0.85rem", margin: "0.4rem 0 1.2rem" }}>Yukardaki "Dng altr" butonuna tklayarak AI'n tam analiz döngsn balatn.</p>
                                         <NeonButton color={C.accent} onClick={runCycle} disabled={cycleLoading} size="lg"> imdi altr</NeonButton>
                                     </div>
                                 </GlassCard>

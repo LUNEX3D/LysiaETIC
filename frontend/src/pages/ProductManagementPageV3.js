@@ -3,7 +3,7 @@
  * 🎯 ÜRÜN YÖNETİMİ SİSTEMİ V4 - TAM ENTEGRASYONLU PAZARYERI YÖNETİMİ
  * ═══════════════════════════════════════════════════════════════════════════
  *
- * 📦 STOK TAKİBİ       → Tüm pazaryerlerinde otomatik senkronizasyon
+ * 📦 STOK TAKİBİ       → Tüm pazaryerlerinde otomatik senkâronizasyon
  * 🔄 ÜRÜN DAĞITIMI     → Tek girişten tüm platformlara otomatik dağıtım
  * 💰 FİYAT YÖNETİMİ   → Merkezi fiyat & kampanya kontrolü
  * 📊 KARŞILAŞTIRMA     → Hangi ürün hangi pazaryerinde var/yok
@@ -43,17 +43,35 @@ import {
     getProductManagementDashboard,
     distributeProduct,
     distributeUndistributed,
+    listVariantGroups,
+    getVariantGroup,
+    createVariantGroup,
+    updateVariantGroup,
+    addVariantGroupMembers,
+    removeVariantGroupMembers,
+    deleteVariantGroup,
 } from "../services/productManagementApi";
 import { getUserMarketplaces } from "../services/marketplaceApi";
 import "../styles/ProductManagementCenter.css";
+import "../styles/ProductManagementPageV4.css";
 
 // ─── Sabitler ────────────────────────────────────────────────────────────────
+
+/** Varyant satırında renk/beden özetı (masterProduct.attributes) */
+const summarizeVariantAttrs = (attrs) => {
+    if (!attrs || typeof attrs !== "object") return "—";
+    const c = attrs.color || attrs.renk;
+    const s = attrs.size || attrs.beden;
+    const bits = [c, s].filter(Boolean);
+    return bits.length ? bits.join(" · ") : "—";
+};
 
 const TABS = [
     { key: "dashboard",       icon: <FaChartBar />,      label: "Dashboard"            },
     { key: "stock",           icon: <FaWarehouse />,     label: "Stok Takibi"          },
     { key: "distribution",   icon: <FaExchangeAlt />,   label: "Ürün Dağıtımı"       },
-    { key: "pricing",        icon: <FaMoneyBillWave />, label: "Fiyat & Kampanya"     },
+    { key: "variants",       icon: <FaLayerGroup />,    label: "Varyant grupları"     },
+    { key: "priçing",        icon: <FaMoneyBillWave />, label: "Fiyat & Kampanya"     },
 
     { key: "comparison",     icon: <FaTable />,         label: "Karşılaştırma"        },
     { key: "logs",           icon: <FaListAlt />,       label: "Loglar"               },
@@ -80,7 +98,7 @@ const StockBadge = ({ stock, threshold = 10 }) => {
 
 const SyncBadge = ({ status }) => {
     const map = {
-        synced:  ["pmv4-badge-success", "Senkron"],
+        synced:  ["pmv4-badge-success", "Senkâron"],
         error:   ["pmv4-badge-danger",  "Hata"],
         pending: ["pmv4-badge-warning", "Bekliyor"],
     };
@@ -99,7 +117,6 @@ const Spinner = () => <FaSpinner className="pmv4-spin" />;
 // ─── Ana Bileşen ──────────────────────────────────────────────────────────────
 
 const ProductManagementPageV3 = () => {
-
     // ── Genel ────────────────────────────────────────────────────────────────
     const [activeTab,       setActiveTab]       = useState("dashboard");
     const [toast,           setToast]           = useState(null);
@@ -174,6 +191,23 @@ const ProductManagementPageV3 = () => {
     const [distFilterStatus,   setDistFilterStatus]   = useState(""); // ""|"synced"|"error"|"pending"|"missing"
     const [distFilterMP,       setDistFilterMP]       = useState("");
 
+    // ── Varyant grupları sekmesi ─────────────────────────────────────────────
+    const [variantGroups,     setVariantGroups]     = useState([]);
+    const [vgLoading,         setVgLoading]         = useState(false);
+    const [vgCreateOpen,      setVgCreateOpen]      = useState(false);
+    const [vgDetailOpen,      setVgDetailOpen]      = useState(false);
+    const [vgPickerOpen,      setVgPickerOpen]      = useState(false);
+    const [vgActiveId,        setVgActiveId]        = useState(null);
+    const [vgMembers,         setVgMembers]         = useState([]);
+    const [vgPickerRows,      setVgPickerRows]      = useState([]);
+    const [vgFormName,        setVgFormName]        = useState("");
+    const [vgFormNotes,       setVgFormNotes]       = useState("");
+    const [vgFormMainId,      setVgFormMainId]      = useState("");
+    const [vgFormColorLbl,    setVgFormColorLbl]    = useState("Renk");
+    const [vgFormSizeLbl,     setVgFormSizeLbl]     = useState("Beden");
+    const [vgCreatePick,      setVgCreatePick]      = useState(() => new Set());
+    const [vgPickerPick,      setVgPickerPick]      = useState(() => new Set());
+
     // ─── Toast ────────────────────────────────────────────────────────────────
     const showToast = useCallback((msg, type = "info") => {
         setToast({ msg, type });
@@ -240,6 +274,18 @@ const ProductManagementPageV3 = () => {
         } catch { /* sessiz */ }
     }, []);
 
+    const loadVariantGroups = useCallback(async () => {
+        setVgLoading(true);
+        try {
+            const data = await listVariantGroups();
+            setVariantGroups(data.groups || []);
+        } catch (e) {
+            showToast("Varyant grupları yüklenemedi: " + (e.response?.data?.error || e.message), "error");
+        } finally {
+            setVgLoading(false);
+        }
+    }, [showToast]);
+
     // ─── Otomatik arka plan sync ──────────────────────────────────────────────
     const runAutoSync = useCallback(async () => {
         if (autoSyncRunning) return;
@@ -249,11 +295,11 @@ const ProductManagementPageV3 = () => {
             const res = await syncAllMarketplaces();
             const { totalNew = 0, totalUpdated = 0, totalErrors = 0 } = res.summary || {};
             setAutoSyncStatus(`✅ Tamamlandı — Yeni: ${totalNew} | Güncellenen: ${totalUpdated} | Hata: ${totalErrors}`);
-            showToast(`Senkronizasyon tamamlandı — Yeni: ${totalNew}, Güncellenen: ${totalUpdated}`, "success");
+            showToast(`Senkâronizasyon tamamlandı — Yeni: ${totalNew}, Güncellenen: ${totalUpdated}`, "success");
             loadProducts(); loadDashboard(); loadComparison();
         } catch (e) {
             setAutoSyncStatus("❌ Hata: " + (e.response?.data?.error || e.message));
-            showToast("Senkronizasyon başarısız: " + (e.response?.data?.error || e.message), "error");
+            showToast("Senkâronizasyon başarısız: " + (e.response?.data?.error || e.message), "error");
         } finally {
             setAutoSyncRunning(false);
             setTimeout(() => setAutoSyncStatus(""), 6000);
@@ -278,8 +324,10 @@ const ProductManagementPageV3 = () => {
         if (activeTab === "logs")       { loadLogs(); loadNotifications(); }
         if (activeTab === "dashboard")  loadDashboard();
         if (activeTab === "comparison") loadComparison();
-        if (activeTab === "stock" || activeTab === "pricing" || activeTab === "distribution") loadProducts();
+        if (activeTab === "stock" || activeTab === "priçing" || activeTab === "distribution") loadProducts();
+        if (activeTab === "variants")   { loadVariantGroups(); loadProducts(); }
         // n11upload sekmesi kaldırıldı
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeTab]);
 
     useEffect(() => { loadComparison(); }, [compPage, compSearch, missingOnly]);
@@ -486,9 +534,243 @@ const ProductManagementPageV3 = () => {
         try { await markNotificationRead("all"); loadNotifications(); showToast("Tüm bildirimler okundu ✅", "success"); } catch { /* sessiz */ }
     };
 
+    // ── Varyant grupları (sekme) ─────────────────────────────────────────────
+    const vgToggleCreatePick = (id) => {
+        const s = String(id);
+        setVgCreatePick((prev) => {
+            const n = new Set(prev);
+            if (n.has(s)) n.delete(s);
+            else n.add(s);
+            return n;
+        });
+    };
+    const vgTogglePickerPick = (id) => {
+        const s = String(id);
+        setVgPickerPick((prev) => {
+            const n = new Set(prev);
+            if (n.has(s)) n.delete(s);
+            else n.add(s);
+            return n;
+        });
+    };
+
+    const vgOpenCreate = async () => {
+        setVgFormName("");
+        setVgFormNotes("");
+        setVgFormMainId("");
+        setVgFormColorLbl("Renk");
+        setVgFormSizeLbl("Beden");
+        setVgCreatePick(new Set());
+        setVgCreateOpen(true);
+        try {
+            const res = await getProducts({ page: 0, limit: 200 });
+            setVgPickerRows((res.products || []).filter((p) => !p.variantGroupId));
+        } catch {
+            setVgPickerRows([]);
+        }
+    };
+
+    const vgSubmitCreate = async () => {
+        if (vgFormName.trim().length < 2) {
+            showToast("Grup adı en az 2 karakter olmalı", "warning");
+            return;
+        }
+        try {
+            await createVariantGroup({
+                name: vgFormName.trim(),
+                notes: vgFormNotes,
+                trendyolProductMainId: vgFormMainId.trim(),
+                memberIds: [...vgCreatePick],
+                dimensionHint: { colorLabel: vgFormColorLbl, sizeLabel: vgFormSizeLbl },
+            });
+            setVgCreateOpen(false);
+            showToast("Varyant grubu oluşturuldu", "success");
+            loadVariantGroups();
+            loadProducts();
+        } catch (e) {
+            showToast(e.response?.data?.error || e.message, "error");
+        }
+    };
+
+    const vgOpenDetail = async (groupId) => {
+        setVgActiveId(groupId);
+        setVgDetailOpen(true);
+        try {
+            const data = await getVariantGroup(groupId);
+            setVgFormName(data.group?.name || "");
+            setVgFormNotes(data.group?.notes || "");
+            setVgFormMainId(data.group?.trendyolProductMainId || "");
+            setVgFormColorLbl(data.group?.dimensionHint?.colorLabel || "Renk");
+            setVgFormSizeLbl(data.group?.dimensionHint?.sizeLabel || "Beden");
+            setVgMembers(data.members || []);
+        } catch (e) {
+            showToast(e.response?.data?.error || e.message, "error");
+            setVgMembers([]);
+        }
+    };
+
+    const vgSaveDetailMeta = async () => {
+        if (!vgActiveId) return;
+        try {
+            await updateVariantGroup(vgActiveId, {
+                name: vgFormName.trim(),
+                notes: vgFormNotes,
+                trendyolProductMainId: vgFormMainId.trim(),
+                dimensionHint: { colorLabel: vgFormColorLbl, sizeLabel: vgFormSizeLbl },
+            });
+            showToast("Grup bilgileri kaydedildi", "success");
+            loadVariantGroups();
+            const data = await getVariantGroup(vgActiveId);
+            setVgMembers(data.members || []);
+        } catch (e) {
+            showToast(e.response?.data?.error || e.message, "error");
+        }
+    };
+
+    const vgOpenAddPicker = async () => {
+        if (!vgActiveId) return;
+        setVgPickerPick(new Set());
+        setVgPickerOpen(true);
+        try {
+            const res = await getProducts({ page: 0, limit: 250 });
+            setVgPickerRows((res.products || []).filter((p) => !p.variantGroupId));
+        } catch {
+            setVgPickerRows([]);
+        }
+    };
+
+    const vgSubmitAddMembers = async () => {
+        if (!vgActiveId || vgPickerPick.size === 0) return;
+        try {
+            await addVariantGroupMembers(vgActiveId, [...vgPickerPick]);
+            setVgPickerOpen(false);
+            showToast("Ürünler gruba eklendi", "success");
+            const data = await getVariantGroup(vgActiveId);
+            setVgMembers(data.members || []);
+            loadVariantGroups();
+            loadProducts();
+        } catch (e) {
+            showToast(e.response?.data?.error || e.message, "error");
+        }
+    };
+
+    const vgRemoveMember = async (productId) => {
+        if (!vgActiveId) return;
+        if (!window.confirm("Bu ürünü gruptan çıkarmak istiyor musunuz?")) return;
+        try {
+            await removeVariantGroupMembers(vgActiveId, [productId]);
+            showToast("Ürün gruptan çıkarıldı", "success");
+            const data = await getVariantGroup(vgActiveId);
+            setVgMembers(data.members || []);
+            loadVariantGroups();
+            loadProducts();
+        } catch (e) {
+            showToast(e.response?.data?.error || e.message, "error");
+        }
+    };
+
+    const vgDeleteGroup = async () => {
+        if (!vgActiveId) return;
+        if (!window.confirm("Grup silinecek; ürünlerdeki grup bağlantısı kalkar. Emin misiniz?")) return;
+        try {
+            await deleteVariantGroup(vgActiveId);
+            setVgDetailOpen(false);
+            setVgActiveId(null);
+            showToast("Grup silindi", "success");
+            loadVariantGroups();
+            loadProducts();
+        } catch (e) {
+            showToast(e.response?.data?.error || e.message, "error");
+        }
+    };
+
+    const vgCopyMainId = () => {
+        const t = (vgFormMainId || "").trim();
+        if (t) navigator.clipboard?.writeText(t).then(() => showToast("Model kodu kopyalandı", "success")).catch(() => {});
+        else showToast("Önce Trendyol model kodunu girin", "warning");
+    };
+
     // ════════════════════════════════════════════════════════════════════════════
     // RENDER — SEKMELER
     // ════════════════════════════════════════════════════════════════════════════
+
+    // ── 0. VARYANT GRUPLARI ───────────────────────────────────────────────────
+    const renderVariantGroups = () => (
+        <motion.div key="variants" className="pmv4-tab-content"
+            initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
+
+            <div className="pmv4-section">
+                <div className="pmv4-section-head">
+                    <h2><FaLayerGroup /> Varyant grupları</h2>
+                    <button type="button" className="pmv4-btn pmv4-btn-primary pmv4-btn-sm" onClick={vgOpenCreate}>
+                        <FaPlus /> Yeni grup
+                    </button>
+                </div>
+                <p className="pmv4-section-desc">
+                    Aynı ürünün farklı <strong>renk</strong> veya <strong>beden</strong> satırlarını tek bir aile altında toplayın.
+                    Trendyol tarafında bu ailenin ortak <strong>model kodu</strong> alanı <code style={{ color: "#4ecdc4" }}>productMainId</code> ile eşleşir;
+                    her satırın kendi barkodu / stok kodu kalır. Böylece aynı katalogta çift liste hatası riskini azaltırsınız.
+                </p>
+                <div className="pmv4-modal-info-box" style={{ marginBottom: 14 }}>
+                    <FaInfoCircle />
+                    <span>
+                        <strong>Nasıl kullanılır?</strong> (1) <em>Yeni grup</em> ile ad ve isteğe bağlı ürün seçimi yapın.
+                        (2) Trendyol için ortak <em>model kodunu</em> yazın — tüm varyantlarda yükleme sırasında bu değer kullanılmalıdır.
+                        (3) Sonradan <em>Ürün ekle</em> ile grupsuz satırları dahil edin. Zaten başka grupta olan ürün eklenemez.
+                    </span>
+                </div>
+                <p className="pmv4-section-desc" style={{ marginTop: 0 }}>
+                    <FaExclamationTriangle style={{ color: "#f59e0b", marginRight: 6, verticalAlign: "middle" }} />
+                    N11 ve diğer pazaryerlerinde katalog kuralları farklıdır; bu sekme önce veriyi düzenli tutmanız için tasarlandı.
+                    Otomatik pazaryeri gönderimi sonraki adımda gruptaki model kodu ile bağlanabilir.
+                </p>
+            </div>
+
+            {vgLoading ? (
+                <div className="pmv4-empty" style={{ padding: "48px 20px" }}>
+                    <Spinner />
+                    <p>Gruplar yükleniyor…</p>
+                </div>
+            ) : variantGroups.length === 0 ? (
+                <div className="pmv4-section">
+                    <div className="pmv4-empty" style={{ padding: "36px 20px" }}>
+                        <FaLayerGroup size={36} style={{ opacity: 0.5 }} />
+                        <p>Henüz varyant grubu yok.</p>
+                        <button type="button" className="pmv4-btn pmv4-btn-outline" onClick={vgOpenCreate}>
+                            <FaPlus /> İlk grubu oluştur
+                        </button>
+                    </div>
+                </div>
+            ) : (
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 14 }}>
+                    {variantGroups.map((g) => (
+                        <div key={g._id} className="pmv4-section" style={{ marginBottom: 0, cursor: "default" }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+                                <div>
+                                    <div style={{ fontWeight: 800, fontSize: "0.95rem", color: "var(--pmv4-text)", lineHeight: 1.3 }}>
+                                        {g.name}
+                                    </div>
+                                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>
+                                        <span className="pmv4-badge pmv4-badge-info">
+                                            {(g.memberIds || []).length} ürün
+                                        </span>
+                                        {g.trendyolProductMainId && (
+                                            <span className="pmv4-badge pmv4-badge-success" title="Trendyol productMainId">
+                                                TY: {g.trendyolProductMainId}
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
+                                <button type="button" className="pmv4-btn pmv4-btn-outline pmv4-btn-sm" onClick={() => vgOpenDetail(g._id)}>
+                                    <FaEdit /> Düzenle
+                                </button>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </motion.div>
+    );
 
     // ── 1. DASHBOARD ─────────────────────────────────────────────────────────
     const renderDashboard = () => {
@@ -505,12 +787,12 @@ const ProductManagementPageV3 = () => {
             const threshold = p.stockTracking?.lowStockThreshold || 10;
             return stock > 0 && stock <= threshold;
         }).length;
-        // Senkron durumu: ürün en az 1 platformda "synced" ise senkron sayılır
+        // Senkâron durumu: ürün en az 1 platformda "synced" ise senkâron sayılır
         const syncedProducts       = products.filter(p =>
             (p.marketplaceMappings || []).some(m => m.syncStatus === "synced")
         ).length;
         // Hatalı: TÜM mapping'leri "error" olan ürün sayısı (en az 1 mapping olmalı)
-        // Not: error = platformdan kaldırılmış/bulunamıyor. Sadece error mapping'i olan ürünler sayılır.
+        // Not: error = platformdan kaldırılmış/bulunamıyor. Sİadece error mapping'i olan ürünler sayılır.
         const errorProducts        = products.filter(p => {
             const mps = (p.marketplaceMappings || []);
             return mps.length > 0 && mps.every(m => m.syncStatus === "error");
@@ -558,12 +840,12 @@ const ProductManagementPageV3 = () => {
                 hint: "Her ürün 1 kez sayılır"
             },
             {
-                icon: "✅", label: "Senkron Ürün",
+                icon: "✅", label: "Senkâron Ürün",
                 value: syncedProducts,
-                sub: `%${syncRate} senkron oranı`,
+                sub: `%${syncRate} senkâron oranı`,
                 color: "#22c55e",
                 onClick: () => setActiveTab("distribution"),
-                hint: "En az 1 platformda senkron"
+                hint: "En az 1 platformda senkâron"
             },
             {
                 icon: "❌", label: "Hatalı Ürün",
@@ -1065,7 +1347,7 @@ const ProductManagementPageV3 = () => {
                                         <td style={{textAlign:"center"}}>
                                             <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:2}}>
                                                 <span className="pmv4-stock-value" style={{color:stockColor}}>{stock}</span>
-                                                <span className="pmv4-stock-unit">adet</span>
+                                                <span className="pmv4-stock-unit">İadet</span>
                                             </div>
                                         </td>
                                         <td style={{textAlign:"center"}}>
@@ -1116,7 +1398,7 @@ const ProductManagementPageV3 = () => {
                 <div className="pmv4-pagination">
                     <button className="pmv4-btn pmv4-btn-sm pmv4-btn-outline"
                         disabled={page === 0} onClick={() => setPage(p => Math.max(0, p - 1))}>
-                        <FaArrowLeft /> Önceki
+                        <FaArrowLeft /> ÖÖnceki
                     </button>
                     <span>Sayfa {page + 1} / {Math.ceil(totalProducts / PAGE_SIZE)} · {totalProducts} ürün</span>
                     <button className="pmv4-btn pmv4-btn-sm pmv4-btn-outline"
@@ -1157,7 +1439,7 @@ const ProductManagementPageV3 = () => {
 
         // ── Özet istatistikler: her ürün 1 kez sayılır (çift sayma YOK) ──
         // ⚠️ FIX: syncStatus: "error" = platformda yok demek, aktif platform sayılmaz
-        // Senkron: en az 1 platformda "synced" olan benzersiz ürün sayısı
+        // Senkâron: en az 1 platformda "synced" olan benzersiz ürün sayısı
         const totalSynced  = products.filter(p =>
             (p.marketplaceMappings || []).some(m => m.syncStatus === "synced")
         ).length;
@@ -1203,7 +1485,7 @@ const ProductManagementPageV3 = () => {
             }}>
                 {[
                     { label: "Toplam Ürün",    value: products.length, color: "#4ecdc4", icon: "📦", filter: "",        hint: "Tüm benzersiz ürünler" },
-                    { label: "Senkron",         value: totalSynced,     color: "#22c55e", icon: "✅", filter: "synced",  hint: "≥1 platformda senkron" },
+                    { label: "Senkâron",         value: totalSynced,     color: "#22c55e", icon: "✅", filter: "synced",  hint: "≥1 platformda senkâron" },
                     { label: "Hata",            value: totalError,      color: "#ef4444", icon: "❌", filter: "error",   hint: "≥1 platformda hata" },
                     { label: "Bekliyor",        value: totalPending,    color: "#f59e0b", icon: "⏳", filter: "pending", hint: "≥1 platformda bekliyor" },
                     { label: "Eksik Platform",  value: totalMissing,    color: "#8b5cf6", icon: "⚠️", filter: "missing", hint: "En az 1 platform eksik" },
@@ -1268,7 +1550,7 @@ const ProductManagementPageV3 = () => {
                         <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
                             {[
                                 { key: "",        label: "Tümü",    color: "#64748b" },
-                                { key: "synced",  label: "✅ Senkron", color: "#22c55e" },
+                                { key: "synced",  label: "✅ Senkâron", color: "#22c55e" },
                                 { key: "error",   label: "❌ Hata",    color: "#ef4444" },
                                 { key: "pending", label: "⏳ Bekliyor",color: "#f59e0b" },
                                 { key: "missing", label: "⚠️ Eksik",   color: "#8b5cf6" },
@@ -1483,7 +1765,7 @@ const ProductManagementPageV3 = () => {
                                                     <span><FaBarcode style={{ marginRight: 3 }} />{mp.barcode || "—"}</span>
                                                     <span><FaTag style={{ marginRight: 3 }} />{mp.sku || "—"}</span>
                                                     <span>💰 ₺{Number(mp.price || 0).toLocaleString("tr-TR")}</span>
-                                                    <span>📦 {stock} adet</span>
+                                                    <span>📦 {stock} İadet</span>
                                                 </div>
                                             </div>
 
@@ -1573,7 +1855,7 @@ const ProductManagementPageV3 = () => {
                         <div className="pmv4-pagination" style={{ marginTop: "16px" }}>
                             <button className="pmv4-btn pmv4-btn-sm pmv4-btn-outline"
                                 disabled={page === 0} onClick={() => setPage(p => Math.max(0, p - 1))}>
-                                <FaArrowLeft /> Önceki
+                                <FaArrowLeft /> ÖÖnceki
                             </button>
                             <span style={{ color: "#64748b", fontSize: "13px" }}>
                                 Sayfa {page + 1} / {Math.ceil(totalProducts / PAGE_SIZE)} · {totalProducts} ürün
@@ -1649,7 +1931,7 @@ const ProductManagementPageV3 = () => {
                                     {[
                                         { label: "Satış Fiyatı", value: `₺${Number(mp.price || 0).toLocaleString("tr-TR")}`, color: "#22c55e" },
                                         { label: "Liste Fiyatı", value: `₺${Number(mp.listPrice || mp.price || 0).toLocaleString("tr-TR")}`, color: "#94a3b8" },
-                                        { label: "Stok",         value: `${stock} adet`, color: stock === 0 ? "#ef4444" : stock < 10 ? "#f59e0b" : "#4ecdc4" },
+                                        { label: "Stok",         value: `${stock} İadet`, color: stock === 0 ? "#ef4444" : stock < 10 ? "#f59e0b" : "#4ecdc4" },
                                         { label: "Kategori",     value: mp.category || "—", color: "#94a3b8" },
                                     ].map(item => (
                                         <div key={item.label} style={{
@@ -1677,7 +1959,7 @@ const ProductManagementPageV3 = () => {
                                                 : status === "error"   ? "#ef4444"
                                                 : "#f59e0b";
                                             const statusLabel = !exists ? "Yok"
-                                                : status === "synced"  ? "Senkron"
+                                                : status === "synced"  ? "Senkâron"
                                                 : status === "error"   ? "Hata"
                                                 : status === "pending" ? "Bekliyor"
                                                 : status || "Bilinmiyor";
@@ -1932,7 +2214,7 @@ const ProductManagementPageV3 = () => {
     };
 
     // ── 4. FİYAT & KAMPANYA YÖNETİMİ ─────────────────────────────────────────
-    const renderPricing = () => {
+    const renderPriçing = () => {
         // Fiyat istatistikleri
         const withDiscount = products.filter(p => {
             const mp2 = p.masterProduct || p;
@@ -1946,7 +2228,7 @@ const ProductManagementPageV3 = () => {
             : 0;
 
         return (
-        <motion.div key="pricing" className="pmv4-tab-content"
+        <motion.div key="priçing" className="pmv4-tab-content"
             initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
 
             {/* Üst KPI Satırı */}
@@ -2055,7 +2337,7 @@ const ProductManagementPageV3 = () => {
                             </label>
                             <div className="pmv4-input-with-suffix">
                                 <input className="pmv4-input" type="number" min="0" step="0.01"
-                                    placeholder={bulkPriceMode === "fixed" ? "örn: 299.90" : "örn: 15"}
+                                    placeholder={bulkPriceMode === "fixed" ? "öÖrn: 299.90" : "öÖrn: 15"}
                                     value={bulkPriceValue}
                                     onChange={e => setBulkPriceValue(e.target.value)} />
                                 <span className="pmv4-input-suffix">
@@ -2190,7 +2472,7 @@ const ProductManagementPageV3 = () => {
                                                     fontWeight:700, fontSize:"0.88rem",
                                                     color: stock===0?"#ef4444":stock<10?"#f59e0b":"#22c55e"
                                                 }}>{stock}</span>
-                                                <span style={{color:"#475569",fontSize:"0.72rem"}}> adet</span>
+                                                <span style={{color:"#475569",fontSize:"0.72rem"}}> İadet</span>
                                             </td>
                                             <td>
                                                 <div className="pmv4-mp-badges">
@@ -2229,7 +2511,7 @@ const ProductManagementPageV3 = () => {
                     <div className="pmv4-pagination">
                         <button className="pmv4-btn pmv4-btn-sm pmv4-btn-outline"
                             disabled={page === 0} onClick={() => setPage(p => Math.max(0, p - 1))}>
-                            <FaArrowLeft /> Önceki
+                            <FaArrowLeft /> ÖÖnceki
                         </button>
                         <span>Sayfa {page + 1} / {Math.ceil(totalProducts / PAGE_SIZE)} · {totalProducts} ürün</span>
                         <button className="pmv4-btn pmv4-btn-sm pmv4-btn-outline"
@@ -2254,7 +2536,7 @@ const ProductManagementPageV3 = () => {
                 <div>
                     <strong>Karşılaştırma Matrisi Nedir?</strong>
                     <p>Her ürünün hangi pazaryerinde <strong>mevcut</strong>, hangisinde <strong>eksik</strong> olduğunu tek bakışta görün.
-                    Eksik ürünleri seçip <strong>toplu dağıtım</strong> yapabilirsiniz. Yeşil = var &amp; senkron, Sarı = bekliyor, Kırmızı = hata, Gri = hiç yok.</p>
+                    Eksik ürünleri seçip <strong>toplu dağıtım</strong> yapabilirsiniz. Yeşil = var &amp; senkâron, Sarı = bekliyor, Kırmızı = hata, Gri = hiç yok.</p>
                 </div>
             </div>
 
@@ -2301,7 +2583,7 @@ const ProductManagementPageV3 = () => {
                 }}>
                     <input type="checkbox" checked={missingOnly}
                         onChange={e => { setMissingOnly(e.target.checked); setCompPage(0); }} />
-                    <span style={{ color: missingOnly ? "#ef4444" : undefined }}>🔍 Sadece eksik olanlar</span>
+                    <span style={{ color: missingOnly ? "#ef4444" : undefined }}>🔍 Sİadece eksik olanlar</span>
                 </label>
                 <span className="pmv4-total-label">{compTotal} ürün</span>
                 <button className="pmv4-btn pmv4-btn-outline pmv4-btn-sm" onClick={loadComparison}>
@@ -2435,7 +2717,7 @@ const ProductManagementPageV3 = () => {
                                                                 {status === "synced" ? "✅" : status === "error" ? "❌" : "⏳"}
                                                             </span>
                                                             <span style={{ fontSize: "0.68rem", color: statusColor, fontWeight: 600 }}>
-                                                                {status === "synced" ? "Senkron" : status === "error" ? "Hata" : "Bekliyor"}
+                                                                {status === "synced" ? "Senkâron" : status === "error" ? "Hata" : "Bekliyor"}
                                                             </span>
                                                         </div>
                                                     ) : (
@@ -2466,7 +2748,7 @@ const ProductManagementPageV3 = () => {
                 <div className="pmv4-pagination">
                     <button className="pmv4-btn pmv4-btn-sm pmv4-btn-outline"
                         disabled={compPage === 0} onClick={() => setCompPage(p => Math.max(0, p - 1))}>
-                        <FaArrowLeft /> Önceki
+                        <FaArrowLeft /> ÖÖnceki
                     </button>
                     <span>Sayfa {compPage + 1} / {Math.ceil(compTotal / PAGE_SIZE)} · {compTotal} ürün</span>
                     <button className="pmv4-btn pmv4-btn-sm pmv4-btn-outline"
@@ -2563,7 +2845,7 @@ const ProductManagementPageV3 = () => {
                     </div>
                 </div>
                 <p className="pmv4-section-desc">
-                    Tüm senkronizasyon, stok güncelleme ve fiyat değişikliği işlemlerinin geçmişi burada listelenir.
+                    Tüm senkâronizasyon, stok güncelleme ve fiyat değişikliği işlemlerinin geçmişi burada listelenir.
                 </p>
 
                 {logs.length === 0 ? (
@@ -2571,7 +2853,7 @@ const ProductManagementPageV3 = () => {
                         <FaClipboardList size={40} />
                         <p>Henüz işlem kaydı yok.</p>
                         <button className="pmv4-btn pmv4-btn-outline pmv4-btn-sm" onClick={runAutoSync} disabled={autoSyncRunning}>
-                            {autoSyncRunning ? <Spinner /> : <FaSync />} Senkronizasyon Başlat
+                            {autoSyncRunning ? <Spinner /> : <FaSync />} Senkâronizasyon Başlat
                         </button>
                     </div>
                 ) : (
@@ -2645,7 +2927,7 @@ const ProductManagementPageV3 = () => {
                 <div className="pmv4-header-left">
                     <h1><FaLayerGroup /> Ürün Yönetimi</h1>
                     <p>
-                        Tüm pazaryerlerinizi tek panelden yönetin —&nbsp;
+                        Tüm pazaryerlerİşinizi tek panelden yönetin —&nbsp;
                         <span style={{ color: "#4ecdc4" }}>Stok</span> ·&nbsp;
                         <span style={{ color: "#22c55e" }}>Dağıtım</span> ·&nbsp;
                         <span style={{ color: "#f59e0b" }}>Fiyat</span>
@@ -2708,7 +2990,8 @@ const ProductManagementPageV3 = () => {
                     {activeTab === "dashboard"       && renderDashboard()}
                     {activeTab === "stock"           && renderStock()}
                     {activeTab === "distribution"    && renderDistribution()}
-                    {activeTab === "pricing"         && renderPricing()}
+                    {activeTab === "variants"        && renderVariantGroups()}
+                    {activeTab === "priçing"         && renderPriçing()}
 
                     {activeTab === "comparison"      && renderComparison()}
                     {activeTab === "logs"            && renderLogs()}
@@ -2727,6 +3010,219 @@ const ProductManagementPageV3 = () => {
                         {toast.type === "info"    && <FaInfoCircle />}
                         <span>{toast.msg}</span>
                         <button onClick={() => setToast(null)}><FaTimes /></button>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            {/* ── Varyant grubu: oluştur ─────────────────────────────────────── */}
+            <AnimatePresence>
+                {vgCreateOpen && (
+                    <motion.div className="pmv4-modal-overlay"
+                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                        onClick={() => setVgCreateOpen(false)}>
+                        <motion.div className="pmv4-modal pmv4-modal-wide"
+                            style={{ maxWidth: 560 }}
+                            initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9 }}
+                            onClick={(e) => e.stopPropagation()}>
+                            <div className="pmv4-modal-header">
+                                <h3><FaLayerGroup /> Yeni varyant grubu</h3>
+                                <button type="button" onClick={() => setVgCreateOpen(false)}><FaTimes /></button>
+                            </div>
+                            <div className="pmv4-modal-body">
+                                <div className="pmv4-modal-info-box">
+                                    <FaInfoCircle />
+                                    <span>Grup adı kısa ve tanınır olsun (ör. ürün modeli). Trendyol model kodunu şimdi veya düzenlemede girebilirsiniz.</span>
+                                </div>
+                                <div className="pmv4-form-group">
+                                    <label>Grup adı *</label>
+                                    <input className="pmv4-input" value={vgFormName} onChange={(e) => setVgFormName(e.target.value)} placeholder="Örn. Temassız ödeme aparatı — yıldız model" />
+                                </div>
+                                <div className="pmv4-form-group">
+                                    <label>Notlar</label>
+                                    <textarea className="pmv4-input pmv4-textarea" value={vgFormNotes} onChange={(e) => setVgFormNotes(e.target.value)} rows={2} />
+                                </div>
+                                <div className="pmv4-form-grid">
+                                    <div className="pmv4-form-group">
+                                        <label>Trendyol model kodu (productMainId)</label>
+                                        <input className="pmv4-input" value={vgFormMainId} onChange={(e) => setVgFormMainId(e.target.value)} placeholder="Tüm varyantlarda aynı olacak kod" />
+                                    </div>
+                                    <div className="pmv4-form-group">
+                                        <label>&nbsp;</label>
+                                        <span className="pmv4-text-muted" style={{ fontSize: "0.78rem" }}>Boş bırakıp sonra düzenleyebilirsiniz.</span>
+                                    </div>
+                                </div>
+                                <div className="pmv4-form-grid">
+                                    <div className="pmv4-form-group">
+                                        <label>Renk etiketi</label>
+                                        <input className="pmv4-input" value={vgFormColorLbl} onChange={(e) => setVgFormColorLbl(e.target.value)} />
+                                    </div>
+                                    <div className="pmv4-form-group">
+                                        <label>Beden etiketi</label>
+                                        <input className="pmv4-input" value={vgFormSizeLbl} onChange={(e) => setVgFormSizeLbl(e.target.value)} />
+                                    </div>
+                                </div>
+                                <div className="pmv4-form-group pmv4-full">
+                                    <label>Grupsuz ürünlerden seç (isteğe bağlı, son 200 kayıt)</label>
+                                    <div style={{ maxHeight: 220, overflow: "auto", border: "1px solid var(--pmv4-border)", borderRadius: 8 }}>
+                                        {vgPickerRows.length === 0 ? (
+                                            <p style={{ padding: 12, margin: 0, color: "var(--pmv4-text-muted)", fontSize: "0.82rem" }}>Grupsuz ürün bulunamadı.</p>
+                                        ) : (
+                                            vgPickerRows.map((p) => (
+                                                <label key={p._id} style={{
+                                                    display: "flex", alignItems: "center", gap: 10, padding: "8px 12px",
+                                                    borderBottom: "1px solid var(--pmv4-border)", cursor: "pointer",
+                                                }}>
+                                                    <input type="checkbox" checked={vgCreatePick.has(String(p._id))} onChange={() => vgToggleCreatePick(p._id)} />
+                                                    <span style={{ fontSize: "0.8rem" }}>
+                                                        <strong>{(p.masterProduct?.name || "").slice(0, 70)}</strong>
+                                                        <br />
+                                                        <span className="pmv4-text-muted">{p.masterProduct?.sku} · {p.masterProduct?.barcode}</span>
+                                                    </span>
+                                                </label>
+                                            ))
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="pmv4-modal-footer">
+                                <button type="button" className="pmv4-btn pmv4-btn-outline" onClick={() => setVgCreateOpen(false)}>İptal</button>
+                                <button type="button" className="pmv4-btn pmv4-btn-primary" onClick={vgSubmitCreate} disabled={vgFormName.trim().length < 2}>
+                                    Oluştur
+                                </button>
+                            </div>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            {/* ── Varyant grubu: detay ──────────────────────────────────────── */}
+            <AnimatePresence>
+                {vgDetailOpen && vgActiveId && (
+                    <motion.div className="pmv4-modal-overlay"
+                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                        onClick={() => setVgDetailOpen(false)}>
+                        <motion.div className="pmv4-modal pmv4-modal-wide"
+                            style={{ maxWidth: 640 }}
+                            initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9 }}
+                            onClick={(e) => e.stopPropagation()}>
+                            <div className="pmv4-modal-header">
+                                <h3><FaEdit /> Grup düzenle</h3>
+                                <button type="button" onClick={() => setVgDetailOpen(false)}><FaTimes /></button>
+                            </div>
+                            <div className="pmv4-modal-body">
+                                <div className="pmv4-form-grid">
+                                    <div className="pmv4-form-group">
+                                        <label>Grup adı</label>
+                                        <input className="pmv4-input" value={vgFormName} onChange={(e) => setVgFormName(e.target.value)} />
+                                    </div>
+                                    <div className="pmv4-form-group">
+                                        <label>Trendyol model kodu</label>
+                                        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                                            <input className="pmv4-input" style={{ flex: 1 }} value={vgFormMainId} onChange={(e) => setVgFormMainId(e.target.value)} />
+                                            <button type="button" className="pmv4-btn pmv4-btn-outline pmv4-btn-sm" onClick={vgCopyMainId}>Kopyala</button>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div className="pmv4-form-group">
+                                    <label>Notlar</label>
+                                    <textarea className="pmv4-input pmv4-textarea" value={vgFormNotes} onChange={(e) => setVgFormNotes(e.target.value)} rows={2} />
+                                </div>
+                                <div className="pmv4-form-grid">
+                                    <div className="pmv4-form-group">
+                                        <label>Renk etiketi</label>
+                                        <input className="pmv4-input" value={vgFormColorLbl} onChange={(e) => setVgFormColorLbl(e.target.value)} />
+                                    </div>
+                                    <div className="pmv4-form-group">
+                                        <label>Beden etiketi</label>
+                                        <input className="pmv4-input" value={vgFormSizeLbl} onChange={(e) => setVgFormSizeLbl(e.target.value)} />
+                                    </div>
+                                </div>
+                                <button type="button" className="pmv4-btn pmv4-btn-success pmv4-btn-sm" onClick={vgSaveDetailMeta}>
+                                    <FaSave /> Bilgileri kaydet
+                                </button>
+                                <div className="pmv4-modal-info-box" style={{ marginTop: 14 }}>
+                                    <FaInfoCircle />
+                                    <span><strong>Üyeler</strong> bu gruptaki ürün satırlarıdır. Çıkarmak silmez; sadece gruptan ayırır.</span>
+                                </div>
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                                    <strong style={{ fontSize: "0.85rem" }}>Ürünler ({vgMembers.length})</strong>
+                                    <button type="button" className="pmv4-btn pmv4-btn-outline pmv4-btn-sm" onClick={vgOpenAddPicker}><FaPlus /> Ürün ekle</button>
+                                </div>
+                                <div style={{ maxHeight: 240, overflow: "auto", border: "1px solid var(--pmv4-border)", borderRadius: 8 }}>
+                                    {vgMembers.length === 0 ? (
+                                        <p style={{ padding: 12, margin: 0, color: "var(--pmv4-text-muted)", fontSize: "0.82rem" }}>Henüz üye yok.</p>
+                                    ) : (
+                                        vgMembers.map((m) => (
+                                            <div key={m._id} style={{
+                                                display: "flex", justifyContent: "space-between", alignItems: "center",
+                                                gap: 10, padding: "10px 12px", borderBottom: "1px solid var(--pmv4-border)",
+                                            }}>
+                                                <div style={{ fontSize: "0.8rem", minWidth: 0 }}>
+                                                    <strong style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 420 }}>
+                                                        {m.masterProduct?.name}
+                                                    </strong>
+                                                    <span className="pmv4-text-muted">
+                                                        {m.masterProduct?.sku} · {m.masterProduct?.barcode} · {summarizeVariantAttrs(m.masterProduct?.attributes)} · stok: {m.stockTracking?.totalStock ?? "—"}
+                                                    </span>
+                                                </div>
+                                                <button type="button" className="pmv4-btn pmv4-btn-danger pmv4-btn-sm" onClick={() => vgRemoveMember(m._id)}>Çıkar</button>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+                            </div>
+                            <div className="pmv4-modal-footer">
+                                <button type="button" className="pmv4-btn pmv4-btn-danger" onClick={vgDeleteGroup}><FaTrash /> Grubu sil</button>
+                                <button type="button" className="pmv4-btn pmv4-btn-outline" onClick={() => setVgDetailOpen(false)}>Kapat</button>
+                            </div>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            {/* ── Varyant grubu: ürün seçici ───────────────────────────────── */}
+            <AnimatePresence>
+                {vgPickerOpen && (
+                    <motion.div className="pmv4-modal-overlay"
+                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                        onClick={() => setVgPickerOpen(false)}>
+                        <motion.div className="pmv4-modal pmv4-modal-wide"
+                            style={{ maxWidth: 520 }}
+                            initial={{ scale: 0.9, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.9 }}
+                            onClick={(e) => e.stopPropagation()}>
+                            <div className="pmv4-modal-header">
+                                <h3><FaPlus /> Gruba ürün ekle</h3>
+                                <button type="button" onClick={() => setVgPickerOpen(false)}><FaTimes /></button>
+                            </div>
+                            <div className="pmv4-modal-body">
+                                <p className="pmv4-section-desc" style={{ marginTop: 0 }}>Yalnızca <strong>henüz gruba bağlı olmayan</strong> ürünler listelenir (son 250 kayıt).</p>
+                                <div style={{ maxHeight: 300, overflow: "auto", border: "1px solid var(--pmv4-border)", borderRadius: 8 }}>
+                                    {vgPickerRows.length === 0 ? (
+                                        <p style={{ padding: 12, margin: 0, color: "var(--pmv4-text-muted)", fontSize: "0.82rem" }}>Eklenebilecek ürün yok.</p>
+                                    ) : (
+                                        vgPickerRows.map((p) => (
+                                            <label key={p._id} style={{
+                                                display: "flex", alignItems: "center", gap: 10, padding: "8px 12px",
+                                                borderBottom: "1px solid var(--pmv4-border)", cursor: "pointer",
+                                            }}>
+                                                <input type="checkbox" checked={vgPickerPick.has(String(p._id))} onChange={() => vgTogglePickerPick(p._id)} />
+                                                <span style={{ fontSize: "0.8rem" }}>
+                                                    <strong>{(p.masterProduct?.name || "").slice(0, 64)}</strong>
+                                                    <br />
+                                                    <span className="pmv4-text-muted">{p.masterProduct?.sku} · {p.masterProduct?.barcode}</span>
+                                                </span>
+                                            </label>
+                                        ))
+                                    )}
+                                </div>
+                            </div>
+                            <div className="pmv4-modal-footer">
+                                <button type="button" className="pmv4-btn pmv4-btn-outline" onClick={() => setVgPickerOpen(false)}>İptal</button>
+                                <button type="button" className="pmv4-btn pmv4-btn-primary" onClick={vgSubmitAddMembers} disabled={vgPickerPick.size === 0}>
+                                    Ekle ({vgPickerPick.size})
+                                </button>
+                            </div>
+                        </motion.div>
                     </motion.div>
                 )}
             </AnimatePresence>

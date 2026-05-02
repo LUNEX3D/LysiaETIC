@@ -12,7 +12,7 @@ export const PROVIDERS = [
         name: "QNB eSolutions",
         logo: "🏦",
         color: "#7c3aed",
-        description: "QNB eSolutions ile e-Fatura, e-Arşiv, e-İrsaliye ve e-Defter işlemlerinizi yönetin. Türkiye'nin en büyük e-belge pazarında lider.",
+        description: "QNB eSolutions ile e-Fatura, e-Arşiv, e-İrsaliye ve e-Defter işlemlerİşinizi yönetin. Türkiye'nin en büyük e-belge pazarında lider.",
         features: ["e-Fatura", "e-Arşiv", "e-İrsaliye", "Fatura Oluşturma", "Mükellef Sorgulama"],
         authType: "qnb",
         fields: [
@@ -38,7 +38,7 @@ export const PROVIDERS = [
         name: "Trendyol E-Faturam",
         logo: "🛍️",
         color: "#f27a1a",
-        description: "Trendyol E-Faturam ile e-Fatura, e-Arşiv ve e-İrsaliye işlemlerinizi yönetin.",
+        description: "Trendyol E-Faturam ile e-Fatura, e-Arşiv ve e-İrsaliye işlemlerİşinizi yönetin.",
         features: ["e-Fatura", "e-Arşiv", "e-İrsaliye", "Mükellef Sorgulama"],
         authType: "trendyol",
         fields: [
@@ -229,13 +229,13 @@ export const DEFAULT_INVOICE_FORM = {
     customerTaxOffice: "",
     customerEmail: "",
     customerPhone: "",
-    lines: [{ name: "", quantity: 1, unit: "adet", unitPrice: 0, vatRate: 20, discountAmount: 0 }],
+    lines: [{ name: "", quantity: 1, unit: "İadet", unitPrice: 0, vatRate: 20, discountAmount: 0 }],
     note: "",
     currency: "TRY",
     sendingType: "ELEKTRONIK",
 };
 
-export const UNIT_OPTIONS = ["adet", "kg", "lt", "m", "m2", "paket", "kutu", "saat", "gun", "ay"];
+export const UNIT_OPTIONS = ["İadet", "kg", "lt", "m", "m2", "paket", "kutu", "saat", "gun", "ay"];
 export const VAT_RATES = [0, 1, 10, 20];
 
 /* ═══════════════════════════════════════════════════════════

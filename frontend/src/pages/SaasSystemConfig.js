@@ -38,11 +38,11 @@ const SaasSystemConfig = () => {
 
     useEffect(() => { loadConfig(); }, [loadConfig]);
 
-    const fmtUptime = (sec) => {
-        if (!sec) return "—";
-        const d = Math.floor(sec / 86400);
-        const h = Math.floor((sec % 86400) / 3600);
-        const m = Math.floor((sec % 3600) / 60);
+    const fmtUptime = (seç) => {
+        if (!seç) return "—";
+        const d = Math.floor(seç / 86400);
+        const h = Math.floor((seç % 86400) / 3600);
+        const m = Math.floor((seç % 3600) / 60);
         return `${d}g ${h}s ${m}dk`;
     };
 

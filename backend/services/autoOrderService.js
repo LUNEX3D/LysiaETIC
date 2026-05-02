@@ -17,8 +17,22 @@
  * ═══════════════════════════════════════════════════════════════
  */
 const axios = require("axios");
+const https = require("https");
 const moment = require("moment");
 const logger = require("../config/logger");
+
+const n11HttpsAgent = new https.Agent({ keepAlive: true, maxSockets: 6 });
+
+/** N11 / geçici ağ kesintileri */
+const isTransientNetworkError = (e) => {
+    const code = e && e.code;
+    const msg = String((e && e.message) || "").toLowerCase();
+    return code === "ECONNRESET" || code === "ECONNABORTED" || code === "ETIMEDOUT" ||
+        code === "EPIPE" || /socket hang up/i.test(msg);
+};
+
+/** Hepsiburada OMS 400 tekrarlayan log gürültüsü */
+const hbOms400LastWarn = new Map();
 
 // ═══════════════════════════════════════════════════════════════
 // 📋 KARGO ŞİRKETİ LİSTELERİ
@@ -371,12 +385,22 @@ const processHepsiburadaOrders = async (credentials, cargoId, cargoName) => {
                         logger.warn(`[AutoOrder] Hepsiburada 401 Unauthorized — ${isSit ? "SIT" : "PROD"} ortamı ile merchantId uyumsuz olabilir. useSit=${useSit}`);
                         return { ok: false, fatal: true, chunkItems };
                     }
-                    logger.warn(`[AutoOrder] Hepsiburada sipariş çekme hatası: ${st || err.message}`, {
+                    const detail = {
                         range: label,
                         url: `${ep.OMS}/orders/merchantid/${merchantId}?begindate=${encStart}&enddate=${encEnd}&offset=${offset}&limit=${limit}`,
                         env: isSit ? "SIT" : "PRODUCTION",
                         responseBody: JSON.stringify(err.response?.data || "").substring(0, 500)
-                    });
+                    };
+                    if (st === 400) {
+                        const k = `${String(merchantId).slice(0, 12)}:${label}`;
+                        const prev = hbOms400LastWarn.get(k) || 0;
+                        if (Date.now() - prev > 45 * 60 * 1000) {
+                            logger.warn(`[AutoOrder] Hepsiburada sipariş çekme hatası: ${st || err.message}`, detail);
+                            hbOms400LastWarn.set(k, Date.now());
+                        }
+                    } else {
+                        logger.warn(`[AutoOrder] Hepsiburada sipariş çekme hatası: ${st || err.message}`, detail);
+                    }
                     // 400 vb. — bir gün başarısız olsa bile diğer günlük pencereleri dene
                     return { ok: false, fatal: false, chunkItems };
                 }
@@ -625,6 +649,8 @@ const processN11Orders = async (credentials, cargoId, cargoName) => {
             "Content-Type": "application/json"
         };
 
+        const axiosN11 = { headers, timeout: 45000, httpsAgent: n11HttpsAgent };
+
         // 1) Yeni siparişleri çek
         const now = Date.now();
         const startDate = now - 7 * 24 * 60 * 60 * 1000;
@@ -632,13 +658,28 @@ const processN11Orders = async (credentials, cargoId, cargoName) => {
             `?startDate=${startDate}&endDate=${now}&page=0&size=100` +
             `&orderByDirection=DESC&orderByField=true`;
 
-        const response = await axios.get(url, { headers, timeout: 20000 });
+        let response;
+        let lastListErr = null;
+        for (let attempt = 1; attempt <= 4; attempt++) {
+            try {
+                response = await axios.get(url, axiosN11);
+                lastListErr = null;
+                break;
+            } catch (e) {
+                lastListErr = e;
+                if (!isTransientNetworkError(e) || attempt === 4) {
+                    throw e;
+                }
+                await new Promise((r) => setTimeout(r, attempt * 1200));
+            }
+        }
+        if (lastListErr) throw lastListErr;
+
         const packages = response.data?.content || [];
 
-        // Sadece "New" statüsündeki paketleri filtrele
+        // Sadece "New" statüsündeki paketleri işle (onay bekleyen)
         const newPackages = packages.filter(p =>
-            (p.shipmentPackageStatus || "").toLowerCase() === "new" ||
-            (p.shipmentPackageStatus || "").toLowerCase() === "approved" === false
+            (p.shipmentPackageStatus || "").toLowerCase() === "new"
         );
 
         if (newPackages.length === 0) {
@@ -668,13 +709,16 @@ const processN11Orders = async (credentials, cargoId, cargoName) => {
                 let lastErr = null;
                 for (let attempt = 1; attempt <= 3; attempt++) {
                     try {
-                        await axios.put(approveUrl, approveBody, { headers, timeout: 15000 });
+                        await axios.put(approveUrl, approveBody, {
+                            headers,
+                            timeout: 28000,
+                            httpsAgent: n11HttpsAgent
+                        });
                         approved = true;
                         break;
                     } catch (e) {
                         lastErr = e;
-                        const transient = e.code === "ECONNRESET" || /socket hang up/i.test(e.message || "");
-                        if (!transient || attempt === 3) break;
+                        if (!isTransientNetworkError(e) || attempt === 3) break;
                         await new Promise((r) => setTimeout(r, attempt * 700));
                     }
                 }

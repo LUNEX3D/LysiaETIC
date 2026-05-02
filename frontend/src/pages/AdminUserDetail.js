@@ -2,7 +2,7 @@
  * AdminUserDetail — Kullanıcı Detay Sayfası
  * LysiaETIC Admin Panel
  *
- * Bir kullanıcının TÜM DB verilerini tek ekranda organize şekilde gösterir:
+ * Bir kullanıcının TÜM DB verilerini tek ekâranda organize şekilde gösterir:
  *   - Profil & Firma Bilgileri (User + companyInfo)
  *   - Pazaryeri Entegrasyonları (Marketplace credentials)
  *   - Ürün & Sipariş İstatistikleri
@@ -313,7 +313,7 @@ const AdminUserDetail = () => {
                             <div style={{ marginTop: "0.75rem", padding: "0.5rem 0.75rem", background: "var(--ap-bg-alt)", borderRadius: 6, fontSize: "0.82rem" }}>
                                 <strong>İstatistikler:</strong>{" "}
                                 Toplam Fatura: {ic.stats.totalInvoicesCreated || 0} |{" "}
-                                Ardışık Hata: {ic.stats.consecutiveErrors || 0} |{" "}
+                                Ardışık Hata: {ic.stats.conseçutiveErrors || 0} |{" "}
                                 Son Hata: {ic.stats.lastError || "Yok"} |{" "}
                                 Son Fatura: {formatDate(ic.stats.lastInvoiceDate)}
                             </div>

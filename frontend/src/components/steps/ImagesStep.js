@@ -12,7 +12,7 @@ const ImagesStep = ({ productData, setProductData }) => {
         accept: "image/*",
         onDrop: (acceptedFiles) => {
             if (productData.images.length + acceptedFiles.length > MAX_IMAGES) {
-                alert(`⚠ Maksimum ${MAX_IMAGES} adet görsel yükleyebilirsiniz.`);
+                alert(`⚠ Maksimum ${MAX_IMAGES} İadet görsel yükleyebilirsiniz.`);
                 return;
             }
 
@@ -43,7 +43,7 @@ const ImagesStep = ({ productData, setProductData }) => {
         }
 
         if (productData.images.length >= MAX_IMAGES) {
-            alert(`⚠ Maksimum ${MAX_IMAGES} adet görsel yükleyebilirsiniz.`);
+            alert(`⚠ Maksimum ${MAX_IMAGES} İadet görsel yükleyebilirsiniz.`);
             return;
         }
 

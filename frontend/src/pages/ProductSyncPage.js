@@ -590,7 +590,7 @@ const ProductSyncPage = ({ userId, marketplaces: propMarketplaces }) => {
 
             {totalPages > 1 && (
                 <div className="pm-pagination">
-                    <button className="pm-btn pm-btn-outline pm-btn-sm" disabled={page === 0} onClick={() => setPage(p => p - 1)}>← Önceki</button>
+                    <button className="pm-btn pm-btn-outline pm-btn-sm" disabled={page === 0} onClick={() => setPage(p => p - 1)}>← ÖÖnceki</button>
                     <span className="pm-page-info">Sayfa {page + 1} / {totalPages}</span>
                     <button className="pm-btn pm-btn-outline pm-btn-sm" disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)}>Sonraki →</button>
                 </div>

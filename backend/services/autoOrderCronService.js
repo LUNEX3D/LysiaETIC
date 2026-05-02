@@ -17,6 +17,7 @@
  *   - Marketplace'ler arası 1sn bekleme
  */
 
+const mongoose = require("mongoose");
 const logger = require("../config/logger");
 const AutoOrderConfig = require("../models/AutoOrderConfig");
 const Marketplace = require("../models/Marketplace");
@@ -30,6 +31,10 @@ const DELAY_BETWEEN_MARKETPLACES_MS = 1000;     // Marketplace'ler arası beklem
 
 // ── Re-entrancy lock ────────────────────────────────────────────────────────
 let _cronRunning = false;
+
+/** Aynı yetim config için uyarı spam'ini azalt (pazaryeri silindi / pasif) */
+const ORPHAN_LOG_COOLDOWN_MS = 6 * 60 * 60 * 1000;
+const _orphanConfigLoggedAt = new Map();
 
 /**
  * Belirli ms kadar bekle
@@ -78,15 +83,36 @@ const runAutoOrderCron = async () => {
             try {
                 for (const config of configs) {
                     try {
-                        // Marketplace bilgisini çek
+                        // Marketplace bilgisini çek (ObjectId ile — string userId uyumu)
+                        let ownerOid;
+                        try {
+                            ownerOid = new mongoose.Types.ObjectId(userId);
+                        } catch {
+                            ownerOid = userId;
+                        }
                         const marketplace = await Marketplace.findOne({
                             _id: config.marketplace,
-                            userId: userId,
+                            userId: ownerOid,
                             isActive: { $ne: false }
                         });
 
                         if (!marketplace) {
-                            logger.warn("[AUTO-ORDER CRON] Marketplace bulunamadı veya deaktif — configId=" + config._id);
+                            const cid = String(config._id);
+                            const now = Date.now();
+                            const last = _orphanConfigLoggedAt.get(cid) || 0;
+                            if (now - last >= ORPHAN_LOG_COOLDOWN_MS) {
+                                logger.warn(
+                                    "[AUTO-ORDER CRON] Marketplace bulunamadı veya deaktif — configId=" + cid +
+                                    " userId=" + userId +
+                                    " (Pazaryeri silinmiş veya pasif olabilir; otomatik sipariş ayarında kapatın veya entegrasyonu yeniden bağlayın.)"
+                                );
+                                _orphanConfigLoggedAt.set(cid, now);
+                                await AutoOrderConfig.findByIdAndUpdate(config._id, {
+                                    $set: {
+                                        "stats.lastError": "Pazaryeri bulunamadı veya pasif — otomatik işlem atlandı.",
+                                    }
+                                }).catch(() => {});
+                            }
                             continue;
                         }
 

@@ -244,7 +244,7 @@ const SyncNotificationsPage = ({ userId }) => {
                 <div className="pm-empty-state">
                     <FaInfoCircle style={{ fontSize: "3rem", color: "#4ecdc4" }} />
                     <h3>Henüz log kaydı yok</h3>
-                    <p>Senkronizasyon işlemleri başladığında loglar burada görünecek.</p>
+                    <p>Senkâronizasyon işlemleri başladığında loglar burada görünecek.</p>
                 </div>
             ) : (
                 <div className="pm-log-list">
@@ -287,7 +287,7 @@ const SyncNotificationsPage = ({ userId }) => {
             {/* Pagination */}
             {Math.ceil(totalLogs / 30) > 1 && (
                 <div className="pm-pagination">
-                    <button className="pm-btn pm-btn-outline pm-btn-sm" disabled={page === 0} onClick={() => setPage(p => p - 1)}>← Önceki</button>
+                    <button className="pm-btn pm-btn-outline pm-btn-sm" disabled={page === 0} onClick={() => setPage(p => p - 1)}>← ÖÖnceki</button>
                     <span className="pm-page-info">Sayfa {page + 1} / {Math.ceil(totalLogs / 30)}</span>
                     <button className="pm-btn pm-btn-outline pm-btn-sm" disabled={page >= Math.ceil(totalLogs / 30) - 1} onClick={() => setPage(p => p + 1)}>Sonraki →</button>
                 </div>
@@ -298,8 +298,8 @@ const SyncNotificationsPage = ({ userId }) => {
     return (
         <div className="pm-page">
             <div className="pm-header">
-                <h1 className="pm-title"><FaBell /> Senkronizasyon Bildirimleri & Loglar</h1>
-                <p className="pm-subtitle">Tüm stok değişiklikleri, senkronizasyon işlemleri ve sistem bildirimleri burada görüntülenir.</p>
+                <h1 className="pm-title"><FaBell /> Senkâronizasyon Bildirimleri & Loglar</h1>
+                <p className="pm-subtitle">Tüm stok değişiklikleri, senkâronizasyon işlemleri ve sistem bildirimleri burada görüntülenir.</p>
             </div>
 
             {/* Tabs */}

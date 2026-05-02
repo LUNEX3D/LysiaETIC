@@ -4,12 +4,12 @@
  *
  * 7 Tab:
  *    Genel Bak    KPI Bar + Gnlk zet + Aksiyon Kartlar
- *    Sat & Kr    Ciro/Kr trendi + Kr marj + Net kr
- *    rn Performans  Krllk tablosu + Stok devir
+ *    Sat & Kâr    Ciro/Kâr trendi + Kâr marj + Net kâr
+ *    ürün Performans  Kârllk tablosu + Stok devir
  *    Pazaryeri Karlatrma  Yan yana metrikler
  *    Stok & Talep    Talep tahmini + Kritik stok + Devir hz
  *    Komisyon & Gider  Pazaryeri bazl komisyon + Gider dalm
- *    Aksiyon Merkezi  ncelikli neriler
+ *    Aksiyon Merkezi  ncelikli öneriler
  */
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -43,8 +43,8 @@ const fmtPercent = (v) => `%${Number(v || 0).toFixed(1)}`;
 //  Tab tanmlar 
 const TABS = [
     { id: "overview",     label: "Genel Bak",       icon: FaChartArea },
-    { id: "sales",        label: "Sat & Kr",       icon: FaMoneyBillWave },
-    { id: "products",     label: "rn Performans",   icon: FaBoxes },
+    { id: "sales",        label: "Sat & Kâr",       icon: FaMoneyBillWave },
+    { id: "products",     label: "ürün Performans",   icon: FaBoxes },
     { id: "marketplaces", label: "Pazaryeri Karlatrma", icon: FaStore },
     { id: "stock",        label: "Stok & Talep",      icon: FaWarehouse },
     { id: "commission",   label: "Komisyon & Gider",  icon: FaHandHoldingUsd },
@@ -96,18 +96,18 @@ const AdvancedAnalytics = ({ userId }) => {
         }
     }, [getDateParams]);
 
-    //  Siparis Sync  Pazaryerlerinden siparisleri DB'ye kaydet 
+    //  Siparişs Sync  Pazaryerlerinden siparişsleri DB'ye kaydet 
     const syncOrders = useCallback(async () => {
         try {
             const dateParams = getDateParams();
-            console.log(" [Analytics] Sipari sync balatlyor...");
+            console.log(" [Analytics] Sipariş sync balatlyor...");
             const resp = await axios.get("/orders/sync-all", { params: dateParams, timeout: 180000 });
             if (resp.data?.success) {
                 console.log(" [Analytics] Sync tamamland:", resp.data.message);
             }
         } catch (err) {
             // Sync hatasi analytics'i engellemez  sadece logla
-            console.warn(" [Analytics] Sipari sync hatas (analiz yine de ykleniyor):", err.message);
+            console.warn(" [Analytics] Sipariş sync hatas (analiz yine de yükleniyor):", err.message);
         }
     }, [getDateParams]);
 
@@ -120,7 +120,7 @@ const AdvancedAnalytics = ({ userId }) => {
         }
         setLoading(true);
         try {
-            // 1. nce siparisleri pazaryerlerinden cekip DB'ye kaydet
+            // 1. nce siparişsleri pazaryerlerinden cekip DB'ye kaydet
             //    Bu sayede analyticsController.js'deki Order.aggregate() sorgulari veri bulur
             await syncOrders();
 
@@ -187,27 +187,27 @@ const AdvancedAnalytics = ({ userId }) => {
                 sub: `Dn: ${fmtCurrency(ds.yesterday?.revenue || 0)}`
             },
             {
-                id: 'todayProfit', title: "Bugn Net Kr", value: fmtCurrency(todayProfit),
+                id: 'todayProfit', title: "Bugn Net Kâr", value: fmtCurrency(todayProfit),
                 change: 0, icon: FaMoneyBillWave, color: '#22c55e',
                 sub: `Haftalk: ${fmtCurrency(ds.thisWeek?.netProfit || 0)}`
             },
             {
-                id: 'todayOrders', title: "Bugn Sipari", value: fmtNumber(ds.today?.orders || 0),
+                id: 'todayOrders', title: "Bugn Sipariş", value: fmtNumber(ds.today?.orders || 0),
                 change: ds.comparison?.orderChange || 0, icon: FaShoppingCart, color: '#3b82f6',
                 sub: `Haftalk: ${fmtNumber(ds.thisWeek?.orders || 0)}`
             },
             {
                 id: 'totalRevenue', title: `${dateRange} Gn Ciro`, value: fmtCurrency(o.totalRevenue),
                 change: g.revenue || 0, icon: FaChartLine, color: '#8b5cf6',
-                sub: `${fmtNumber(o.totalOrders)} sipari`
+                sub: `${fmtNumber(o.totalOrders)} sipariş`
             },
             {
-                id: 'netProfit', title: "Net Kr", value: fmtCurrency(o.netProfit),
+                id: 'netProfit', title: "Net Kâr", value: fmtCurrency(o.netProfit),
                 change: g.profit || 0, icon: FaTrophy, color: '#f59e0b',
                 sub: `Marj: ${fmtPercent(o.profitMargin)}`
             },
             {
-                id: 'activeProducts', title: "Aktif rn", value: fmtNumber(o.activeProducts),
+                id: 'activeProducts', title: "Aktif ürün", value: fmtNumber(o.activeProducts),
                 change: 0, icon: FaBoxes, color: '#06b6d4',
                 sub: `Toplam: ${fmtNumber(o.totalProducts)}`
             }
@@ -225,8 +225,8 @@ const AdvancedAnalytics = ({ userId }) => {
         return (
             <div className="aa-loading">
                 <div className="aa-loading-spinner" />
-                <p>Gelimi analiz verileri ykleniyor...</p>
-                <span>Tm veriler hesaplanyor</span>
+                <p>Gelişmiş analiz verileri yükleniyor...</p>
+                <span>Tüm veriler hesaplanyor</span>
             </div>
         );
     }
@@ -250,8 +250,8 @@ const AdvancedAnalytics = ({ userId }) => {
                     <div className="aa-daily-summary">
                         {[
                             { label: "Ciro", today: ds.today?.revenue, yesterday: ds.yesterday?.revenue, fmt: fmtCurrency },
-                            { label: "Net Kr", today: ds.today?.netProfit, yesterday: ds.yesterday?.netProfit, fmt: fmtCurrency },
-                            { label: "Sipari", today: ds.today?.orders, yesterday: ds.yesterday?.orders, fmt: fmtNumber },
+                            { label: "Net Kâr", today: ds.today?.netProfit, yesterday: ds.yesterday?.netProfit, fmt: fmtCurrency },
+                            { label: "Sipariş", today: ds.today?.orders, yesterday: ds.yesterday?.orders, fmt: fmtNumber },
                             { label: "Komisyon", today: ds.today?.commission, yesterday: 0, fmt: fmtCurrency }
                         ].map((item, i) => {
                             const todayVal = item.today || 0;
@@ -278,7 +278,7 @@ const AdvancedAnalytics = ({ userId }) => {
                 {/* Sat Trendi Mini */}
                 <div className="aa-card aa-span-2">
                     <div className="aa-card-head">
-                        <h3><FaChartLine /> Sat & Kr Trendi</h3>
+                        <h3><FaChartLine /> Sat & Kâr Trendi</h3>
                         <span className="aa-badge">{dateRange} Gn</span>
                     </div>
                     <div className="aa-card-body">
@@ -301,15 +301,15 @@ const AdvancedAnalytics = ({ userId }) => {
                                     <YAxis yAxisId="left" stroke="#64748b" tick={{ fontSize: 10 }} tickFormatter={(v) => v >= 1000 ? `${(v / 1000).toFixed(0)}K` : v} />
                                     <YAxis yAxisId="right" orientation="right" stroke="#64748b" tick={{ fontSize: 10 }} />
                                     <Tooltip contentStyle={TOOLTIP_STYLE}
-                                        formatter={(v, n) => [n === 'Sipari' ? fmtNumber(v) : fmtCurrency(v), n]}
+                                        formatter={(v, n) => [n === 'Sipariş' ? fmtNumber(v) : fmtCurrency(v), n]}
                                         labelFormatter={(v) => { try { return new Date(v).toLocaleDateString('tr-TR', { day: '2-digit', month: 'long', year: 'numeric' }); } catch { return v; } }} />
                                     <Legend />
                                     <Area yAxisId="left" type="monotone" dataKey="revenue" fill="url(#gradRevOv)" stroke="#10b981" strokeWidth={2} name="Ciro" />
-                                    <Area yAxisId="left" type="monotone" dataKey="netProfit" fill="url(#gradProfitOv)" stroke="#f59e0b" strokeWidth={2} name="Net Kr" />
-                                    <Bar yAxisId="right" dataKey="orders" fill="#3b82f680" radius={[3, 3, 0, 0]} name="Sipari" />
+                                    <Area yAxisId="left" type="monotone" dataKey="netProfit" fill="url(#gradProfitOv)" stroke="#f59e0b" strokeWidth={2} name="Net Kâr" />
+                                    <Bar yAxisId="right" dataKey="orders" fill="#3b82f680" radius={[3, 3, 0, 0]} name="Sipariş" />
                                 </ComposedChart>
                             </ResponsiveContainer>
-                        ) : <div className="aa-no-data"><FaChartLine /><p>Henz sat verisi yok</p></div>}
+                        ) : <div className="aa-no-data"><FaChartLine /><p>Henüz sat verisi yok</p></div>}
                     </div>
                 </div>
 
@@ -344,11 +344,11 @@ const AdvancedAnalytics = ({ userId }) => {
                     </div>
                 </div>
 
-                {/* En ok Satan 5 rn */}
+                {/* En ok Satan 5 ürün */}
                 <div className="aa-card">
                     <div className="aa-card-head">
-                        <h3><FaFire /> En ok Satan 5 rn</h3>
-                        <button className="aa-link-btn" onClick={() => setActiveTab('products')}>Tm </button>
+                        <h3><FaFire /> En ok Satan 5 ürün</h3>
+                        <button className="aa-link-btn" onClick={() => setActiveTab('products')}>Tüm </button>
                     </div>
                     <div className="aa-card-body">
                         {topProducts.length > 0 ? (
@@ -366,14 +366,14 @@ const AdvancedAnalytics = ({ userId }) => {
                                             </span>
                                             {p.profitMargin !== undefined && (
                                                 <span className={`aa-margin-chip ${p.profitMargin >= 15 ? 'good' : p.profitMargin >= 5 ? 'mid' : 'low'}`}>
-                                                    Kr: {fmtPercent(p.profitMargin)}
+                                                    Kâr: {fmtPercent(p.profitMargin)}
                                                 </span>
                                             )}
                                         </div>
                                     </div>
                                 ))}
                             </div>
-                        ) : <div className="aa-no-data"><FaFire /><p>rn verisi yok</p></div>}
+                        ) : <div className="aa-no-data"><FaFire /><p>ürün verisi yok</p></div>}
                     </div>
                 </div>
 
@@ -382,7 +382,7 @@ const AdvancedAnalytics = ({ userId }) => {
                     <div className="aa-card aa-span-2">
                         <div className="aa-card-head">
                             <h3><FaExclamationTriangle /> Dikkat Gerektiren Aksiyonlar</h3>
-                            <button className="aa-link-btn" onClick={() => setActiveTab('actions')}>Tmn Gr </button>
+                            <button className="aa-link-btn" onClick={() => setActiveTab('actions')}>Tümn Gr </button>
                         </div>
                         <div className="aa-actions-preview">
                             {[...criticalActions, ...warningActions].slice(0, 4).map((action, idx) => (
@@ -390,7 +390,7 @@ const AdvancedAnalytics = ({ userId }) => {
                                     <div className="aa-apc-header">
                                         <span className="aa-apc-title">{action.title}</span>
                                         <span className={`aa-priority-badge ${action.priority}`}>
-                                            {action.priority === 'critical' ? 'Kritik' : 'Uyar'}
+                                            {action.priority === 'critical' ? 'Kritik' : 'Uyarı'}
                                         </span>
                                     </div>
                                     <p className="aa-apc-desc">{action.description}</p>
@@ -403,12 +403,12 @@ const AdvancedAnalytics = ({ userId }) => {
                 {/* Stok Sal */}
                 <div className="aa-card">
                     <div className="aa-card-head">
-                        <h3><FaWarehouse /> Stok Sal</h3>
+                        <h3><FaWarehouse /> Stok Sağlığı</h3>
                     </div>
                     <div className="aa-card-body">
                         <div className="aa-stock-health-grid">
                             {[
-                                { label: "Aktif rn", value: ds.stockHealth?.activeProducts || overview?.activeProducts || 0, color: "#22c55e", icon: "" },
+                                { label: "Aktif ürün", value: ds.stockHealth?.activeProducts || overview?.activeProducts || 0, color: "#22c55e", icon: "" },
                                 { label: "Kritik Stok", value: ds.stockHealth?.criticalStock || 0, color: "#f59e0b", icon: "" },
                                 { label: "Stok Tkendi", value: ds.stockHealth?.outOfStock || 0, color: "#ef4444", icon: "" }
                             ].map((item, i) => (
@@ -432,9 +432,9 @@ const AdvancedAnalytics = ({ userId }) => {
                     <div className="aa-card-body">
                         <div className="aa-week-summary">
                             {[
-                                { label: "Sipari", value: fmtNumber(ds.thisWeek?.orders || 0), color: "#3b82f6" },
+                                { label: "Sipariş", value: fmtNumber(ds.thisWeek?.orders || 0), color: "#3b82f6" },
                                 { label: "Ciro", value: fmtCurrency(ds.thisWeek?.revenue || 0), color: "#10b981" },
-                                { label: "Net Kr", value: fmtCurrency(ds.thisWeek?.netProfit || 0), color: "#f59e0b" }
+                                { label: "Net Kâr", value: fmtCurrency(ds.thisWeek?.netProfit || 0), color: "#f59e0b" }
                             ].map((item, i) => (
                                 <div key={i} className="aa-ws-item">
                                     <span className="aa-ws-label">{item.label}</span>
@@ -457,7 +457,7 @@ const AdvancedAnalytics = ({ userId }) => {
         const dailyData = profit.dailyProfit || [];
 
         const expensePieData = [
-            { name: "rn Maliyeti", value: expenses.productCost || 0, color: "#ef4444" },
+            { name: "ürün Maliyeti", value: expenses.productCost || 0, color: "#ef4444" },
             { name: "Komisyon", value: expenses.commission || 0, color: "#f59e0b" },
             { name: "Kargo", value: expenses.shipping || 0, color: "#3b82f6" },
             { name: "Paketleme", value: expenses.packaging || 0, color: "#8b5cf6" },
@@ -466,15 +466,15 @@ const AdvancedAnalytics = ({ userId }) => {
 
         return (
             <div className="aa-tab-grid">
-                {/* Kr zet Kartlar */}
+                {/* Kâr zet Kartlar */}
                 <div className="aa-card aa-span-full">
                     <div className="aa-profit-summary-grid">
                         {[
                             { label: "Toplam Ciro", value: fmtCurrency(expenses.totalRevenue), color: "#10b981", icon: <FaDollarSign /> },
                             { label: "Toplam Gider", value: fmtCurrency(expenses.totalExpenses), color: "#ef4444", icon: <FaHandHoldingUsd /> },
-                            { label: "Brt Kr", value: fmtCurrency(expenses.grossProfit), color: "#3b82f6", icon: <FaChartBar /> },
-                            { label: "Net Kr", value: fmtCurrency(expenses.netProfit), color: "#22c55e", icon: <FaTrophy /> },
-                            { label: "Kr Marj", value: fmtPercent(expenses.profitMargin), color: "#f59e0b", icon: <FaPercent /> }
+                            { label: "Brt Kâr", value: fmtCurrency(expenses.grossProfit), color: "#3b82f6", icon: <FaChartBar /> },
+                            { label: "Net Kâr", value: fmtCurrency(expenses.netProfit), color: "#22c55e", icon: <FaTrophy /> },
+                            { label: "Kâr Marj", value: fmtPercent(expenses.profitMargin), color: "#f59e0b", icon: <FaPercent /> }
                         ].map((item, i) => (
                             <div key={i} className="aa-profit-card" style={{ borderTop: `3px solid ${item.color}` }}>
                                 <div className="aa-pc-icon" style={{ color: item.color, background: `${item.color}15` }}>{item.icon}</div>
@@ -487,10 +487,10 @@ const AdvancedAnalytics = ({ userId }) => {
                     </div>
                 </div>
 
-                {/* Ciro vs Kr Trendi */}
+                {/* Ciro vs Kâr Trendi */}
                 <div className="aa-card aa-span-2">
                     <div className="aa-card-head">
-                        <h3><FaChartLine /> Ciro vs Net Kr Trendi</h3>
+                        <h3><FaChartLine /> Ciro vs Net Kâr Trendi</h3>
                     </div>
                     <div className="aa-card-body">
                         {dailyData.length > 0 ? (
@@ -511,11 +511,11 @@ const AdvancedAnalytics = ({ userId }) => {
                                         labelFormatter={(v) => { try { return new Date(v).toLocaleDateString('tr-TR', { day: '2-digit', month: 'long' }); } catch { return v; } }} />
                                     <Legend />
                                     <Area type="monotone" dataKey="revenue" fill="url(#gradRevS)" stroke="#10b981" strokeWidth={2} name="Ciro" />
-                                    <Line type="monotone" dataKey="netProfit" stroke="#f59e0b" strokeWidth={2.5} dot={{ r: 3, fill: '#f59e0b' }} name="Net Kr" />
+                                    <Line type="monotone" dataKey="netProfit" stroke="#f59e0b" strokeWidth={2.5} dot={{ r: 3, fill: '#f59e0b' }} name="Net Kâr" />
                                     <Line type="monotone" dataKey="commission" stroke="#ef4444" strokeWidth={1.5} strokeDasharray="5 5" dot={false} name="Komisyon" />
                                 </ComposedChart>
                             </ResponsiveContainer>
-                        ) : <div className="aa-no-data"><FaChartLine /><p>Kr trendi verisi yok</p></div>}
+                        ) : <div className="aa-no-data"><FaChartLine /><p>Kâr trendi verisi yok</p></div>}
                     </div>
                 </div>
 
@@ -550,10 +550,10 @@ const AdvancedAnalytics = ({ userId }) => {
                     </div>
                 </div>
 
-                {/* Kr Marj Trendi */}
+                {/* Kâr Marj Trendi */}
                 <div className="aa-card aa-span-full">
                     <div className="aa-card-head">
-                        <h3><FaPercent /> Kr Marj Trendi</h3>
+                        <h3><FaPercent /> Kâr Marj Trendi</h3>
                     </div>
                     <div className="aa-card-body">
                         {dailyData.length > 0 ? (
@@ -569,8 +569,8 @@ const AdvancedAnalytics = ({ userId }) => {
                                     <XAxis dataKey="date" stroke="#64748b" tick={{ fontSize: 10 }}
                                         tickFormatter={(v) => { try { return new Date(v).toLocaleDateString('tr-TR', { day: '2-digit', month: 'short' }); } catch { return v; } }} />
                                     <YAxis stroke="#64748b" tick={{ fontSize: 10 }} tickFormatter={(v) => `%${v}`} />
-                                    <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v) => [`%${v}`, 'Kr Marj']} />
-                                    <Area type="monotone" dataKey="profitMargin" fill="url(#gradMargin)" stroke="#8b5cf6" strokeWidth={2.5} name="Kr Marj %" />
+                                    <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v) => [`%${v}`, 'Kâr Marj']} />
+                                    <Area type="monotone" dataKey="profitMargin" fill="url(#gradMargin)" stroke="#8b5cf6" strokeWidth={2.5} name="Kâr Marj %" />
                                 </AreaChart>
                             </ResponsiveContainer>
                         ) : <div className="aa-no-data"><FaPercent /><p>Marj verisi yok</p></div>}
@@ -592,7 +592,7 @@ const AdvancedAnalytics = ({ userId }) => {
                                     <Tooltip contentStyle={TOOLTIP_STYLE}
                                         formatter={(v, n) => [n === 'Gelir' ? fmtCurrency(v) : fmtNumber(v), n]} />
                                     <Legend />
-                                    <Bar dataKey="orders" fill="#3b82f6" radius={[3, 3, 0, 0]} name="Sipari" />
+                                    <Bar dataKey="orders" fill="#3b82f6" radius={[3, 3, 0, 0]} name="Sipariş" />
                                 </BarChart>
                             </ResponsiveContainer>
                         </div>
@@ -609,15 +609,15 @@ const AdvancedAnalytics = ({ userId }) => {
 
         return (
             <div className="aa-tab-grid">
-                {/* rn Performans Tablosu */}
+                {/* ürün Performans Tablosu */}
                 <div className="aa-card aa-span-full">
                     <div className="aa-card-head">
-                        <h3><FaBoxes /> rn Krllk Tablosu</h3>
+                        <h3><FaBoxes /> ürün Kârllk Tablosu</h3>
                         <div className="aa-sort-controls">
                             <span className="aa-sort-label">Srala:</span>
                             {[
                                 { key: "totalRevenue", label: "Ciro" },
-                                { key: "netProfit", label: "Kr" },
+                                { key: "netProfit", label: "Kâr" },
                                 { key: "totalSold", label: "Sat" },
                                 { key: "profitMargin", label: "Marj" }
                             ].map(s => (
@@ -638,10 +638,10 @@ const AdvancedAnalytics = ({ userId }) => {
                                             <th>Ciro</th>
                                             <th>Maliyet</th>
                                             <th>Komisyon</th>
-                                            <th>Net Kr</th>
+                                            <th>Net Kâr</th>
                                             <th>Marj</th>
                                             <th>Stok</th>
-                                            <th>ade</th>
+                                            <th>İade</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -683,7 +683,7 @@ const AdvancedAnalytics = ({ userId }) => {
                                     </tbody>
                                 </table>
                             </div>
-                        ) : <div className="aa-no-data"><FaBoxes /><p>rn performans verisi yok</p></div>}
+                        ) : <div className="aa-no-data"><FaBoxes /><p>ürün performans verisi yok</p></div>}
                     </div>
                 </div>
 
@@ -699,10 +699,10 @@ const AdvancedAnalytics = ({ userId }) => {
                                     <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
                                     <XAxis type="number" stroke="#64748b" tickFormatter={(v) => v >= 1000 ? `${(v / 1000).toFixed(0)}K` : v} />
                                     <YAxis type="category" dataKey="name" stroke="#64748b" width={120} tick={{ fontSize: 11 }} />
-                                    <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v, n) => [n === 'Kr' ? fmtCurrency(v) : fmtCurrency(v), n]} />
+                                    <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v, n) => [n === 'Kâr' ? fmtCurrency(v) : fmtCurrency(v), n]} />
                                     <Legend />
                                     <Bar dataKey="revenue" fill="#10b981" name="Ciro" radius={[0, 4, 4, 0]} />
-                                    <Bar dataKey="netProfit" fill="#f59e0b" name="Kr" radius={[0, 4, 4, 0]} />
+                                    <Bar dataKey="netProfit" fill="#f59e0b" name="Kâr" radius={[0, 4, 4, 0]} />
                                 </BarChart>
                             </ResponsiveContainer>
                         </div>
@@ -713,7 +713,7 @@ const AdvancedAnalytics = ({ userId }) => {
                 {categoryDist.length > 0 && (
                     <div className="aa-card">
                         <div className="aa-card-head">
-                            <h3><FaBalanceScale /> Kategori Krllk</h3>
+                            <h3><FaBalanceScale /> Kategori Kârllk</h3>
                         </div>
                         <div className="aa-card-body">
                             <div className="aa-cat-list">
@@ -722,7 +722,7 @@ const AdvancedAnalytics = ({ userId }) => {
                                         <div className="aa-cat-color" style={{ background: cat.color || COLORS[idx % COLORS.length] }} />
                                         <div className="aa-cat-info">
                                             <span className="aa-cat-name">{cat.name}</span>
-                                            <span className="aa-cat-meta">{fmtNumber(cat.sales)} sat  {cat.productCount} rn</span>
+                                            <span className="aa-cat-meta">{fmtNumber(cat.sales)} sat  {cat.productCount} ürün</span>
                                         </div>
                                         <div className="aa-cat-metrics">
                                             <span className="aa-cat-revenue">{fmtCurrency(cat.revenue)}</span>
@@ -767,14 +767,14 @@ const AdvancedAnalytics = ({ userId }) => {
 
                         <div className="aa-mp-metrics">
                             {[
-                                { label: "Sipari", value: fmtNumber(mp.orders), icon: <FaShoppingCart /> },
+                                { label: "Sipariş", value: fmtNumber(mp.orders), icon: <FaShoppingCart /> },
                                 { label: "Ciro", value: fmtCurrency(mp.revenue), icon: <FaDollarSign /> },
-                                { label: "Net Kr", value: fmtCurrency(mp.netProfit), icon: <FaTrophy /> },
+                                { label: "Net Kâr", value: fmtCurrency(mp.netProfit), icon: <FaTrophy /> },
                                 { label: "Ort. Sepet", value: fmtCurrency(mp.avgOrderValue), icon: <FaShoppingCart /> },
-                                { label: "Kr Marj", value: fmtPercent(mp.profitMargin), icon: <FaPercent /> },
+                                { label: "Kâr Marj", value: fmtPercent(mp.profitMargin), icon: <FaPercent /> },
                                 { label: "Komisyon", value: fmtPercent(mp.commissionRate), icon: <FaHandHoldingUsd /> },
-                                { label: "ade Oran", value: fmtPercent(mp.returnRate), icon: <FaUndoAlt /> },
-                                { label: "ptal Oran", value: fmtPercent(mp.cancelRate), icon: <FaTimesCircle /> }
+                                { label: "İade Oran", value: fmtPercent(mp.returnRate), icon: <FaUndoAlt /> },
+                                { label: "İptal Oran", value: fmtPercent(mp.cancelRate), icon: <FaTimesCircle /> }
                             ].map((m, i) => (
                                 <div key={i} className="aa-mp-metric">
                                     <span className="aa-mpm-icon">{m.icon}</span>
@@ -803,7 +803,7 @@ const AdvancedAnalytics = ({ userId }) => {
                                     <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v, n) => [fmtCurrency(v), n]} />
                                     <Legend />
                                     <Bar dataKey="revenue" fill="#10b981" name="Ciro" radius={[4, 4, 0, 0]} />
-                                    <Bar dataKey="netProfit" fill="#f59e0b" name="Net Kr" radius={[4, 4, 0, 0]} />
+                                    <Bar dataKey="netProfit" fill="#f59e0b" name="Net Kâr" radius={[4, 4, 0, 0]} />
                                     <Bar dataKey="totalCommission" fill="#ef4444" name="Komisyon" radius={[4, 4, 0, 0]} />
                                 </BarChart>
                             </ResponsiveContainer>
@@ -832,7 +832,7 @@ const AdvancedAnalytics = ({ userId }) => {
                 <div className="aa-card aa-span-full">
                     <div className="aa-stock-summary-grid">
                         {[
-                            { label: "Toplam rn", value: fmtNumber(summary.totalProducts), color: "#4ecdc4", icon: "" },
+                            { label: "Toplam ürün", value: fmtNumber(summary.totalProducts), color: "#4ecdc4", icon: "" },
                             { label: "Stok Deeri", value: fmtCurrency(summary.totalStockValue), color: "#10b981", icon: "" },
                             { label: "Kritik Stok", value: fmtNumber(summary.criticalCount), color: "#f59e0b", icon: "" },
                             { label: "Stok Tkendi", value: fmtNumber(summary.outOfStockCount), color: "#ef4444", icon: "" },
@@ -849,11 +849,11 @@ const AdvancedAnalytics = ({ userId }) => {
                     </div>
                 </div>
 
-                {/* Kritik Stok rnleri */}
+                {/* Kritik Stok ürünleri */}
                 {criticalItems.length > 0 && (
                     <div className="aa-card aa-span-full">
                         <div className="aa-card-head">
-                            <h3><FaExclamationTriangle /> Kritik & Tkenen Stok ({criticalItems.length} rn)</h3>
+                            <h3><FaExclamationTriangle /> Kritik & Tükenen Stok ({criticalItems.length} ürün)</h3>
                         </div>
                         <div className="aa-card-body">
                             <div className="aa-table-wrap">
@@ -893,7 +893,7 @@ const AdvancedAnalytics = ({ userId }) => {
                                                 <td className="aa-td-green">{fmtCurrency(item.revenue)}</td>
                                                 <td>
                                                     <span className={`aa-status-badge ${item.status}`}>
-                                                        {item.status === 'outOfStock' ? ' Tkendi' : ' Kritik'}
+                                                        {item.status === 'outOfStock' ? ' Tükendi' : ' Kritik'}
                                                     </span>
                                                 </td>
                                             </tr>
@@ -909,7 +909,7 @@ const AdvancedAnalytics = ({ userId }) => {
                 {deadStockItems.length > 0 && (
                     <div className="aa-card aa-span-full">
                         <div className="aa-card-head">
-                            <h3><FaCubes /> l Stok  Satlmayan rnler ({deadStockItems.length} rn)</h3>
+                            <h3><FaCubes /> l Stok  Satlmayan ürünler ({deadStockItems.length} ürün)</h3>
                             <span className="aa-badge">Toplam Deer: {fmtCurrency(summary.deadStockValue)}</span>
                         </div>
                         <div className="aa-card-body">
@@ -957,9 +957,9 @@ const AdvancedAnalytics = ({ userId }) => {
                                             <th>Komisyon</th>
                                             <th>Komisyon %</th>
                                             <th>Kargo</th>
-                                            <th>rn Maliyeti</th>
+                                            <th>ürün Maliyeti</th>
                                             <th>Toplam Gider</th>
-                                            <th>Net Kr</th>
+                                            <th>Net Kâr</th>
                                             <th>Gider Oran</th>
                                         </tr>
                                     </thead>
@@ -1006,7 +1006,7 @@ const AdvancedAnalytics = ({ userId }) => {
                                     <Legend />
                                     <Bar dataKey="commission" fill="#f59e0b" name="Komisyon" stackId="a" />
                                     <Bar dataKey="shipping" fill="#3b82f6" name="Kargo" stackId="a" />
-                                    <Bar dataKey="productCost" fill="#ef4444" name="rn Maliyeti" stackId="a" />
+                                    <Bar dataKey="productCost" fill="#ef4444" name="ürün Maliyeti" stackId="a" />
                                     <Bar dataKey="packaging" fill="#8b5cf6" name="Paketleme" stackId="a" />
                                 </BarChart>
                             </ResponsiveContainer>
@@ -1067,7 +1067,7 @@ const AdvancedAnalytics = ({ userId }) => {
                         </div>
                         <div className="aa-as-item warning">
                             <span className="aa-as-count">{warningActions.length}</span>
-                            <span className="aa-as-label">Uyar</span>
+                            <span className="aa-as-label">Uyarı</span>
                         </div>
                         <div className="aa-as-item info">
                             <span className="aa-as-count">{infoActions.length}</span>
@@ -1087,7 +1087,7 @@ const AdvancedAnalytics = ({ userId }) => {
                         <div className="aa-ac-header">
                             <span className="aa-ac-title">{action.title}</span>
                             <span className={`aa-priority-badge ${action.priority}`}>
-                                {action.priority === 'critical' ? ' Kritik' : action.priority === 'warning' ? ' Uyar' : ' Bilgi'}
+                                {action.priority === 'critical' ? ' Kritik' : action.priority === 'warning' ? ' Uyarı' : ' Bilgi'}
                             </span>
                         </div>
                         <p className="aa-ac-desc">{action.description}</p>
@@ -1108,7 +1108,7 @@ const AdvancedAnalytics = ({ userId }) => {
                         )}
                         <div className="aa-ac-footer">
                             <span className="aa-ac-category">{action.category}</span>
-                            {action.count && <span className="aa-ac-count">{action.count} rn</span>}
+                            {action.count && <span className="aa-ac-count">{action.count} ürün</span>}
                         </div>
                     </motion.div>
                 )) : (
@@ -1131,8 +1131,8 @@ const AdvancedAnalytics = ({ userId }) => {
             {/* Header */}
             <div className="aa-header">
                 <div className="aa-header-left">
-                    <h1><FaChartArea /> Gelimi Analiz & Raporlama</h1>
-                    <p>Sat, kr, komisyon, stok  tm verileriniz tek ekranda</p>
+                    <h1><FaChartArea /> Gelişmiş Analiz & Raporlama</h1>
+                    <p>Sat, kâr, komisyon, stok  tüm verileriniz tek ekâranda</p>
                 </div>
                 <div className="aa-header-right">
                     <div className="aa-last-update">

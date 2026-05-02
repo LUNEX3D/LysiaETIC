@@ -17,7 +17,7 @@ const KPICards = ({ stats }) => {
             icon: <FaFileInvoice />,
             label: "Toplam Belge",
             value: stats.totalInvoices,
-            sub: stats.totalInvoices === 0 ? "Henüz belge yok" : stats.totalInvoices + " adet belge",
+            sub: stats.totalInvoices === 0 ? "Henüz belge yok" : stats.totalInvoices + " İadet belge",
             color: colors.accent,
         },
         {

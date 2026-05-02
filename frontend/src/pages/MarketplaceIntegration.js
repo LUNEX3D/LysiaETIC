@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { FaGlobe, FaKey, FaEdit, FaTrash, FaTimes, FaCheck, FaPlug, FaRocket } from "react-icons/fa";
+import { FaGlobe, FaKey, FaEdit, FaTrash, FaTimes, FaCheck, FaPlug, FaRocket, FaFlag } from "react-icons/fa";
 import { motion, AnimatePresence } from "framer-motion";
 import API from "../services/api";
 import { useApp } from "../context/AppContext";
@@ -21,10 +21,10 @@ const getUserIntegrations = async () => {
    Country flag emojis & region config
    ═══════════════════════════════════════════════════════════ */
 const REGION_CONFIG = {
-    "Türkiye": { flag: "🇹🇷", color: "#e74c3c" },
-    "Avrupa":  { flag: "🇪🇺", color: "#3498db" },
-    "Asya":    { flag: "🌏", color: "#e67e22" },
-    "Amerika": { flag: "🇺🇸", color: "#2ecc71" },
+    "Türkiye": { icon: <FaFlag />, color: "#e74c3c" },
+    "Avrupa":  { icon: <FaGlobe />, color: "#3498db" },
+    "Asya":    { icon: <FaGlobe />, color: "#e67e22" },
+    "Amerika": { icon: <FaGlobe />, color: "#2ecc71" },
 };
 
 const MarketplaceIntegration = () => {
@@ -162,8 +162,8 @@ const MarketplaceIntegration = () => {
                     transition={{ duration: 0.7, ease: "easeOut" }}
                 >
                     <div className="mi-brand-logo">
-                        <span className="mi-brand-main">LUNEX</span>
-                        <span className="mi-brand-sub">ETİC</span>
+                        <span className="mi-brand-main">Pazaryönetim</span>
+                        <span className="mi-brand-sub">Platform</span>
                     </div>
                     <p className="mi-brand-tagline">Global Pazaryeri Entegrasyon Merkezi</p>
                     <p className="mi-brand-hint">🖱️ Fareyi sürükleyerek uzayda gezinin · Scroll ile yakınlaşın</p>
@@ -223,7 +223,7 @@ const MarketplaceIntegration = () => {
                                     whileHover={{ y: -3, transition: { duration: 0.2 } }}
                                     style={{ '--rc': cfg.color || '#4ecdc4' }}
                                 >
-                                    <div className="mi-region-flag">{cfg.flag}</div>
+                                    <div className="mi-region-flag">{cfg.icon}</div>
                                     <div className="mi-region-info">
                                         <h3>{region.name}</h3>
                                         <span className="mi-region-count">{region.platforms.length} pazaryeri</span>
@@ -252,7 +252,7 @@ const MarketplaceIntegration = () => {
                         >
                             <div className="mi-section-head">
                                 <h2>
-                                    {REGION_CONFIG[selectedRegion.name]?.flag} {selectedRegion.name} Pazaryerleri
+                                    {REGION_CONFIG[selectedRegion.name]?.icon} {selectedRegion.name} Pazaryerleri
                                 </h2>
                                 <button className="mi-close-btn" onClick={() => setSelectedRegion(null)}>
                                     <FaTimes />

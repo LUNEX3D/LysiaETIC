@@ -1,6 +1,6 @@
 /**
  * 
- * LYSIA BRAIN  Kr Haritas (Profit Heatmap) Tab
+ * LYSIA BRAIN  Kâr Haritas (Profit Heatmap) Tab
  * 
  * Endpoint: GET /ai-engine/profit-heatmap
  * Shows: byCategory, byMarketplace, byProduct profit zones
@@ -12,7 +12,7 @@ import { T, fmt, fmtN, fmtP, useResponsive } from "../styles";
 import { Card, CardHeader, Badge, Btn, EmptyState, LoadingState, ErrorState } from "./shared/SharedUI";
 
 const ZONE_CFG = {
-    high_profit: { color: T.green, label: "Yksek Kr", icon: "" },
+    high_profit: { color: T.green, label: "Yksek Kâr", icon: "" },
     moderate: { color: T.yellow, label: "Orta", icon: "" },
     loss: { color: T.red, label: "Zarar", icon: "" },
 };

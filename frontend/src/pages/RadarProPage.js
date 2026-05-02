@@ -1,11 +1,11 @@
 /**
  * 
- * LysiaRadar PRO  AI rn Frsat Motoru
+ * LysiaRadar PRO  AI ürün Fırsat Motoru
  * 
  *
- * Kullancya zel rn frsatlar:
+ * Kullanıcıya zel ürün frsatlar:
  *   - Skor bazl sralama
- *   - Filtreler (trend, kr, rekabet, kategori)
+ *   - Filtreler (trend, kâr, rekabet, kategori)
  *   - AI aklamal kartlar
  *   - Simlasyon
  *   - Tek tkla aksiyon
@@ -34,7 +34,7 @@ import {
 //  Skor Renkleri & Yardmclar
 // 
 const scoreColor = (s) => s >= 75 ? "#22c55e" : s >= 55 ? "#3b82f6" : s >= 40 ? "#f59e0b" : "#ef4444";
-const scoreLabel = (s) => s >= 75 ? "Gl Frsat" : s >= 55 ? "yi Potansiyel" : s >= 40 ? "Orta" : "Dk";
+const scoreLabel = (s) => s >= 75 ? "Gl Fırsat" : s >= 55 ? "yi Potansiyel" : s >= 40 ? "Orta" : "Dk";
 const scoreEmoji = (s) => s >= 75 ? "" : s >= 55 ? "" : s >= 40 ? "" : "";
 const trendIcon = (d) => d === "breakout" ? "" : d === "rising" ? "" : d === "stable" ? "" : d === "declining" ? "" : "";
 const formatMoney = (n) => {
@@ -72,7 +72,7 @@ const ScoreBar = ({ label, value, color, icon }) => (
 );
 
 // 
-//  Frsat Kart Bileeni
+//  Fırsat Kart Bileeni
 // 
 const OpportunityCard = ({ opp, C, isDark, onSimulate, onDismiss, onDetail, index }) => {
     const [expanded, setExpanded] = useState(false);
@@ -156,7 +156,7 @@ const OpportunityCard = ({ opp, C, isDark, onSimulate, onDismiss, onDetail, inde
                 {[
                     { label: "Ort. Fiyat", value: formatMoney(opp.marketData?.avgPrice), icon: "" },
                     { label: "Satc", value: opp.marketData?.sellerCount || 0, icon: "" },
-                    { label: "Kr Marj", value: `%${opp.profitAnalysis?.estimatedMargin || 0}`, icon: "" },
+                    { label: "Kâr Marj", value: `%${opp.profitAnalysis?.estimatedMargin || 0}`, icon: "" },
                 ].map((m, i) => (
                     <div key={i} style={{
                         background: isDark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)",
@@ -173,7 +173,7 @@ const OpportunityCard = ({ opp, C, isDark, onSimulate, onDismiss, onDetail, inde
                 <ScoreBar label="Trend" value={opp.scores?.trend || 0} icon="" />
                 <ScoreBar label="Talep" value={opp.scores?.demand || 0} icon="" />
                 <ScoreBar label="Rekabet" value={opp.scores?.competition || 0} icon="" color={scoreColor(opp.scores?.competition || 0)} />
-                <ScoreBar label="Kr" value={opp.scores?.profit || 0} icon="" />
+                <ScoreBar label="Kâr" value={opp.scores?.profit || 0} icon="" />
                 <ScoreBar label="Uyum" value={opp.scores?.userFit || 0} icon="" />
             </div>
 
@@ -257,9 +257,9 @@ const OpportunityCard = ({ opp, C, isDark, onSimulate, onDismiss, onDetail, inde
                                     { l: "Min Fiyat", v: formatMoney(opp.marketData?.minPrice) },
                                     { l: "Max Fiyat", v: formatMoney(opp.marketData?.maxPrice) },
                                     { l: "Ort. Puan", v: ` ${(opp.marketData?.avgRating || 0).toFixed(1)}` },
-                                    { l: "Toplam rn", v: (opp.marketData?.totalProducts || 0).toLocaleString("tr-TR") },
+                                    { l: "Toplam ürün", v: (opp.marketData?.totalProducts || 0).toLocaleString("tr-TR") },
                                     { l: "Ort. Yorum", v: opp.marketData?.avgReviewCount || 0 },
-                                    { l: "nerilen Fiyat", v: formatMoney(opp.profitAnalysis?.suggestedPrice) },
+                                    { l: "önerilen Fiyat", v: formatMoney(opp.profitAnalysis?.suggestedPrice) },
                                 ].map((d, i) => (
                                     <div key={i}>
                                         <div style={{ fontSize: "0.55rem", color: "#94a3b8" }}>{d.l}</div>
@@ -383,7 +383,7 @@ const SimulationModal = ({ opp, C, isDark, onClose }) => {
                 }}>
                     <div>
                         <h3 style={{ margin: 0, fontSize: "0.95rem", fontWeight: 800, color: C.text }}>
-                             Kr Simlasyonu
+                             Kâr Simlasyonu
                         </h3>
                         <span style={{ fontSize: "0.68rem", color: "#94a3b8" }}>{opp.keyword}</span>
                     </div>
@@ -395,7 +395,7 @@ const SimulationModal = ({ opp, C, isDark, onClose }) => {
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "0.5rem", marginBottom: "0.8rem" }}>
                         {[
                             { label: "Sat Fiyat ()", value: targetPrice, setter: setTargetPrice },
-                            { label: "Aylk Sat (adet)", value: monthlySales, setter: setMonthlySales },
+                            { label: "Aylık Sat (İadet)", value: monthlySales, setter: setMonthlySales },
                             { label: "Yatrm ()", value: investment, setter: setInvestment },
                         ].map((inp, i) => (
                             <div key={i}>
@@ -442,13 +442,13 @@ const SimulationModal = ({ opp, C, isDark, onClose }) => {
                             display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem",
                         }}>
                             {[
-                                { label: "Birim Kr", value: formatMoney(result.netProfitPerUnit), color: result.netProfitPerUnit > 0 ? "#22c55e" : "#ef4444" },
-                                { label: "Kr Marj", value: `%${result.profitMargin}`, color: result.profitMargin > 20 ? "#22c55e" : result.profitMargin > 10 ? "#f59e0b" : "#ef4444" },
-                                { label: "Aylk Ciro", value: formatMoney(result.monthlyRevenue), color: "#3b82f6" },
-                                { label: "Aylk Kr", value: formatMoney(result.monthlyProfit), color: result.monthlyProfit > 0 ? "#22c55e" : "#ef4444" },
-                                { label: "Yllk Kr", value: formatMoney(result.yearlyProfit), color: result.yearlyProfit > 0 ? "#22c55e" : "#ef4444" },
+                                { label: "Birim Kâr", value: formatMoney(result.netProfitPerUnit), color: result.netProfitPerUnit > 0 ? "#22c55e" : "#ef4444" },
+                                { label: "Kâr Marj", value: `%${result.profitMargin}`, color: result.profitMargin > 20 ? "#22c55e" : result.profitMargin > 10 ? "#f59e0b" : "#ef4444" },
+                                { label: "Aylık Ciro", value: formatMoney(result.monthlyRevenue), color: "#3b82f6" },
+                                { label: "Aylık Kâr", value: formatMoney(result.monthlyProfit), color: result.monthlyProfit > 0 ? "#22c55e" : "#ef4444" },
+                                { label: "Yıllık Kâr", value: formatMoney(result.yearlyProfit), color: result.yearlyProfit > 0 ? "#22c55e" : "#ef4444" },
                                 { label: "ROI", value: `%${result.roi}`, color: result.roi > 50 ? "#22c55e" : result.roi > 20 ? "#f59e0b" : "#ef4444" },
-                                { label: "Baaba", value: `${result.breakEvenUnits} adet`, color: "#94a3b8" },
+                                { label: "Baaba", value: `${result.breakEvenUnits} İadet`, color: "#94a3b8" },
                                 { label: "Baaba Sre", value: `${result.breakEvenMonths} ay`, color: "#94a3b8" },
                             ].map((r, i) => (
                                 <div key={i} style={{
@@ -468,7 +468,7 @@ const SimulationModal = ({ opp, C, isDark, onClose }) => {
 };
 
 // 
-//  rn Kart Bileeni
+//  ürün Kart Bileeni
 // 
 const ProductCard = ({ product, C, isDark, index }) => {
     const [imgError, setImgError] = useState(false);
@@ -493,7 +493,7 @@ const ProductCard = ({ product, C, isDark, index }) => {
                 flexDirection: "column",
             }}
         >
-            {/* rn Grseli */}
+            {/* ürün Grseli */}
             <div style={{
                 position: "relative",
                 width: "100%",
@@ -523,7 +523,7 @@ const ProductCard = ({ product, C, isDark, index }) => {
                     </div>
                 )}
 
-                {/* Frsat Skoru Badge */}
+                {/* Fırsat Skoru Badge */}
                 <div style={{
                     position: "absolute", top: 8, left: 8,
                     background: `${scoreColor(product.opportunityScore)}dd`,
@@ -549,7 +549,7 @@ const ProductCard = ({ product, C, isDark, index }) => {
                     </div>
                 )}
 
-                {/* Kr Marj Badge */}
+                {/* Kâr Marj Badge */}
                 {product.profitMargin > 0 && (
                     <div style={{
                         position: "absolute", bottom: 8, right: 8,
@@ -558,12 +558,12 @@ const ProductCard = ({ product, C, isDark, index }) => {
                         padding: "0.18rem 0.4rem", borderRadius: 6,
                         backdropFilter: "blur(4px)",
                     }}>
-                        %{product.profitMargin} kr
+                        %{product.profitMargin} kâr
                     </div>
                 )}
             </div>
 
-            {/* rn Bilgileri */}
+            {/* ürün Bilgileri */}
             <div style={{ padding: "0.7rem 0.8rem", flex: 1, display: "flex", flexDirection: "column" }}>
                 {/* Kategori & Keyword */}
                 <div style={{ display: "flex", alignItems: "center", gap: "0.3rem", marginBottom: "0.35rem", flexWrap: "wrap" }}>
@@ -584,14 +584,14 @@ const ProductCard = ({ product, C, isDark, index }) => {
                     </span>
                 </div>
 
-                {/* rn Ad */}
+                {/* ürün Ad */}
                 <h4 style={{
                     margin: "0 0 0.4rem", fontSize: "0.78rem", fontWeight: 700,
                     color: C.text, lineHeight: 1.35,
                     display: "-webkit-box", WebkitLineClamp: 2,
                     WebkitBoxOrient: "vertical", overflow: "hidden",
                 }}>
-                    {product.name || "simsiz rn"}
+                    {product.name || "simsiz ürün"}
                 </h4>
 
                 {/* Fiyat & Rating */}
@@ -636,7 +636,7 @@ const ProductCard = ({ product, C, isDark, index }) => {
                             { label: "Trend", value: product.trendScore, color: scoreColor(product.trendScore) },
                             { label: "Talep", value: product.demandScore, color: scoreColor(product.demandScore) },
                             { label: "Rekabet", value: product.competitionScore, color: scoreColor(product.competitionScore) },
-                            { label: "Kr", value: product.profitScore, color: scoreColor(product.profitScore) },
+                            { label: "Kâr", value: product.profitScore, color: scoreColor(product.profitScore) },
                         ].map((s, i) => (
                             <div key={i} style={{ flex: 1, textAlign: "center" }}>
                                 <div style={{
@@ -655,14 +655,14 @@ const ProductCard = ({ product, C, isDark, index }) => {
                     </div>
                 </div>
 
-                {/* Kr Analizi Satr */}
+                {/* Kâr Analizi Satr */}
                 <div style={{
                     display: "grid", gridTemplateColumns: "1fr 1fr 1fr",
                     gap: "0.3rem", marginBottom: "0.5rem",
                 }}>
                     {[
                         { label: "Maliyet", value: formatMoney(product.estimatedCost), icon: "" },
-                        { label: "Kr", value: formatMoney(product.estimatedProfit), icon: "", color: profitColor },
+                        { label: "Kâr", value: formatMoney(product.estimatedProfit), icon: "", color: profitColor },
                         { label: "Marj", value: `%${product.profitMargin}`, icon: "", color: profitColor },
                     ].map((m, i) => (
                         <div key={i} style={{
@@ -720,20 +720,20 @@ const ProductCard = ({ product, C, isDark, index }) => {
 //  ANA BLEEN
 // 
 const MAIN_TABS = [
-    { key: "opportunities", label: "Frsat Radar", icon: <FaCrosshairs /> },
-    { key: "products", label: "rn Kefet", icon: <FaBoxOpen /> },
+    { key: "opportunities", label: "Fırsat Radar", icon: <FaCrosshairs /> },
+    { key: "products", label: "ürün Kefet", icon: <FaBoxOpen /> },
 ];
 
 const FILTER_OPTIONS = [
-    { key: "best", label: "En yi Frsatlar", icon: <FaStar />, sortBy: null },
+    { key: "best", label: "En yi Fırsatlar", icon: <FaStar />, sortBy: null },
     { key: "trend", label: "Trend Olanlar", icon: <FaFire />, sortBy: "trend" },
-    { key: "profit", label: "Yksek Kr", icon: <FaDollarSign />, sortBy: "profit" },
+    { key: "profit", label: "Yksek Kâr", icon: <FaDollarSign />, sortBy: "profit" },
     { key: "competition", label: "Dk Rekabet", icon: <FaShieldAlt />, sortBy: "competition" },
 ];
 
 const PRODUCT_SORT_OPTIONS = [
-    { key: "score", label: "Frsat Skoru", icon: <FaStar /> },
-    { key: "profit", label: "Yksek Kr", icon: <FaDollarSign /> },
+    { key: "score", label: "Fırsat Skoru", icon: <FaStar /> },
+    { key: "profit", label: "Yksek Kâr", icon: <FaDollarSign /> },
     { key: "price", label: "Dk Fiyat", icon: <FaTag /> },
     { key: "rating", label: "Yksek Puan", icon: <FaStar /> },
 ];
@@ -745,7 +745,7 @@ export default function RadarProPage({ userId }) {
     //  Ana Tab 
     const [mainTab, setMainTab] = useState("opportunities");
 
-    //  Frsat Tab State 
+    //  Fırsat Tab State 
     const [opportunities, setOpportunities] = useState([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
@@ -754,7 +754,7 @@ export default function RadarProPage({ userId }) {
     const [activeFilter, setActiveFilter] = useState("best");
     const [simOpp, setSimOpp] = useState(null);
 
-    //  rn Tab State 
+    //  ürün Tab State 
     const [products, setProducts] = useState([]);
     const [productsLoading, setProductsLoading] = useState(false);
     const [productsError, setProductsError] = useState("");
@@ -762,7 +762,7 @@ export default function RadarProPage({ userId }) {
     const [productStats, setProductStats] = useState({ total: 0, avgScore: 0, avgProfit: 0 });
 
     // 
-    // Frsatlar ykle
+    // Fırsatlar ykle
     // 
     const loadOpportunities = useCallback(async (sortBy) => {
         setLoading(true);
@@ -773,7 +773,7 @@ export default function RadarProPage({ userId }) {
             setOpportunities(data.opportunities || []);
             setAnalyzing(data.stats?.analyzing === true);
         } catch (err) {
-            setError(err?.response?.data?.message || err.message || "Frsatlar yklenemedi");
+            setError(err?.response?.data?.message || err.message || "Fırsatlar yüklenemedi");
         } finally {
             setLoading(false);
         }
@@ -786,7 +786,7 @@ export default function RadarProPage({ userId }) {
     }, [activeFilter, loadOpportunities, mainTab]);
 
     // 
-    // rnleri ykle
+    // ürünleri ykle
     // 
     const loadProducts = useCallback(async (sortBy) => {
         setProductsLoading(true);
@@ -797,7 +797,7 @@ export default function RadarProPage({ userId }) {
             setProducts(data.products || []);
             setProductStats(data.stats || { total: 0, avgScore: 0, avgProfit: 0 });
         } catch (err) {
-            setProductsError(err?.response?.data?.message || err.message || "rnler yklenemedi");
+            setProductsError(err?.response?.data?.message || err.message || "ürünler yüklenemedi");
         } finally {
             setProductsLoading(false);
         }
@@ -837,7 +837,7 @@ export default function RadarProPage({ userId }) {
                 setAnalyzing(true);
             }
         } catch (err) {
-            setError("Yenileme baarsz: " + (err.message || ""));
+            setError("Yenileme başarısız: " + (err.message || ""));
         } finally {
             setRefreshing(false);
         }
@@ -871,7 +871,7 @@ export default function RadarProPage({ userId }) {
                             display: "flex", alignItems: "center", gap: "0.4rem",
                         }}>
                             <FaCrosshairs style={{ WebkitTextFillColor: "#f59e0b" }} />
-                            Sana zel rn Frsatlar
+                            Sana zel ürün Fırsatlar
                         </h1>
                         <p style={{ color: "#94a3b8", fontSize: "0.72rem", margin: "0.15rem 0 0" }}>
                             AI destekli pazar analizi  en iyi frsatlar, tek tkla aksiyon
@@ -999,14 +999,14 @@ export default function RadarProPage({ userId }) {
                             );
                         })}
 
-                        {/* rn statistikleri */}
+                        {/* ürün statistikleri */}
                         {productStats.total > 0 && (
                             <div style={{
                                 marginLeft: "auto", display: "flex", gap: "0.6rem",
                                 fontSize: "0.6rem", color: "#94a3b8",
                             }}>
                                 <span>Ort. Skor: <b style={{ color: scoreColor(productStats.avgScore) }}>{productStats.avgScore}</b></span>
-                                <span>Ort. Kr: <b style={{ color: productStats.avgProfit > 0 ? "#22c55e" : "#ef4444" }}>{formatMoney(productStats.avgProfit)}</b></span>
+                                <span>Ort. Kâr: <b style={{ color: productStats.avgProfit > 0 ? "#22c55e" : "#ef4444" }}>{formatMoney(productStats.avgProfit)}</b></span>
                             </div>
                         )}
                     </div>
@@ -1035,10 +1035,10 @@ export default function RadarProPage({ userId }) {
                             >
                                 <FaSpinner style={{ fontSize: "1.5rem", color: "#f59e0b", animation: "spin 1s linear infinite", marginBottom: "0.5rem" }} />
                                 <h3 style={{ margin: "0 0 0.3rem", color: C.text, fontSize: "0.95rem" }}>
-                                     Frsat Analizi Devam Ediyor...
+                                     Fırsat Analizi Devam Ediyor...
                                 </h3>
                                 <p style={{ margin: 0, color: "#94a3b8", fontSize: "0.72rem" }}>
-                                    AI motorumuz sizin iin en iyi frsatlar taryor. Bu ilem birka dakika srebilir.
+                                    AI motorumuz sizin için en iyi frsatlar taryor. Bu ilem birka dakika srebilir.
                                 </p>
                             </motion.div>
                         )}
@@ -1047,7 +1047,7 @@ export default function RadarProPage({ userId }) {
                         {loading && !analyzing && (
                             <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "3rem", color: "#94a3b8" }}>
                                 <FaSpinner style={{ animation: "spin 1s linear infinite", marginRight: "0.5rem" }} />
-                                Frsatlar ykleniyor...
+                                Fırsatlar yükleniyor...
                             </div>
                         )}
 
@@ -1068,10 +1068,10 @@ export default function RadarProPage({ userId }) {
                             <div style={{ textAlign: "center", padding: "3rem 1rem" }}>
                                 <div style={{ fontSize: "3rem", marginBottom: "0.5rem" }}></div>
                                 <h3 style={{ color: C.text, fontSize: "1rem", margin: "0 0 0.3rem" }}>
-                                    Henz Frsat Bulunamad
+                                    Henüz Fırsat Bulunamad
                                 </h3>
                                 <p style={{ color: "#94a3b8", fontSize: "0.75rem", margin: "0 0 1rem" }}>
-                                    rnlerinizi ekledikten sonra AI motorumuz sizin iin frsatlar tarayacak.
+                                    ürünlerİşinizi ekledikten sonra AI motorumuz sizin için frsatlar tarayacak.
                                 </p>
                                 <button
                                     onClick={handleRefresh}
@@ -1082,7 +1082,7 @@ export default function RadarProPage({ userId }) {
                                         color: "#fff", fontSize: "0.8rem", fontWeight: 700,
                                     }}
                                 >
-                                    <FaSync style={{ marginRight: "0.3rem" }} /> Analiz Balat
+                                    <FaSync style={{ marginRight: "0.3rem" }} /> Analiz Başlat
                                 </button>
                             </div>
                         )}
@@ -1120,7 +1120,7 @@ export default function RadarProPage({ userId }) {
                         {productsLoading && (
                             <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "3rem", color: "#94a3b8" }}>
                                 <FaSpinner style={{ animation: "spin 1s linear infinite", marginRight: "0.5rem" }} />
-                                rnler ykleniyor...
+                                ürünler yükleniyor...
                             </div>
                         )}
 
@@ -1141,11 +1141,11 @@ export default function RadarProPage({ userId }) {
                             <div style={{ textAlign: "center", padding: "3rem 1rem" }}>
                                 <div style={{ fontSize: "3rem", marginBottom: "0.5rem" }}></div>
                                 <h3 style={{ color: C.text, fontSize: "1rem", margin: "0 0 0.3rem" }}>
-                                    Henz rn Bulunamad
+                                    Henüz ürün Bulunamad
                                 </h3>
                                 <p style={{ color: "#94a3b8", fontSize: "0.75rem", margin: "0 0 1rem", maxWidth: 400, marginLeft: "auto", marginRight: "auto" }}>
                                     nce "Yeni Analiz" butonuna tklayarak frsat taramas balatn.
-                                    Analiz tamamlandnda burada rn bazl frsatlar grnecek.
+                                    Analiz tamamlandnda burada ürün bazl frsatlar görünecek.
                                 </p>
                                 <button
                                     onClick={handleRefresh}
@@ -1156,7 +1156,7 @@ export default function RadarProPage({ userId }) {
                                         color: "#fff", fontSize: "0.8rem", fontWeight: 700,
                                     }}
                                 >
-                                    <FaSync style={{ marginRight: "0.3rem" }} /> Analiz Balat
+                                    <FaSync style={{ marginRight: "0.3rem" }} /> Analiz Başlat
                                 </button>
                             </div>
                         )}

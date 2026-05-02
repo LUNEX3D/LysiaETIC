@@ -45,7 +45,7 @@ const InvoiceDetailModal = ({
     const profileId = (hasDbData ? dbInv.profileId : "") || "";
     const profileLabels = { EARSIVFATURA: "e-Arşiv Fatura", TICARIFATURA: "Ticari Fatura", TEMELFATURA: "Temel Fatura", IRSALIYE: "İrsaliye" };
     const invoiceTypeCode = (hasDbData ? dbInv.invoiceTypeCode : "") || "";
-    const typeLabels = { SATIS: "Satış", IADE: "İade", TEVKIFAT: "Tevkifat", ISTISNA: "İstisna" };
+    const typeLabels = { SATIS: "Satış", IADE: "İİade", TEVKIFAT: "Tevkifat", ISTISNA: "İstisna" };
     const invType = invoice.type || (profileId === "EARSIVFATURA" ? "e-arsiv" : "e-fatura");
 
     // Tutarlar

@@ -170,7 +170,7 @@ const AIDecisionCenter = () => {
             case 'price_increase': return 'Fiyat Artırma';
             case 'price_decrease': return 'Fiyat Düşürme';
             case 'stock_alert': return 'Stok Uyarısı';
-            case 'campaign': return 'Kampanya Önerisi';
+            case 'campaign': return 'Kampanya Öönerisi';
             case 'optimization': return 'Optimizasyon';
             default: return type;
         }
@@ -490,7 +490,7 @@ const AIDecisionCenter = () => {
                                                 </Grid>
                                                 <Grid item xs={12} md={6}>
                                                     <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>
-                                                        Önerilen:
+                                                        Öönerilen:
                                                     </Typography>
                                                     {Object.entries(decision.recommended || {}).map(([key, value]) => (
                                                         <Typography key={key} variant="body2" sx={{ mb: 0.5 }}>

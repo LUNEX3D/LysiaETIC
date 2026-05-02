@@ -91,7 +91,7 @@ const useInvoices = (connectedProviders) => {
 
         // ── DB'den algılanan sağlayıcı (aktif session yok) ──
         // QNB API'ye erişim için token gerekir ama DB-detected provider'da token yok.
-        // Bu durumda LysiaETIC DB'deki Invoice kayıtlarını kullanıyoruz.
+        // Bu durumda LysiaETIC DB'deki Invoice kayıtlıarını kullanıyoruz.
         const apiToken = provider.apiToken || provider.customerToken || provider.partnerToken;
         if (!apiToken || provider.fromDb) {
             const dbDocs = await fetchFromDb();

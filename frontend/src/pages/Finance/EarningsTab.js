@@ -19,7 +19,7 @@ import FinanceTable from "./FinanceTable";
 
 const transactionTypes = [
     { value: "Sale", label: "Satış" },
-    { value: "Return", label: "İade" },
+    { value: "Return", label: "İİade" },
     { value: "Discount", label: "İndirim" },
     { value: "Coupon", label: "Kupon" },
     { value: "ProvisionPositive", label: "Provizyon (+)" },
@@ -380,7 +380,7 @@ const EarningsTab = ({ userId, dateRange: initialDateRange }) => {
                                     <Typography>{selected.transactionType || '-'}</Typography>
                                 </Grid>
                                 <Grid item xs={6}>
-                                    <Typography variant="subtitle2" color="text.secondary">Vade Süresi</Typography>
+                                    <Typography variant="subtitle2" color="text.secondary">Vİade Süresi</Typography>
                                     <Typography>{selected.paymentPeriod || '-'} gün</Typography>
                                 </Grid>
                                 <Grid item xs={6}>

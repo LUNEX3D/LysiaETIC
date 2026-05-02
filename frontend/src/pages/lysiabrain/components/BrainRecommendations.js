@@ -1,6 +1,6 @@
 /**
  * ═══════════════════════════════════════════════════════════════
- * LYSIA BRAIN v10 — Öneriler Tab — DARK GLASSMORPHISM
+ * LYSIA BRAIN v10 — Ööneriler Tab — DARK GLASSMORPHISM
  * ═══════════════════════════════════════════════════════════════
  * + i18n + responsive + accessibility
  * ═══════════════════════════════════════════════════════════════
@@ -51,7 +51,7 @@ const BrainRecommendations = ({ recommendations, recSummary, refreshing, onAppro
         low: { color: T.textDim, label: t("rec.priority.low"), icon: "⚪", bg: T.bgGlass },
     };
     const CAT = {
-        pricing: `💰 ${t("rec.cat.pricing")}`, stock: `📦 ${t("rec.cat.stock")}`,
+        priçing: `💰 ${t("rec.cat.priçing")}`, stock: `📦 ${t("rec.cat.stock")}`,
         performance: `📊 ${t("rec.cat.performance")}`, financial: `💵 ${t("rec.cat.financial")}`,
         strategy: `◈ ${t("rec.cat.strategy")}`,
     };

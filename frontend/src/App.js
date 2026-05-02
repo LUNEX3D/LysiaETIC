@@ -37,7 +37,7 @@ import LoginForm from "./components/LoginForm";
 // ─── Legal sayfaları — Public erişim ────────────────────────────────────────────
 import LegalPage from "./pages/LegalPage";
 
-// ─── Lazy-loaded sayfalar — Sadece ziyaret edildiğinde yüklenir ────────────────
+// ─── Lazy-loİaded sayfalar — Sİadece ziyaret edildiğinde yüklenir ────────────────
 // Public
 const HomePage               = lazy(() => import("./pages/HomePage"));
 
@@ -89,6 +89,7 @@ const RadarProPage           = lazy(() => import("./pages/RadarProPage"));
 
 // LysiaBrain2 — Standalone test page (UserDashboard dışında)
 const LysiaBrain2Page        = lazy(() => import("./pages/LysiaBrain2Page"));
+const LunexeticLoginPreview  = lazy(() => import("./pages/LunexeticLoginPreview"));
 
 // ✅ WEB APP FIRST: Responsive theme with mobile-first breakpoints
 const theme = createTheme({
@@ -250,7 +251,7 @@ const AppContent = () => {
     const isAdminRoute = location.pathname.startsWith("/admin");
     const isLysiaBrain2 = location.pathname === "/lysiabrain2";
     const isLegalRoute = ["/privacy", "/terms", "/cookies", "/distance-sales", "/preliminary-info"].includes(location.pathname);
-    const isAuthRoute = ["/" , "/home", "/login", "/register", "/verify-email", "/payment/success", "/payment/failed", "/subscription"].includes(location.pathname) || isLegalRoute;
+    const isAuthRoute = ["/" , "/home", "/login", "/login-lunexetic", "/register", "/verify-email", "/payment/success", "/payment/failed", "/subscription"].includes(location.pathname) || isLegalRoute;
 
     const routes = (
         <Suspense fallback={<LazyFallback />}>
@@ -262,6 +263,7 @@ const AppContent = () => {
             <Route path="/" element={<LoginForm />} />
             <Route path="/register" element={<RegisterForm />} />
             <Route path="/login" element={<LoginForm />} />
+            <Route path="/login-lunexetic" element={<LunexeticLoginPreview />} />
             <Route path="/verify-email" element={<VerifyEmail />} />
 
             {/* Legal Sayfaları — Public erişim, auth gerektirmez */}

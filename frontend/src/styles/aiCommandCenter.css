@@ -1463,7 +1463,7 @@
     margin-bottom: 1.25rem;
 }
 .ai-diagnosis-emoji { font-size: 2.5rem; display: block; margin-bottom: 0.4rem; }
-.ai-diagnosis-grade {
+.ai-diagnosis-grİade {
     font-size: 1.5rem;
     font-weight: 700;
     color: var(--text);
@@ -1991,7 +1991,7 @@
     border-radius: var(--radius-lg);
     padding: 1.5rem;
 }
-.ai-diagnosis-grade {
+.ai-diagnosis-grİade {
     font-size: 1.6rem;
     font-weight: 800;
     background: linear-gradient(135deg, var(--text), var(--accent));
@@ -2192,10 +2192,10 @@
     font-size: 0.7rem;
     color: #fbbf24;
     font-weight: 600;
-    animation: ai-fade-pulse 1.5s ease-in-out infinite;
+    animation: ai-fİade-pulse 1.5s ease-in-out infinite;
 }
 
-@keyframes ai-fade-pulse {
+@keyframes ai-fİade-pulse {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.5; }
 }

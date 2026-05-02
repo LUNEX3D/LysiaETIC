@@ -27,6 +27,16 @@ export const updateProduct = async (productId, updates) => {
 };
 
 /**
+ * Pazaryeri bazlı fiyatları yalnızca panelde / DB'de güncelle (pazaryeri API çağrısı yok)
+ * @param {string} productId
+ * @param {{ marketplaceName: string, price: number, listPrice?: number }[]} channels
+ */
+export const updateChannelPricesLocal = async (productId, channels) => {
+    const res = await API.patch(`${BASE}/products/${productId}/channel-prices`, { channels });
+    return res.data;
+};
+
+/**
  * Ürün sil (opsiyonel: pazaryerlerinden de kaldır)
  * @param {String} productId
  * @param {Object} options - { deleteFromMarketplaces: Boolean, platforms: [String] }
@@ -280,7 +290,7 @@ export const n11SplitPackage = async (splitGroups) => {
 };
 
 /**
- * N11 Miktar Bazlı Paket Bölme & Sipariş Ürün İptali
+ * N11 Miktar Bazlı Paket Bölme & Sipariş Ürün İİptali
  * @param {Array} splitPackages - [{ packageDetails: [{ orderLineId, quantities }] }]
  * @param {Array} cancelledItems - [{ cancelReasonId, orderLineId, quantity }] (opsiyonel)
  *   cancelReasonId: 61=Stok Tükendi, 62=Kusurlu, 63=Hatalı Fiyat, 64=Mücbir Sebep, 65=Diğer
@@ -560,7 +570,7 @@ export const generateApiKey = async (name) => {
 };
 
 /**
- * API anahtarını iptal et
+ * API anahtarını iİptal et
  * @param {String} keyId
  */
 export const revokeApiKey = async (keyId) => {
@@ -620,5 +630,44 @@ export const saveMarketplaceInvoiceSettings = async (settings) => {
  */
 export const getMarketplaceInvoiceStats = async () => {
     const res = await API.get("/auto-invoice/marketplace-stats");
+    return res.data;
+};
+
+// ═══════════════════════════════════════════════════════════════
+// 🧩 VARYANT GRUPLARI
+// ═══════════════════════════════════════════════════════════════
+
+export const listVariantGroups = async () => {
+    const res = await API.get(`${BASE}/variant-groups`);
+    return res.data;
+};
+
+export const getVariantGroup = async (groupId) => {
+    const res = await API.get(`${BASE}/variant-groups/${groupId}`);
+    return res.data;
+};
+
+export const createVariantGroup = async (body) => {
+    const res = await API.post(`${BASE}/variant-groups`, body);
+    return res.data;
+};
+
+export const updateVariantGroup = async (groupId, body) => {
+    const res = await API.patch(`${BASE}/variant-groups/${groupId}`, body);
+    return res.data;
+};
+
+export const addVariantGroupMembers = async (groupId, memberIds) => {
+    const res = await API.post(`${BASE}/variant-groups/${groupId}/members`, { memberIds });
+    return res.data;
+};
+
+export const removeVariantGroupMembers = async (groupId, memberIds) => {
+    const res = await API.post(`${BASE}/variant-groups/${groupId}/members/remove`, { memberIds });
+    return res.data;
+};
+
+export const deleteVariantGroup = async (groupId) => {
+    const res = await API.delete(`${BASE}/variant-groups/${groupId}`);
     return res.data;
 };

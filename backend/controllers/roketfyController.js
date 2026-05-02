@@ -110,7 +110,9 @@ exports.getBestSellers = async (req, res) => {
             limit: parseInt(limit) || 100,
             sort: sort || "BEST_SELLER",
         });
-        res.json({ success: true, bestSellers: result });
+        res.set("Cache-Control", "no-store, no-cache, must-revalidate");
+        res.set("Pragma", "no-cache");
+        res.json({ success: true, bestSellers: { ...result, fetchedAt: new Date().toISOString() } });
     } catch (err) {
         logger.error(`[Roketfy] En çok satanlar hatası: ${err.message}`);
         res.status(500).json({ success: false, message: "En çok satanlar yüklenemedi", error: err.message });
@@ -302,7 +304,9 @@ exports.getFlashProducts = async (req, res) => {
         const result = await roketfyService.getFlashProducts(uid(req), {
             categoryKey: category || "", limit: parseInt(limit) || 100,
         });
-        res.json({ success: true, flashProducts: result });
+        res.set("Cache-Control", "no-store, no-cache, must-revalidate");
+        res.set("Pragma", "no-cache");
+        res.json({ success: true, flashProducts: { ...result, fetchedAt: new Date().toISOString() } });
     } catch (err) {
         logger.error(`[Roketfy] Flaş ürünler hatası: ${err.message}`);
         res.status(500).json({ success: false, message: "Flaş ürünler yüklenemedi", error: err.message });
