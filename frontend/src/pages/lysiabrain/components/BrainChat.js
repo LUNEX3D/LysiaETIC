@@ -29,15 +29,16 @@ const BrainChat = ({ t }) => {
         if (open && inputRef.current) inputRef.current.focus();
     }, [open]);
 
-    const sendMessage = useCallback(async () => {
-        const msg = input.trim();
+    const sendMessage = useCallback(async (messageOverride) => {
+        const raw = typeof messageOverride === "string" ? messageOverride : input;
+        const msg = raw.trim();
         if (!msg || sending) return;
         setInput("");
         setMessages(prev => [...prev, { role: "user", content: msg }]);
         setSending(true);
         try {
             const res = await API.post("/ai-chat/message", { message: msg, sessionId });
-            if (res.data.success && res.data.response) {
+            if (res.data && res.data.success !== false && res.data.response) {
                 setMessages(prev => [...prev, {
                     role: "assistant",
                     content: res.data.response.content || res.data.response.message || "...",
@@ -57,7 +58,7 @@ const BrainChat = ({ t }) => {
 
     const handleSuggestion = (text) => {
         setInput(text);
-        setTimeout(() => sendMessage(), 50);
+        void sendMessage(text);
     };
 
     if (!open) {

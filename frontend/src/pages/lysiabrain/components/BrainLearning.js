@@ -20,7 +20,7 @@ const BrainLearning = ({ t, onError }) => {
         try {
             setLoading(true);
             const res = await API.get("/ai-engine/brain/section/learning");
-            if (res.data.success) setData(res.data.learning);
+            if (res.data && res.data.success !== false) setData(res.data.learning);
         } catch (e) { onError?.(e.response?.data?.message || t("error.data_load_fail")); }
         finally { setLoading(false); }
     }, [t, onError]);

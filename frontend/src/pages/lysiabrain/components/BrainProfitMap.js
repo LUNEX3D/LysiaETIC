@@ -12,10 +12,12 @@ import { T, fmt, fmtN, fmtP, useResponsive } from "../styles";
 import { Card, CardHeader, Badge, Btn, EmptyState, LoadingState, ErrorState } from "./shared/SharedUI";
 
 const ZONE_CFG = {
-    high_profit: { color: T.green, label: "Yksek Kâr", icon: "" },
-    moderate: { color: T.yellow, label: "Orta", icon: "" },
-    loss: { color: T.red, label: "Zarar", icon: "" },
+    high_profit: { color: T.green, label: "Yksek Kâr", icon: "🟢" },
+    moderate: { color: T.yellow, label: "Orta", icon: "🟡" },
+    loss: { color: T.red, label: "Zarar", icon: "🔴" },
 };
+
+const EMPTY_HEATMAP = { byCategory: [], byMarketplace: [], byProduct: [] };
 
 const BrainProfitMap = ({ t, onError }) => {
     const { isMobile } = useResponsive();
@@ -27,7 +29,10 @@ const BrainProfitMap = ({ t, onError }) => {
         try {
             setLoading(true);
             const res = await API.get("/ai-engine/brain/section/heatmap");
-            if (res.data.success) setData(res.data.heatmap);
+            if (res.data && res.data.success !== false) {
+                const h = res.data.heatmap;
+                setData(h && typeof h === "object" ? { ...EMPTY_HEATMAP, ...h } : { ...EMPTY_HEATMAP });
+            }
         } catch (e) { onError?.(e.response?.data?.message || t("error.data_load_fail")); }
         finally { setLoading(false); }
     }, [t, onError]);
@@ -35,12 +40,12 @@ const BrainProfitMap = ({ t, onError }) => {
     useEffect(() => { load(); }, [load]);
 
     if (loading) return <LoadingState message={t("loading.profit_map")} />;
-    if (!data) return <ErrorState message={t("error.data_load_fail")} onRetry={load} />;
+    if (!data) return <ErrorState message={t("error.data_load_fail")} onRetry={load} retryLabel={t("header.refresh")} />;
 
     const views = [
-        { id: "category", label: t("pm.by_category"), icon: "" },
-        { id: "marketplace", label: t("pm.by_marketplace"), icon: "" },
-        { id: "product", label: t("pm.by_product"), icon: "" },
+        { id: "category", label: t("pm.by_category"), icon: "📂" },
+        { id: "marketplace", label: t("pm.by_marketplace"), icon: "🏪" },
+        { id: "product", label: t("pm.by_product"), icon: "📦" },
     ];
 
     const renderBar = (value, max, color) => {
@@ -59,7 +64,7 @@ const BrainProfitMap = ({ t, onError }) => {
     return (
         <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
             <Card glow>
-                <CardHeader icon="" title={t("pm.title")} subtitle={t("pm.subtitle")} color={T.green} />
+                <CardHeader icon="🗺️" title={t("pm.title")} subtitle={t("pm.subtitle")} color={T.green} />
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                     {views.map(v => (
                         <Btn key={v.id} color={view === v.id ? T.accent : T.textDim} variant={view === v.id ? "default" : "ghost"} size="sm" onClick={() => setView(v.id)}>
@@ -71,8 +76,8 @@ const BrainProfitMap = ({ t, onError }) => {
 
             {view === "category" && (
                 <Card>
-                    <CardHeader icon="" title={t("pm.category_title")} subtitle={t("pm.category_sub")} color={T.blue} badge={`${(data.byCategory || []).length}`} />
-                    {(data.byCategory || []).length === 0 ? <EmptyState icon="" title={t("common.no_data")} /> : (
+                    <CardHeader icon="📂" title={t("pm.category_title")} subtitle={t("pm.category_sub")} color={T.blue} badge={`${(data.byCategory || []).length}`} />
+                    {(data.byCategory || []).length === 0 ? <EmptyState icon="📭" title={t("common.no_data")} /> : (
                         <div style={{ display: "flex", flexDirection: "column", gap: "0.65rem" }}>
                             {data.byCategory.map((cat, i) => {
                                 const z = ZONE_CFG[cat.zone] || ZONE_CFG.moderate;
@@ -104,8 +109,8 @@ const BrainProfitMap = ({ t, onError }) => {
 
             {view === "marketplace" && (
                 <Card>
-                    <CardHeader icon="" title={t("pm.mp_title")} subtitle={t("pm.mp_sub")} color={T.purple} badge={`${(data.byMarketplace || []).length}`} />
-                    {(data.byMarketplace || []).length === 0 ? <EmptyState icon="" title={t("common.no_data")} /> : (
+                    <CardHeader icon="🏪" title={t("pm.mp_title")} subtitle={t("pm.mp_sub")} color={T.purple} badge={`${(data.byMarketplace || []).length}`} />
+                    {(data.byMarketplace || []).length === 0 ? <EmptyState icon="📭" title={t("common.no_data")} /> : (
                         <div style={{ display: "flex", flexDirection: "column", gap: "0.65rem" }}>
                             {data.byMarketplace.map((mp, i) => {
                                 const z = ZONE_CFG[mp.zone] || ZONE_CFG.moderate;
@@ -133,8 +138,8 @@ const BrainProfitMap = ({ t, onError }) => {
 
             {view === "product" && (
                 <Card>
-                    <CardHeader icon="" title={t("pm.product_title")} subtitle={t("pm.product_sub")} color={T.accent} badge={`Top ${(data.byProduct || []).length}`} />
-                    {(data.byProduct || []).length === 0 ? <EmptyState icon="" title={t("common.no_data")} /> : (
+                    <CardHeader icon="📦" title={t("pm.product_title")} subtitle={t("pm.product_sub")} color={T.accent} badge={`Top ${(data.byProduct || []).length}`} />
+                    {(data.byProduct || []).length === 0 ? <EmptyState icon="📭" title={t("common.no_data")} /> : (
                         <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
                             {data.byProduct.map((p, i) => {
                                 const z = ZONE_CFG[p.zone] || ZONE_CFG.moderate;

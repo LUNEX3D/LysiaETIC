@@ -54,31 +54,23 @@ exports.getAllProducts = async (req, res) => {
 
         // ✅ Hepsiburada
         if (marketplaceName === "Hepsiburada") {
-            const { normalizeCredentials, getEndpoints, getHeaders } = require("../services/hepsiburadaService");
+            const {
+                normalizeCredentials,
+                getEndpoints,
+                getHeaders,
+                buildHepsiburadaCategoryNameMap
+            } = require("../services/hepsiburadaService");
             const hbCreds = normalizeCredentials(credentials);
             const { merchantId, secretKey, userAgent } = hbCreds;
             const ep = getEndpoints(hbCreds);
             const hbHeaders = getHeaders(merchantId, secretKey, userAgent);
             try {
-                // ── Adım 0: Kategori API'den categoryId → categoryName map'i oluştur ──
-                const categoryMap = new Map(); // categoryId → categoryName
+                // ── Adım 0: Kategori map — HB+HX+HC (resmi get-all-categories type birleşimi)
+                let categoryMap = new Map();
                 try {
-                    let catPage = 0;
-                    let catHasMore = true;
-                    while (catHasMore) {
-                        const catUrl = `${ep.MPOP}/product/api/categories/get-all-categories` +
-                            `?leaf=true&status=ACTIVE&available=true&version=1&page=${catPage}&size=2000`;
-                        const catResp = await axios.get(catUrl, { headers: hbHeaders, timeout: 30000 });
-                        const catData = catResp.data;
-                        const cats = Array.isArray(catData) ? catData : (catData?.data || catData?.content || []);
-                        for (const cat of cats) {
-                            const cid = cat.categoryId || cat.id;
-                            const cname = cat.name || cat.categoryName || "";
-                            if (cid && cname) categoryMap.set(String(cid), cname);
-                        }
-                        catHasMore = cats.length >= 2000;
-                        catPage++;
-                    }
+                    categoryMap = await buildHepsiburadaCategoryNameMap(merchantId, secretKey, userAgent, {
+                        onlyLeaf: true
+                    });
                     logger.info(`[Hepsiburada CAT] ${categoryMap.size} kategori çekildi`);
                 } catch (catErr) {
                     logger.warn(`[Hepsiburada CAT] Kategori çekme hatası (ürünler yine de çekilecek): ${catErr.message}`);

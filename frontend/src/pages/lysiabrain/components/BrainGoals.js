@@ -38,7 +38,7 @@ const BrainGoals = ({ t, onError }) => {
         try {
             setLoading(true); setError(null);
             const res = await API.get("/ai-engine/goals");
-            if (res.data.success) setGoals(res.data.goals || []);
+            if (res.data && res.data.success !== false) setGoals(res.data.goals || []);
             else setError(res.data.message || t("error.data_load_fail"));
         } catch (e) { setError(e.response?.data?.message || t("error.data_load_fail")); }
         finally { setLoading(false); }
@@ -57,7 +57,7 @@ const BrainGoals = ({ t, onError }) => {
                 endDate: form.endDate,
                 description: form.description,
             });
-            if (res.data.success) {
+            if (res.data && res.data.success !== false) {
                 setGoals(prev => [res.data.goal, ...prev]);
                 setShowCreate(false);
                 setForm({ title: "", goalType: "revenue", targetValue: "", endDate: "", description: "" });

@@ -21,6 +21,20 @@ const https = require("https");
 const moment = require("moment");
 const logger = require("../config/logger");
 
+/** Sipariş / paket API'leri için zorunlu vitrin kodu (ürün senkronu ile aynı varsayılan) */
+const TRENDYOL_STOREFRONT = process.env.TRENDYOL_STOREFRONT_CODE || "TR";
+
+function trendyolIntegrationHeaders(sellerId, apiKey, apiSecret) {
+    const authHeader = `Basic ${Buffer.from(`${apiKey}:${apiSecret}`).toString("base64")}`;
+    return {
+        Authorization: authHeader,
+        "User-Agent": `${sellerId} - SelfIntegration`,
+        "Content-Type": "application/json",
+        storeFrontCode: TRENDYOL_STOREFRONT,
+        "Accept-Language": "tr-TR",
+    };
+}
+
 const n11HttpsAgent = new https.Agent({ keepAlive: true, maxSockets: 6 });
 
 /** N11 / geçici ağ kesintileri */
@@ -33,6 +47,9 @@ const isTransientNetworkError = (e) => {
 
 /** Hepsiburada OMS 400 tekrarlayan log gürültüsü */
 const hbOms400LastWarn = new Map();
+
+/** Trendyol cargo-companies tekrarlayan 401 / hata loglarını seyrekleştir */
+const trendyolCargoListWarnAt = new Map();
 
 // ═══════════════════════════════════════════════════════════════
 // 📋 KARGO ŞİRKETİ LİSTELERİ
@@ -49,15 +66,10 @@ const getTrendyolCargoCompanies = async (sellerId, apiKey, apiSecret) => {
             return getTrendyolStaticCargoCompanies();
         }
 
-        const authHeader = `Basic ${Buffer.from(`${apiKey}:${apiSecret}`).toString("base64")}`;
         const url = `https://apigw.trendyol.com/integration/order/sellers/${sellerId}/cargo-companies`;
 
         const response = await axios.get(url, {
-            headers: {
-                Authorization: authHeader,
-                "User-Agent": `${sellerId} - SelfIntegration`,
-                "Content-Type": "application/json"
-            },
+            headers: trendyolIntegrationHeaders(sellerId, apiKey, apiSecret),
             timeout: 15000
         });
 
@@ -75,29 +87,39 @@ const getTrendyolCargoCompanies = async (sellerId, apiKey, apiSecret) => {
     } catch (error) {
         const status = error.response?.status || "N/A";
         const detail = error.response?.data ? JSON.stringify(error.response.data).substring(0, 300) : error.message;
-        logger.error(`[AutoOrder] Trendyol kargo şirketleri çekme hatası: status=${status} detail=${detail}`);
-        // API başarısız olursa statik listeyi dön
+        const sid = String(sellerId || "unknown");
+        const now = Date.now();
+        const throttleMs = status === 401 ? 60 * 60 * 1000 : 20 * 60 * 1000;
+        const key = `${sid}:${status}`;
+        const last = trendyolCargoListWarnAt.get(key) || 0;
+        if (now - last >= throttleMs) {
+            trendyolCargoListWarnAt.set(key, now);
+            const hint = status === 401
+                ? "API anahtarı, sellerId veya entegrasyon izinleri (401). Statik kargo listesi kullanılıyor."
+                : "Statik kargo listesi kullanılıyor.";
+            logger.warn(`[AutoOrder] Trendyol kargo şirketleri: status=${status} — ${hint} detail=${String(detail).substring(0, 220)}`);
+        }
         return getTrendyolStaticCargoCompanies();
     }
 };
 
 /**
- * Trendyol statik kargo şirketleri (API başarısız olursa fallback)
+ * Trendyol statik kargo (API başarısız olursa fallback).
+ * Kaynak: Trendyol Shipment Providers List (güncel ID ↔ marketplace kodu, örn. TEXMP).
+ * @see https://developers.trendyol.com/v2.0/docs/trendyol-shipment-providers-list-1
  */
 const getTrendyolStaticCargoCompanies = () => {
     return [
-        { id: "10", name: "Trendyol Express", code: "TRENDYOLEXPRESS" },
-        { id: "19", name: "HepsiJet", code: "HEPSIJET" },
-        { id: "4", name: "Yurtiçi Kargo", code: "YURTICI" },
-        { id: "7", name: "Aras Kargo", code: "ARASKARGO" },
-        { id: "9", name: "MNG Kargo", code: "MNGKARGO" },
-        { id: "14", name: "PTT Kargo", code: "PTTKARGO" },
-        { id: "6", name: "Sürat Kargo", code: "SURATKARGO" },
-        { id: "17", name: "Sendeo", code: "SENDEO" },
-        { id: "30", name: "Kolay Gelsin", code: "KOLAYGELSIN" },
-        { id: "20", name: "Horoz Lojistik", code: "HOROZLOJISTIK" },
-        { id: "8", name: "UPS Kargo", code: "UPSKARGO" },
-        { id: "5", name: "Ceva Lojistik", code: "CEVALOJISTIK" },
+        { id: "17", name: "Trendyol Express Marketplace", code: "TEXMP" },
+        { id: "4", name: "Yurtiçi Kargo Marketplace", code: "YKMP" },
+        { id: "7", name: "Aras Kargo Marketplace", code: "ARASMP" },
+        { id: "9", name: "Sürat Kargo Marketplace", code: "SURATMP" },
+        { id: "19", name: "PTT Kargo Marketplace", code: "PTTMP" },
+        { id: "6", name: "Horoz Kargo Marketplace", code: "HOROZMP" },
+        { id: "20", name: "CEVA Marketplace", code: "CEVAMP" },
+        { id: "10", name: "DHL eCommerce Marketplace", code: "DHLECOMMP" },
+        { id: "30", name: "Ceva Tedarik Marketplace", code: "CEVATEDARIK" },
+        { id: "38", name: "Kolay Gelsin Marketplace", code: "SENDEOMP" },
     ];
 };
 
@@ -191,31 +213,27 @@ const getCargoCompanies = async (marketplaceName, credentials) => {
  * Trendyol Sipariş Statüleri:
  *   Created → Picking → Invoiced → Shipped → Delivered
  *
- * Paket onaylama (picking):
- *   PUT /integration/order/sellers/{sellerId}/shipment-packages/{shipmentPackageId}
- *   Body: { status: "Picking", cargoCompany: cargoCompanyId }
- *
- * Alternatif — toplu onaylama:
- *   PUT /integration/order/sellers/{sellerId}/shipment-packages
- *   Body: { shipmentPackages: [{ id, status: "Picking", params: { cargoCompany } }] }
+ * Paket onaylama (Picking) — Trendyol dokümantasyonu:
+ *   PUT .../shipment-packages/{packageId}
+ *   Body: { "status": "Picking", "lines": [{ "lineId": long, "quantity": int }], "params": {} }
+ * Kargo firması ayrı: PUT .../shipment-packages/{packageId}/cargo-providers
+ *   Body: { "cargoProvider": "TEXMP" } (marketplace kodu; cargo-companies yanıtındaki code)
  */
 /**
  * Trendyol kargo şirketi adından numeric ID'ye çözümleme
  * Kullanıcı config'de name kaydetmiş olabilir ("Trendyol Express") — Trendyol API numeric ID bekler (10)
  */
 const TRENDYOL_CARGO_NAME_TO_ID = {
-    "trendyol express": 10, "trendyolexpress": 10,
-    "hepsijet": 19,
-    "yurtiçi kargo": 4, "yurtici kargo": 4, "yurtici": 4,
-    "aras kargo": 7, "araskargo": 7,
-    "mng kargo": 9, "mngkargo": 9,
-    "ptt kargo": 14, "pttkargo": 14,
-    "sürat kargo": 6, "surat kargo": 6, "suratkargo": 6,
-    "sendeo": 17,
-    "kolay gelsin": 30, "kolaygelsin": 30,
-    "horoz lojistik": 20, "horozlojistik": 20,
-    "ups kargo": 8, "upskargo": 8,
-    "ceva lojistik": 5, "cevalojistik": 5,
+    "trendyol express": 17, "trendyolexpress": 17, "texmp": 17,
+    "yurtiçi kargo": 4, "yurtici kargo": 4, "yurtici": 4, "ykmp": 4,
+    "aras kargo": 7, "araskargo": 7, "arasmp": 7,
+    "sürat kargo": 9, "surat kargo": 9, "suratkargo": 9, "suratmp": 9,
+    "ptt kargo": 19, "pttkargo": 19, "pttmp": 19,
+    "horoz lojistik": 6, "horozlojistik": 6, "horozmp": 6,
+    "ceva": 20, "ceva lojistik": 20, "cevamp": 20,
+    "dhl ecommerce": 10, "dhlecommp": 10,
+    "kolay gelsin": 38, "kolaygelsin": 38, "sendeomp": 38,
+    "ceva tedarik": 30, "cevatedarik": 30,
 };
 
 /**
@@ -240,41 +258,112 @@ const resolveTrendyolCargoId = (cargoId) => {
     return null;
 };
 
+/** Trendyol Picking gövdesi: her satır için lineId + quantity (zorunlu). */
+function buildTrendyolPickingLines(pkg) {
+    const raw = pkg?.lines;
+    if (!Array.isArray(raw) || raw.length === 0) return [];
+    const out = [];
+    for (const line of raw) {
+        const lineStatus = String(line.orderLineItemStatusName || line.lineStatus || "").toLowerCase();
+        if (lineStatus && /cancel|iptal|reject|closed/.test(lineStatus)) continue;
+
+        const lineId = line.lineId != null ? line.lineId : line.id ?? line.orderLineId;
+        if (lineId == null || lineId === "") continue;
+        let qty = parseInt(line.quantity, 10);
+        if (!Number.isFinite(qty) || qty < 1) qty = 1;
+        out.push({ lineId: Number(lineId), quantity: qty });
+    }
+    return out;
+}
+
+/**
+ * Kargo marketplace kodu (cargo-providers PUT için). API listesi eşleşmezse statik listeden doldur.
+ */
+function resolveTrendyolCargoProviderCode(resolvedCargoId, cargoList) {
+    const idNum = parseInt(String(resolvedCargoId), 10);
+    if (!Number.isFinite(idNum) || idNum < 1) return null;
+    const list = Array.isArray(cargoList) ? cargoList : [];
+    const hit = list.find(c => parseInt(String(c.id), 10) === idNum);
+    if (hit?.code && String(hit.code).trim() !== "") return String(hit.code).trim();
+    const stat = getTrendyolStaticCargoCompanies().find(c => parseInt(String(c.id), 10) === idNum);
+    if (stat?.code && String(stat.code).trim() !== "") return String(stat.code).trim();
+    return null;
+}
+
+/** status=Created siparişlerini tüm sayfalarda çek (yalnızca ilk 200 değil). */
+async function fetchTrendyolCreatedPackages(sellerId, headers, startDate, endDate) {
+    const packages = [];
+    let page = 0;
+    let totalPages = 1;
+    const size = 200;
+    do {
+        const url =
+            `https://apigw.trendyol.com/integration/order/sellers/${sellerId}/orders` +
+            `?status=Created&startDate=${startDate}&endDate=${endDate}&page=${page}&size=${size}` +
+            `&orderByField=PackageLastModifiedDate&orderByDirection=DESC`;
+        const response = await axios.get(url, { headers, timeout: 25000 });
+        const content = response.data?.content || [];
+        for (const pkg of content) {
+            const st = String(pkg.status || pkg.shipmentPackageStatus || "").toLowerCase();
+            if (st && st !== "created") continue;
+            packages.push(pkg);
+        }
+        totalPages = Math.max(1, parseInt(response.data?.totalPages, 10) || 1);
+        page++;
+        if (page > 60) {
+            logger.warn("[AutoOrder] Trendyol: Created sipariş sayfalama güvenlik limiti (60 sayfa) aşıldı — kalan paketler bu turda işlenmedi");
+            break;
+        }
+    } while (page < totalPages);
+    return packages;
+}
+
+/**
+ * Eski statik tabloda kullanılan cargo ID'lerini güncel TY listesine taşır (kayıtlı otomatik sipariş ayarı uyumu).
+ */
+function normalizeLegacyTrendyolCargoId(resolvedId, cargoName) {
+    if (!resolvedId) return resolvedId;
+    const n = String(cargoName || "").toLowerCase();
+    if (resolvedId === 10 && /trendyol|express|texmp|\bte\b/i.test(n)) return 17;
+    if (resolvedId === 14 && /ptt/i.test(n)) return 19;
+    if (resolvedId === 6 && /sürat|surat/i.test(n)) return 9;
+    if (resolvedId === 20 && /horoz/i.test(n)) return 6;
+    if (resolvedId === 5 && /ceva/i.test(n)) return 20;
+    return resolvedId;
+}
+
 const processTrendyolOrders = async (credentials, cargoId, cargoName) => {
     const { sellerId, apiKey, apiSecret } = credentials;
-    const authHeader = `Basic ${Buffer.from(`${apiKey}:${apiSecret}`).toString("base64")}`;
-    const userAgent = `${sellerId} - SelfIntegration`;
+    const headers = trendyolIntegrationHeaders(sellerId, apiKey, apiSecret);
     const results = [];
 
-    // ✅ FIX: Kargo ID'sini numeric'e çözümle (isim/code gelebilir)
-    const resolvedCargoId = resolveTrendyolCargoId(cargoId);
+    let resolvedCargoId = resolveTrendyolCargoId(cargoId);
+    resolvedCargoId = normalizeLegacyTrendyolCargoId(resolvedCargoId, cargoName);
     if (!resolvedCargoId) {
         logger.error(`[AutoOrder] Trendyol: Kargo şirketi ID çözümlenemedi — cargoId="${cargoId}" cargoName="${cargoName}"`);
         return { processed: 0, success: 0, failed: 0, results: [{ orderNumber: "*", status: "failed", error: `Geçersiz kargo ID: "${cargoId}". Lütfen Otomatik Sipariş ayarlarından kargo şirketini tekrar seçin.`, cargoUsed: cargoName }] };
     }
 
+    const cargoList = await getTrendyolCargoCompanies(sellerId, apiKey, apiSecret);
+    const cargoProviderCode = resolveTrendyolCargoProviderCode(resolvedCargoId, cargoList);
+    if (!cargoProviderCode) {
+        logger.warn(
+            `[AutoOrder] Trendyol: Kargo marketplace kodu (TEXMP vb.) çözülemedi — id=${resolvedCargoId}. ` +
+                "Picking yine denenecek; kargo ataması başarısız olabilir. TRENDYOL_STOREFRONT_CODE ve API anahtarlarını kontrol edin."
+        );
+    }
+
     try {
-        // 1) Yeni (Created) siparişleri çek
         const now = Date.now();
-        const startDate = now - 7 * 24 * 60 * 60 * 1000; // Son 7 gün
-        const url = `https://apigw.trendyol.com/integration/order/sellers/${sellerId}/orders` +
-            `?status=Created&startDate=${startDate}&endDate=${now}&page=0&size=200` +
-            `&orderByField=PackageLastModifiedDate&orderByDirection=DESC`;
-
-        const response = await axios.get(url, {
-            headers: { Authorization: authHeader, "User-Agent": userAgent, "Content-Type": "application/json" },
-            timeout: 20000
-        });
-
-        const packages = response.data?.content || [];
+        const startDate = now - 7 * 24 * 60 * 60 * 1000;
+        const packages = await fetchTrendyolCreatedPackages(sellerId, headers, startDate, now);
         if (packages.length === 0) {
             logger.info("[AutoOrder] Trendyol: İşlenecek yeni sipariş yok");
             return { processed: 0, success: 0, failed: 0, results: [] };
         }
 
-        logger.info(`[AutoOrder] Trendyol: ${packages.length} yeni sipariş bulundu, işleniyor...`);
+        logger.info(`[AutoOrder] Trendyol: ${packages.length} Created paket işlenecek (tüm sayfalar birleştirildi)`);
 
-        // 2) Her paketi "Picking" statüsüne al
         for (const pkg of packages) {
             const shipmentPackageId = pkg.shipmentPackageId || pkg.id;
             const orderNumber = pkg.orderNumber;
@@ -284,36 +373,71 @@ const processTrendyolOrders = async (credentials, cargoId, cargoName) => {
                 continue;
             }
 
-            try {
-                // Trendyol paket onaylama — her paketi ayrı ayrı
-                const pickUrl = `https://apigw.trendyol.com/integration/order/sellers/${sellerId}/shipment-packages/${shipmentPackageId}`;
-                const pickBody = {
-                    status: "Picking",
-                    params: { cargoCompany: resolvedCargoId }
-                };
-
-                logger.info(`[AutoOrder] Trendyol PUT ${orderNumber} → cargoCompany=${resolvedCargoId} (${cargoName})`);
-
-                await axios.put(pickUrl, pickBody, {
-                    headers: { Authorization: authHeader, "User-Agent": userAgent, "Content-Type": "application/json" },
-                    timeout: 15000
+            const pickingLines = buildTrendyolPickingLines(pkg);
+            if (pickingLines.length === 0) {
+                results.push({
+                    orderNumber,
+                    status: "failed",
+                    error: "Picking için sipariş satırı (lineId) yok — paket lines boş veya format uyumsuz",
+                    cargoUsed: cargoName,
                 });
+                continue;
+            }
+
+            try {
+                const pickUrl = `https://apigw.trendyol.com/integration/order/sellers/${sellerId}/shipment-packages/${shipmentPackageId}`;
+                const pickBody = { status: "Picking", lines: pickingLines, params: {} };
+
+                logger.info(
+                    `[AutoOrder] Trendyol PUT Picking ${orderNumber} pkg=${shipmentPackageId} lines=${pickingLines.length}` +
+                        ` → kargoId=${resolvedCargoId} (${cargoName})` +
+                        (cargoProviderCode ? ` provider=${cargoProviderCode}` : " provider=?")
+                );
+
+                await axios.put(pickUrl, pickBody, { headers, timeout: 15000 });
+
+                if (cargoProviderCode) {
+                    try {
+                        const cargoUrl =
+                            `https://apigw.trendyol.com/integration/order/sellers/${sellerId}` +
+                            `/shipment-packages/${shipmentPackageId}/cargo-providers`;
+                        await axios.put(cargoUrl, { cargoProvider: cargoProviderCode }, { headers, timeout: 15000 });
+                        logger.info(`[AutoOrder] Trendyol ✅ ${orderNumber} → Picking + kargo ${cargoProviderCode}`);
+                    } catch (cargoErr) {
+                        const cmsg =
+                            cargoErr.response?.data?.errors?.[0]?.message ||
+                            cargoErr.response?.data?.message ||
+                            cargoErr.message;
+                        logger.warn(`[AutoOrder] Trendyol ⚠ ${orderNumber}: Picking OK, kargo ataması başarısız: ${cmsg}`);
+                    }
+                } else {
+                    logger.warn(
+                        `[AutoOrder] Trendyol ⚠ ${orderNumber}: Picking OK — TY marketplace kargo kodu çözülemedi (id=${resolvedCargoId}). ` +
+                            "Otomatik Sipariş’te kargoyu listeden yeniden seçin veya panelden kargo doğrulayın."
+                    );
+                }
 
                 results.push({ orderNumber, status: "success", cargoUsed: cargoName });
-                logger.info(`[AutoOrder] Trendyol ✅ ${orderNumber} → Picking (${cargoName}, id=${resolvedCargoId})`);
-
-                // Rate limiting
                 await new Promise(r => setTimeout(r, 200));
             } catch (err) {
                 const errMsg = err.response?.data?.errors?.[0]?.message ||
                     err.response?.data?.message ||
                     err.message;
                 results.push({ orderNumber, status: "failed", error: errMsg, cargoUsed: cargoName });
-                logger.warn(`[AutoOrder] Trendyol ❌ ${orderNumber}: ${errMsg} (cargoId=${resolvedCargoId})`);
+                logger.warn(`[AutoOrder] Trendyol ❌ ${orderNumber}: ${errMsg} (kargoId=${resolvedCargoId})`);
             }
         }
     } catch (error) {
-        logger.error("[AutoOrder] Trendyol sipariş çekme hatası:", error.message);
+        const detail = error.response?.data
+            ? JSON.stringify(error.response.data).substring(0, 400)
+            : "";
+        logger.error(`[AutoOrder] Trendyol sipariş çekme hatası: ${error.message}${detail ? ` — ${detail}` : ""}`);
+        results.push({
+            orderNumber: "*",
+            status: "failed",
+            error: `Trendyol sipariş listesi alınamadı: ${error.message}. storeFrontCode header ve API yetkilerini kontrol edin.`,
+            cargoUsed: cargoName,
+        });
     }
 
     const success = results.filter(r => r.status === "success").length;
@@ -350,13 +474,14 @@ const processHepsiburadaOrders = async (credentials, cargoId, cargoName) => {
         const isSit = ep.OMS.includes("-sit");
         logger.info(`[AutoOrder] Hepsiburada ortam: ${isSit ? "SIT (test)" : "PRODUCTION"} — merchantId=${merchantId.substring(0, 8)}...`);
 
-        // 1) Open (yeni) sipariş kalemlerini çek
+        // 1) Open (yeni) sipariş kalemlerini çek (yalnızca PRODUCTION)
         // Hepsiburada OMS: begindate/enddate + YYYY-MM-DD HH:mm:ss (dashboard/ordersService ile uyumlu).
-        // SIT ortamında 5–7 günlük tek istek sıklıkla GetPackageLinesBadRequestError (400) döndürüyor;
-        // günlük pencerelerle çekmek bu hatayı genelde önler (cargo/stockCron’daki 24s dilim stratejisi).
+        // SIT (test) ortamında /orders uç noktası çoğu merchantId ile sürekli 400
+        // (GetPackageLinesBadRequestError) döndürüyor — gereksiz istek ve log kirliliği yaratıyor.
+        // Otomatik paketleme zaten /packages?timespan=... + PUT ile yapıldığı için SIT'te bu adım tamamen atlanır.
         const ORDER_FETCH_DAYS = 7;
         const limit = 100;
-        const openOrders = [];
+        let openOrders = [];
 
         const fetchOrdersForRange = async (encStart, encEnd, label) => {
             const chunkItems = [];
@@ -392,7 +517,8 @@ const processHepsiburadaOrders = async (credentials, cargoId, cargoName) => {
                         responseBody: JSON.stringify(err.response?.data || "").substring(0, 500)
                     };
                     if (st === 400) {
-                        const k = `${String(merchantId).slice(0, 12)}:${label}`;
+                        // Aynı cron turunda gün-0…gün-6 ayrı ayrı uyarı basmasın
+                        const k = `${String(merchantId).slice(0, 12)}:${isSit ? "SIT" : "PROD"}:oms-orders`;
                         const prev = hbOms400LastWarn.get(k) || 0;
                         if (Date.now() - prev > 45 * 60 * 1000) {
                             logger.warn(`[AutoOrder] Hepsiburada sipariş çekme hatası: ${st || err.message}`, detail);
@@ -409,39 +535,49 @@ const processHepsiburadaOrders = async (credentials, cargoId, cargoName) => {
         };
 
         let authAbort = false;
-        for (let dayOffset = 0; dayOffset < ORDER_FETCH_DAYS; dayOffset++) {
-            const dayStart = moment().subtract(dayOffset, "days").startOf("day");
-            const dayEnd = dayOffset === 0 ? moment() : moment().subtract(dayOffset, "days").endOf("day");
-            const encStart = encodeURIComponent(dayStart.format("YYYY-MM-DD HH:mm:ss"));
-            const encEnd = encodeURIComponent(dayEnd.format("YYYY-MM-DD HH:mm:ss"));
-            const label = `gün-${dayOffset} (${dayStart.format("YYYY-MM-DD")})`;
 
-            const { fatal, chunkItems } = await fetchOrdersForRange(encStart, encEnd, label);
-            if (chunkItems.length > 0) openOrders.push(...chunkItems);
-            if (fatal) {
-                authAbort = true;
-                break;
+        if (isSit) {
+            logger.info(
+                "[AutoOrder] Hepsiburada SIT: /orders (tarih aralığı) istekleri atlanıyor — " +
+                    "bu ortamda sık 400 döner; otomatik işlem /packages + PUT Packaged ile sürüyor."
+            );
+        } else {
+            for (let dayOffset = 0; dayOffset < ORDER_FETCH_DAYS; dayOffset++) {
+                const dayStart = moment().subtract(dayOffset, "days").startOf("day");
+                const dayEnd = moment().subtract(dayOffset, "days").endOf("day");
+                const encStart = encodeURIComponent(dayStart.format("YYYY-MM-DD HH:mm:ss"));
+                const encEnd = encodeURIComponent(dayEnd.format("YYYY-MM-DD HH:mm:ss"));
+                const label = `gün-${dayOffset} (${dayStart.format("YYYY-MM-DD")})`;
+
+                const { fatal, chunkItems } = await fetchOrdersForRange(encStart, encEnd, label);
+                if (chunkItems.length > 0) openOrders.push(...chunkItems);
+                if (fatal) {
+                    authAbort = true;
+                    break;
+                }
+            }
+
+            // Yedek: günlük dilimlerde kayıt yoksa tek pencere (tam gün bitişi)
+            if (openOrders.length === 0 && !authAbort) {
+                const start = new Date();
+                start.setDate(start.getDate() - ORDER_FETCH_DAYS);
+                start.setHours(0, 0, 0, 0);
+                const encStart = encodeURIComponent(moment(start).format("YYYY-MM-DD HH:mm:ss"));
+                const encEnd = encodeURIComponent(moment().endOf("day").format("YYYY-MM-DD HH:mm:ss"));
+                const { chunkItems, fatal } = await fetchOrdersForRange(encStart, encEnd, "fallback-tek-pencere");
+                if (chunkItems.length > 0) openOrders.push(...chunkItems);
+                if (fatal) authAbort = true;
+            }
+
+            if (openOrders.length > 0) {
+                logger.info(`[AutoOrder] Hepsiburada: ${openOrders.length} kalem (Open orders API)`);
             }
         }
 
-        // Yedek: günlük dilimlerde kayıt yoksa dashboard ile aynı tek pencere (gece yarısı başlangıç)
-        if (openOrders.length === 0 && !authAbort) {
-            const start = new Date();
-            start.setDate(start.getDate() - ORDER_FETCH_DAYS);
-            start.setHours(0, 0, 0, 0);
-            const encStart = encodeURIComponent(moment(start).format("YYYY-MM-DD HH:mm:ss"));
-            const encEnd = encodeURIComponent(moment().format("YYYY-MM-DD HH:mm:ss"));
-            const { chunkItems, fatal } = await fetchOrdersForRange(encStart, encEnd, "fallback-tek-pencere");
-            if (chunkItems.length > 0) openOrders.push(...chunkItems);
-            if (fatal) authAbort = true;
-        }
-
-        if (openOrders.length === 0) {
-            logger.info("[AutoOrder] Hepsiburada: İşlenecek yeni sipariş yok");
+        if (authAbort) {
+            logger.warn("[AutoOrder] Hepsiburada: Orders API 401 — kimlik doğrulama hatası, paket adımı atlanıyor.");
             return { processed: 0, success: 0, failed: 0, results: [] };
         }
-
-        logger.info(`[AutoOrder] Hepsiburada: ${openOrders.length} yeni sipariş bulundu, işleniyor...`);
 
         // 2) Paketleri çek ve onaylama yap
         // Önce paketlenmiş olmayan paketleri bul

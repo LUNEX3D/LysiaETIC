@@ -37,7 +37,7 @@ const BrainAdvisor = ({ t, onError }) => {
             if (filter !== "all") params.set("status", filter);
             if (search.trim()) params.set("search", search.trim());
             const res = await API.get(`/ai-engine/advisor/products?${params}`);
-            if (res.data.success) {
+            if (res.data && res.data.success !== false) {
                 const newProducts = res.data.products || [];
                 if (append) setProducts(prev => [...prev, ...newProducts]);
                 else setProducts(newProducts);

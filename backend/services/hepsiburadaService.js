@@ -99,6 +99,78 @@ const getHeaders = (merchantId, secretKey, userAgent) => ({
 });
 
 /**
+ * Listing inventory-uploads: merchantSku büyük harf, boşluksuz; | vb. karakterler kaldırılır (HB kuralları + serileştirme tutarlılığı).
+ */
+const normalizeHbMerchantSku = (raw) =>
+    String(raw ?? "")
+        .toUpperCase()
+        .replace(/\s+/g, "")
+        .replace(/[^A-Z0-9_-]/g, "");
+
+/**
+ * POST .../inventory-uploads — gövdeyi düz JSON string olarak gönderir (.NET tarafı `listings` alanının dizi olmasını zorunlu kılar).
+ * 400 + deserialize hatasında bir kez kök düzey JSON dizi gövdesiyle yeniden dener.
+ *
+ * @param {object} opts
+ * @param {object} opts.ep - getEndpoints() çıktısı
+ * @param {string} opts.merchantId
+ * @param {string} opts.secretKey
+ * @param {string} opts.userAgent
+ * @param {Array<object>} opts.rows — her eleman: merchantSku, hepsiburadaSku, availableStock; isteğe bağlı price, listPrice
+ */
+const postInventoryUploadListing = async (opts) => {
+    const { ep, merchantId, secretKey, userAgent, rows } = opts;
+    if (!Array.isArray(rows) || rows.length === 0) {
+        throw new Error("postInventoryUploadListing: en az bir listing satırı gerekli");
+    }
+    const url = `${ep.LISTING}/listings/merchantid/${merchantId}/inventory-uploads`;
+    const headers = getHeaders(merchantId, secretKey, userAgent);
+    const plainRows = rows.map((r) => {
+        const o = {
+            merchantSku: String(r.merchantSku),
+            hepsiburadaSku: String(r.hepsiburadaSku)
+        };
+        if (Object.prototype.hasOwnProperty.call(r, "availableStock") && r.availableStock != null) {
+            o.availableStock = Math.max(0, parseInt(String(r.availableStock), 10) || 0);
+        }
+        if (r.price != null && r.price !== "") {
+            o.price = Number(r.price) || 0;
+            if (r.listPrice != null && r.listPrice !== "") o.listPrice = Number(r.listPrice) || 0;
+            else o.listPrice = o.price;
+        } else if (r.listPrice != null && r.listPrice !== "") {
+            o.listPrice = Number(r.listPrice) || 0;
+        }
+        return o;
+    });
+    const bodyWrapped = JSON.stringify({ listings: plainRows });
+    const passthrough = [(data) => data];
+    try {
+        return await axios.post(url, bodyWrapped, {
+            headers,
+            timeout: 15000,
+            transformRequest: passthrough
+        });
+    } catch (err) {
+        const st = err.response?.status;
+        const raw = JSON.stringify(err.response?.data || {});
+        const retryRootArray =
+            st === 400 &&
+            (raw.includes("Path 'listings'") ||
+                raw.includes("deserialize the current JSON object") ||
+                raw.includes("requires a JSON array") ||
+                (raw.includes('"listings"') && raw.includes("JSON array")));
+        if (!retryRootArray) throw err;
+        logger.warn("[HEPSIBURADA] inventory-uploads: listings sarmalı reddedildi — kök dizi gövdesi deneniyor");
+        const bodyRoot = JSON.stringify(plainRows);
+        return await axios.post(url, bodyRoot, {
+            headers,
+            timeout: 15000,
+            transformRequest: passthrough
+        });
+    }
+};
+
+/**
  * Ortam tespiti — SIT (test) mi yoksa Production (canlı) mı?
  * SIT hesapları production endpoint'lerine 401 verir, production hesapları SIT'e 401 verir.
  * Kullanıcı credentials'ında useSit: true varsa veya env değişkeni varsa SIT kullanılır.
@@ -155,68 +227,10 @@ const fetchHepsiburadaProducts = async (merchantId, secretKey, userAgent) => {
         const headers = getHeaders(merchantId, secretKey, userAgent);
         const ep = getEndpoints({ useSit: false });
 
-        // ── Adım 0: Kategori API'den categoryId → categoryName map'i oluştur ──
-        // v3: HER ZAMAN production endpoint kullan (SIT'te kategori yok)
-        const categoryMap = new Map();
+        // ── Adım 0: categoryId → ad (fetchHepsiburadaCategories ile HB+HX+HC, production)
+        let categoryMap = new Map();
         try {
-            const prodEp = HB_ENDPOINTS; // Kategori için her zaman production
-            const catBaseUrls = [
-                `${prodEp.MPOP}/product/api/categories/get-all-categories`,
-                `${prodEp.CATEGORY}/product/api/categories/get-all-categories`
-            ];
-            // Tüm type'ları dene (HB ana, HX express, HC global)
-            for (const type of ["HB", "HX", "HC"]) {
-                let catPage = 0;
-                let catHasMore = true;
-                let catWorkingUrl = null;
-                while (catHasMore) {
-                    const urlsToTry = catWorkingUrl ? [catWorkingUrl] : catBaseUrls;
-                    let catPageSuccess = false;
-                    for (const baseUrl of urlsToTry) {
-                        const catUrl = `${baseUrl}?leaf=true&status=ACTIVE&available=true&type=${type}&version=1&page=${catPage}&size=2000`;
-                        try {
-                            const catResp = await axios.get(catUrl, { headers, timeout: 30000 });
-                            const catData = catResp.data;
-                            const cats = Array.isArray(catData) ? catData : (catData?.data || catData?.content || []);
-                            if (cats.length > 0) {
-                                for (const cat of cats) {
-                                    const cid = cat.categoryId || cat.id;
-                                    const cname = cat.name || cat.categoryName || "";
-                                    if (cid && cname) categoryMap.set(String(cid), cname);
-                                }
-                                catWorkingUrl = baseUrl;
-                                catPage++;
-                                catPageSuccess = true;
-                                if (cats.length < 2000) catHasMore = false;
-                                break;
-                            } else {
-                                if (catWorkingUrl === baseUrl) { catHasMore = false; catPageSuccess = true; break; }
-                            }
-                        } catch (e) { /* sonraki URL'yi dene */ }
-                    }
-                    if (!catPageSuccess) catHasMore = false;
-                }
-            }
-            // Type'lı çağrılar boş döndüyse type'sız dene (geriye dönük uyumluluk)
-            if (categoryMap.size === 0) {
-                let catPage = 0;
-                let catHasMore = true;
-                while (catHasMore) {
-                    const catUrl = `${catBaseUrls[0]}?leaf=true&status=ACTIVE&available=true&version=1&page=${catPage}&size=2000`;
-                    try {
-                        const catResp = await axios.get(catUrl, { headers, timeout: 30000 });
-                        const catData = catResp.data;
-                        const cats = Array.isArray(catData) ? catData : (catData?.data || catData?.content || []);
-                        for (const cat of cats) {
-                            const cid = cat.categoryId || cat.id;
-                            const cname = cat.name || cat.categoryName || "";
-                            if (cid && cname) categoryMap.set(String(cid), cname);
-                        }
-                        catHasMore = cats.length >= 2000;
-                        catPage++;
-                    } catch (e) { catHasMore = false; }
-                }
-            }
+            categoryMap = await buildHepsiburadaCategoryNameMap(merchantId, secretKey, userAgent, { onlyLeaf: true });
             logger.info(`[Hepsiburada CAT] ${categoryMap.size} kategori çekildi (ürün eşleştirme için)`);
         } catch (catErr) {
             logger.warn(`[Hepsiburada CAT] Kategori çekme hatası: ${catErr.message}`);
@@ -330,19 +344,16 @@ const fetchHepsiburadaOrders = async (merchantId, secretKey, startDate, endDate)
  */
 const updateHepsiburadaStock = async (merchantId, secretKey, sku, stock, userAgent) => {
     try {
-        const headers = getHeaders(merchantId, secretKey, userAgent);
         const ep = getEndpoints({ useSit: false });
-        const url = `${ep.LISTING}/listings/merchantid/${merchantId}/inventory-uploads`;
-
-        const payload = {
-            listings: [{
-                hepsiburadaSku: sku,
-                merchantSku: sku,
-                availableStock: parseInt(stock) || 0
-            }]
-        };
-
-        const response = await axios.post(url, payload, { headers, timeout: 10000 });
+        const ms = normalizeHbMerchantSku(sku) || String(sku || "").toUpperCase().replace(/\s+/g, "");
+        const hbs = String(sku || "").trim();
+        const response = await postInventoryUploadListing({
+            ep,
+            merchantId,
+            secretKey,
+            userAgent,
+            rows: [{ hepsiburadaSku: hbs, merchantSku: ms || hbs, availableStock: parseInt(stock, 10) || 0 }]
+        });
 
         if (response.status === 200 || response.status === 201) {
             logger.info(`[Hepsiburada] Stok güncellendi — SKU: ${sku}, stok: ${stock}`);
@@ -372,19 +383,17 @@ const updateHepsiburadaStock = async (merchantId, secretKey, sku, stock, userAge
  */
 const updateHepsiburadaPrice = async (merchantId, secretKey, sku, price, userAgent) => {
     try {
-        const headers = getHeaders(merchantId, secretKey, userAgent);
         const ep = getEndpoints({ useSit: false });
-        const url = `${ep.LISTING}/listings/merchantid/${merchantId}/inventory-uploads`;
-
-        const payload = {
-            listings: [{
-                hepsiburadaSku: sku,
-                merchantSku: sku,
-                price: parseFloat(price) || 0
-            }]
-        };
-
-        const response = await axios.post(url, payload, { headers, timeout: 10000 });
+        const ms = normalizeHbMerchantSku(sku) || String(sku || "").toUpperCase().replace(/\s+/g, "");
+        const hbs = String(sku || "").trim();
+        const p = parseFloat(price) || 0;
+        const response = await postInventoryUploadListing({
+            ep,
+            merchantId,
+            secretKey,
+            userAgent,
+            rows: [{ hepsiburadaSku: hbs, merchantSku: ms || hbs, price: p, listPrice: p }]
+        });
 
         if (response.status === 200 || response.status === 201) {
             logger.info(`[Hepsiburada] Fiyat güncellendi — SKU: ${sku}, fiyat: ${price}`);
@@ -574,6 +583,30 @@ const fetchHepsiburadaCategories = async (merchantId, secretKey, userAgent, opts
 };
 
 /**
+ * Ürün çekme / kategori adı çözümü: categoryId → görünen ad.
+ * Resmi API: type olmadan çağrı çoğu zaman yalnızca HB alt kümesini döndürür; bu yüzden
+ * fetchHepsiburadaCategories (HB+HX+HC) kullanılır — Kategori Merkezi ile aynı mantık.
+ *
+ * @param {string} merchantId
+ * @param {string} secretKey
+ * @param {string} userAgent
+ * @param {object} [opts] - { onlyLeaf: boolean } varsayılan true
+ * @returns {Promise<Map<string, string>>}
+ */
+const buildHepsiburadaCategoryNameMap = async (merchantId, secretKey, userAgent, opts = {}) => {
+    const cats = await fetchHepsiburadaCategories(merchantId, secretKey, userAgent, {
+        onlyLeaf: opts.onlyLeaf !== false
+    });
+    const map = new Map();
+    for (const cat of cats) {
+        const cid = cat.categoryId || cat.id;
+        const cname = cat.name || cat.categoryName || "";
+        if (cid != null && String(cid).trim() !== "" && cname) map.set(String(cid), cname);
+    }
+    return map;
+};
+
+/**
  * Hepsiburada Kategori Özellikleri Çek
  * Endpoint: GET /categories/{categoryId}/attributes
  * Sadece leaf=true ve available=true kategorilerde özellik vardır
@@ -615,33 +648,34 @@ const fetchHepsiburadaCategoryAttributes = async (merchantId, secretKey, categor
  */
 const uploadProductToHepsiburada = async (merchantId, secretKey, productData, userAgent) => {
     try {
-        const headers = getHeaders(merchantId, secretKey, userAgent);
         const productName = productData.name || productData.title || "İsimsiz Ürün";
-        const merchantSku = (productData.sku || productData.barcode || "").toUpperCase().replace(/\s/g, "");
-
+        let merchantSku = normalizeHbMerchantSku(productData.sku || productData.barcode || "");
+        const hbSkuRaw = String(productData.barcode || productData.sku || "").trim();
+        if (!merchantSku) merchantSku = normalizeHbMerchantSku(hbSkuRaw);
         if (!merchantSku) {
             return { success: false, error: `Hepsiburada yükleme başarısız: "${productName}" için SKU/barkod eksik` };
         }
-
-        // Listeleme API ile stok/fiyat yükleme (ürün zaten katalogda varsa)
-        const payload = {
-            listings: [{
-                merchantSku: merchantSku,
-                hepsiburadaSku: productData.barcode || merchantSku,
-                availableStock: parseInt(productData.stock) || 0,
-                price: parseFloat(productData.price) || 0,
-                listPrice: parseFloat(productData.listPrice || productData.price) || 0
-            }]
-        };
+        const hepsiburadaSku = hbSkuRaw || merchantSku;
 
         logger.info(
             `[UPLOAD HEPSIBURADA] Ürün yükleniyor — "${productName}" | merchantSku: ${merchantSku} | ` +
-            `fiyat: ${productData.price} TL | stok: ${parseInt(productData.stock) || 0}`
+            `fiyat: ${productData.price} TL | stok: ${parseInt(productData.stock, 10) || 0}`
         );
 
         const ep = getEndpoints({ useSit: false });
-        const url = `${ep.LISTING}/listings/merchantid/${merchantId}/inventory-uploads`;
-        const response = await axios.post(url, payload, { headers, timeout: 15000 });
+        const response = await postInventoryUploadListing({
+            ep,
+            merchantId,
+            secretKey,
+            userAgent,
+            rows: [{
+                merchantSku,
+                hepsiburadaSku,
+                availableStock: parseInt(productData.stock, 10) || 0,
+                price: parseFloat(productData.price) || 0,
+                listPrice: parseFloat(productData.listPrice || productData.price) || 0
+            }]
+        });
 
         const trackingId = response.data?.id || response.data?.trackingId;
         if (trackingId) {
@@ -744,6 +778,8 @@ module.exports = {
     HB_SIT_ENDPOINTS,
     // Yardımcılar
     normalizeCredentials,
+    normalizeHbMerchantSku,
+    postInventoryUploadListing,
     getAuthHeader,
     getHeaders,
     getEndpoints,
@@ -759,6 +795,7 @@ module.exports = {
     updateHepsiburadaPrice,
     // Kategori
     fetchHepsiburadaCategories,
+    buildHepsiburadaCategoryNameMap,
     fetchHepsiburadaCategoryAttributes,
     // Paket / Kargo
     fetchHepsiburadaPackages

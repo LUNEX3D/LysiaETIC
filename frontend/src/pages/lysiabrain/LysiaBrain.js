@@ -19,7 +19,7 @@ import API from "../../services/api";
 import { useApp } from "../../context/AppContext";
 import { T, useResponsive } from "./styles";
 import { getBrainT } from "./i18n";
-import { ScoreRing, LoadingState, Modal, ModalHeader } from "./components/shared/SharedUI";
+import { ScoreRing, LoadingState, ErrorState, Modal, ModalHeader } from "./components/shared/SharedUI";
 
 import BrainDashboard from "./components/BrainDashboard";
 import BrainRecommendations from "./components/BrainRecommendations";
@@ -63,6 +63,8 @@ const VALID_TAB_IDS = new Set([
 const LysiaBrain = () => {
     const { language } = useApp();
     const t = getBrainT(language);
+    const tRef = useRef(t);
+    tRef.current = t;
     const { isMobile, isTablet } = useResponsive();
 
     /* ═══ TAB GROUPS — Memoized, sadece language değişince yeniden oluşur ═══ */
@@ -73,6 +75,7 @@ const LysiaBrain = () => {
                 { id: "dashboard", icon: "◈", label: t("tab.dashboard") },
                 { id: "recommendations", icon: "◆", label: t("tab.recommendations") },
                 { id: "operator", icon: "⬡", label: t("tab.operator") },
+                { id: "alerts", icon: "🔔", label: t("tab.alerts") },
             ],
         },
         {
@@ -83,6 +86,8 @@ const LysiaBrain = () => {
                 { id: "health", icon: "🏥", label: t("tab.health") },
                 { id: "profit_map", icon: "📊", label: t("tab.profit_map") },
                 { id: "losses", icon: "💸", label: t("tab.losses") },
+                { id: "segmentation", icon: "◎", label: t("tab.segmentation") },
+                { id: "causes", icon: "🔍", label: t("tab.causes") },
             ],
         },
         {
@@ -101,10 +106,11 @@ const LysiaBrain = () => {
                 { id: "opportunities", icon: "🎯", label: t("tab.opportunities") },
                 { id: "risks", icon: "⚠️", label: t("tab.risks") },
                 { id: "learning", icon: "📚", label: t("tab.learning") },
+                { id: "costs", icon: "💶", label: t("tab.costs") },
             ],
         },
         {
-            id: "history", label: "Geçmiş", icon: "⏳",
+            id: "history", label: t("tabgroup.history"), icon: "⏳",
             tabs: [
                 { id: "decisions", icon: "📜", label: t("tab.decisions") },
                 { id: "retro", icon: "🔄", label: t("tab.retro") },
@@ -201,12 +207,17 @@ const LysiaBrain = () => {
         try {
             if (showRefresh) setRefreshing(true);
             setError(null);
-            const res = await API.get(`/ai-engine/brain?strategy=${strategyValRef.current}`);
-            if (res.data && res.data.success !== false) {
+            const refreshQ = showRefresh ? "&refresh=true" : "";
+            const res = await API.get(`/ai-engine/brain?strategy=${encodeURIComponent(strategyValRef.current)}${refreshQ}`);
+            if (!res?.data) {
+                setError(tRef.current("error.data_load_fail"));
+                return;
+            }
+            if (res.data.success !== false) {
                 setBrain(res.data);
                 setRecommendations(res.data.recommendations || []);
                 setRecSummary(res.data.recSummary || { pending: 0, executed: 0, approved: 0, rejected: 0 });
-            } else if (res.data?.success === false) {
+            } else {
                 setError(res.data.message || "Veri yüklenemedi");
             }
         } catch (err) {
@@ -217,7 +228,7 @@ const LysiaBrain = () => {
     const loadOperatorStatus = useCallback(async () => {
         try {
             const res = await API.get("/ai-chat/operator/status");
-            if (res.data.success) setOperatorStatus(res.data);
+            if (res.data?.success !== false) setOperatorStatus(res.data);
         } catch { /* silent */ }
     }, []);
 
@@ -258,17 +269,20 @@ const LysiaBrain = () => {
     const handleApprove = async (recId) => {
         try {
             const res = await API.post(`/ai-engine/recommendations/${recId}/approve`);
-            if (res.data.success) {
-                // Local state anında güncelle (UI hızlı tepki versin)
-                setRecommendations(p => p.map(r => r._id === recId ? { ...r, status: "approved" } : r));
-                setRecSummary(p => ({ ...p, pending: Math.max(0, p.pending - 1), approved: p.approved + 1 }));
+            if (res.data?.success !== false) {
+                await loadBrain(true);
+                if (res.data?.executionError) {
+                    setError(`${res.data.message || t("error.approve_fail")}: ${res.data.executionError}`);
+                } else if (res.data?.executionResult && res.data.executionResult.success === false) {
+                    setError(res.data.executionResult.message || t("error.execute_fail"));
+                }
             }
         } catch (e) { setError(`${t("error.approve_fail")}: ${e.response?.data?.message || e.message}`); }
     };
     const handleReject = async (recId) => {
         try {
             const res = await API.post(`/ai-engine/recommendations/${recId}/reject`);
-            if (res.data.success) {
+            if (res.data?.success !== false) {
                 setRecommendations(p => p.map(r => r._id === recId ? { ...r, status: "rejected" } : r));
                 setRecSummary(p => ({ ...p, pending: Math.max(0, p.pending - 1), rejected: p.rejected + 1 }));
             }
@@ -277,7 +291,7 @@ const LysiaBrain = () => {
     const handleExecute = async (recId) => {
         try {
             const res = await API.post(`/ai-engine/recommendations/${recId}/execute`);
-            if (res.data.success) {
+            if (res.data?.success !== false) {
                 setRecommendations(p => p.map(r => r._id === recId ? { ...r, status: "executed" } : r));
                 setRecSummary(p => ({ ...p, approved: Math.max(0, p.approved - 1), executed: p.executed + 1 }));
             }
@@ -288,26 +302,30 @@ const LysiaBrain = () => {
         catch (e) { setError(`${t("error.generate_fail")}: ${e.response?.data?.message || e.message}`); }
         finally { setRefreshing(false); }
     };
-    const handleExplain = async (recId) => {
-        try { const res = await API.post(`/ai-engine/brain/explain/${recId}`); if (res.data.success) setExplainModal(res.data); }
-        catch { setError(t("error.explain_fail")); }
+    const handleExplain = async (recOrId) => {
+        const recId = recOrId && typeof recOrId === "object" ? recOrId._id : recOrId;
+        if (!recId) return;
+        try {
+            const res = await API.post(`/ai-engine/brain/explain/${recId}`);
+            if (res.data?.success !== false) setExplainModal(res.data);
+        } catch { setError(t("error.explain_fail")); }
     };
     const handleBulkApprove = async (ids) => { try { await API.post("/ai-engine/recommendations/bulk-approve", { ids }); await loadBrain(true); } catch (e) { console.error("Bulk approve error:", e); setError(t("error.bulk_approve_fail")); } };
     const handleBulkReject = async (ids) => { try { await API.post("/ai-engine/recommendations/bulk-reject", { ids }); await loadBrain(true); } catch (e) { console.error("Bulk reject error:", e); setError(t("error.bulk_reject_fail")); } };
-    const handleChangeMode = async (mode) => { try { const res = await API.post("/ai-chat/operator/mode", { mode }); if (res.data.success) setOperatorStatus(p => ({ ...p, operationMode: mode })); } catch { setError(t("error.mode_fail")); } };
+    const handleChangeMode = async (mode) => { try { const res = await API.post("/ai-chat/operator/mode", { mode }); if (res.data?.success !== false) setOperatorStatus(p => ({ ...p, operationMode: mode })); } catch { setError(t("error.mode_fail")); } };
     const handleRunCycle = async () => {
         setCycleLoading(true);
-        try { const mode = operatorStatus?.operationMode || "assisted"; const res = await API.post("/ai-chat/operator/cycle", { mode }); if (res.data.success) { setCycleResult(res.data); loadBrain(false); loadOperatorStatus(); } }
+        try { const mode = operatorStatus?.operationMode || "assisted"; const res = await API.post("/ai-chat/operator/cycle", { mode }); if (res.data?.success !== false) { setCycleResult(res.data); loadBrain(false); loadOperatorStatus(); } }
         catch { setError(t("error.cycle_fail")); } finally { setCycleLoading(false); }
     };
     const handleAutoDecide = async () => {
         setAutoDecideLoading(true); setAutoDecisions(null);
-        try { const res = await API.post("/ai-engine/brain/auto-decide"); if (res.data.success) setAutoDecisions(res.data); }
+        try { const res = await API.post("/ai-engine/brain/auto-decide"); if (res.data?.success !== false) setAutoDecisions(res.data); }
         catch { setError(t("error.auto_decide_fail")); } finally { setAutoDecideLoading(false); }
     };
     const handleDiagnosis = async () => {
         setDiagnosisLoading(true); setDiagnosisData(null); setShowDiagnosis(true);
-        try { const res = await API.get("/ai-engine/brain/diagnosis"); if (res.data.success) setDiagnosisData(res.data.diagnosis); }
+        try { const res = await API.get("/ai-engine/brain/diagnosis"); if (res.data?.success !== false) setDiagnosisData(res.data.diagnosis); }
         catch { setError(t("error.diagnosis_fail")); } finally { setDiagnosisLoading(false); }
     };
     const handleStrategyChange = (strategy) => { setSelectedStrategy(strategy); setShowStrategyPicker(false); };
@@ -317,7 +335,7 @@ const LysiaBrain = () => {
     const renderTab = () => {
         const lazyFallback = (msg) => <LoadingState message={msg} />;
         switch (activeTab) {
-            case "dashboard": return <BrainDashboard brain={brain} recSummary={recSummary} onTabChange={handleTabChange} onAutoDecide={handleAutoDecide} onDiagnosis={handleDiagnosis} autoDecideLoading={autoDecideLoading} autoDecisions={autoDecisions} t={t} />;
+            case "dashboard": return <BrainDashboard brain={brain} recSummary={recSummary} onTabChange={handleTabChange} onAutoDecide={handleAutoDecide} onDiagnosis={handleDiagnosis} autoDecideLoading={autoDecideLoading} diagnosisLoading={diagnosisLoading} autoDecisions={autoDecisions} t={t} />;
             case "advisor": return <Suspense fallback={lazyFallback(t("loading.advisor"))}><BrainAdvisor t={t} onError={setError} /></Suspense>;
             case "recommendations": return <BrainRecommendations recommendations={recommendations} recSummary={recSummary} refreshing={refreshing} onApprove={handleApprove} onReject={handleReject} onExecute={handleExecute} onGenerate={handleGenerate} onExplain={handleExplain} onBulkApprove={handleBulkApprove} onBulkReject={handleBulkReject} t={t} />;
             case "mistakes": return <Suspense fallback={lazyFallback(t("loading.mistakes"))}><BrainMistakes t={t} onError={setError} /></Suspense>;
@@ -415,10 +433,10 @@ const LysiaBrain = () => {
                                             onClick={() => setOpenGroup(openGroup === group.id ? null : group.id)}
                                             style={{
                                                 padding: "0.5rem 0.85rem",
-                                                background: group.tabs.some(t => t.id === activeTab) ? T.accentDim : "transparent",
+                                                background: group.tabs.some(tabItem => tabItem.id === activeTab) ? T.accentDim : "transparent",
                                                 border: "none",
                                                 borderRadius: T.rSm,
-                                                color: group.tabs.some(t => t.id === activeTab) ? T.accent : T.textSec,
+                                                color: group.tabs.some(tabItem => tabItem.id === activeTab) ? T.accent : T.textSec,
                                                 fontSize: "0.85rem",
                                                 fontWeight: 700,
                                                 cursor: "pointer",
@@ -465,8 +483,8 @@ const LysiaBrain = () => {
                         )}
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
-                        {isMobile && <button onClick={() => setShowMobileMenu(!showMobileMenu)} style={{ background: "none", border: "none", color: T.text, fontSize: "1.5rem" }}>☰</button>}
-                        <h2 style={{ fontSize: "1.25rem", fontWeight: 800, margin: 0 }}>{TAB_GROUPS.flatMap(g => g.tabs).find(t => t.id === activeTab)?.label}</h2>
+                        {(isMobile || isTablet) && <button type="button" aria-expanded={showMobileMenu} aria-label={t("nav.menu_open")} onClick={() => setShowMobileMenu(!showMobileMenu)} style={{ background: "none", border: "none", color: T.text, fontSize: "1.5rem" }}>☰</button>}
+                        <h2 style={{ fontSize: "1.25rem", fontWeight: 800, margin: 0 }}>{TAB_GROUPS.flatMap(g => g.tabs).find(tabItem => tabItem.id === activeTab)?.label}</h2>
                     </div>
 
                     <div style={{ display: "flex", alignItems: "center", gap: "1.5rem" }}>
@@ -498,9 +516,37 @@ const LysiaBrain = () => {
                     </div>
                 </header>
 
+                {error && brain && (
+                    <div role="alert" style={{
+                        margin: "0 1.5rem", marginTop: "0.75rem", padding: "0.65rem 1rem",
+                        borderRadius: T.rSm, background: T.redDim, border: `1px solid ${T.red}35`,
+                        color: T.text, fontSize: "0.82rem", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.75rem", flexWrap: "wrap",
+                    }}>
+                        <span>{error}</span>
+                        <button type="button" onClick={() => setError(null)} style={{
+                            background: "transparent", border: `1px solid ${T.border}`, color: T.textSec,
+                            borderRadius: T.rSm, padding: "4px 10px", cursor: "pointer", fontSize: "0.75rem", fontFamily: "inherit",
+                        }}>{t("error.dismiss")}</button>
+                    </div>
+                )}
+
                 {/* ═══ SCROLLABLE CONTENT ═══ */}
-                <main style={{ flex: 1, overflowY: "auto", padding: isMobile ? "1.5rem 1rem" : "2.5rem", position: "relative" }}>
-                    {renderTab()}
+                <main style={{
+                    flex: 1,
+                    overflowY: "auto",
+                    width: "100%",
+                    maxWidth: "100%",
+                    boxSizing: "border-box",
+                    padding: isMobile ? "1rem 0.75rem" : "1.25rem clamp(0.75rem, 2vw, 1.75rem)",
+                    position: "relative",
+                }}>
+                    {!brain ? (
+                        <ErrorState
+                            message={error || t("error.data_load_fail")}
+                            onRetry={() => { setError(null); loadBrain(true); }}
+                            retryLabel={t("header.refresh")}
+                        />
+                    ) : renderTab()}
                 </main>
 
                 {/* ═══ DIAGNOSIS MODAL ═══ */}
@@ -511,7 +557,7 @@ const LysiaBrain = () => {
                             <>
                                 <div style={{ textAlign: "center", padding: "2rem", borderRadius: T.r, border: `1px solid ${T.borderGlow}`, marginBottom: "1.5rem", background: T.gradientCard }}>
                                     <div style={{ width: 72, height: 72, borderRadius: "50%", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: "2.2rem", marginBottom: "0.85rem", background: T.bgGlass, border: `1px solid ${T.border}`, boxShadow: T.shadowGlow }}>{diagnosisData.verdictEmoji}</div>
-                                    <div style={{ fontSize: "1.5rem", fontWeight: 900, background: T.gradientText, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>{t("diag.grİade")}: {diagnosisData.healthGrİade}</div>
+                                    <div style={{ fontSize: "1.5rem", fontWeight: 900, background: T.gradientText, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>{t("diag.grade")}: {diagnosisData.healthGrade ?? "—"}</div>
                                     <p style={{ fontSize: "0.88rem", color: T.textSec, marginTop: "0.5rem", maxWidth: 420, marginLeft: "auto", marginRight: "auto", lineHeight: 1.65 }}>{diagnosisData.verdict}</p>
                                 </div>
                                 {[
@@ -566,7 +612,7 @@ const LysiaBrain = () => {
             </div>
             
             {/* ═══ MOBILE OVERLAY MENU ═══ */}
-            {isMobile && showMobileMenu && (
+            {(isMobile || isTablet) && showMobileMenu && (
                 <div style={{ position: "fixed", inset: 0, background: T.bgOverlay, zIndex: 1000, display: "flex", flexDirection: "column" }}>
                     <div style={{ padding: "1.5rem", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: `1px solid ${T.border}` }}>
                         <div style={{ fontSize: "1.5rem", fontWeight: 900 }}>LysiaBrain</div>

@@ -20,12 +20,15 @@ exports.getUserMarketplaces = async (req, res) => {
         }
 
         // 🛡️ FIX #9: Credential'ları maskeleyerek döndür — frontend'e tam credential gönderme
+        // integrationHints: şifre sızdırmadan ürün yükleme önkoşulları (ör. N11 kargo şablonu)
         const maskedMarketplaces = marketplaces.map(mp => {
             const mpObj = mp.toObject();
+            let integrationHints = {};
+            const lowName = (mp.marketplaceName || "").trim().toLowerCase();
+
             if (mpObj.credentials) {
                 try {
                     const decrypted = decryptCredentials(mpObj.credentials);
-                    // Her credential alanını maskele: sadece son 4 karakteri göster
                     const masked = {};
                     for (const [key, value] of Object.entries(decrypted)) {
                         if (typeof value === "string" && value.length > 4) {
@@ -36,11 +39,39 @@ exports.getUserMarketplaces = async (req, res) => {
                     }
                     mpObj.credentials = masked;
                     mpObj.hasCredentials = true;
+
+                    if (lowName === "n11") {
+                        integrationHints = {
+                            requiresShipmentTemplate: true,
+                            shipmentTemplateConfigured: !!String(decrypted.shipmentTemplate || "").trim()
+                        };
+                    } else if (lowName === "trendyol") {
+                        integrationHints = {
+                            apiConfigured: !!(
+                                decrypted.apiKey &&
+                                decrypted.apiSecret &&
+                                (decrypted.sellerId || decrypted.supplierId)
+                            )
+                        };
+                    } else if (lowName === "hepsiburada") {
+                        const mid = decrypted.merchantId || decrypted.sellerId;
+                        const sec = decrypted.secretKey || decrypted.serviceKey || decrypted.apiSecret;
+                        integrationHints = { apiConfigured: !!mid && !!sec };
+                    } else if (lowName === "çiçeksepeti" || lowName === "ciceksepeti") {
+                        integrationHints = { apiConfigured: !!decrypted.apiKey };
+                    }
                 } catch {
                     mpObj.credentials = {};
                     mpObj.hasCredentials = false;
+                    if (lowName === "n11") {
+                        integrationHints = { requiresShipmentTemplate: true, shipmentTemplateConfigured: false };
+                    }
                 }
+            } else if (lowName === "n11") {
+                integrationHints = { requiresShipmentTemplate: true, shipmentTemplateConfigured: false };
             }
+
+            mpObj.integrationHints = integrationHints;
             return mpObj;
         });
 

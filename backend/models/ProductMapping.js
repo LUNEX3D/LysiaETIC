@@ -24,6 +24,7 @@ const ProductMappingSchema = new mongoose.Schema({
         price: { type: Number, required: true },
         listPrice: { type: Number },
         stock: { type: Number, required: true, default: 0 },
+        vatRate: { type: Number, default: 20 },
         category: { type: String },
         brand: { type: String },
         // Maliyet bilgileri (AI Brain tarafından kullanılır)

@@ -117,11 +117,17 @@ const AICommandCenter = () => {
             if (showRefresh) setRefreshing(true);
             setError(null);
             const res = await API.get(`/ai-engine/brain?strategy=${selectedStrategy}`);
-            if (res.data.success) {
+            if (!res?.data) {
+                setError("Sunucu yanıtı alınamadı");
+                return;
+            }
+            if (res.data.success !== false) {
                 setBrain(res.data);
                 setRecommendations(res.data.recommendations || []);
                 setRecSummary(res.data.recSummary || { pending: 0, executed: 0, approved: 0, rejected: 0 });
                 setGoals(res.data.goals || []);
+            } else {
+                setError(res.data.message || "Veri yüklenemedi");
             }
         } catch (err) {
             setError(err.response?.data?.message || err.message || "Başlant hatas");
@@ -253,7 +259,7 @@ const AICommandCenter = () => {
         setCostLoading(true);
         try {
             const res = await API.get(`/ai-engine/brain/products?limit=100&search=${search}`);
-            if (res.data.success) {
+            if (res.data && res.data.success !== false) {
                 setCostProducts(res.data.products || []);
                 setCostStats(res.data.stats || { total: 0, withCost: 0, withoutCost: 0 });
             }
@@ -354,7 +360,7 @@ const AICommandCenter = () => {
     const loadSimProducts = async (search = "") => {
         try {
             const res = await API.get(`/ai-engine/brain/products?limit=30&search=${search}`);
-            if (res.data.success) setSimProducts(res.data.products || []);
+            if (res.data?.success !== false) setSimProducts(res.data.products || []);
         } catch { /* silent */ }
     };
 
@@ -1374,7 +1380,7 @@ const AICommandCenter = () => {
                             <>
                                 <div style={{ textAlign: "center", padding: "1rem 0", marginBottom: "1rem", borderBottom: "1px solid var(--border)" }}>
                                     <span style={{ fontSize: "2.5rem" }}>{d.verdictEmoji}</span>
-                                    <div style={{ fontSize: "1.2rem", fontWeight: 800, marginTop: "0.5rem" }}>NOT: {d.healthGrİade}</div>
+                                    <div style={{ fontSize: "1.2rem", fontWeight: 800, marginTop: "0.5rem" }}>NOT: {d.healthGrade ?? "—"}</div>
                                     <p style={{ fontSize: "0.85rem", color: "var(--text-secondary)", marginTop: "0.3rem" }}>{d.verdict}</p>
                                 </div>
                                 {d.mistakes?.length > 0 && (
@@ -1493,6 +1499,13 @@ const AICommandCenter = () => {
 
             {error && (
                 <div className="ai-error"><FaExclamationTriangle /> {error}<button onClick={() => loadBrain(true)}>Tekrar Dene</button></div>
+            )}
+
+            {!brain && !error && (
+                <div className="ai-error" style={{ background: "rgba(251,191,36,0.08)", borderColor: "rgba(251,191,36,0.25)" }}>
+                    <FaExclamationTriangle /> Panel verisi yüklenemedi. Yenile düğmesini deneyin.
+                    <button type="button" onClick={() => loadBrain(true)}>Tekrar Dene</button>
+                </div>
             )}
 
             {/* Tabs */}

@@ -20,7 +20,7 @@ const BrainPlatforms = ({ t, onError }) => {
         try {
             setLoading(true); setError(null);
             const res = await API.get("/ai-engine/advisor/platforms");
-            if (res.data.success) setData(res.data);
+            if (res.data && res.data.success !== false) setData(res.data);
             else setError(res.data.message || t("error.data_load_fail"));
         } catch (e) { setError(e.response?.data?.message || t("error.data_load_fail")); }
         finally { setLoading(false); }

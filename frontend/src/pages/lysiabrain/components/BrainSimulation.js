@@ -44,7 +44,7 @@ const BrainSimulation = ({ t, onError }) => {
                 stockChange: Number(stockChange) || 0,
                 campaignDiscountPct: Number(campaignPct) || 0,
             });
-            if (res.data.success) setResult(res.data.simulation);
+            if (res.data && res.data.success !== false) setResult(res.data.simulation);
             else setError(res.data.message || t("error.simulation_fail"));
         } catch (e) { setError(e.response?.data?.message || t("error.simulation_fail")); }
         finally { setLoading(false); }
@@ -68,7 +68,7 @@ const BrainSimulation = ({ t, onError }) => {
         setAdvLoading(true); setAdvResult(null);
         try {
             const res = await API.post("/ai-engine/simulate-advanced", { scenarios: valid });
-            if (res.data.success) setAdvResult(res.data);
+            if (res.data && res.data.success !== false) setAdvResult(res.data);
         } catch (e) { onError?.(e.response?.data?.message || t("error.simulation_fail")); }
         finally { setAdvLoading(false); }
     };

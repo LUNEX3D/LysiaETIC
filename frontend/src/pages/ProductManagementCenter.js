@@ -276,7 +276,21 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
     }, [initialTab]);
 
     // ── Data Loading ──
-    useEffect(() => { if (userId) getUserMarketplaces().then(d => setMarketplaces(d.map(m => ({ ...m, name: m.marketplaceName })))).catch(() => {}); }, [userId]);
+    useEffect(() => {
+        if (!userId) return;
+        getUserMarketplaces()
+            .then((d) => {
+                const list = (d || []).map((m) => ({ ...m, name: m.marketplaceName }));
+                setMarketplaces(list);
+                const names = list.map((m) => m.marketplaceName).filter(Boolean);
+                if (names.length === 0) return;
+                setUf((prev) => {
+                    if (prev.targetMarketplaces.length > 0) return prev;
+                    return { ...prev, targetMarketplaces: names };
+                });
+            })
+            .catch(() => {});
+    }, [userId]);
 
     const loadProducts = useCallback(async (p = 0, s = search, sf = stockFilter) => {
         setLoading(true);
@@ -950,6 +964,9 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
 
     const handleCreate = async () => {
         if (!uf.name || !uf.barcode || !uf.sku || !uf.price) return showToast("Ad, barkod, SKU ve fiyat zorunlu", "error");
+        if (marketplaces.length > 0 && uf.targetMarketplaces.length === 0) {
+            return showToast("En az bir hedef pazaryeri seçin.", "error");
+        }
         setUploadLoading(true);
         try {
             const imgs = [...uf.imageUrls, ...imgFiles.map(f => f.preview)].filter(Boolean);
@@ -967,7 +984,8 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
                 showToast(msg);
             }
             if (!allMarketplacesFailed) {
-                setUf({ name: "", barcode: "", sku: "", description: "", price: "", listPrice: "", stock: "0", category: "", brand: "", imageUrls: [], targetMarketplaces: [] });
+                const defaultTargets = marketplaces.map((m) => m.marketplaceName).filter(Boolean);
+                setUf({ name: "", barcode: "", sku: "", description: "", price: "", listPrice: "", stock: "0", category: "", brand: "", imageUrls: [], targetMarketplaces: defaultTargets });
                 setImgFiles([]); setCodeSugg(null); setCatLevels([]); setUploadStep(1);
             }
             loadProducts(0); loadDashboard();
@@ -985,7 +1003,20 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
         finally { setUploadLoading(false); }
     };
 
-    const toggleTarget = (p) => setUf(prev => { const t = [...prev.targetMarketplaces]; const i = t.indexOf(p); if (i >= 0) t.splice(i, 1); else t.push(p); return { ...prev, targetMarketplaces: t }; });
+    const toggleTarget = (p) => setUf((prev) => {
+        const t = [...prev.targetMarketplaces];
+        const i = t.indexOf(p);
+        if (i >= 0) {
+            if (t.length <= 1 && marketplaces.length > 0) {
+                showToast("Dağıtım için en az bir pazaryeri seçili olmalıdır.", "error");
+                return prev;
+            }
+            t.splice(i, 1);
+        } else {
+            t.push(p);
+        }
+        return { ...prev, targetMarketplaces: t };
+    });
 
     // ── Computed ──
     const totalPages = Math.ceil(total / LIMIT);
@@ -1965,7 +1996,9 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
                     style={{ paddingLeft: 12 + depth * 18 }}
                     onClick={() => {
                         if (node.hasChildren) toggleCatNode(platform, node.id, true);
-                        setCatSelectedNode({ id: node.id, name: node.name, path: node.path || node.name, platform });
+                        if (!node.hasChildren || platform !== "Trendyol") {
+                            setCatSelectedNode({ id: node.id, name: node.name, path: node.path || node.name, platform });
+                        }
                     }}
                 >
                     <span className="ud-pm-cat-tree-toggle" style={{ width: 18, display: "inline-flex", justifyContent: "center" }}>

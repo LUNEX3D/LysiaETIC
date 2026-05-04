@@ -11,6 +11,16 @@ import API from "../../../services/api";
 import { T, fmt, fmtN, useResponsive } from "../styles";
 import { Card, CardHeader, StatCard, ScoreRing, HealthBar, LoadingState, ErrorState } from "./shared/SharedUI";
 
+const EMPTY_SELF_EVAL = {
+    aiPerformanceScore: 0,
+    totalRecommendations: 0,
+    executed: 0,
+    successfulExecutions: 0,
+    acceptanceRate: 0,
+    totalProfitGenerated: 0,
+    evaluation: "",
+};
+
 const BrainSelfEval = ({ t, onError }) => {
     const { isMobile } = useResponsive();
     const [loading, setLoading] = useState(true);
@@ -20,7 +30,9 @@ const BrainSelfEval = ({ t, onError }) => {
         try {
             setLoading(true);
             const res = await API.get("/ai-engine/brain/section/self_eval");
-            if (res.data.success) setData(res.data.selfEvaluation);
+            if (res.data && res.data.success !== false) {
+                setData(res.data.selfEvaluation ? { ...EMPTY_SELF_EVAL, ...res.data.selfEvaluation } : { ...EMPTY_SELF_EVAL });
+            }
         } catch (e) { onError?.(e.response?.data?.message || t("error.data_load_fail")); }
         finally { setLoading(false); }
     }, [t, onError]);
@@ -32,7 +44,7 @@ const BrainSelfEval = ({ t, onError }) => {
 
     const score = data.aiPerformanceScore || 0;
     const scoreColor = score >= 80 ? T.green : score >= 60 ? T.accent : score >= 40 ? T.yellow : T.red;
-    const grİade = score >= 80 ? "A" : score >= 60 ? "B" : score >= 40 ? "C" : "D";
+    const gradeLetter = score >= 80 ? "A" : score >= 60 ? "B" : score >= 40 ? "C" : "D";
 
     return (
         <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
@@ -47,7 +59,7 @@ const BrainSelfEval = ({ t, onError }) => {
                         background: `${scoreColor}15`, border: `2px solid ${scoreColor}40`,
                         display: "flex", alignItems: "center", justifyContent: "center",
                         fontSize: "1.5rem", fontWeight: 900, color: scoreColor, fontFamily: T.fontMono,
-                    }}>{grİade}</div>
+                    }}>{gradeLetter}</div>
                     <div style={{ textAlign: "left" }}>
                         <div style={{ fontSize: "1.1rem", fontWeight: 800, color: T.text }}>{t("selfeval.title")}</div>
                         <div style={{ fontSize: "0.75rem", color: T.textDim }}>{t("selfeval.subtitle")}</div>

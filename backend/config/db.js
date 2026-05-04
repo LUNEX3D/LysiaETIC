@@ -57,8 +57,10 @@ const connectDB = async () => {
             const conn = await mongoose.connect(mongoUri, {
                 serverSelectionTimeoutMS: 30000,   // 30 saniye (varsayılan 10s)
                 connectTimeoutMS: 30000,           // bağlantı timeout
-                socketTimeoutMS: 45000,            // soket timeout
-                maxPoolSize: 10,                   // bağlantı havuzu
+                socketTimeoutMS: 60000,            // soket timeout (uzatıldı)
+                maxPoolSize: 20,                   // bağlantı havuzu (artırıldı)
+                minPoolSize: 5,                    // minimum bağlantı sayısı
+                heartbeatFrequencyMS: 10000,       // daha sık heartbeat
                 retryWrites: true,
                 retryReads: true,
                 family: 4                          // IPv4 zorla (DNS sorunlarını önler)

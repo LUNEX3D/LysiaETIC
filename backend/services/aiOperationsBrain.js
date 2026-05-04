@@ -48,6 +48,37 @@ const dayMs = 24 * 60 * 60 * 1000;
 function round2(v) { return Math.round(v * 100) / 100; }
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
+/** FNV-1a — günlük fırsat sırası / metin varyantı için deterministik tuz */
+function hashString32(str) {
+    let h = 2166136261;
+    const s = String(str);
+    for (let i = 0; i < s.length; i++) {
+        h ^= s.charCodeAt(i);
+        h = Math.imul(h, 16777619);
+    }
+    return h >>> 0;
+}
+
+function opportunityRotationSalt(userId) {
+    const dayKey = Math.floor(Date.now() / dayMs);
+    const uid = userId != null ? String(userId) : "anon";
+    return hashString32(`${uid}:${dayKey}`);
+}
+
+function shortenProductLabel(name, maxLen = 42) {
+    if (!name || typeof name !== "string") return "";
+    const t = name.trim();
+    if (t.length <= maxLen) return t;
+    return `${t.slice(0, maxLen - 1)}…`;
+}
+
+function formatSampleNames(products, maxItems = 2) {
+    if (!products?.length) return "";
+    const parts = products.slice(0, maxItems).map(p => shortenProductLabel(p.name || "", 36));
+    const more = products.length > maxItems ? ` +${products.length - maxItems}` : "";
+    return parts.filter(Boolean).join(", ") + more;
+}
+
 // ═════════════════════════════════════════════════════════════════════════════
 // #18 BUSINESS HEALTH ENGINE
 // ═════════════════════════════════════════════════════════════════════════════
@@ -361,19 +392,28 @@ function generateFocusItems(analyzedProducts, data, businessHealth, lossHunter) 
 // #41 OPPORTUNITY RADAR
 // ═════════════════════════════════════════════════════════════════════════════
 
-function scanOpportunities(analyzedProducts, data) {
+function scanOpportunities(analyzedProducts, data, userId) {
+    const salt = opportunityRotationSalt(userId);
+    const seasonalVariant = salt % 2;
     const opportunities = [];
 
     // High margin + high stock = push marketing
     const highMarginHighStock = analyzedProducts.filter(p => p.profitMargin > 20 && p.stock > 20 && p.costPrice > 0);
     if (highMarginHighStock.length > 0) {
         const totalPotential = highMarginHighStock.reduce((s, p) => s + p.profit * p.stock * 0.3, 0);
+        const byPush = [...highMarginHighStock].sort((a, b) => (b.profit * b.stock) - (a.profit * a.stock));
+        const pickOffset = salt % Math.max(1, Math.min(3, byPush.length));
+        const rotatedTop = [...byPush.slice(pickOffset), ...byPush.slice(0, pickOffset)];
+        const samples = formatSampleNames(rotatedTop);
+        const avgM = highMarginHighStock.reduce((s, p) => s + p.profitMargin, 0) / highMarginHighStock.length;
         opportunities.push({
             type: "high_margin_push",
             icon: "💰",
             title: `${highMarginHighStock.length} yüksek marjlı ürün pazarlamaya hazır`,
             potential: round2(totalPotential),
-            description: `Ortalama marj %${(highMarginHighStock.reduce((s, p) => s + p.profitMargin, 0) / highMarginHighStock.length).toFixed(1)} — pazarlama artırarak satışları katlayın`,
+            description: samples
+                ? `Örnekler: ${samples}. Ortalama marj %${avgM.toFixed(1)} — bu kalemlerde görünürlük artırılabilir.`
+                : `Ortalama marj %${avgM.toFixed(1)} — pazarlama artırarak satışları katlayın`,
             action: "Reklam bütçesini bu ürünlere yönlendirin",
             confidence: 85,
         });
@@ -383,12 +423,17 @@ function scanOpportunities(analyzedProducts, data) {
     const singleMp = analyzedProducts.filter(p => p.marketplaceCount === 1 && p.stock > 0 && p.totalSold > 3);
     if (singleMp.length > 10) {
         const avgRevenue = singleMp.reduce((s, p) => s + p.totalRevenue, 0) / singleMp.length;
+        const byRev = [...singleMp].sort((a, b) => (b.totalRevenue || 0) - (a.totalRevenue || 0));
+        const off = salt % Math.max(1, Math.min(4, byRev.length));
+        const samples = formatSampleNames([...byRev.slice(off), ...byRev.slice(0, off)]);
         opportunities.push({
             type: "marketplace_expansion",
             icon: "🚀",
             title: `${singleMp.length} ürün tek pazaryerinde — genişletin`,
             potential: round2(avgRevenue * singleMp.length * 0.3),
-            description: "Bu ürünleri diğer pazaryerlerine açarak satışları %30 artırabilirsiniz",
+            description: samples
+                ? `Öncelik adayları: ${samples}. Kanal çeşitlendirmesi ile talep artışı hedefleyin.`
+                : "Bu ürünleri diğer pazaryerlerine açarak satışları %30 artırabilirsiniz",
             action: "Ürünleri diğer kanallara dağıtın",
             confidence: 72,
         });
@@ -406,20 +451,25 @@ function scanOpportunities(analyzedProducts, data) {
         return prevAvg > 0 && recentAvg > prevAvg * 1.3;
     });
     if (trending.length > 0) {
+        const byMom = [...trending].sort((a, b) => (b.avgDailySales || 0) - (a.avgDailySales || 0));
+        const off = salt % Math.max(1, Math.min(4, byMom.length));
+        const samples = formatSampleNames([...byMom.slice(off), ...byMom.slice(0, off)]);
         opportunities.push({
             type: "trending_products",
             icon: "📈",
             title: `${trending.length} ürün yükseliş trendinde`,
             potential: round2(trending.reduce((s, p) => s + p.profit * p.avgDailySales * 30, 0)),
-            description: "Bu ürünlerin stokunu artırın ve fiyat optimizasyonu yapın",
+            description: samples
+                ? `Hızlı ivme: ${samples}. Stok ve fiyatı bu ürünler için güncel tutun.`
+                : "Bu ürünlerin stokunu artırın ve fiyat optimizasyonu yapın",
             action: "Stok artırın, fiyat gözden geçirin",
             confidence: 78,
         });
     }
 
-    // Seasonal opportunity (basic)
+    // Seasonal opportunity (basic) — aynı ayda iki metin varyantı (gün/kullanıcı tuzuna bağlı)
     const month = new Date().getMonth();
-    const seasonalTip = getSeasonalTip(month);
+    const seasonalTip = getSeasonalTip(month, seasonalVariant);
     if (seasonalTip) {
         opportunities.push({
             type: "seasonal",
@@ -432,26 +482,71 @@ function scanOpportunities(analyzedProducts, data) {
         });
     }
 
-    opportunities.sort((a, b) => b.potential - a.potential);
+    opportunities.sort((a, b) => {
+        const tieA = (hashString32(`${salt}:${a.type}`) % 400);
+        const tieB = (hashString32(`${salt}:${b.type}`) % 400);
+        const sa = (a.potential || 0) * 1000 + (a.confidence || 0) + tieA;
+        const sb = (b.potential || 0) * 1000 + (b.confidence || 0) + tieB;
+        return sb - sa;
+    });
     return opportunities.slice(0, 10);
 }
 
-function getSeasonalTip(month) {
+function getSeasonalTip(month, variant = 0) {
+    const v = variant % 2;
     const tips = {
-        0: { title: "Ocak — Yeni yıl indirimleri", description: "Yılbaşı sonrası stok eritme dönemi", action: "Kış ürünlerinde indirim kampanyası başlatın" },
-        1: { title: "Şubat — Sevgililer Günü yaklaşıyor", description: "Hediye kategorisinde talep artışı bekleniyor", action: "Hediye ürünlerini öne çıkarın" },
-        2: { title: "Mart — Bahar sezonu başlıyor", description: "Mevsim geçişi ürünlerinde hareketlenme", action: "Bahar koleksiyonunu hazırlayın" },
-        3: { title: "Nisan — 23 Nisan kampanyaları", description: "Çocuk ürünlerinde talep artışı", action: "Çocuk kategorisinde kampanya planlayın" },
-        4: { title: "Mayıs — Anneler Günü", description: "Hediye ve kişisel bakım ürünlerinde artış", action: "Anneler Günü özel kampanyası oluşturun" },
-        5: { title: "Haziran — Yaz sezonu", description: "Yaz ürünlerinde yoğun talep dönemi", action: "Yaz ürünlerinin stoklarını artırın" },
-        6: { title: "Temmuz — Yaz indirimleri", description: "Sezon ortası indirim dönemi", action: "Yaz ürünlerinde agresif fiyatlama yapın" },
-        7: { title: "Ağustos — Okul dönemi yaklaşıyor", description: "Kırtasiye ve okul ürünlerinde artış", action: "Okul ürünlerini hazırlayın" },
-        8: { title: "Eylül — Sonbahar sezonu", description: "Mevsim geçişi ve okul dönemi", action: "Sonbahar koleksiyonunu öne çıkarın" },
-        9: { title: "Ekim — Kış hazırlığı", description: "Kış ürünlerine talep başlıyor", action: "Kış ürünlerinin stoklarını kontrol edin" },
-        10: { title: "Kasım — Black Friday / 11.11", description: "Yılın en büyük indirim dönemi", action: "Kampanya stratejinizi şimdi belirleyin" },
-        11: { title: "Aralık — Yılbaşı sezonu", description: "Hediye alışverişi zirve dönemi", action: "Hediye paketleri ve kampanyalar hazırlayın" },
+        0: [
+            { title: "Ocak — Yeni yıl indirimleri", description: "Yılbaşı sonrası stok eritme dönemi", action: "Kış ürünlerinde indirim kampanyası başlatın" },
+            { title: "Ocak — Sepet ortalamasını yükseltin", description: "İndirimli ürünleri çapraz satışla paketleyin", action: "2. üründe ek indirim veya ücretsiz kargo eşiği deneyin" },
+        ],
+        1: [
+            { title: "Şubat — Sevgililer Günü yaklaşıyor", description: "Hediye kategorisinde talep artışı bekleniyor", action: "Hediye ürünlerini öne çıkarın" },
+            { title: "Şubat — Hediye paketi ve hızlı kargo vurgusu", description: "Son günlük siparişlerde dönüşümü kargo ve paketleme mesajıyla artırın", action: "Ürün görsellerine 'hediye paketi' notu ekleyin" },
+        ],
+        2: [
+            { title: "Mart — Bahar sezonu başlıyor", description: "Mevsim geçişi ürünlerinde hareketlenme", action: "Bahar koleksiyonunu hazırlayın" },
+            { title: "Mart — Mevsimsel envanter değişimi", description: "Kış stoklarını eritirken bahar ürünlerini listeye alın", action: "Düşük hareketli kış kalemlerinde net indirim verin" },
+        ],
+        3: [
+            { title: "Nisan — 23 Nisan kampanyaları", description: "Çocuk ürünlerinde talep artışı", action: "Çocuk kategorisinde kampanya planlayın" },
+            { title: "Nisan — Tatil ve etkinlik alışverişi", description: "Aile ve çocuk segmentinde arama artışı", action: "Set ürün ve kampanya başlıklarını güncelleyin" },
+        ],
+        4: [
+            { title: "Mayıs — Anneler Günü", description: "Hediye ve kişisel bakım ürünlerinde artış", action: "Anneler Günü özel kampanyası oluşturun" },
+            { title: "Mayıs — Hediye rehberi ve son gönderim tarihi", description: "Teslimat süresini net gösteren ürünler daha çok satıyor", action: "Kargoya veriliş tarihini vitrinde belirtin" },
+        ],
+        5: [
+            { title: "Haziran — Yaz sezonu", description: "Yaz ürünlerinde yoğun talep dönemi", action: "Yaz ürünlerinin stoklarını artırın" },
+            { title: "Haziran — Tatil ve outdoor talebi", description: "Hafif ve hızlı sevk edilen ürünler öne çıkar", action: "Yaz ürünlerinde paket boyutunu ve iade politikasını netleştirin" },
+        ],
+        6: [
+            { title: "Temmuz — Yaz indirimleri", description: "Sezon ortası indirim dönemi", action: "Yaz ürünlerinde agresif fiyatlama yapın" },
+            { title: "Temmuz — Sezon ortası temiz stok", description: "Yavaş hareket eden yaz kalemlerinde fiyat adımı planlayın", action: "Kademeli indirim veya paket fiyatı uygulayın" },
+        ],
+        7: [
+            { title: "Ağustos — Okul dönemi yaklaşıyor", description: "Kırtasiye ve okul ürünlerinde artış", action: "Okul ürünlerini hazırlayın" },
+            { title: "Ağustos — Okul alışverişi erken kuş", description: "Liste ürünlerinde stok ve fiyat rekabeti artar", action: "Çok satan okul kalemlerinde stok uyarısı açın" },
+        ],
+        8: [
+            { title: "Eylül — Sonbahar sezonu", description: "Mevsim geçişi ve okul dönemi", action: "Sonbahar koleksiyonunu öne çıkarın" },
+            { title: "Eylül — Katmanlı giyim ve ev tekstili", description: "Geçiş mevsiminde talep geniş ürün grubuna yayılır", action: "Sonbahar anahtar kelimeleriyle başlıkları güncelleyin" },
+        ],
+        9: [
+            { title: "Ekim — Kış hazırlığı", description: "Kış ürünlerine talep başlıyor", action: "Kış ürünlerinin stoklarını kontrol edin" },
+            { title: "Ekim — Erken kış kampanyası", description: "Isıtma ve konfor ürünlerinde ilk dalga", action: "Kış ürünlerinde erken sipariş indirimi deneyin" },
+        ],
+        10: [
+            { title: "Kasım — Black Friday / 11.11", description: "Yılın en büyük indirim dönemi", action: "Kampanya stratejinizi şimdi belirleyin" },
+            { title: "Kasım — Kampanya takvimi ve stok tavanı", description: "Yoğun trafikte stoksuz kalma riski yüksek", action: "Kritik SKUlarda güvenlik stoğu ve yedek tedarik planı yapın" },
+        ],
+        11: [
+            { title: "Aralık — Yılbaşı sezonu", description: "Hediye alışverişi zirve dönemi", action: "Hediye paketleri ve kampanyalar hazırlayın" },
+            { title: "Aralık — Son teslimat günleri", description: "Kargo cutoff tarihleri dönüşümü belirler", action: "Ürün sayfalarında son kargoya veriliş tarihini vurgulayın" },
+        ],
     };
-    return tips[month] || null;
+    const pair = tips[month];
+    if (!pair) return null;
+    return pair[v] || pair[0];
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -772,12 +867,15 @@ function generateTeachingTips(analyzedProducts, data, businessHealth) {
 
 function explainDecision(recommendation) {
     const explanations = [];
-    const { type, actionPayload, impact, confidenceScore } = recommendation;
+    const { type, actionPayload, impact, confidenceScore, title, description: recDesc } = recommendation;
+    const profitCh = Number(impact?.profitChange);
+    const pc = Number.isFinite(profitCh) ? profitCh : 0;
+    const profitStr = `${pc >= 0 ? "+" : ""}${pc.toFixed(0)}₺`;
 
     explanations.push({
         step: 1,
         title: "Veri Analizi",
-        description: `${actionPayload?.targetName || "Ürün"} için son 90 günlük veriler analiz edildi.`,
+        description: `${actionPayload?.targetName || "Ürün"} için sipariş, stok, fiyat ve marj verileri bir arada değerlendirildi.${title ? ` Özet: ${title}` : ""}`,
     });
 
     switch (type) {
@@ -786,12 +884,31 @@ function explainDecision(recommendation) {
             explanations.push({
                 step: 2,
                 title: "Sorun Tespiti",
-                description: `Kâr marjı düşük veya negatif tespit edildi. Mevcut fiyat maliyeti karşılamıyor.`,
+                description: `Kâr marjı düşük veya negatif tespit edildi. Mevcut fiyat maliyeti karşılamıyor olabilir.`,
             });
             explanations.push({
                 step: 3,
                 title: "Çözüm Hesaplama",
-                description: `Fiyat ${actionPayload?.params?.oldPrice}₺ → ${actionPayload?.params?.newPrice}₺ yapılarak marj iyileştirilir.`,
+                description: `Önerilen fiyat: ${actionPayload?.params?.oldPrice ?? "—"}₺ → ${actionPayload?.params?.newPrice ?? "—"}₺ (marj iyileştirmesi).`,
+            });
+            break;
+        case "inventory_pressure":
+            explanations.push({
+                step: 2,
+                title: "Stok & Devir",
+                description: "Yüksek stok ve yavaş devir tespit edildi; indirimle devir hızlandırması önerilir.",
+            });
+            break;
+        case "dynamic_pricing":
+            explanations.push({
+                step: 2,
+                title: "Dinamik Fiyat",
+                description: "Talep, rekabet ve maliyet sinyallerine göre fiyat ayarı önerildi.",
+            });
+            explanations.push({
+                step: 3,
+                title: "Önerilen Seviye",
+                description: `Hedef fiyat: ${actionPayload?.params?.newPrice ?? "—"}₺ (önceki: ${actionPayload?.params?.oldPrice ?? "—"}₺).`,
             });
             break;
         case "stock_optimization":
@@ -799,26 +916,42 @@ function explainDecision(recommendation) {
             explanations.push({
                 step: 2,
                 title: "Stok Analizi",
-                description: `Mevcut stok ${actionPayload?.params?.currentStock || 0} adet. Günlük satış hızına göre ${actionPayload?.params?.daysOfStock || 0} gün yeter.`,
+                description: `Mevcut stok ${actionPayload?.params?.currentStock ?? 0} adet. Günlük satış hızına göre yaklaşık ${actionPayload?.params?.daysOfStock ?? 0} gün yeter.`,
             });
             explanations.push({
                 step: 3,
                 title: "Tedarik Hesaplama",
-                description: `30 günlük satış tahminine göre ${actionPayload?.params?.restockQuantity || 0} adet tedarik önerilir.`,
+                description: `Önerilen tedarik: ${actionPayload?.params?.restockQuantity ?? 0} adet (tahmine dayalı).`,
+            });
+            break;
+        case "dead_product":
+        case "trend_detection":
+        case "anomaly_detection":
+            explanations.push({
+                step: 2,
+                title: "Performans Sinyali",
+                description: recDesc || "Satış hızı veya görünürlükte anormallik / durgunluk tespit edildi.",
+            });
+            break;
+        case "tax_warning":
+            explanations.push({
+                step: 2,
+                title: "Maliyet / Vergi",
+                description: "KDV veya maliyet varsayımları satış fiyatı ile uyumsuz olabilir; marj kontrolü önerilir.",
             });
             break;
         default:
             explanations.push({
                 step: 2,
                 title: "Analiz",
-                description: "Ürün performansı, stok durumu ve pazar koşulları değerlendirildi.",
+                description: recDesc || "Ürün performansı, stok durumu ve pazar koşulları değerlendirildi.",
             });
     }
 
     explanations.push({
         step: explanations.length + 1,
         title: "Etki Tahmini",
-        description: `Tahmini kâr etkisi: ${(impact?.profitChange || 0) >= 0 ? "+" : ""}${(impact?.profitChange || 0).toFixed(0)}₺ | Güven: %${confidenceScore || 0}`,
+        description: `Tahmini kâr etkisi: ${profitStr} | Güven: %${confidenceScore ?? 0}`,
     });
 
     return explanations;
@@ -1860,6 +1993,49 @@ function generateRedAlerts(analyzedProducts, data, businessHealth) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
+// RECOMMENDATIONS — Statü bazlı çekim (tek limit(50) son tarih sırası, onaylıları dışarıda bırakıyordu)
+// ═════════════════════════════════════════════════════════════════════════════
+
+const BRAIN_REC_LIMITS = { pending: 120, approved: 60, executed: 60, rejected: 50 };
+
+/**
+ * Özet sayıları DB ile; liste her statüden yeterince kayıt içerir (UI sekmeleri boş kalmaz).
+ */
+async function fetchRecommendationsForBrainDashboard(userId, limits = BRAIN_REC_LIMITS) {
+    const lim = { ...BRAIN_REC_LIMITS, ...limits };
+    const [pending, approved, executed, rejected, pendingCount, executedCount, approvedCount, rejectedCount] = await Promise.all([
+        Recommendation.find({ userId, status: "pending" }).sort({ createdAt: -1 }).limit(lim.pending).lean(),
+        Recommendation.find({ userId, status: "approved" }).sort({ createdAt: -1 }).limit(lim.approved).lean(),
+        Recommendation.find({ userId, status: "executed" }).sort({ createdAt: -1 }).limit(lim.executed).lean(),
+        Recommendation.find({ userId, status: "rejected" }).sort({ createdAt: -1 }).limit(lim.rejected).lean(),
+        Recommendation.countDocuments({ userId, status: "pending" }),
+        Recommendation.countDocuments({ userId, status: "executed" }),
+        Recommendation.countDocuments({ userId, status: "approved" }),
+        Recommendation.countDocuments({ userId, status: "rejected" }),
+    ]);
+
+    const byId = new Map();
+    for (const r of pending) byId.set(String(r._id), r);
+    for (const r of approved) byId.set(String(r._id), r);
+    for (const r of executed) byId.set(String(r._id), r);
+    for (const r of rejected) byId.set(String(r._id), r);
+
+    const allRecs = [...byId.values()];
+    const priorityOrder = { critical: 0, high: 1, medium: 2, low: 3 };
+    const statusOrder = { pending: 0, approved: 1, executed: 2, rejected: 3 };
+    allRecs.sort((a, b) => {
+        const sd = (statusOrder[a.status] || 4) - (statusOrder[b.status] || 4);
+        if (sd !== 0) return sd;
+        return (priorityOrder[a.priority] || 3) - (priorityOrder[b.priority] || 3);
+    });
+
+    return {
+        allRecs,
+        recSummary: { pending: pendingCount, executed: executedCount, approved: approvedCount, rejected: rejectedCount },
+    };
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
 // MASTER DASHBOARD — Combines all engines into single response
 // ═════════════════════════════════════════════════════════════════════════════
 
@@ -1884,7 +2060,7 @@ async function getFullBrainDashboard(userId, aiEngine, strategyMode) {
     const businessHealth = calculateBusinessHealth(analyzed, data, aiScore);
     const lossHunterResult = huntLosses(analyzed, data);
     const focusItems = generateFocusItems(analyzed, data, businessHealth, lossHunterResult);
-    const opportunityRadar = scanOpportunities(analyzed, data);
+    const opportunityRadar = scanOpportunities(analyzed, data, userId);
     const causeAnalysis = analyzeCauses(analyzed, data);
     const segmentation = segmentProducts(analyzed);
     const context = getContextAwareness();
@@ -1904,27 +2080,12 @@ async function getFullBrainDashboard(userId, aiEngine, strategyMode) {
     // Agentic Thought Process — Proaktif AI Akıl Yürütme
     const thoughtProcess = generateThoughtProcess(analyzed, data, businessHealth, lossHunterResult, predictions, redAlerts);
 
-    // DB queries — TÜM statülerdeki önerileri getir (pending, approved, executed, rejected)
-    const [allRecs, pendingCount, executedCount, approvedCount, rejectedCount, selfEval, decisionHistory] = await Promise.all([
-        Recommendation.find({ userId, status: { $in: ["pending", "approved", "executed", "rejected"] } })
-            .sort({ createdAt: -1 }).limit(50).lean(),
-        Recommendation.countDocuments({ userId, status: "pending" }),
-        Recommendation.countDocuments({ userId, status: "executed" }),
-        Recommendation.countDocuments({ userId, status: "approved" }),
-        Recommendation.countDocuments({ userId, status: "rejected" }),
+    const [{ allRecs, recSummary }, selfEval, decisionHistory] = await Promise.all([
+        fetchRecommendationsForBrainDashboard(userId),
         selfEvaluate(userId),
         getDecisionHistory(userId),
     ]);
-
-    const priorityOrder = { critical: 0, high: 1, medium: 2, low: 3 };
-    allRecs.sort((a, b) => {
-        // Önce statüye göre sırala: pending > approved > executed > rejected
-        const statusOrder = { pending: 0, approved: 1, executed: 2, rejected: 3 };
-        const sd = (statusOrder[a.status] || 4) - (statusOrder[b.status] || 4);
-        if (sd !== 0) return sd;
-        // Aynı statüde priority'ye göre sırala
-        return (priorityOrder[a.priority] || 3) - (priorityOrder[b.priority] || 3);
-    });
+    const { pending: pendingCount } = recSummary;
 
     // Product health segments
     const segments = {
@@ -1972,7 +2133,7 @@ async function getFullBrainDashboard(userId, aiEngine, strategyMode) {
 
         // Recommendations — tüm statüler (pending, approved, executed, rejected)
         recommendations: allRecs,
-        recSummary: { pending: pendingCount, executed: executedCount, approved: approvedCount, rejected: rejectedCount },
+        recSummary,
 
         // Product Health
         productHealth: {
@@ -2106,4 +2267,5 @@ module.exports = {
     generateRedAlerts,
     generateThoughtProcess,
     getFullBrainDashboard,
+    fetchRecommendationsForBrainDashboard,
 };

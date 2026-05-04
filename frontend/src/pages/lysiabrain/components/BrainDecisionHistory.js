@@ -20,7 +20,7 @@ const BrainDecisionHistory = ({ t, onError }) => {
         try {
             setLoading(true);
             const res = await API.get("/ai-engine/brain/section/decisions");
-            if (res.data.success) setData(res.data.decisionHistory);
+            if (res.data && res.data.success !== false) setData(res.data.decisionHistory);
         } catch (e) { onError?.(e.response?.data?.message || t("error.data_load_fail")); }
         finally { setLoading(false); }
     }, [t, onError]);

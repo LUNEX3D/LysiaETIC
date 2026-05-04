@@ -1211,3 +1211,316 @@
         grid-template-columns: 1fr;
     }
 }
+
+/* Trendyol API kartı — kontrast ve okunabilirlik */
+.puw-ty-api-card.puw-card {
+    margin-top: 16px;
+    border: 1px solid rgba(242, 122, 26, 0.45);
+    background: linear-gradient(165deg, rgba(32, 38, 56, 0.98) 0%, rgba(20, 24, 38, 0.97) 100%);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+.puw-ty-api-card__head {
+    border-bottom-color: rgba(242, 122, 26, 0.22);
+}
+.puw-ty-api-card__icon {
+    color: var(--puw-orange) !important;
+    background: rgba(242, 122, 26, 0.14) !important;
+    border-color: rgba(242, 122, 26, 0.28) !important;
+}
+.puw-ty-api-card__title {
+    color: #ffb366 !important;
+    font-size: 1.02rem !important;
+}
+.puw-ty-api-card .puw-card-header .subtitle {
+    color: #c8d4e6 !important;
+    font-size: 0.84rem !important;
+    line-height: 1.5 !important;
+    max-width: min(100%, 58ch);
+}
+.puw-ty-api-doclink {
+    color: #7dd3fc;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    font-weight: 600;
+}
+.puw-ty-api-doclink:hover {
+    color: #bae6fd;
+}
+.puw-ty-api-grid .puw-field label {
+    color: #b8c5d9 !important;
+    font-size: 0.74rem !important;
+}
+.puw-ty-api-field-note {
+    margin-top: 6px;
+    font-size: 0.8125rem;
+    line-height: 1.45;
+    color: #cbd5e1;
+}
+.puw-ty-api-field-note strong {
+    color: #f1f5f9;
+    font-weight: 600;
+}
+.puw-ty-api-hint {
+    font-size: 0.875rem;
+    line-height: 1.55;
+    color: #cbd5e1;
+    margin: 0 0 14px;
+    padding: 12px 14px;
+    background: rgba(0, 0, 0, 0.28);
+    border-radius: var(--puw-radius-sm);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-left: 4px solid rgba(242, 122, 26, 0.75);
+}
+.puw-ty-api-hint strong {
+    color: #f1f5f9;
+    font-weight: 600;
+}
+.puw-ty-api-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 10px;
+    margin-bottom: 10px;
+    font-size: 0.875rem;
+    color: #e2e8f0;
+}
+.puw-ty-api-meta strong {
+    color: #fdba74;
+    font-weight: 700;
+}
+.puw-ty-api-meta-sep {
+    color: #64748b;
+    user-select: none;
+}
+.puw-ty-api-loading {
+    padding: 18px;
+    text-align: center;
+    font-size: 0.9rem;
+    color: #cbd5e1;
+}
+.puw-ty-api-banner {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    padding: 12px 14px;
+    border-radius: var(--puw-radius-sm);
+    margin: 4px 0 12px;
+}
+.puw-ty-api-banner--warn {
+    color: #fde68a;
+    background: rgba(245, 158, 11, 0.12);
+    border: 1px solid rgba(245, 158, 11, 0.35);
+}
+.puw-ty-api-banner--err {
+    color: #fecaca;
+    background: rgba(239, 68, 68, 0.12);
+    border: 1px solid rgba(239, 68, 68, 0.35);
+}
+.puw-ty-attr-wrap__title {
+    font-size: 0.95rem;
+    font-weight: 700;
+    margin-bottom: 8px;
+    color: #f1f5f9;
+    letter-spacing: -0.02em;
+}
+.puw-ty-attr-wrap__hint {
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    color: #b8c5d9;
+    margin: 0 0 12px;
+    max-width: min(100%, 72ch);
+}
+.puw-ty-attr-table-scroll {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    border-radius: var(--puw-radius-sm);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Trendyol kategori özellik tablosu */
+.puw-ty-attr-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+}
+.puw-ty-attr-table th,
+.puw-ty-attr-table td {
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 10px 12px;
+    text-align: left;
+    vertical-align: top;
+}
+.puw-ty-attr-table th {
+    background: rgba(242, 122, 26, 0.18);
+    color: #fff8f0;
+    font-weight: 700;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.puw-ty-attr-table td {
+    color: #e8edf5;
+    line-height: 1.5;
+    background: rgba(0, 0, 0, 0.12);
+}
+.puw-ty-attr-table tbody tr:nth-child(even) td {
+    background: rgba(255, 255, 255, 0.03);
+}
+.puw-ty-attr-table td:first-child {
+    font-weight: 600;
+    color: #f1f5f9;
+    max-width: 300px;
+    word-break: break-word;
+}
+.puw-ty-attr-row--required td:first-child {
+    box-shadow: inset 3px 0 0 0 var(--puw-orange);
+}
+.puw-ty-attr-req {
+    display: inline-block;
+    font-weight: 700;
+    color: #fdba74;
+    padding: 2px 8px;
+    border-radius: 6px;
+    background: rgba(242, 122, 26, 0.2);
+    border: 1px solid rgba(242, 122, 26, 0.35);
+}
+.puw-ty-attr-opt {
+    color: #94a3b8;
+    font-weight: 500;
+}
+.puw-ty-attr-select {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+}
+.puw-ty-attr-nested,
+.puw-ty-attr-custom-input {
+    margin-top: 8px;
+    width: 100%;
+    max-width: 100%;
+}
+.puw-ty-api-card .puw-input,
+.puw-ty-api-card select.puw-input {
+    font-size: 0.875rem;
+    color: #f1f5f9;
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+}
+.puw-ty-api-card .puw-input::placeholder {
+    color: #64748b;
+}
+.puw-ty-api-card select.puw-input option {
+    background: #1e293b;
+    color: #f1f5f9;
+}
+.puw-field select.puw-input {
+    width: 100%;
+    padding: 8px 10px;
+    border-radius: var(--puw-radius-sm);
+    border: 1px solid var(--puw-glass-border);
+    background: rgba(0, 0, 0, 0.25);
+    color: var(--puw-text);
+}
+
+/* ─── Trendyol marka arama (Adım 1) ─────────────────────────── */
+.puw-brand-ty-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.puw-brand-input-row {
+    position: relative;
+}
+.puw-brand-input-row > .puw-input,
+.puw-brand-input-row > input {
+    width: 100%;
+    padding: 8px 10px;
+    padding-right: 36px;
+    border-radius: var(--puw-radius-sm);
+    border: 1px solid var(--puw-glass-border);
+    background: rgba(0, 0, 0, 0.25);
+    color: var(--puw-text);
+    box-sizing: border-box;
+}
+.puw-brand-spinner {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 14px;
+    color: var(--puw-accent);
+}
+.puw-brand-dd {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: calc(100% + 4px);
+    z-index: 40;
+    margin: 0;
+    padding: 4px 0;
+    list-style: none;
+    max-height: 220px;
+    overflow-y: auto;
+    border-radius: var(--puw-radius-sm);
+    border: 1px solid var(--puw-border);
+    background: rgba(18, 22, 36, 0.98);
+    box-shadow: var(--puw-shadow-card);
+}
+.puw-brand-dd-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    cursor: pointer;
+    font-size: 12px;
+    border-bottom: 1px solid var(--puw-glass-border);
+}
+.puw-brand-dd-item:last-child {
+    border-bottom: none;
+}
+.puw-brand-dd-item:hover {
+    background: rgba(78, 205, 196, 0.12);
+}
+.puw-brand-dd-name {
+    color: var(--puw-text);
+    font-weight: 600;
+}
+.puw-brand-dd-id {
+    color: var(--puw-text-dim);
+    font-size: 10px;
+    flex-shrink: 0;
+}
+.puw-brand-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+}
+.puw-brand-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 10px;
+    border-radius: var(--puw-radius-sm);
+    border: 1px solid var(--puw-glass-border);
+}
+.puw-brand-badge.ok {
+    color: var(--puw-green);
+    border-color: rgba(34, 197, 94, 0.35);
+    background: rgba(34, 197, 94, 0.08);
+}
+.puw-brand-badge.muted {
+    color: var(--puw-text-dim);
+    background: var(--puw-glass);
+}
+.puw-link-inline {
+    color: var(--puw-accent);
+    text-decoration: none;
+    font-size: 11px;
+}
+.puw-link-inline:hover {
+    text-decoration: underline;
+}

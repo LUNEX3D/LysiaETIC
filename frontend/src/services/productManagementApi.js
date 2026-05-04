@@ -328,6 +328,30 @@ export const n11DebugRawProducts = async () => {
 // ═══════════════════════════════════════════════════════════════
 
 /**
+ * Trendyol leaf kategori özellikleri (createProducts attributes)
+ * GET /product-management/trendyol/categories/:categoryId/attributes
+ */
+export const getTrendyolCategoryAttributes = async (categoryId) => {
+    const res = await API.get(`${BASE}/trendyol/categories/${encodeURIComponent(categoryId)}/attributes`);
+    return res.data;
+};
+
+/**
+ * Trendyol marka arama (resmi API — createProducts brandId)
+ * @param {{ name?: string, q?: string, page?: number, size?: number }} params
+ */
+export const searchTrendyolBrands = async (params = {}) => {
+    const res = await API.get(`${BASE}/trendyol/brands`, {
+        params: {
+            name: params.name || params.q,
+            page: params.page,
+            size: params.size
+        }
+    });
+    return res.data;
+};
+
+/**
  * Ürün oluştur ve platformlara dağıt (tek adımda)
  */
 export const createAndDistribute = async (productData) => {

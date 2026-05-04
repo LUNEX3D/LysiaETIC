@@ -28,7 +28,20 @@ const TRENDS_EMBED_BASE = "https://trends.google.com/trends/api";
 const trendsCache = new Map();
 const CACHE_TTL_MS = 8 * 60 * 60 * 1000; // 8 saat
 
-const serpGap = () => new Promise((r) => setTimeout(r, 400));
+/** Trending searches — tüm çağrılar (worker, keyword, API) paylaşır; 429 / kota koruması */
+const trendingSearchesCache = new Map();
+const TRENDING_CACHE_TTL_MS = parseInt(
+    process.env.SERPAPI_TRENDING_CACHE_MS || String(3 * 60 * 60 * 1000),
+    10
+);
+
+/** SerpAPI google_trends alt istekleri (TIMESERIES sonrası) arası bekleme — 429 azaltır */
+const SERP_GAP_MS = parseInt(process.env.SERPAPI_SERPGAP_MS || "1200", 10);
+
+/** true ise keyword başına sadece TIMESERIES (related queries/topics atlanır) — kota tasarrufu */
+const GOOGLE_TRENDS_LITE = String(process.env.SERPAPI_GOOGLE_TRENDS_LITE || "").trim() === "1";
+
+const serpGap = () => new Promise((r) => setTimeout(r, SERP_GAP_MS));
 
 /**
  * Google Trends'ten keyword verisi çek
@@ -120,53 +133,55 @@ async function fetchFromSerpAPI(keyword, geo, timeRange) {
     let relatedTopics = [];
     let isBreakout = false;
 
-    try {
-        await serpGap();
-        const rqParams = {
-            engine: "google_trends",
-            q: keyword,
-            geo,
-            date: timeRange,
-            data_type: "RELATED_QUERIES",
-        };
-        const rqRes = await getSerpJson(rqParams, { timeout: 25000 });
+    if (!GOOGLE_TRENDS_LITE) {
+        try {
+            await serpGap();
+            const rqParams = {
+                engine: "google_trends",
+                q: keyword,
+                geo,
+                date: timeRange,
+                data_type: "RELATED_QUERIES",
+            };
+            const rqRes = await getSerpJson(rqParams, { timeout: 25000 });
 
-        const rising = rqRes.data?.related_queries?.rising || [];
-        const top = rqRes.data?.related_queries?.top || [];
+            const rising = rqRes.data?.related_queries?.rising || [];
+            const top = rqRes.data?.related_queries?.top || [];
 
-        relatedQueries = [
-            ...rising.map(r => r.query),
-            ...top.map(r => r.query),
-        ].slice(0, 15);
+            relatedQueries = [
+                ...rising.map(r => r.query),
+                ...top.map(r => r.query),
+            ].slice(0, 15);
 
-        // Breakout kontrolü — "Breakout" etiketli sorgu var mı?
-        isBreakout = rising.some(r =>
-            r.extracted_value === "Breakout" || (r.value && String(r.value).includes("Breakout"))
-        );
-    } catch (e) {
-        logger.debug(`[GoogleTrends] Related queries hatası: ${e.message}`);
-    }
+            // Breakout kontrolü — "Breakout" etiketli sorgu var mı?
+            isBreakout = rising.some(r =>
+                r.extracted_value === "Breakout" || (r.value && String(r.value).includes("Breakout"))
+            );
+        } catch (e) {
+            logger.debug(`[GoogleTrends] Related queries hatası: ${e.message}`);
+        }
 
-    try {
-        await serpGap();
-        const rtParams = {
-            engine: "google_trends",
-            q: keyword,
-            geo,
-            date: timeRange,
-            data_type: "RELATED_TOPICS",
-        };
-        const rtRes = await getSerpJson(rtParams, { timeout: 25000 });
+        try {
+            await serpGap();
+            const rtParams = {
+                engine: "google_trends",
+                q: keyword,
+                geo,
+                date: timeRange,
+                data_type: "RELATED_TOPICS",
+            };
+            const rtRes = await getSerpJson(rtParams, { timeout: 25000 });
 
-        const risingTopics = rtRes.data?.related_topics?.rising || [];
-        const topTopics = rtRes.data?.related_topics?.top || [];
+            const risingTopics = rtRes.data?.related_topics?.rising || [];
+            const topTopics = rtRes.data?.related_topics?.top || [];
 
-        relatedTopics = [
-            ...risingTopics.map(r => r.topic?.title || ""),
-            ...topTopics.map(r => r.topic?.title || ""),
-        ].filter(Boolean).slice(0, 10);
-    } catch (e) {
-        logger.debug(`[GoogleTrends] Related topics hatası: ${e.message}`);
+            relatedTopics = [
+                ...risingTopics.map(r => r.topic?.title || ""),
+                ...topTopics.map(r => r.topic?.title || ""),
+            ].filter(Boolean).slice(0, 10);
+        } catch (e) {
+            logger.debug(`[GoogleTrends] Related topics hatası: ${e.message}`);
+        }
     }
 
     // Trend yönü belirle
@@ -296,6 +311,12 @@ async function getBulkGoogleTrends(keywords, opts = {}) {
 async function getTrendingSearches(geo = "TR") {
     if (!hasSerpKey()) return [];
 
+    const cacheKey = `trending:${geo}`;
+    const cached = trendingSearchesCache.get(cacheKey);
+    if (cached && (Date.now() - cached.timestamp) < TRENDING_CACHE_TTL_MS) {
+        return cached.data;
+    }
+
     try {
         const params = {
             engine: "google_trends_trending_now",
@@ -312,10 +333,20 @@ async function getTrendingSearches(geo = "TR") {
             .map(s => s.query || "")
             .filter(Boolean);
 
+        trendingSearchesCache.set(cacheKey, { data: trendingKeywords, timestamp: Date.now() });
         logger.info(`[GoogleTrends] ${trendingKeywords.length} trending arama bulundu (${geo})`);
         return trendingKeywords;
     } catch (err) {
-        logger.warn(`[GoogleTrends] Trending searches hatası: ${err.message}`);
+        const stale = trendingSearchesCache.get(cacheKey);
+        if (stale?.data?.length) {
+            logger.warn(
+                `[GoogleTrends] Trending searches 429/kota — önbellekteki ${stale.data.length} terim kullanılıyor (${geo}). SerpAPI planını kontrol edin.`
+            );
+            return stale.data;
+        }
+        logger.warn(
+            `[GoogleTrends] Trending searches hatası: ${err.message} — SerpAPI kotası veya çok sık istek olabilir; SERPAPI_TRENDING_CACHE_MS veya SERPAPI_GOOGLE_TRENDS_LITE=1 bakınız.`
+        );
         return [];
     }
 }
@@ -342,6 +373,7 @@ function defaultGoogleTrend(keyword = "") {
  */
 function clearCache() {
     trendsCache.clear();
+    trendingSearchesCache.clear();
 }
 
 module.exports = {

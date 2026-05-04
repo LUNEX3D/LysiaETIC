@@ -30,6 +30,7 @@ const LOGIN_PAGE_CONTACT = {
     workingHours: "08:00-18:00",
     whatsapp: "+905363989092",
     note: "",
+   
 };
 
 const isLoginFullPageTab = (tab) => tab === "features" || tab === "pricing" || tab === "about" || tab === "contact";

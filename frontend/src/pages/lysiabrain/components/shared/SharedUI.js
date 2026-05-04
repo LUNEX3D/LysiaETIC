@@ -318,8 +318,13 @@ export const SeverityDot = ({ severity }) => {
 /* ═══════════════════════════════════════════
    INSIGHT CARD — Focus on a single observation
    ═══════════════════════════════════════════ */
-export const InsightCard = ({ icon, title, value, status, description, action }) => (
-    <div style={{
+export const InsightCard = ({ icon, title, value, status, description, action, onClick, trend }) => (
+    <div
+        onClick={onClick}
+        role={onClick ? "button" : undefined}
+        tabIndex={onClick ? 0 : undefined}
+        onKeyDown={onClick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(e); } } : undefined}
+        style={{
         background: T.bgCard,
         border: `1px solid ${T.border}`,
         borderRadius: T.r,
@@ -329,16 +334,26 @@ export const InsightCard = ({ icon, title, value, status, description, action })
         gap: "0.75rem",
         transition: "all 0.3s",
         position: "relative",
-        overflow: "hidden"
+        overflow: "hidden",
+        cursor: onClick ? "pointer" : "default",
     }}>
         <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-            <span style={{ fontSize: "1.2rem" }}>{icon}</span>
+            <span style={{ fontSize: "1.2rem" }} aria-hidden="true">{icon}</span>
             <span style={{ fontSize: "0.8rem", fontWeight: 800, color: T.textSec, textTransform: "uppercase", letterSpacing: "0.05em" }}>{title}</span>
         </div>
-        <div style={{ fontSize: "1.5rem", fontWeight: 900, color: status === "danger" ? T.red : status === "warning" ? T.yellow : T.text }}>
-            {value}
+        <div style={{ display: "flex", alignItems: "baseline", gap: "0.65rem", flexWrap: "wrap" }}>
+            <span style={{ fontSize: "1.5rem", fontWeight: 900, color: status === "danger" ? T.red : status === "warning" ? T.yellow : status === "success" ? T.green : T.text }}>
+                {value}
+            </span>
+            {trend !== undefined && trend !== null && (
+                <span style={{
+                    fontSize: "0.72rem", fontWeight: 800,
+                    color: trend >= 0 ? T.green : T.red,
+                    fontFamily: T.fontMono,
+                }}>{trend >= 0 ? "↑" : "↓"}{Math.abs(Number(trend))}%</span>
+            )}
         </div>
-        <p style={{ fontSize: "0.75rem", color: T.textDim, margin: 0, lineHeight: 1.4 }}>{description}</p>
+        {description ? <p style={{ fontSize: "0.75rem", color: T.textDim, margin: 0, lineHeight: 1.4 }}>{description}</p> : null}
         {action && (
             <div style={{ marginTop: "0.5rem", borderTop: `1px solid ${T.borderLight}`, paddingTop: "0.75rem" }}>
                 {action}

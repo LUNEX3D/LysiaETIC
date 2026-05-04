@@ -8,7 +8,7 @@
  *   Adım 4: Platform Kategori Seçimi (ağaç + arama) & Gönder
  */
 
-import React, { useState, useEffect, useCallback, useRef, memo } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo, memo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
     FaBox, FaSearch, FaPlus, FaEdit, FaTrash, FaCheck, FaTimes,
@@ -19,7 +19,8 @@ import {
     FaSitemap, FaGlobe, FaExclamationTriangle, FaCubes
 } from "react-icons/fa";
 import {
-    createAndDistribute, suggestCodes, generateDescription, uploadProductImage
+    createAndDistribute, suggestCodes, generateDescription, uploadProductImage,
+    getTrendyolCategoryAttributes, searchTrendyolBrands
 } from "../services/productManagementApi";
 import { getUserMarketplaces } from "../services/marketplaceApi";
 import { getCategoryTree, searchCategories } from "../services/categoryCenterApi";
@@ -29,6 +30,32 @@ import "../styles/ProductUploadWizard.css";
    SABİTLER
    ═══════════════════════════════════════════════════════════════ */
 const PLATFORMS = ["Trendyol", "Hepsiburada", "N11", "Amazon", "ÇiçekSepeti"];
+/** Ürün oluşturma API’si olan pazaryerleri (Amazon vb. listede gösterilmez / dağıtılmaz). */
+const SUPPORTED_UPLOAD_MARKETPLACES = new Set(["Trendyol", "Hepsiburada", "N11", "ÇiçekSepeti"]);
+
+/** Backend `productSyncService.normalizeMarketplaceName` ile aynı — DB’de "n11" kayıtlı olsa bile hedef listede görünsün */
+const normalizeMarketplaceName = (name) => {
+    if (!name) return "";
+    const n = String(name).trim().toLowerCase();
+    if (n === "trendyol") return "Trendyol";
+    if (n === "hepsiburada") return "Hepsiburada";
+    if (n === "n11") return "N11";
+    if (n === "amazon") return "Amazon";
+    if (n === "çiçeksepeti" || n === "ciceksepeti") return "ÇiçekSepeti";
+    return String(name).trim();
+};
+/** Bu pazaryerlerine dağıtım için en az bir herkese açık görsel URL gerekir (backend ile uyumlu). */
+const PLATFORMS_NEED_IMAGE_URL = new Set(["Trendyol", "N11", "ÇiçekSepeti"]);
+
+/** Trendyol / N11 için http görsel adreslerini https’e çevir (API kuralları). */
+const normalizePublicImageUrls = (urls, targets) => {
+    const upgrade = targets.some((p) => p === "Trendyol" || p === "N11");
+    if (!upgrade) return urls;
+    return urls.map((u) => {
+        if (/^http:\/\//i.test(u)) return `https://${u.slice(7)}`;
+        return u;
+    });
+};
 const PL_COLOR = { Trendyol: "#f27a1a", Hepsiburada: "#ff6000", N11: "#8b5cf6", Amazon: "#f59e0b", ÇiçekSepeti: "#ec4899" };
 const PL_SHORT = { Trendyol: "TY", Hepsiburada: "HB", N11: "N11", Amazon: "AZ", ÇiçekSepeti: "ÇS" };
 const PL_ICON = { Trendyol: "🟠", Hepsiburada: "🔶", N11: "🟣", Amazon: "🟡", ÇiçekSepeti: "🌸" };
@@ -66,13 +93,16 @@ const TreeNode = memo(({ platformName, node, depth = 0, expanded, selected, onTo
                 style={{ paddingLeft: 12 + depth * 20 }}
                 onClick={() => {
                     if (hasChildren) onToggle(platformName, nodeId);
-                    onSelect(platformName, {
-                        id: nodeId,
-                        name: nodeName,
-                        path: node.path || node.fullPath || nodeName,
-                        categoryId: nodeId,
-                        categoryName: nodeName
-                    });
+                    // Trendyol: ürün yalnızca yaprak (leaf) kategoride açılır; üst düzey seçimi özellik listesini boş bırakır.
+                    if (!hasChildren || platformName !== "Trendyol") {
+                        onSelect(platformName, {
+                            id: nodeId,
+                            name: nodeName,
+                            path: node.path || node.fullPath || nodeName,
+                            categoryId: nodeId,
+                            categoryName: nodeName
+                        });
+                    }
                 }}
             >
                 <span className="puw-tree-toggle">
@@ -177,23 +207,32 @@ const PlatformCategoryPanel = memo(({ platformName, ps, onSearch, onSelect, onCl
                     {searchResults.slice(0, 50).map((c, i) => {
                         const rawId = c.id || c.categoryId;
                         const cId = rawId !== undefined && rawId !== null ? String(rawId) : "";
-                        const selectable = cId !== "" && cId !== "0";
+                        const tyParent = platformName === "Trendyol" && c.hasChildren === true;
+                        const selectable = cId !== "" && cId !== "0" && !tyParent;
                         const cName = c.name || c.categoryName || "";
                         const cPath = c.path || c.fullPath || "";
                         const isSel = selected?.id === cId;
+                        const blockTitle = tyParent
+                            ? "Trendyol üst düzey kategori — ağaçta alt dalı açın veya yaprak sonucu seçin."
+                            : !cId || cId === "0"
+                                ? "Bu sonuçta geçerli categoryId yok"
+                                : "Kategoriyi seç";
                         return (
                             <div
                                 key={`${platformName}-sr-${cId || i}`}
                                 className={`puw-cat-result-item ${isSel ? "selected" : ""}`}
                                 onClick={() => selectable && onSelect(platformName, { id: cId, name: cName, path: cPath })}
                                 style={selectable ? {} : { opacity: 0.6, cursor: "not-allowed" }}
-                                title={selectable ? "Kategoriyi seç" : "Bu sonuçta geçerli categoryId yok"}
+                                title={blockTitle}
                             >
                                 <FaTag style={{ fontSize: 10, color: isSel ? "var(--puw-green)" : "var(--puw-text-dim)", flexShrink: 0 }} />
                                 <div style={{ flex: 1, minWidth: 0 }}>
                                     <div style={{ fontSize: 11, fontWeight: 600, color: "var(--puw-text)" }}>{cName}</div>
                                     {cPath && <div style={{ fontSize: 9, color: "var(--puw-text-dim)", marginTop: 1 }}>{cPath}</div>}
-                                    {!selectable && <div style={{ fontSize: 9, color: "var(--puw-yellow)", marginTop: 1 }}>Bu kayıtta categoryId yok</div>}
+                                    {tyParent && (
+                                        <div style={{ fontSize: 9, color: "var(--puw-yellow)", marginTop: 1 }}>Üst düzey — yaprak kategori seçin</div>
+                                    )}
+                                    {!selectable && !tyParent && <div style={{ fontSize: 9, color: "var(--puw-yellow)", marginTop: 1 }}>Bu kayıtta categoryId yok</div>}
                                 </div>
                                 {isSel && <FaCheckCircle style={{ color: "var(--puw-green)", fontSize: 11, flexShrink: 0 }} />}
                             </div>
@@ -249,8 +288,16 @@ const ProductUploadWizard = ({ userId }) => {
     const [uf, setUf] = useState({
         name: "", barcode: "", sku: "", description: "",
         price: "", listPrice: "", stock: "0",
-        brand: "", imageUrls: [], targetMarketplaces: []
+        brand: "", imageUrls: [], targetMarketplaces: [],
+        vatRate: "20",
+        dimensionalWeight: "1",
+        trendyolBrandId: "",
+        trendyolCargoCompanyId: "10"
     });
+
+    /** Trendyol getCategoryAttributes satırları + seçimler */
+    const [tyAttrState, setTyAttrState] = useState({ loading: false, error: null, rows: [] });
+    const [tySelections, setTySelections] = useState({});
 
     // ── Upload State ──
     const [uploadLoading, setUploadLoading] = useState(false);
@@ -278,14 +325,168 @@ const ProductUploadWizard = ({ userId }) => {
     // ── Upload Result ──
     const [uploadResult, setUploadResult] = useState(null);
 
+    /** Trendyol marka araması (Adım 1) */
+    const [tyBrandSuggest, setTyBrandSuggest] = useState({ loading: false, list: [], open: false });
+    const tyBrandSearchTimer = useRef(null);
+    const tyBrandPickedRef = useRef(null);
+
     const ufSet = (k, v) => setUf(p => ({ ...p, [k]: v }));
+
+    const hasTrendyolIntegration = useMemo(
+        () => marketplaces.some((m) => m.marketplaceName === "Trendyol"),
+        [marketplaces]
+    );
+
+    const runTyBrandSearch = useCallback(async (q) => {
+        if (!hasTrendyolIntegration) return;
+        const t = String(q || "").trim();
+        if (t.length < 2) {
+            setTyBrandSuggest((s) => ({ ...s, list: [], loading: false, open: false }));
+            return;
+        }
+        setTyBrandSuggest((s) => ({ ...s, loading: true, open: true }));
+        try {
+            const r = await searchTrendyolBrands({ name: t, size: 35 });
+            const brands = r?.data?.brands || [];
+            setTyBrandSuggest((s) => ({ ...s, list: Array.isArray(brands) ? brands : [], loading: false, open: true }));
+        } catch {
+            setTyBrandSuggest((s) => ({ ...s, list: [], loading: false, open: false }));
+        }
+    }, [hasTrendyolIntegration]);
+
+    const onBrandInputChange = (e) => {
+        const v = e.target.value;
+        ufSet("brand", v);
+        if (tyBrandPickedRef.current && String(tyBrandPickedRef.current.name || "").trim() !== v.trim()) {
+            tyBrandPickedRef.current = null;
+            ufSet("trendyolBrandId", "");
+        }
+        if (tyBrandSearchTimer.current) clearTimeout(tyBrandSearchTimer.current);
+        tyBrandSearchTimer.current = setTimeout(() => runTyBrandSearch(v), 380);
+    };
+
+    const pickTyBrand = (b) => {
+        if (!b || b.id == null) return;
+        tyBrandPickedRef.current = { id: b.id, name: b.name };
+        ufSet("brand", String(b.name || ""));
+        ufSet("trendyolBrandId", String(b.id));
+        setTyBrandSuggest((s) => ({ ...s, open: false, list: [] }));
+    };
+
+    const clearTyBrandPick = () => {
+        tyBrandPickedRef.current = null;
+        ufSet("trendyolBrandId", "");
+        setTyBrandSuggest((s) => ({ ...s, open: false }));
+        showToast("Trendyol marka ID sıfırlandı (7651 Diğer + kategori özellikleri).", "success");
+    };
 
     // ── Load Marketplaces ──
     useEffect(() => {
         getUserMarketplaces()
-            .then(d => setMarketplaces((d || []).map(m => ({ ...m, name: m.marketplaceName }))))
+            .then((d) => {
+                const raw = Array.isArray(d) ? d : Array.isArray(d?.data) ? d.data : [];
+                const list = raw.map((m) => ({
+                    ...m,
+                    marketplaceName: normalizeMarketplaceName(m.marketplaceName),
+                    name: normalizeMarketplaceName(m.marketplaceName)
+                }));
+                setMarketplaces(list);
+                const names = list
+                    .map((m) => m.marketplaceName)
+                    .filter(Boolean)
+                    .filter((n) => SUPPORTED_UPLOAD_MARKETPLACES.has(n));
+                if (names.length === 0) return;
+                setUf((prev) => {
+                    const kept = prev.targetMarketplaces.filter((t) => SUPPORTED_UPLOAD_MARKETPLACES.has(t));
+                    if (kept.length > 0) return { ...prev, targetMarketplaces: kept };
+                    return { ...prev, targetMarketplaces: names };
+                });
+            })
             .catch(() => { setMarketplaces([]); });
     }, [userId]);
+
+    const integrationNames = useMemo(
+        () =>
+            marketplaces
+                .map((m) => m.marketplaceName)
+                .filter(Boolean)
+                .filter((n) => SUPPORTED_UPLOAD_MARKETPLACES.has(n)),
+        [marketplaces]
+    );
+
+    const uploadableMarketplaces = useMemo(
+        () => marketplaces.filter((m) => SUPPORTED_UPLOAD_MARKETPLACES.has(m.marketplaceName)),
+        [marketplaces]
+    );
+
+    const n11MarketplaceRecord = useMemo(
+        () => marketplaces.find((m) => m.marketplaceName === "N11"),
+        [marketplaces]
+    );
+
+    const n11ShipmentBlocked = useMemo(() => {
+        if (!uf.targetMarketplaces.includes("N11")) return false;
+        const h = n11MarketplaceRecord?.integrationHints;
+        return h?.requiresShipmentTemplate === true && h?.shipmentTemplateConfigured === false;
+    }, [uf.targetMarketplaces, n11MarketplaceRecord]);
+
+    /** Trendyol kategori özellikleri: önce zorunlu, sonra ada göre (panelde taranabilir) */
+    const trendyolAttrRowsSorted = useMemo(() => {
+        const rows = tyAttrState.rows;
+        if (!Array.isArray(rows) || rows.length === 0) return [];
+        return [...rows].sort((a, b) => {
+            const ra = a.required ? 0 : 1;
+            const rb = b.required ? 0 : 1;
+            if (ra !== rb) return ra - rb;
+            const na = String(a.attribute?.name || "").toLowerCase();
+            const nb = String(b.attribute?.name || "").toLowerCase();
+            return na.localeCompare(nb, "tr");
+        });
+    }, [tyAttrState.rows]);
+
+    const tyAttrStats = useMemo(() => {
+        const rows = tyAttrState.rows || [];
+        let req = 0;
+        let opt = 0;
+        for (const r of rows) {
+            if (r.required) req += 1;
+            else opt += 1;
+        }
+        return { req, opt, total: rows.length };
+    }, [tyAttrState.rows]);
+
+    const trendyolManualAttrsOk = useMemo(() => {
+        if (!uf.targetMarketplaces.includes("Trendyol") || !tyAttrState.rows?.length) return true;
+        for (const row of tyAttrState.rows) {
+            if (!row.required) continue;
+            const aid = row.attribute?.id;
+            if (aid == null) continue;
+            const sel = tySelections[String(aid)] || { mode: "auto" };
+            if (!sel.mode || sel.mode === "auto") continue;
+            if (sel.mode === "value" && (sel.valueId == null || sel.valueId === "")) return false;
+            if (sel.mode === "custom" && !String(sel.customText || "").trim()) return false;
+        }
+        return true;
+    }, [uf.targetMarketplaces, tyAttrState.rows, tySelections]);
+
+    const trendyolAttrGateOk = useMemo(() => {
+        if (!uf.targetMarketplaces.includes("Trendyol")) return true;
+        if (!catState.Trendyol?.selected?.id) return false;
+        if (tyAttrState.loading) return false;
+        if (tyAttrState.error) return false;
+        if (!tyAttrState.rows?.length) return false;
+        return true;
+    }, [uf.targetMarketplaces, catState.Trendyol?.selected?.id, tyAttrState]);
+
+    const n11TitleOk = useMemo(() => {
+        if (!uf.targetMarketplaces.includes("N11")) return true;
+        return uf.name.trim().length >= 15;
+    }, [uf.targetMarketplaces, uf.name]);
+
+    const pricePositive = useMemo(() => {
+        const p = Number(uf.price);
+        return !Number.isNaN(p) && p > 0;
+    }, [uf.price]);
 
     /* ═══════════════════════════════════════════════════════════
        ADIM 1: TEMEL BİLGİLER — Handlers
@@ -296,7 +497,7 @@ const ProductUploadWizard = ({ userId }) => {
         try {
             const r = await suggestCodes(uf.name.trim(), uf.brand, "");
             setCodeSugg(r.suggestions);
-        } catch { showToast("Ööneri alınamadı", "error"); }
+        } catch { showToast("Öneri alınamadı", "error"); }
         finally { setCodeLoading(false); }
     };
 
@@ -468,9 +669,7 @@ const ProductUploadWizard = ({ userId }) => {
     // Step 4'e geçince aktif platformların kategorilerini yükle
     useEffect(() => {
         if (step !== 4) return;
-        const activePlatforms = uf.targetMarketplaces.length > 0
-            ? uf.targetMarketplaces
-            : marketplaces.map(m => m.marketplaceName);
+        const activePlatforms = uf.targetMarketplaces;
 
         activePlatforms.forEach(pName => {
             if (!catState[pName]?.tree?.length && !catState[pName]?.loading) {
@@ -479,23 +678,166 @@ const ProductUploadWizard = ({ userId }) => {
         });
     }, [step, uf.targetMarketplaces, marketplaces, catState, loadCategoryTree]);
 
+    // Trendyol: leaf kategori seçilince özellik listesini çek
+    useEffect(() => {
+        if (step !== 4 || !uf.targetMarketplaces.includes("Trendyol")) {
+            setTyAttrState({ loading: false, error: null, rows: [] });
+            return;
+        }
+        const sel = catState.Trendyol?.selected;
+        if (!sel?.id) {
+            setTyAttrState({ loading: false, error: null, rows: [] });
+            setTySelections({});
+            return;
+        }
+        let cancelled = false;
+        setTySelections({});
+        setTyAttrState({ loading: true, error: null, rows: [] });
+        (async () => {
+            try {
+                const r = await getTrendyolCategoryAttributes(String(sel.id));
+                if (cancelled) return;
+                const rows = r?.data?.categoryAttributes || [];
+                setTyAttrState({
+                    loading: false,
+                    error: null,
+                    rows: Array.isArray(rows) ? rows : []
+                });
+            } catch (e) {
+                if (cancelled) return;
+                setTyAttrState({
+                    loading: false,
+                    error: e.response?.data?.error || e.message || "Özellik listesi alınamadı",
+                    rows: []
+                });
+            }
+        })();
+        return () => { cancelled = true; };
+    }, [step, uf.targetMarketplaces, catState.Trendyol?.selected?.id]);
+
+    // Trendyol: Marka özelliği özel metin kabul ediyorsa form markasını doldur (liste eşleşmezse yanlış büyük marka seçilmesin)
+    useEffect(() => {
+        if (step !== 4 || !uf.targetMarketplaces.includes("Trendyol")) return;
+        if (tyAttrState.loading || tyAttrState.error || !tyAttrState.rows?.length) return;
+        const brand = String(uf.brand || "").trim();
+        if (!brand) return;
+        setTySelections((prev) => {
+            let changed = false;
+            const next = { ...prev };
+            for (const row of tyAttrState.rows) {
+                if (!row.required || !row.allowCustom) continue;
+                const attr = row.attribute || {};
+                const aid = attr.id;
+                if (aid == null) continue;
+                const aname = String(attr.name || "").toLowerCase();
+                const isMarka =
+                    aname === "marka" ||
+                    aname === "brand" ||
+                    (aname.includes("marka") && !aname.includes("web color") && !aname.includes("webcolor"));
+                if (!isMarka) continue;
+                const k = String(aid);
+                const cur = prev[k];
+                if (cur?.mode === "value") continue;
+                if (cur?.mode === "custom" && String(cur.customText || "").trim()) continue;
+                next[k] = { mode: "custom", customText: brand };
+                changed = true;
+            }
+            return changed ? next : prev;
+        });
+    }, [step, uf.targetMarketplaces, uf.brand, tyAttrState.rows, tyAttrState.loading, tyAttrState.error]);
+
+    const buildTrendyolAttributesPayload = useCallback(() => {
+        const out = [];
+        for (const row of tyAttrState.rows) {
+            const aid = row.attribute?.id;
+            if (aid == null) continue;
+            const sel = tySelections[String(aid)] || { mode: "auto" };
+            if (!sel.mode || sel.mode === "auto") continue;
+            if (sel.mode === "value" && sel.valueId != null && sel.valueId !== "") {
+                out.push({ attributeId: Number(aid), attributeValueId: Number(sel.valueId) });
+            }
+            if (sel.mode === "custom" && sel.customText && String(sel.customText).trim()) {
+                out.push({ attributeId: Number(aid), customAttributeValue: String(sel.customText).trim() });
+            }
+        }
+        return out;
+    }, [tyAttrState.rows, tySelections]);
+
+    const setTySel = (attrId, patch) => {
+        const k = String(attrId);
+        setTySelections((prev) => ({
+            ...prev,
+            [k]: { ...(prev[k] || { mode: "auto" }), ...patch }
+        }));
+    };
+
     /* ═══════════════════════════════════════════════════════════
        ÜRÜN OLUŞTUR & DAĞIT
        ═══════════════════════════════════════════════════════════ */
     const handleCreate = async () => {
         if (!uf.name || !uf.barcode || !uf.sku || !uf.price) return showToast("Ad, barkod, SKU ve fiyat zorunlu", "error");
+        if (!pricePositive) return showToast("Satış fiyatı 0'dan büyük olmalıdır.", "error");
+        if (uf.targetMarketplaces.includes("Trendyol")) {
+            const t = uf.name.trim();
+            if (t.length > 100) return showToast("Trendyol ürün adı en fazla 100 karakter olabilir", "error");
+        }
+        if (uf.targetMarketplaces.includes("N11") && uf.name.trim().length < 15) {
+            return showToast("N11: Ürün adı en az 15 karakter olmalıdır.", "error");
+        }
+        if (n11ShipmentBlocked) {
+            return showToast(
+                "N11: Entegrasyon ayarlarına paneldeki kargo şablonu adını (shipmentTemplate) kaydedin; ardından tekrar deneyin.",
+                "error"
+            );
+        }
+        if (uf.targetMarketplaces.includes("Trendyol")) {
+            if (!trendyolAttrGateOk) {
+                if (tyAttrState.loading) return showToast("Trendyol kategori özellikleri yükleniyor; lütfen bekleyin.", "error");
+                if (tyAttrState.error) return showToast(`Trendyol özellik listesi: ${tyAttrState.error}`, "error");
+                if (!catState.Trendyol?.selected?.id) return showToast("Trendyol için yaprak kategori seçin.", "error");
+                return showToast(
+                    "Trendyol: Bu kategoride özellik listesi yok veya eksik — yaprak kategori seçin.",
+                    "error"
+                );
+            }
+            if (!trendyolManualAttrsOk) {
+                return showToast(
+                    "Trendyol: Zorunlu özelliklerde \"Listeden seç\" veya \"Özel metin\" seçtiyseniz değerleri doldurun.",
+                    "error"
+                );
+            }
+        }
         setUploadLoading(true);
         setUploadResult(null);
         try {
-            const remoteUrls = [...uf.imageUrls]
+            let remoteUrls = [...uf.imageUrls]
                 .map((u) => (typeof u === "string" ? u.trim() : ""))
                 .filter((u) => /^https?:\/\//i.test(u));
+            remoteUrls = normalizePublicImageUrls(remoteUrls, uf.targetMarketplaces);
             const hasOnlyLocalFiles = remoteUrls.length === 0 && imgFiles.length > 0;
             if (hasOnlyLocalFiles && uf.targetMarketplaces.length > 0) {
                 return showToast(
-                    "Yerel dosya görselleri pazaryerine gönderilemez. Lütfen Adım 2'de en az 1 İadet https:// görsel URL ekleyin.",
+                    "Yerel dosya görselleri pazaryerine gönderilemez. Lütfen Adım 2'de en az 1 adet https:// görsel URL ekleyin.",
                     "error"
                 );
+            }
+            const platformsNeedingImages = uf.targetMarketplaces.filter((p) =>
+                PLATFORMS_NEED_IMAGE_URL.has(p)
+            );
+            if (platformsNeedingImages.length > 0 && remoteUrls.length === 0) {
+                return showToast(
+                    `${platformsNeedingImages.join(", ")} için Adım 2'de en az bir görsel URL (http veya https) ekleyin.`,
+                    "error"
+                );
+            }
+            if (uf.targetMarketplaces.includes("N11")) {
+                const hasHttpsImage = remoteUrls.some((u) => /^https:\/\//i.test(u));
+                if (!hasHttpsImage) {
+                    return showToast(
+                        "N11 en az bir https:// ile başlayan görsel URL zorunlu kılar.",
+                        "error"
+                    );
+                }
             }
             const imgs = remoteUrls;
 
@@ -520,6 +862,19 @@ const ProductUploadWizard = ({ userId }) => {
                 }
             }
 
+            let marketplaceExtras = undefined;
+            if (uf.targetMarketplaces.includes("Trendyol")) {
+                marketplaceExtras = { Trendyol: {} };
+                if (uf.trendyolBrandId.trim()) {
+                    marketplaceExtras.Trendyol.brandId = Number(uf.trendyolBrandId);
+                }
+                if (uf.trendyolCargoCompanyId.trim()) {
+                    marketplaceExtras.Trendyol.cargoCompanyId = Number(uf.trendyolCargoCompanyId);
+                }
+                const tyAttrs = buildTrendyolAttributesPayload();
+                if (tyAttrs.length > 0) marketplaceExtras.Trendyol.trendyolAttributes = tyAttrs;
+            }
+
             const r = await createAndDistribute({
                 name: uf.name.trim(),
                 barcode: uf.barcode.trim(),
@@ -531,7 +886,10 @@ const ProductUploadWizard = ({ userId }) => {
                 brand: uf.brand.trim(),
                 images: imgs,
                 targetMarketplaces: uf.targetMarketplaces,
-                platformCategories
+                platformCategories,
+                vatRate: uf.vatRate !== "" ? Number(uf.vatRate) : 20,
+                dimensionalWeight: uf.dimensionalWeight !== "" ? Number(uf.dimensionalWeight) : undefined,
+                marketplaceExtras
             });
 
             const dist = r.distributeResults || [];
@@ -567,25 +925,55 @@ const ProductUploadWizard = ({ userId }) => {
     };
 
     const resetWizard = () => {
-        setUf({ name: "", barcode: "", sku: "", description: "", price: "", listPrice: "", stock: "0", brand: "", imageUrls: [], targetMarketplaces: [] });
+        const defaultTargets = marketplaces
+            .map((m) => m.marketplaceName)
+            .filter(Boolean)
+            .filter((n) => SUPPORTED_UPLOAD_MARKETPLACES.has(n));
+        setUf({
+            name: "", barcode: "", sku: "", description: "", price: "", listPrice: "", stock: "0",
+            brand: "", imageUrls: [], targetMarketplaces: defaultTargets,
+            vatRate: "20", dimensionalWeight: "1", trendyolBrandId: "", trendyolCargoCompanyId: "10"
+        });
         setImgFiles([]); setCodeSugg(null); setCatState({}); setStep(1); setUploadResult(null);
+        setTyAttrState({ loading: false, error: null, rows: [] }); setTySelections({});
+        setTyBrandSuggest({ loading: false, list: [], open: false });
+        tyBrandPickedRef.current = null;
     };
 
-    const toggleTarget = (p) => setUf(prev => {
-        const t = [...prev.targetMarketplaces];
-        const i = t.indexOf(p);
-        if (i >= 0) t.splice(i, 1); else t.push(p);
-        return { ...prev, targetMarketplaces: t };
-    });
+    const toggleTarget = useCallback((p) => {
+        setUf((prev) => {
+            const t = [...prev.targetMarketplaces];
+            const i = t.indexOf(p);
+            if (i >= 0) {
+                if (t.length <= 1 && integrationNames.length > 0) {
+                    showToast("Dağıtım için en az bir pazaryeri seçili olmalıdır.", "error");
+                    return prev;
+                }
+                t.splice(i, 1);
+            } else {
+                t.push(p);
+            }
+            return { ...prev, targetMarketplaces: t };
+        });
+    }, [integrationNames.length, showToast]);
 
     /* ═══════════════════════════════════════════════════════════
        COMPUTED
        ═══════════════════════════════════════════════════════════ */
     const totalImgs = uf.imageUrls.length + imgFiles.length;
     const canSubmit = uf.name && uf.barcode && uf.sku && uf.price;
-    const selectedPlatforms = uf.targetMarketplaces.length > 0 ? uf.targetMarketplaces : [];
+    const selectedPlatforms = uf.targetMarketplaces;
     const missingCategories = selectedPlatforms.filter((pName) => !catState[pName]?.selected);
-    const canDistributeNow = canSubmit && (selectedPlatforms.length === 0 || missingCategories.length === 0);
+    /** Dağıtım yoksa yalnızca ürün kaydı; dağıtım varsa kategori + platform kuralları. */
+    const canDistributeNow =
+        canSubmit &&
+        pricePositive &&
+        (selectedPlatforms.length === 0 ||
+            (missingCategories.length === 0 &&
+                !n11ShipmentBlocked &&
+                n11TitleOk &&
+                trendyolAttrGateOk &&
+                trendyolManualAttrsOk));
     const allImages = [...uf.imageUrls.map((u, i) => ({ type: "url", src: u, idx: i })), ...imgFiles.map((f, i) => ({ type: "file", src: f.preview, idx: i }))];
 
     /* ═══════════════════════════════════════════════════════════
@@ -613,7 +1001,7 @@ const ProductUploadWizard = ({ userId }) => {
                 <div className="puw-header-inner">
                     <div>
                         <h1><FaCloudUploadAlt /> Ürün Yükle & Dağıt</h1>
-                        <p>Ürün bilgilerini girin, ön izleyin, platform kategorilerini seçin ve bağlı pazaryerlerinize gönderin.</p>
+                        <p>Ürün bilgilerini girin, ön izleyin, platform kategorilerini seçin. Bağlı mağazalar varsayılan olarak hedefdir; gönderim seçtiğiniz pazaryerlerine yapılır.</p>
                     </div>
                     <span className="puw-hero-badge">Sihirbaz · 4 adım</span>
                 </div>
@@ -660,12 +1048,86 @@ const ProductUploadWizard = ({ userId }) => {
                                 </div>
                                 <div className="puw-grid-2">
                                     <div className="puw-field full">
-                                        <label><FaBox style={{ fontSize: 10 }} /> Ürün Adı <span className="required">*</span></label>
-                                        <input value={uf.name} onChange={e => ufSet("name", e.target.value)} placeholder="Ürün başlığı..." />
+                                        <label>
+                                            <FaBox style={{ fontSize: 10 }} /> Ürün Adı <span className="required">*</span>
+                                            <span style={{ fontWeight: 400, color: "var(--puw-text-dim)", marginLeft: 8 }}>
+                                                ({uf.name.length}/100 — Trendyol; N11 için en az 15 karakter)
+                                            </span>
+                                        </label>
+                                        <input value={uf.name} onChange={e => ufSet("name", e.target.value)} placeholder="Ürün başlığı..." maxLength={100} />
                                     </div>
-                                    <div className="puw-field">
-                                        <label><FaTag style={{ fontSize: 10 }} /> Marka</label>
-                                        <input value={uf.brand} onChange={e => ufSet("brand", e.target.value)} placeholder="Marka" />
+                                    <div className="puw-field full">
+                                        <label>
+                                            <FaTag style={{ fontSize: 10 }} /> Marka
+                                            {hasTrendyolIntegration && (
+                                                <span style={{ fontWeight: 400, color: "var(--puw-text-dim)", marginLeft: 8 }}>
+                                                    (Trendyol hesabı bağlı — yazınca listeden seçebilirsiniz)
+                                                </span>
+                                            )}
+                                        </label>
+                                        {hasTrendyolIntegration ? (
+                                            <div className="puw-brand-ty-wrap">
+                                                <div className="puw-brand-input-row">
+                                                    <input
+                                                        className="puw-input"
+                                                        value={uf.brand}
+                                                        onChange={onBrandInputChange}
+                                                        onFocus={() => {
+                                                            if (uf.brand.trim().length >= 2) {
+                                                                setTyBrandSuggest((s) => ({ ...s, open: s.list.length > 0 }));
+                                                            }
+                                                        }}
+                                                        placeholder="Örn. lysiaaccessory — yazınca Trendyol marka listesinde aranır"
+                                                        autoComplete="off"
+                                                    />
+                                                    {tyBrandSuggest.loading && (
+                                                        <FaSpinner className="puw-spin puw-brand-spinner" />
+                                                    )}
+                                                    {tyBrandSuggest.open && tyBrandSuggest.list.length > 0 && (
+                                                        <ul className="puw-brand-dd" role="listbox">
+                                                            {tyBrandSuggest.list.map((b) => (
+                                                                <li
+                                                                    key={b.id}
+                                                                    role="option"
+                                                                    className="puw-brand-dd-item"
+                                                                    onMouseDown={(ev) => ev.preventDefault()}
+                                                                    onClick={() => pickTyBrand(b)}
+                                                                >
+                                                                    <span className="puw-brand-dd-name">{b.name}</span>
+                                                                    <span className="puw-brand-dd-id">#{b.id}</span>
+                                                                </li>
+                                                            ))}
+                                                        </ul>
+                                                    )}
+                                                </div>
+                                                <div className="puw-brand-actions">
+                                                    {uf.trendyolBrandId ? (
+                                                        <span className="puw-brand-badge ok">
+                                                            <FaCheckCircle style={{ marginRight: 6 }} />
+                                                            Trendyol marka ID: <strong>{uf.trendyolBrandId}</strong>
+                                                        </span>
+                                                    ) : (
+                                                        <span className="puw-brand-badge muted">
+                                                            <FaInfoCircle style={{ marginRight: 6 }} />
+                                                            Listeden seçim yok — üst marka varsayılan 7651 (Diğer); kategori &quot;Marka&quot; özelliği yine önemlidir.
+                                                        </span>
+                                                    )}
+                                                    <button type="button" className="puw-btn sm muted" onClick={clearTyBrandPick}>
+                                                        Listede yok / özel marka
+                                                    </button>
+                                                    <a
+                                                        href="https://partner.trendyol.com/"
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="puw-link-inline"
+                                                    >
+                                                        Yeni marka başvurusu (Trendyol Satıcı) ↗
+                                                    </a>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <input value={uf.brand} onChange={(e) => ufSet("brand", e.target.value)} placeholder="Marka" />
+                                        )}
                                     </div>
                                     <div className="puw-field">
                                         <label><FaWarehouse style={{ fontSize: 10 }} /> Stok</label>
@@ -678,6 +1140,18 @@ const ProductUploadWizard = ({ userId }) => {
                                     <div className="puw-field">
                                         <label><FaTag style={{ fontSize: 10 }} /> Liste Fiyatı (₺)</label>
                                         <input type="number" value={uf.listPrice} onChange={e => ufSet("listPrice", e.target.value)} placeholder="Boş = satış fiyatı" />
+                                    </div>
+                                    <div className="puw-field">
+                                        <label>KDV (%) <span style={{ color: "var(--puw-text-dim)", fontWeight: 400 }}>Trendyol</span></label>
+                                        <select value={uf.vatRate} onChange={e => ufSet("vatRate", e.target.value)} className="puw-input">
+                                            {["0", "1", "10", "20"].map((v) => (
+                                                <option key={v} value={v}>{v}%</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div className="puw-field">
+                                        <label>Desi (ağırlık) <span style={{ color: "var(--puw-text-dim)", fontWeight: 400 }}>Trendyol dimensionalWeight</span></label>
+                                        <input type="number" min="0.1" step="0.1" value={uf.dimensionalWeight} onChange={e => ufSet("dimensionalWeight", e.target.value)} placeholder="1" />
                                     </div>
                                 </div>
                             </div>
@@ -860,8 +1334,9 @@ const ProductUploadWizard = ({ userId }) => {
                                         <div className="puw-preview-details">
                                             {[
                                                 { icon: <FaBarcode />, label: "Barkod", value: uf.barcode || "—", color: "var(--puw-accent)" },
-                                                { icon: <FaTag />, label: "SKU", value: uf.sku || "—", color: "var(--puw-purple)" },
+                                                { icon: <FaTag />, label: "SKU / model (productMainId)", value: uf.sku || "—", color: "var(--puw-purple)" },
                                                 { icon: <FaWarehouse />, label: "Stok", value: uf.stock || "0", color: "var(--puw-green)" },
+                                                { icon: <FaDollarSign />, label: "KDV / Desi (TY)", value: `${uf.vatRate || "20"}% · ${uf.dimensionalWeight || "1"} desi`, color: "var(--puw-orange)" },
                                                 { icon: <FaImage />, label: "Görseller", value: `${totalImgs} adet`, color: "var(--puw-blue)" },
                                             ].map(d => (
                                                 <div key={d.label} className="puw-preview-detail-row">
@@ -887,8 +1362,14 @@ const ProductUploadWizard = ({ userId }) => {
                                         <div style={{ color: "var(--puw-text)", fontSize: 13, fontWeight: 700, marginBottom: 10, display: "flex", alignItems: "center", gap: 6 }}>
                                             <FaRocket style={{ color: "var(--puw-purple)" }} /> Hedef Platformlar
                                         </div>
+                                        {uploadableMarketplaces.length === 0 && marketplaces.length > 0 && (
+                                            <div style={{ color: "var(--puw-yellow)", fontSize: 11, padding: "8px 10px", marginBottom: 8, borderRadius: 8, border: "1px solid rgba(245,158,11,0.2)", background: "rgba(245,158,11,0.06)" }}>
+                                                <FaInfoCircle style={{ marginRight: 6 }} />
+                                                Bağlı hesaplarda ürün yüklemesi için Trendyol, Hepsiburada, N11 veya ÇiçekSepeti entegrasyonu gerekir (Amazon vb. bu sihirbazda dağıtılmaz).
+                                            </div>
+                                        )}
                                         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                                            {marketplaces.map(mp => {
+                                            {uploadableMarketplaces.map(mp => {
                                                 const sel = uf.targetMarketplaces.includes(mp.marketplaceName);
                                                 const plColor = PL_COLOR[mp.marketplaceName] || "var(--puw-accent)";
                                                 return (
@@ -914,7 +1395,7 @@ const ProductUploadWizard = ({ userId }) => {
                                             ["Barkod", uf.barcode ? "✓" : "✗", uf.barcode ? "var(--puw-green)" : "var(--puw-red)"],
                                             ["SKU", uf.sku ? "✓" : "✗", uf.sku ? "var(--puw-green)" : "var(--puw-red)"],
                                             ["Fiyat", uf.price ? fmt(uf.price) : "✗", uf.price ? "var(--puw-green)" : "var(--puw-red)"],
-                                            ["Görseller", totalImgs > 0 ? `${totalImgs} İadet` : "Yok", totalImgs > 0 ? "var(--puw-green)" : "var(--puw-yellow)"],
+                                            ["Görseller", totalImgs > 0 ? `${totalImgs} adet` : "Yok", totalImgs > 0 ? "var(--puw-green)" : "var(--puw-yellow)"],
                                             ["Açıklama", uf.description ? "✓" : "Yok", uf.description ? "var(--puw-green)" : "var(--puw-yellow)"],
                                             ["Platformlar", uf.targetMarketplaces.length > 0 ? `${uf.targetMarketplaces.length} seçili` : "Seçilmedi", uf.targetMarketplaces.length > 0 ? "var(--puw-green)" : "var(--puw-yellow)"],
                                         ].map(([k, v, c]) => (
@@ -935,7 +1416,7 @@ const ProductUploadWizard = ({ userId }) => {
 
                             <div className="puw-nav">
                                 <button className="puw-btn muted" onClick={() => setStep(2)}><FaArrowLeft /> Geri</button>
-                                <button className="puw-btn accent" onClick={() => setStep(4)} disabled={!canSubmit}>
+                                <button className="puw-btn accent" onClick={() => setStep(4)} disabled={!canSubmit || !pricePositive}>
                                     Kategori Seçimi <FaArrowRight />
                                 </button>
                             </div>
@@ -977,16 +1458,33 @@ const ProductUploadWizard = ({ userId }) => {
                                             </div>
                                         </div>
 
+                                        {uf.targetMarketplaces.includes("N11") && n11ShipmentBlocked && (
+                                            <div style={{ color: "var(--puw-red)", fontSize: 11, display: "flex", alignItems: "flex-start", gap: 8, padding: "10px 14px", marginBottom: 14, borderRadius: 8, border: "1px solid rgba(239,68,68,0.25)", background: "rgba(239,68,68,0.06)" }}>
+                                                <FaExclamationTriangle style={{ flexShrink: 0, marginTop: 2 }} />
+                                                <span>
+                                                    N11 ürün yüklemek için entegrasyon kaydınızda <strong>shipmentTemplate</strong> (paneldeki kargo şablonu adı, birebir) tanımlı olmalıdır. Pazaryeri ayarlarını güncelleyin.
+                                                </span>
+                                            </div>
+                                        )}
+                                        {uf.targetMarketplaces.includes("Hepsiburada") && (
+                                            <div style={{ color: "var(--puw-text-dim)", fontSize: 11, display: "flex", alignItems: "flex-start", gap: 8, padding: "10px 14px", marginBottom: 14, borderRadius: 8, border: "1px solid rgba(255,96,0,0.2)", background: "rgba(255,96,0,0.05)" }}>
+                                                <FaInfoCircle style={{ flexShrink: 0, marginTop: 2 }} />
+                                                <span>
+                                                    Hepsiburada bu akışta stok/fiyat <strong>listing</strong> satırı gönderir; ürünün Hepsiburada kataloğunda tanımlı olması ve barkod/SKU eşleşmesi gerekir.
+                                                </span>
+                                            </div>
+                                        )}
+
                                         {/* Seçili platformlar yoksa uyarı */}
-                                        {uf.targetMarketplaces.length === 0 && (
+                                        {integrationNames.length > 0 && uf.targetMarketplaces.length === 0 && (
                                             <div style={{ color: "var(--puw-yellow)", fontSize: 11, display: "flex", alignItems: "center", gap: 6, padding: "10px 14px", background: "rgba(245,158,11,0.06)", borderRadius: 8, border: "1px solid rgba(245,158,11,0.15)", marginBottom: 14 }}>
-                                                <FaInfoCircle /> Henüz platform seçmediniz. Önceki adımdan platform seçebilir veya aşağıdan sadece kayıt oluşturabilirsiniz.
+                                                <FaInfoCircle /> En az bir hedef pazaryeri seçin (önceki adım). Bağlı hesabınız yoksa ürün yalnızca programda kaydedilir.
                                             </div>
                                         )}
 
                                         {/* Platform Kategori Panelleri */}
                                         <div className="puw-cat-panels-grid">
-                                            {(uf.targetMarketplaces.length > 0 ? uf.targetMarketplaces : marketplaces.map(m => m.marketplaceName)).map(pName => (
+                                            {uf.targetMarketplaces.map(pName => (
                                                 <PlatformCategoryPanel
                                                     key={pName}
                                                     platformName={pName}
@@ -999,12 +1497,182 @@ const ProductUploadWizard = ({ userId }) => {
                                                 />
                                             ))}
                                         </div>
+
+                                        {uf.targetMarketplaces.includes("Trendyol") && (
+                                            <div className="puw-card puw-ty-api-card">
+                                                <div className="puw-card-header puw-ty-api-card__head">
+                                                    <span className="icon puw-ty-api-card__icon"><FaStore /></span>
+                                                    <div>
+                                                        <div className="title puw-ty-api-card__title">Trendyol: Marka, kargo ve kategori özellikleri</div>
+                                                    </div>
+                                                </div>
+                                                {!catState.Trendyol?.selected?.id ? (
+                                                    <div className="puw-ty-api-banner puw-ty-api-banner--warn">
+                                                        <FaInfoCircle />
+                                                        <span>
+                                                            Önce yukarıdan Trendyol için <strong>en alt seviye</strong> kategoriyi seçin; ardından zorunlu ürün özellikleri listelenir.
+                                                        </span>
+                                                    </div>
+                                                ) : (
+                                                    <>
+                                                        <div className="puw-grid-2 puw-ty-api-grid">
+                                                            <div className="puw-field">
+                                                                <label>Trendyol marka kodu</label>
+                                                                <input
+                                                                    className="puw-input"
+                                                                    value={uf.trendyolBrandId}
+                                                                    onChange={(e) => {
+                                                                        const n = e.target.value.replace(/\D/g, "");
+                                                                        ufSet("trendyolBrandId", n);
+                                                                        tyBrandPickedRef.current = null;
+                                                                    }}
+                                                                    placeholder="Adım 1’de marka seçtiyseniz dolu gelir; yoksa 7651 (Diğer)"
+                                                                />
+                                                                {uf.brand.trim() && uf.trendyolBrandId.trim() && (
+                                                                    <div className="puw-ty-api-field-note">
+                                                                        Adım 1 marka adı: <strong>{uf.brand.trim()}</strong>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                            <div className="puw-field">
+                                                                <label>Kargo firması kodu</label>
+                                                                <input
+                                                                    className="puw-input"
+                                                                    value={uf.trendyolCargoCompanyId}
+                                                                    onChange={(e) => ufSet("trendyolCargoCompanyId", e.target.value.replace(/\D/g, ""))}
+                                                                    placeholder="10"
+                                                                />
+                                                            </div>
+                                                        </div>
+                                                        <p className="puw-ty-api-hint">
+                                                            Marka ve kargo kodlarını Trendyol Satıcı Paneli’nden kontrol edebilirsiniz. Adım 1&apos;de girdiğiniz <strong>KDV</strong> ve <strong>desi</strong> bilgileri de gönderime dahil edilir. Tablodaki alanlar seçtiğiniz kategoriye göre gelir.
+                                                        </p>
+                                                        {tyAttrState.loading && (
+                                                            <div className="puw-ty-api-loading">
+                                                                <FaSpinner className="puw-spin" /> Kategori özellikleri yükleniyor…
+                                                            </div>
+                                                        )}
+                                                        {tyAttrState.error && !tyAttrState.loading && (
+                                                            <div className="puw-ty-api-banner puw-ty-api-banner--err">
+                                                                <FaExclamationTriangle />{tyAttrState.error}
+                                                            </div>
+                                                        )}
+                                                        {!tyAttrState.loading && !tyAttrState.error && tyAttrState.rows.length === 0 && (
+                                                            <div className="puw-ty-api-banner puw-ty-api-banner--warn">
+                                                                Bu kategori için özellik listesi boş döndü — ara kategori seçmiş olabilirsiniz; ürün yüklemek için en alt seviye kategori seçin.
+                                                            </div>
+                                                        )}
+                                                        {tyAttrState.rows.length > 0 && (
+                                                            <div className="puw-ty-attr-wrap">
+                                                                <div className="puw-ty-attr-wrap__title">
+                                                                    Kategoriye özel ürün özellikleri
+                                                                </div>
+                                                                <div className="puw-ty-api-meta">
+                                                                    <span><strong>{tyAttrStats.req}</strong> zorunlu</span>
+                                                                    <span className="puw-ty-api-meta-sep">·</span>
+                                                                    <span><strong>{tyAttrStats.opt}</strong> isteğe bağlı</span>
+                                                                    <span className="puw-ty-api-meta-sep">·</span>
+                                                                    <span>toplam <strong>{tyAttrStats.total}</strong> satır</span>
+                                                                </div>
+                                                                <p className="puw-ty-attr-wrap__hint">
+                                                                    Zorunlu satırlar üstte ve turuncu çizgiyle işaretli. &quot;Otomatik&quot; uygun varsayılanı kullanır; net olması gereken yerlerde &quot;Listeden seç&quot; veya &quot;Özel metin&quot; kullanın.
+                                                                </p>
+                                                                <div className="puw-ty-attr-table-scroll">
+                                                                    <table className="puw-ty-attr-table">
+                                                                        <thead>
+                                                                            <tr>
+                                                                                <th>Özellik</th>
+                                                                                <th>Zorunlu</th>
+                                                                                <th>Özel / liste</th>
+                                                                            </tr>
+                                                                        </thead>
+                                                                        <tbody>
+                                                                            {trendyolAttrRowsSorted.map((row, ri) => {
+                                                                                const attr = row.attribute || {};
+                                                                                const aid = attr.id;
+                                                                                const aname = attr.name || `#${aid}`;
+                                                                                const sel = tySelections[String(aid)] || { mode: "auto" };
+                                                                                const vals = row.attributeValues || [];
+                                                                                const hasVals = vals.length > 0;
+                                                                                return (
+                                                                                    <tr
+                                                                                        key={`ty-a-${aid}-${ri}`}
+                                                                                        className={row.required ? "puw-ty-attr-row--required" : "puw-ty-attr-row--optional"}
+                                                                                    >
+                                                                                        <td title={aname}>{aname}</td>
+                                                                                        <td>
+                                                                                            {row.required ? (
+                                                                                                <span className="puw-ty-attr-req">Evet</span>
+                                                                                            ) : (
+                                                                                                <span className="puw-ty-attr-opt">Hayır</span>
+                                                                                            )}
+                                                                                        </td>
+                                                                                        <td>
+                                                                                            <select
+                                                                                                className="puw-input puw-ty-attr-select"
+                                                                                                value={sel.mode || "auto"}
+                                                                                                onChange={(e) => {
+                                                                                                    const m = e.target.value;
+                                                                                                    if (m === "auto") {
+                                                                                                        setTySel(aid, { mode: "auto", valueId: undefined, customText: undefined });
+                                                                                                    } else {
+                                                                                                        setTySel(aid, { mode: m, valueId: undefined, customText: undefined });
+                                                                                                    }
+                                                                                                }}
+                                                                                            >
+                                                                                                <option value="auto">Otomatik (sistem önerisi)</option>
+                                                                                                {hasVals && <option value="value">Listeden seç</option>}
+                                                                                                {row.allowCustom && <option value="custom">Özel metin</option>}
+                                                                                            </select>
+                                                                                            {sel.mode === "value" && (
+                                                                                                <select
+                                                                                                    className="puw-input puw-ty-attr-select puw-ty-attr-nested"
+                                                                                                    value={sel.valueId ?? ""}
+                                                                                                    onChange={(e) => setTySel(aid, { valueId: e.target.value })}
+                                                                                                >
+                                                                                                    <option value="">— Değer seçin —</option>
+                                                                                                    {vals.map((v) => (
+                                                                                                        <option key={v.id} value={v.id}>{v.name}</option>
+                                                                                                    ))}
+                                                                                                </select>
+                                                                                            )}
+                                                                                            {sel.mode === "custom" && (
+                                                                                                <input
+                                                                                                    className="puw-input puw-ty-attr-custom-input"
+                                                                                                    placeholder="Özel değer"
+                                                                                                    value={sel.customText || ""}
+                                                                                                    onChange={(e) => setTySel(aid, { customText: e.target.value })}
+                                                                                                />
+                                                                                            )}
+                                                                                        </td>
+                                                                                    </tr>
+                                                                                );
+                                                                            })}
+                                                                        </tbody>
+                                                                    </table>
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </>
+                                                )}
+                                            </div>
+                                        )}
                                     </div>
 
                                     {/* Kategori eksik uyarısı */}
                                     {missingCategories.length > 0 && (
                                         <div style={{ color: "var(--puw-yellow)", fontSize: 11, display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", background: "rgba(245,158,11,0.06)", borderRadius: 8, border: "1px solid rgba(245,158,11,0.15)" }}>
                                             <FaExclamationTriangle /> Dağıtım için kategori seçimi eksik: {missingCategories.join(", ")}
+                                        </div>
+                                    )}
+                                    {uf.targetMarketplaces.includes("N11") && !n11TitleOk && (
+                                        <div style={{ color: "var(--puw-yellow)", fontSize: 11, display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", background: "rgba(245,158,11,0.06)", borderRadius: 8, border: "1px solid rgba(245,158,11,0.15)" }}>
+                                            <FaExclamationTriangle /> N11: Ürün adı en az 15 karakter olmalı (Adım 1).
+                                        </div>
+                                    )}
+                                    {uf.targetMarketplaces.includes("Trendyol") && !trendyolManualAttrsOk && tyAttrState.rows?.length > 0 && (
+                                        <div style={{ color: "var(--puw-yellow)", fontSize: 11, display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", background: "rgba(245,158,11,0.06)", borderRadius: 8, border: "1px solid rgba(245,158,11,0.15)" }}>
+                                            <FaExclamationTriangle /> Trendyol: Manuel seçtiğiniz zorunlu özelliklerde değer eksik.
                                         </div>
                                     )}
 

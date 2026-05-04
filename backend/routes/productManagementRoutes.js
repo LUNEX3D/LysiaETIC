@@ -114,6 +114,8 @@ router.get("/debug/platform-check",          controller.debugPlatformCheck);
 // 🏷️ TRENDYOL KATEGORİ ÇEK
 // ═══════════════════════════════════════════════════════════════
 router.get("/trendyol/categories",           controller.getTrendyolCategories);
+router.get("/trendyol/categories/:categoryId/attributes", controller.getTrendyolCategoryAttributesForProduct);
+router.get("/trendyol/brands", controller.searchTrendyolBrands);
 
 // ═══════════════════════════════════════════════════════════════
 // 🧩 VARYANT GRUPLARI (ürün ailesi — Trendyol productMainId hizalama)

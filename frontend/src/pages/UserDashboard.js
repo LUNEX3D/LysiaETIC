@@ -518,7 +518,7 @@ const UserDashboard = () => {
                     borderBottom: `1px solid ${C.border}`,
                     position: "sticky", top: 0, zIndex: 100,
                     backdropFilter: "blur(12px)",
-                    padding: isMobile ? "0.75rem 0.75rem" : "1.25rem clamp(1rem, 4vw, 3rem)",
+                    padding: isMobile ? "0.75rem 0.75rem" : "1.25rem clamp(0.75rem, 2vw, 1.5rem)",
                 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: isMobile ? "0.5rem" : "1rem" }}>
                         {/* Sol: Karşılama */}
@@ -762,7 +762,7 @@ const UserDashboard = () => {
                 )}
 
                 {/* ── İÇERİK ── */}
-                <div style={{ padding: isMobile ? "0.75rem" : "clamp(1rem, 3vw, 1.75rem) clamp(1rem, 4vw, 3rem)", overflowX: "hidden" }}>
+                <div style={{ padding: isMobile ? "0.75rem" : "clamp(1rem, 2.5vw, 1.5rem) clamp(0.75rem, 2vw, 1.25rem)", overflowX: "hidden" }}>
 
                     {/* ── DURUM ÇUBUĞU (Compact) ── */}
                     <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}
@@ -1051,7 +1051,7 @@ const UserDashboard = () => {
                                     { label: t("dashboard.productCenter"), icon: <FaCubes />, panel: "pm-center", color: C.purple },
                                     { label: t("dashboard.integrations"), icon: <FaPlug />, panel: "integration", color: C.blue },
                                     { label: t("dashboard.finance"), icon: <FaMoneyBillWave />, panel: "finance", color: C.yellow },
-                                    { label: t("dashboard.shipping"), icon: <FaTruck />, panel: "shipping", color: C.pink },
+                                    { label: t("sidebar.shipping"), icon: <FaTruck />, panel: "shipping", color: C.pink },
                                 ].map((a, i) => (
                                     <motion.button key={a.panel}
                                         initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 + i * 0.03 }}
@@ -1562,7 +1562,7 @@ const UserDashboard = () => {
             <AnimatePresence mode="wait">
                 <motion.main
                     key={activePanel}
-                    className={`content-area${activePanel === "integration" ? " content-area--galaxy" : ""}${activePanel === "lysia-brain" ? " content-area--brain" : ""}${activePanel === "product-upload" || activePanel === "pm-center" ? " content-area--wizard-flush" : ""}`}
+                    className={`content-area${activePanel === "integration" ? " content-area--galaxy" : ""}${activePanel === "lysia-brain" ? " content-area--brain" : ""}${activePanel === "product-upload" || activePanel === "pm-center" ? " content-area--wizard-flush" : ""}${activePanel === "dashboard" ? " content-area--dashboard" : ""}`}
                     initial={{ opacity: 0, y: 12 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -8 }}

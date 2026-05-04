@@ -44,11 +44,20 @@ const AIBrain = require("./aiOperationsBrain");
 const AIMemory = require("../models/AIMemory");
 const AIConversation = require("../models/AIConversation");
 const AIAnalysisCache = require("../models/AIAnalysisCache");
+const AICycleResult = require("../models/AICycleResult");
 const Order = require("../models/Order");
 const Product = require("../models/Product");
+const ProductMapping = require("../models/ProductMapping");
 const Marketplace = require("../models/Marketplace");
 const Recommendation = require("../models/Recommendation");
 const logger = require("../config/logger");
+const { getTurkeyTodayStart, getTurkeyTomorrowStart } = require("../utils/turkeyTime");
+
+const OPERATOR_CYCLE_INTERVAL_MS = 10 * 60 * 1000;
+
+function round2(v) {
+    return Math.round((Number(v) || 0) * 100) / 100;
+}
 
 // ═════════════════════════════════════════════════════════════════════════════
 // GUARDRAILS — Güvenlik Limitleri
@@ -88,6 +97,8 @@ async function observe(userId) {
     ]);
 
     const observation = {
+        userId,
+
         // Ham veri
         products: engineData.products,
         analyzedProducts: analyzed,
@@ -137,7 +148,7 @@ async function observe(userId) {
 // ═════════════════════════════════════════════════════════════════════════════
 
 function analyze(observation) {
-    const { analyzedProducts, metrics, hasOrderData } = observation;
+    const { analyzedProducts, metrics, hasOrderData, userId: obsUserId } = observation;
 
     // AI Score
     const aiScore = AIEngine.calculateAIScore(analyzedProducts, observation);
@@ -152,7 +163,7 @@ function analyze(observation) {
     const focusItems = AIBrain.generateFocusItems(analyzedProducts, observation, businessHealth, lossHunter);
 
     // Opportunities
-    const opportunities = AIBrain.scanOpportunities(analyzedProducts, observation);
+    const opportunities = AIBrain.scanOpportunities(analyzedProducts, observation, obsUserId);
 
     // Predictions
     const predictions = AIBrain.generatePredictions(analyzedProducts, observation);
@@ -500,29 +511,89 @@ async function learn(userId, decision, actionResult, verification) {
 
 async function runFullCycle(userId, operationMode = "assisted") {
     const startTime = Date.now();
+    const phaseTimings = {};
 
     try {
-        // 1. OBSERVE
+        let phaseStart = Date.now();
         const observation = await observe(userId);
+        phaseTimings.observe = { durationMs: Date.now() - phaseStart, success: true };
 
-        // 2. ANALYZE
+        phaseStart = Date.now();
         const analysis = analyze(observation);
+        phaseTimings.analyze = { durationMs: Date.now() - phaseStart, success: true };
 
-        // 3. DECIDE
+        phaseStart = Date.now();
         const decisions = await decide(userId, observation, analysis, operationMode);
+        phaseTimings.decide = { durationMs: Date.now() - phaseStart, success: true };
 
-        // 4. ACT (sadece autonomous modda otomatik)
+        // ACT — arka plan worker ile aynı kurallar (assisted: güvenli alt küme, autonomous: tam otomatik)
         const actionResults = [];
-        if (operationMode === "autonomous") {
-            for (const d of decisions.decisions.filter(d => d.autoExecutable && !d._requiresApproval)) {
+        phaseStart = Date.now();
+        try {
+            const toRun =
+                operationMode === "autonomous"
+                    ? decisions.decisions.filter(d => d.autoExecutable && !d._requiresApproval)
+                    : operationMode === "assisted"
+                        ? decisions.decisions.filter(
+                            d => d.autoExecutable && !d._requiresApproval && d.urgency !== "critical"
+                        )
+                        : [];
+
+            for (const d of toRun) {
                 const result = await act(userId, d);
                 const verification = await verify(userId, result, d);
                 await learn(userId, d, result, verification);
-                actionResults.push({ decision: d, result, verification });
+                actionResults.push({
+                    action: d.action,
+                    title: d.title || "AI Aksiyon",
+                    barcode: d.barcode || "",
+                    success: result.success,
+                    message: result.message || "",
+                    verified: verification.verified,
+                    learned: true,
+                });
             }
+            phaseTimings.act = {
+                durationMs: Date.now() - phaseStart,
+                success: true,
+                actionsExecuted: actionResults.length,
+            };
+        } catch (actErr) {
+            phaseTimings.act = {
+                durationMs: Date.now() - phaseStart,
+                success: false,
+                actionsExecuted: actionResults.length,
+                error: actErr.message,
+            };
+        }
+
+        phaseTimings.verify = { durationMs: 0, success: true };
+        phaseTimings.learn = { durationMs: 0, success: true };
+
+        let alerts = [];
+        try {
+            const alertsData = await generateProactiveAlerts(userId, { observation, analysis });
+            alerts = (alertsData?.alerts || []).map(a => ({
+                type: a.type || "unknown",
+                severity: a.severity || "info",
+                title: a.title || "",
+                message: a.message || "",
+            }));
+        } catch (e) {
+            logger.warn(`🤖 [AI Operatör] alerts after cycle: ${e.message}`);
         }
 
         const durationMs = Date.now() - startTime;
+
+        await persistManualOperatorCycle(userId, operationMode, {
+            observation,
+            analysis,
+            decisions,
+            actionResults,
+            phaseTimings,
+            alerts,
+            durationMs,
+        });
 
         logger.info(`🤖 [AI Operatör] Full cycle completed in ${durationMs}ms — ${decisions.decisions.length} decisions, ${actionResults.length} actions executed`);
 
@@ -560,14 +631,88 @@ async function runFullCycle(userId, operationMode = "assisted") {
     }
 }
 
+/**
+ * API ile tetiklenen döngü sonucunu AICycleResult'a yazar (worker ile aynı şema).
+ */
+async function persistManualOperatorCycle(userId, operationMode, payload) {
+    const { observation, analysis, decisions, actionResults, phaseTimings, alerts, durationMs } = payload;
+    try {
+        const lastCycle = await AICycleResult.findOne({ userId })
+            .sort({ cycleNumber: -1 })
+            .select("cycleNumber")
+            .lean();
+        const cycleNumber = (lastCycle?.cycleNumber || 0) + 1;
+
+        await AICycleResult.create({
+            userId,
+            cycleNumber,
+            operationMode,
+            status: "completed",
+            phases: phaseTimings,
+            observation: {
+                totalProducts: observation.metrics.totalProducts,
+                activeProducts: observation.metrics.activeProducts,
+                outOfStock: observation.metrics.outOfStock,
+                lowStock: observation.metrics.lowStock,
+                lossProducts: observation.metrics.lossProducts,
+                todayRevenue: observation.metrics.todayRevenue,
+                monthRevenue: observation.metrics.monthRevenue,
+                totalOrdersToday: observation.metrics.totalOrdersToday,
+                marketplaceCount: observation.marketplaces?.length || 0,
+                memoryCount: observation.memories?.length || 0,
+            },
+            analysis: {
+                aiScore: analysis.aiScore?.overall || 0,
+                healthScore: analysis.businessHealth?.overallScore || 0,
+                healthRating: analysis.businessHealth?.rating || "unknown",
+                riskScore: analysis.risks?.riskScore || 0,
+                totalLossImpact: analysis.lossHunter?.totalImpact || 0,
+                lossCount: analysis.lossHunter?.losses?.length || 0,
+                focusItemCount: analysis.focusItems?.length || 0,
+                predictionCount: analysis.predictions?.predictions?.length || 0,
+                emotionalTone: analysis.emotionalTone?.tone || "neutral",
+            },
+            decisions: {
+                totalDecisions: decisions.decisions?.length || 0,
+                criticalCount: decisions.criticalCount || 0,
+                totalPotentialImpact: decisions.totalPotentialImpact || 0,
+                guardrailsApplied: decisions.guardrailsApplied || 0,
+                items: (decisions.decisions || []).slice(0, 10).map(d => ({
+                    type: d.type || d.action || "unknown",
+                    title: (d.title || "").slice(0, 80),
+                    action: d.action || "unknown",
+                    urgency: d.urgency || "medium",
+                    impact: d.impact || 0,
+                    confidence: d.confidence || 0,
+                    autoExecutable: d.autoExecutable || false,
+                    requiresApproval: d._requiresApproval || false,
+                })),
+            },
+            actions: actionResults,
+            alerts: (alerts || []).slice(0, 10),
+            totalDurationMs: durationMs,
+            nextCycleAt: new Date(Date.now() + OPERATOR_CYCLE_INTERVAL_MS),
+        });
+    } catch (err) {
+        logger.error(`🤖 [AI Operatör] persistManualOperatorCycle: ${err.message}`);
+    }
+}
+
 // ═════════════════════════════════════════════════════════════════════════════
 // PROACTIVE ALERTS — Arka planda çalışan uyarı sistemi
 // ═════════════════════════════════════════════════════════════════════════════
 
-async function generateProactiveAlerts(userId) {
+async function generateProactiveAlerts(userId, precomputed = null) {
     try {
-        const observation = await observe(userId);
-        const analysis = analyze(observation);
+        let observation;
+        let analysis;
+        if (precomputed?.observation && precomputed?.analysis) {
+            observation = precomputed.observation;
+            analysis = precomputed.analysis;
+        } else {
+            observation = await observe(userId);
+            analysis = analyze(observation);
+        }
         const alerts = [];
 
         const { metrics } = observation;
@@ -655,43 +800,94 @@ async function generateProactiveAlerts(userId) {
 
 async function getQuickStats(userId) {
     try {
-        // Cache'den oku (hızlı)
-        const cache = await AIAnalysisCache.findOne({ userId }).lean();
-        if (cache?.brainData) {
-            return {
-                healthScore: cache.healthSnapshot?.overallScore || 0,
-                rating: cache.healthSnapshot?.rating || "unknown",
-                criticalAlerts: cache.healthSnapshot?.criticalAlerts || 0,
-                pendingRecs: cache.healthSnapshot?.pendingRecs || 0,
-                totalLoss: cache.healthSnapshot?.totalLoss || 0,
-                productCount: cache.productCount || 0,
-                orderCount: cache.orderCount || 0,
-                lastAnalyzedAt: cache.lastAnalyzedAt,
-                fromCache: true,
-            };
-        }
+        const todayStart = getTurkeyTodayStart();
+        const tomorrowStart = getTurkeyTomorrowStart();
 
-        // Cache yoksa hızlı hesapla
-        const [productCount, orderCount, pendingRecs] = await Promise.all([
-            Product.countDocuments({ userId }),
-            Order.countDocuments({ user: userId }),
+        const [
+            cache,
+            mapCount,
+            legacyProductCount,
+            totalOrders,
+            pendingRecs,
+            todayAgg,
+        ] = await Promise.all([
+            AIAnalysisCache.findOne({ userId }).lean(),
+            ProductMapping.countDocuments({ userId }),
+            Product.countDocuments({ userId, status: "active" }),
+            Order.countDocuments({ user: userId, isCancelled: { $ne: true } }),
             Recommendation.countDocuments({ userId, status: "pending" }),
+            Order.aggregate([
+                {
+                    $match: {
+                        user: userId,
+                        orderDate: { $gte: todayStart, $lt: tomorrowStart },
+                        isCancelled: { $ne: true },
+                    },
+                },
+                { $group: { _id: null, revenue: { $sum: "$totalPrice" }, count: { $sum: 1 } } },
+            ]),
         ]);
 
+        const totalProducts = mapCount > 0 ? mapCount : legacyProductCount;
+        const row = todayAgg[0];
+        const todayRevenue = round2(row?.revenue || 0);
+        const todayOrders = row?.count || 0;
+
+        let healthScore = 0;
+        let rating = "unknown";
+        let criticalAlerts = 0;
+        let totalLoss = 0;
+        let lastAnalyzedAt = null;
+        let fromCacheHint = false;
+
+        if (cache?.healthSnapshot) {
+            healthScore = cache.healthSnapshot.overallScore || 0;
+            rating = cache.healthSnapshot.rating || "unknown";
+            criticalAlerts = cache.healthSnapshot.criticalAlerts || 0;
+            totalLoss = cache.healthSnapshot.totalLoss || 0;
+            lastAnalyzedAt = cache.lastAnalyzedAt;
+            fromCacheHint = !!cache.brainData;
+        }
+        if (cache?.brainData?.businessHealth) {
+            const bh = cache.brainData.businessHealth;
+            if (!healthScore && bh.overallScore) healthScore = bh.overallScore;
+            if (rating === "unknown" && bh.rating) rating = bh.rating;
+            const tl = cache.brainData.lossHunter?.totalImpact;
+            if (!totalLoss && tl != null) totalLoss = tl;
+        }
+
+        return {
+            healthScore,
+            rating,
+            criticalAlerts,
+            pendingRecs,
+            totalLoss,
+            productCount: totalProducts,
+            orderCount: totalOrders,
+            totalProducts,
+            totalOrders,
+            todayRevenue,
+            todayOrders,
+            lastAnalyzedAt,
+            fromCache: fromCacheHint,
+        };
+    } catch (err) {
+        logger.error(`🤖 [AI Operatör] Quick stats ERROR: ${err.message}`);
         return {
             healthScore: 0,
             rating: "unknown",
             criticalAlerts: 0,
-            pendingRecs,
+            pendingRecs: 0,
             totalLoss: 0,
-            productCount,
-            orderCount,
+            productCount: 0,
+            orderCount: 0,
+            totalProducts: 0,
+            totalOrders: 0,
+            todayRevenue: 0,
+            todayOrders: 0,
             lastAnalyzedAt: null,
             fromCache: false,
         };
-    } catch (err) {
-        logger.error(`🤖 [AI Operatör] Quick stats ERROR: ${err.message}`);
-        return { healthScore: 0, rating: "unknown", fromCache: false };
     }
 }
 

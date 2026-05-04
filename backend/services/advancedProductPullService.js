@@ -4,6 +4,7 @@ const MarketplaceCategory = require("../models/MarketplaceCategory");
 const Marketplace = require("../models/Marketplace");
 const AsyncJob = require("../models/AsyncJob");
 const logger = require("../config/logger");
+const n11Service = require("./n11Service");
 // ✅ FIX: Credential'ları decrypt ederek kullan
 const { decryptCredentials } = require("../utils/encryption");
 
@@ -45,7 +46,7 @@ const fetchTrendyolCategories = async (credentials) => {
     }
 };
 
-// N11 kategorilerini çek
+// N11 kategorilerini çek — resmi: GET https://api.n11.com/cdn/categories (Mağaza Destek REST API)
 const fetchN11Categories = async (credentials) => {
     const { apiKey, secretKey } = credentials;
 
@@ -53,36 +54,37 @@ const fetchN11Categories = async (credentials) => {
         throw new Error("N11 credentials eksik");
     }
 
-    try {
-        // Doğru N11 REST API endpoint
-        const response = await axios.get(
-            "https://api.n11.com/ms/categories",
-            {
-                headers: {
-                    appkey: String(apiKey || "").replace(/[^\x20-\x7E]/g, ""),
-                    appsecret: String(secretKey || "").replace(/[^\x20-\x7E]/g, ""),
-                    "Content-Type": "application/json",
-                    "User-Agent": "LysiaETIC"
-                },
-                timeout: 30000
-            }
-        );
-
-        // N11 farklı yanıt yapıları
-        const data = response.data;
-        if (Array.isArray(data)) return data;
-        if (data?.categories) return data.categories;
-        if (data?.data) return Array.isArray(data.data) ? data.data : [];
-        return [];
-    } catch (error) {
-        logger.error("N11 kategori çekme hatası:", error.response?.data || error.message);
-        throw error;
+    const res = await n11Service.getCategories({ apiKey, secretKey });
+    if (!res.success) {
+        throw new Error(res.error || "N11 kategori listeleme başarısız");
     }
+    const raw = res.categories;
+    const roots = Array.isArray(raw) ? raw : [];
+    const flat = [];
+    const walk = (nodes, parentPath = []) => {
+        if (!Array.isArray(nodes)) return;
+        for (const cat of nodes) {
+            const name = cat.name || cat.categoryName || "";
+            const id = cat.id || cat.categoryId;
+            const subs = cat.subCategories || cat.children || [];
+            const path = [...parentPath, name].filter(Boolean);
+            flat.push({
+                id,
+                categoryId: id,
+                name,
+                categoryName: name,
+                categoryPath: path
+            });
+            if (Array.isArray(subs) && subs.length) walk(subs, path);
+        }
+    };
+    walk(roots);
+    return flat;
 };
 
-// Hepsiburada kategorilerini çek
+// Hepsiburada — resmi: .../product/api/categories/get-all-categories (HB+HX+HC)
 const fetchHepsiburadaCategories = async (credentials) => {
-    const { normalizeCredentials, getHeaders, getEndpoints, validateCredentials } = require("./hepsiburadaService");
+    const { normalizeCredentials, validateCredentials, fetchHepsiburadaCategories: hbFetchCats } = require("./hepsiburadaService");
     const hbCreds = normalizeCredentials(credentials);
 
     const validation = validateCredentials(hbCreds, "kategori çekme");
@@ -91,22 +93,7 @@ const fetchHepsiburadaCategories = async (credentials) => {
     }
 
     const { merchantId, secretKey, userAgent } = hbCreds;
-    const ep = getEndpoints(hbCreds);
-
-    try {
-        const response = await axios.get(
-            `${ep.CATEGORY}/categories/get-all-categories?page=0&size=1000`,
-            {
-                headers: getHeaders(merchantId, secretKey, userAgent),
-                timeout: 30000
-            }
-        );
-
-        return response.data?.data || response.data || [];
-    } catch (error) {
-        logger.error("Hepsiburada kategori çekme hatası:", error.message);
-        throw error;
-    }
+    return hbFetchCats(merchantId, secretKey, userAgent, { onlyLeaf: false });
 };
 
 // Pazaryerinden kategorileri çek ve kaydet
@@ -297,7 +284,13 @@ const fetchN11ProductsAdvanced = async (credentials, jobId) => {
 
 // Hepsiburada ürünlerini çek (gelişmiş)
 const fetchHepsiburadaProductsAdvanced = async (credentials, jobId) => {
-    const { normalizeCredentials, getHeaders, getEndpoints, validateCredentials } = require("./hepsiburadaService");
+    const {
+        normalizeCredentials,
+        getHeaders,
+        getEndpoints,
+        validateCredentials,
+        buildHepsiburadaCategoryNameMap
+    } = require("./hepsiburadaService");
     const hbCreds = normalizeCredentials(credentials);
 
     const validation = validateCredentials(hbCreds, "gelişmiş ürün çekme");
@@ -309,25 +302,10 @@ const fetchHepsiburadaProductsAdvanced = async (credentials, jobId) => {
     const ep = getEndpoints(hbCreds);
     const hbHeaders = getHeaders(merchantId, secretKey, userAgent);
 
-    // ── Adım 0: Kategori API'den categoryId → categoryName map'i oluştur ──
-    const categoryMap = new Map();
+    // ── Adım 0: Kategori map — HB+HX+HC (type birleşik)
+    let categoryMap = new Map();
     try {
-        let catPage = 0;
-        let catHasMore = true;
-        while (catHasMore) {
-            const catUrl = `${ep.MPOP}/product/api/categories/get-all-categories` +
-                `?leaf=true&status=ACTIVE&available=true&version=1&page=${catPage}&size=2000`;
-            const catResp = await axios.get(catUrl, { headers: hbHeaders, timeout: 30000 });
-            const catData = catResp.data;
-            const cats = Array.isArray(catData) ? catData : (catData?.data || catData?.content || []);
-            for (const cat of cats) {
-                const cid = cat.categoryId || cat.id;
-                const cname = cat.name || cat.categoryName || "";
-                if (cid && cname) categoryMap.set(String(cid), cname);
-            }
-            catHasMore = cats.length >= 2000;
-            catPage++;
-        }
+        categoryMap = await buildHepsiburadaCategoryNameMap(merchantId, secretKey, userAgent, { onlyLeaf: true });
         logger.info(`[Hepsiburada CAT] ${categoryMap.size} kategori çekildi`);
     } catch (catErr) {
         logger.warn(`[Hepsiburada CAT] Kategori çekme hatası: ${catErr.message}`);

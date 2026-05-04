@@ -73,6 +73,7 @@ async function analyzeOpportunities(userId, opts = {}) {
         const keywordData = await keywordService.extractKeywords(userId, {
             includeGoogleTrends: true,
             includeAmazon: true,
+            shuffleSalt: opts.shuffleSalt || "",
         });
         const keywords = keywordData.allKeywords.slice(0, maxKeywords);
 
@@ -286,7 +287,7 @@ async function getCachedOpportunities(userId, ignoreAge = false) {
         }
 
         const opportunities = await OpportunityResult.find(query)
-            .sort({ totalScore: -1 })
+            .sort({ totalScore: -1, dataFreshness: -1 })
             .limit(MAX_OPPORTUNITIES)
             .lean();
 
@@ -326,12 +327,13 @@ async function getOpportunities(userId, filters = {}) {
         query.source = filters.source;
     }
 
-    let sortField = { totalScore: -1 };
-    if (filters.sortBy === "trend") sortField = { "scores.trend": -1 };
-    else if (filters.sortBy === "profit") sortField = { "scores.profit": -1 };
-    else if (filters.sortBy === "competition") sortField = { "scores.competition": -1 };
-    else if (filters.sortBy === "social") sortField = { "scores.social": -1 };
+    let sortField = { totalScore: -1, dataFreshness: -1 };
+    if (filters.sortBy === "trend") sortField = { "scores.trend": -1, totalScore: -1 };
+    else if (filters.sortBy === "profit") sortField = { "scores.profit": -1, totalScore: -1 };
+    else if (filters.sortBy === "competition") sortField = { "scores.competition": -1, totalScore: -1 };
+    else if (filters.sortBy === "social") sortField = { "scores.social": -1, totalScore: -1 };
     else if (filters.sortBy === "newest") sortField = { createdAt: -1 };
+    else if (filters.sortBy === "fresh") sortField = { dataFreshness: -1, totalScore: -1 };
 
     const opportunities = await OpportunityResult.find(query)
         .sort(sortField)

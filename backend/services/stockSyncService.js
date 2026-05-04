@@ -547,7 +547,13 @@ const updateTrendyolStock = async (credentials, productId, newStock, priceUpdate
 // Auth: Basic base64(merchantId:secretKey) + User-Agent header
 const updateHepsiburadaStock = async (credentials, productId, newStock, priceUpdate = null) => {
     try {
-        const { normalizeCredentials, getHeaders, getEndpoints, validateCredentials } = require("./hepsiburadaService");
+        const {
+            normalizeCredentials,
+            getEndpoints,
+            validateCredentials,
+            normalizeHbMerchantSku,
+            postInventoryUploadListing
+        } = require("./hepsiburadaService");
         const hbCreds = normalizeCredentials(credentials);
         const { merchantId, secretKey, userAgent } = hbCreds;
 
@@ -557,23 +563,23 @@ const updateHepsiburadaStock = async (credentials, productId, newStock, priceUpd
         }
 
         const ep = getEndpoints(hbCreds);
+        const hbs = String(productId || "").trim();
+        const ms = normalizeHbMerchantSku(productId) || hbs.toUpperCase().replace(/\s+/g, "");
         const listing = {
-            hepsiburadaSku: productId,
-            merchantSku: productId,
+            hepsiburadaSku: hbs,
+            merchantSku: ms || hbs,
             availableStock: newStock
         };
-        // Fiyat güncelleme varsa ekle
-        if (priceUpdate?.salePrice) listing.price     = priceUpdate.salePrice;
+        if (priceUpdate?.salePrice) listing.price = priceUpdate.salePrice;
         if (priceUpdate?.listPrice) listing.listPrice = priceUpdate.listPrice;
 
-        const response = await axios.post(
-            `${ep.LISTING}/listings/merchantid/${merchantId}/inventory-uploads`,
-            { listings: [listing] },
-            {
-                headers: getHeaders(merchantId, secretKey, userAgent),
-                timeout: 10000
-            }
-        );
+        const response = await postInventoryUploadListing({
+            ep,
+            merchantId,
+            secretKey,
+            userAgent,
+            rows: [listing]
+        });
 
         return { success: true, response: response.data };
     } catch (error) {

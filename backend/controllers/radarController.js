@@ -27,6 +27,7 @@ const TrendSignal = require("../models/TrendSignal");
 const googleTrendsService = require("../services/radar/googleTrendsService");
 const socialService = require("../services/radar/socialService");
 const { getRadarWorkerStatus } = require("../services/radar/radarWorker");
+const { hasSerpKey } = require("../services/radar/serpApiClient");
 const logger = require("../config/logger");
 
 const uid = (req) => req.user?._id || req.user?.id;
@@ -43,6 +44,27 @@ exports.getOpportunities = async (req, res) => {
             category, minScore, sortBy, expansionType, source,
         });
 
+        const ttlMs = opportunityEngine.CACHE_TTL_MS || 6 * 60 * 60 * 1000;
+        let meta = {
+            cacheTtlMs: ttlMs,
+            newestFreshness: null,
+            oldestFreshness: null,
+            isStale: false,
+            serpConfigured: hasSerpKey(),
+        };
+        if (opportunities.length > 0) {
+            const times = opportunities
+                .map((o) => new Date(o.dataFreshness || o.updatedAt || 0).getTime())
+                .filter((t) => t > 0);
+            if (times.length) {
+                const newest = Math.max(...times);
+                const oldest = Math.min(...times);
+                meta.newestFreshness = new Date(newest).toISOString();
+                meta.oldestFreshness = new Date(oldest).toISOString();
+                meta.isStale = Date.now() - newest > ttlMs;
+            }
+        }
+
         // Cache boşsa ve hiç fırsat yoksa, ilk kez analiz başlat
         if (opportunities.length === 0) {
             const freshCheck = await OpportunityResult.countDocuments({ userId });
@@ -56,6 +78,7 @@ exports.getOpportunities = async (req, res) => {
                     data: {
                         opportunities: [],
                         stats: { total: 0, analyzing: true },
+                        meta,
                         message: "İlk analiz başlatıldı, birkaç dakika içinde fırsatlar hazır olacak.",
                     },
                 });
@@ -66,6 +89,7 @@ exports.getOpportunities = async (req, res) => {
             success: true,
             data: {
                 opportunities,
+                meta,
                 stats: {
                     total: opportunities.length,
                     analyzing: false,
@@ -577,7 +601,7 @@ exports.getDataSourceStatus = async (req, res) => {
     try {
         const workerStatus = getRadarWorkerStatus();
 
-        const hasSerpAPI = !!process.env.SERPAPI_KEY;
+        const hasSerpAPI = hasSerpKey();
         const hasAmazonPAAPI = !!(process.env.AMAZON_PAAPI_ACCESS_KEY && process.env.AMAZON_PAAPI_SECRET_KEY);
 
         res.json({

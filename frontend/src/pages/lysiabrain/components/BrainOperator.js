@@ -7,7 +7,7 @@
  */
 import React, { useState, useEffect, useCallback } from "react";
 import API from "../../../services/api";
-import { T, useResponsive } from "../styles";
+import { T, fmt, useResponsive } from "../styles";
 import { Card, CardHeader, Badge, Btn, HealthBar, StatCard, EmptyState, Divider, IconBox } from "./shared/SharedUI";
 
 const BrainOperator = ({ operatorStatus, cycleResult, cycleLoading, onChangeMode, onRunCycle, onRefresh, t, onError }) => {
@@ -49,7 +49,7 @@ const BrainOperator = ({ operatorStatus, cycleResult, cycleLoading, onChangeMode
         try {
             setHistoryLoading(true);
             const res = await API.get("/ai-chat/operator/cycles?limit=5");
-            if (res.data.success) setCycleHistory(res.data.cycles || []);
+            if (res.data && res.data.success !== false) setCycleHistory(res.data.cycles || []);
         } catch { /* silent */ }
         finally { setHistoryLoading(false); }
     }, []);
@@ -77,9 +77,9 @@ const BrainOperator = ({ operatorStatus, cycleResult, cycleLoading, onChangeMode
             {operatorStatus?.stats && (
                 <div style={{ display: "flex", gap: isMobile ? "0.5rem" : "0.85rem", flexWrap: "wrap" }}>
                     <StatCard icon="💎" label={t("op.biz_health")} value={operatorStatus.stats.healthScore || 0} color={T.green} suffix="/100" />
-                    <StatCard icon="📦" label={t("dash.total_products")} value={operatorStatus.stats.totalProducts || 0} color={T.blue} />
-                    <StatCard icon="🛒" label={t("plat.total_orders")} value={operatorStatus.stats.totalOrders || 0} color={T.accent} />
-                    {!isMobile && <StatCard icon="💰" label={t("dash.today_revenue")} value={operatorStatus.stats.todayRevenue || 0} color={T.yellow} />}
+                    <StatCard icon="📦" label={t("dash.total_products")} value={operatorStatus.stats.totalProducts ?? operatorStatus.stats.productCount ?? 0} color={T.blue} />
+                    <StatCard icon="🛒" label={t("plat.total_orders")} value={operatorStatus.stats.totalOrders ?? operatorStatus.stats.orderCount ?? 0} color={T.accent} />
+                    <StatCard icon="💰" label={t("dash.today_revenue")} value={fmt(operatorStatus.stats.todayRevenue || 0)} color={T.yellow} />
                 </div>
             )}
 
@@ -287,27 +287,36 @@ const BrainOperator = ({ operatorStatus, cycleResult, cycleLoading, onChangeMode
                 <Card>
                     <CardHeader icon="📜" title={t("op.cycle_history")} subtitle={t("op.cycle_history_sub")} badge={`${cycleHistory.length}`} color={T.textDim} />
                     <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-                        {cycleHistory.map((cycle, i) => (
+                        {cycleHistory.map((cycle, i) => {
+                            const decisionN = cycle.decisions?.decisions?.length
+                                ?? cycle.decisions?.totalDecisions
+                                ?? cycle.decisions?.items?.length
+                                ?? 0;
+                            const actionN = cycle.actionResults?.length ?? cycle.actions?.length ?? 0;
+                            const dur = cycle.durationMs ?? cycle.totalDurationMs ?? 0;
+                            const ok = cycle.status !== "failed" && cycle.success !== false;
+                            return (
                             <div key={cycle._id || i} style={{
                                 display: "flex", alignItems: "center", gap: "0.75rem",
                                 padding: "0.75rem 1rem", borderRadius: T.rSm,
                                 background: T.bgGlass, border: `1px solid ${T.border}`,
                             }}>
-                                <span style={{ fontSize: "1rem" }} aria-hidden="true">{cycle.success !== false ? "✅" : "❌"}</span>
+                                <span style={{ fontSize: "1rem" }} aria-hidden="true">{ok ? "✅" : "❌"}</span>
                                 <div style={{ flex: 1, minWidth: 0 }}>
                                     <div style={{ fontSize: "0.82rem", fontWeight: 600, color: T.text }}>
-                                        {cycle.operationMode || "assisted"} — {cycle.durationMs || 0}ms
+                                        {cycle.operationMode || "assisted"} — {dur}ms
                                     </div>
                                     <div style={{ fontSize: "0.72rem", color: T.textDim, marginTop: 2 }}>
                                         {cycle.createdAt ? new Date(cycle.createdAt).toLocaleString("tr-TR") : "—"}
                                     </div>
                                 </div>
                                 <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
-                                    {cycle.decisions?.decisions?.length > 0 && <Badge color={T.accent} size="sm">{cycle.decisions.decisions.length} {t("dash.decisions_count")}</Badge>}
-                                    {cycle.actionResults?.length > 0 && <Badge color={T.green} size="sm">{cycle.actionResults.length} {t("op.applied")}</Badge>}
+                                    {decisionN > 0 && <Badge color={T.accent} size="sm">{decisionN} {t("dash.decisions_count")}</Badge>}
+                                    {actionN > 0 && <Badge color={T.green} size="sm">{actionN} {t("op.applied")}</Badge>}
                                 </div>
                             </div>
-                        ))}
+                            );
+                        })}
                     </div>
                 </Card>
             )}

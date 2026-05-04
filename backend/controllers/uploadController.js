@@ -47,19 +47,44 @@ exports.uploadProduct = async (req, res) => {
                 };
                 break;
 
-            case "Hepsiburada":
-                const { HB_ENDPOINTS: hbUploadEp } = require("../services/hepsiburadaService");
-                apiUrl = `${hbUploadEp.LISTING}/listings/merchantid/${sellerId}/inventory-uploads`;
-                requestData = {
-                    listings: [{
-                        merchantSku: (productData.barcode || productData.sku || "").toUpperCase().replace(/\s/g, ""),
-                        hepsiburadaSku: productData.barcode || productData.sku,
-                        availableStock: parseInt(productData.quantity) || 0,
+            case "Hepsiburada": {
+                const hb = require("../services/hepsiburadaService");
+                const raw = decryptCredentials(integration.credentials);
+                const hbCreds = hb.normalizeCredentials({
+                    merchantId: raw.merchantId || raw.sellerId || sellerId,
+                    secretKey:
+                        raw.secretKey ||
+                        raw.serviceKey ||
+                        raw.apiSecret ||
+                        raw.apiKey,
+                    userAgent: raw.userAgent || raw.developerUsername || "LysiaETIC",
+                    useSit: raw.useSit
+                });
+                if (!hbCreds.merchantId || !hbCreds.secretKey) {
+                    return res.status(400).json({ error: "Hepsiburada merchantId / secretKey eksik" });
+                }
+                const ep = hb.getEndpoints(hbCreds);
+                let merchantSku = hb.normalizeHbMerchantSku(productData.barcode || productData.sku || "");
+                const hbSkuRaw = String(productData.barcode || productData.sku || "").trim();
+                if (!merchantSku) merchantSku = hb.normalizeHbMerchantSku(hbSkuRaw);
+                if (!merchantSku) {
+                    return res.status(400).json({ error: "Hepsiburada için barkod veya SKU gerekli" });
+                }
+                const hbResponse = await hb.postInventoryUploadListing({
+                    ep,
+                    merchantId: hbCreds.merchantId,
+                    secretKey: hbCreds.secretKey,
+                    userAgent: hbCreds.userAgent,
+                    rows: [{
+                        merchantSku,
+                        hepsiburadaSku: hbSkuRaw || merchantSku,
+                        availableStock: parseInt(productData.quantity, 10) || 0,
                         price: parseFloat(productData.salePrice) || 0,
                         listPrice: parseFloat(productData.listPrice || productData.salePrice) || 0
                     }]
-                };
-                break;
+                });
+                return res.status(200).json({ success: true, data: hbResponse.data });
+            }
 
             default:
                 return res.status(400).json({ error: "Geçersiz pazaryeri!" });

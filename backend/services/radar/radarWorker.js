@@ -25,9 +25,19 @@ const googleTrendsService = require("./googleTrendsService");
 // ── Konfigürasyon ──
 const RADAR_INTERVAL_MS = 6 * 60 * 60 * 1000;  // 6 saat
 const INITIAL_DELAY_MS = 5 * 60 * 1000;         // 5 dakika (sunucu başlangıcında bekle)
-const USER_DELAY_MS = 10000;                      // 10s — kullanıcılar arası bekleme
+const USER_DELAY_MS = 25000;                     // 25s — kullanıcılar arası bekleme (429 önleme)
+const GLOBAL_TREND_DELAY_MS = 5000;               // 5s — trend toplama arası bekleme
 const CLEANUP_DAYS = 7;                           // 7 günden eski expire fırsatları sil
 const SIGNAL_CLEANUP_DAYS = 14;                   // 14 günden eski TrendSignal'ları sil
+/** Her döngüde yaklaşık 1/N kullanıcı tam yenileme (cache bypass) — sürekli aynı liste sorununu kırar */
+const RADAR_STAGGER_MOD = Math.max(2, parseInt(process.env.RADAR_STAGGER_MOD || "4", 10));
+
+function shouldForceRefreshForCycle(userId, cycleNumber) {
+    const s = String(userId);
+    let h = 0;
+    for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+    return ((h + cycleNumber) >>> 0) % RADAR_STAGGER_MOD === 0;
+}
 
 let radarInterval = null;
 let isRunning = false;
@@ -62,11 +72,13 @@ async function getRadarUsers() {
 /**
  * Tek bir kullanıcı için radar döngüsü
  */
-async function processUser(userId) {
+async function processUser(userId, cycleNumber = 0) {
     try {
+        const forceRefresh = shouldForceRefreshForCycle(userId, cycleNumber);
         const result = await opportunityEngine.analyzeOpportunities(userId, {
-            forceRefresh: false,
-            maxKeywords: 12,     // Worker'da biraz daha az keyword (kaynak tasarrufu)
+            forceRefresh,
+            maxKeywords: 14,
+            shuffleSalt: `c${cycleNumber}`,
         });
 
         if (result.fromCache) {
@@ -96,6 +108,9 @@ async function collectGlobalTrends() {
         // Türkiye yükselen aramalar
         const trendingTR = await googleTrendsService.getTrendingSearches("TR");
 
+        // İkinci geo isteği aynı anda patlamasın (SerpAPI 429)
+        await sleep(Math.max(GLOBAL_TREND_DELAY_MS, 4000));
+
         // ABD yükselen aramalar (global e-ticaret sinyali)
         const trendingUS = await googleTrendsService.getTrendingSearches("US");
 
@@ -104,6 +119,11 @@ async function collectGlobalTrends() {
         // TrendSignal olarak kaydet
         let savedCount = 0;
         for (const keyword of allTrending.slice(0, 30)) {
+            // Rate limit koruması — her keyword arasında bekle
+            if (savedCount > 0) {
+                await sleep(GLOBAL_TREND_DELAY_MS);
+            }
+
             try {
                 await TrendSignal.findOneAndUpdate(
                     { keyword: keyword.toLowerCase(), source: "google_trends" },
@@ -170,15 +190,17 @@ async function runRadarCycle() {
             return;
         }
 
+        const cycleNumber = workerStats.totalCycles + 1;
         logger.info(
-            `🔭 [RadarWorker] Radar döngüsü #${workerStats.totalCycles + 1} başlıyor — ` +
-            `${userIds.length} kullanıcı, ${trendSignals} global trend`
+            `🔭 [RadarWorker] Radar döngüsü #${cycleNumber} başlıyor — ` +
+            `${userIds.length} kullanıcı, ${trendSignals} global trend ` +
+            `(kademeli tam yenileme: ~1/${RADAR_STAGGER_MOD} kullanıcı/döngü)`
         );
 
         // ── 2. Her kullanıcı için analiz ──
         for (const userId of userIds) {
             try {
-                const result = await processUser(userId);
+                const result = await processUser(userId, cycleNumber);
 
                 if (result.skipped) {
                     skipped++;

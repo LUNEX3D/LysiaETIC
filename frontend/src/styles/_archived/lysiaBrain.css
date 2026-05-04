@@ -1402,7 +1402,7 @@
 /* ═══════════════════════════════════════════════════════════════
    MISTAKES
    ═══════════════════════════════════════════════════════════════ */
-.lb-grİade-hero {
+.lb-grade-hero {
     display: flex;
     align-items: center;
     gap: 1.5rem;
@@ -1410,7 +1410,7 @@
     position: relative;
 }
 
-.lb-grİade-emoji {
+.lb-grade-emoji {
     width: 82px;
     height: 82px;
     border-radius: var(--lb-radius-xl);
@@ -1422,20 +1422,20 @@
     animation: lb-pulse-subtle 4s ease-in-out infinite;
 }
 
-.lb-grİade-score {
+.lb-grade-score {
     font-size: 1.6rem;
     font-weight: 900;
     letter-spacing: -0.025em;
 }
 
-.lb-grİade-desc {
+.lb-grade-desc {
     margin: 7px 0 0;
     font-size: 0.92rem;
     color: var(--lb-text-secondary);
     line-height: 1.55;
 }
 
-.lb-grİade-badges {
+.lb-grade-badges {
     display: flex;
     gap: 0.5rem;
     flex-wrap: wrap;
@@ -1933,7 +1933,7 @@
     margin-bottom: 0.85rem;
 }
 
-.lb-diag-grİade {
+.lb-diag-grade {
     font-size: 1.4rem;
     font-weight: 900;
     color: var(--lb-text);

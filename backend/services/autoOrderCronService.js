@@ -103,8 +103,9 @@ const runAutoOrderCron = async () => {
                             if (now - last >= ORPHAN_LOG_COOLDOWN_MS) {
                                 logger.warn(
                                     "[AUTO-ORDER CRON] Marketplace bulunamadı veya deaktif — configId=" + cid +
+                                    " marketplace=" + String(config.marketplaceName || "?") +
                                     " userId=" + userId +
-                                    " (Pazaryeri silinmiş veya pasif olabilir; otomatik sipariş ayarında kapatın veya entegrasyonu yeniden bağlayın.)"
+                                    " (Pazaryeri silinmiş veya pasif olabilir; otomatik siparişte bu kaydı kapatın veya entegrasyonu yeniden bağlayın.)"
                                 );
                                 _orphanConfigLoggedAt.set(cid, now);
                                 await AutoOrderConfig.findByIdAndUpdate(config._id, {

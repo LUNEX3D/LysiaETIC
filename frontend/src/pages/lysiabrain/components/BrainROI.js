@@ -30,7 +30,7 @@ const BrainROI = ({ t, onError }) => {
         try {
             setLoading(true);
             const res = await API.get("/ai-engine/brain/section/roi");
-            if (res.data.success) setData(res.data.roi);
+            if (res.data && res.data.success !== false) setData(res.data.roi);
         } catch (e) { onError?.(e.response?.data?.message || t("error.data_load_fail")); }
         finally { setLoading(false); }
     }, [t, onError]);

@@ -8,7 +8,16 @@ const ProductMapping = require("../models/ProductMapping");
 const StockSyncLog = require("../models/StockSyncLog");
 const Marketplace = require("../models/Marketplace");
 const logger = require("../config/logger");
-const { syncProductsFromMarketplace, distributeProductToMarketplaces, checkPendingN11Tasks, checkPendingTrendyolBatches, deleteProductFromMarketplaces } = require("../services/productSyncService");
+const {
+    syncProductsFromMarketplace,
+    distributeProductToMarketplaces,
+    checkPendingN11Tasks,
+    checkPendingTrendyolBatches,
+    deleteProductFromMarketplaces,
+    fetchTrendyolCategoryAttributes,
+    fetchTrendyolBrands
+} = require("../services/productSyncService");
+const { decryptCredentials } = require("../utils/encryption");
 const { manualStockSync, autoStockSync, syncStockToAllMarketplaces } = require("../services/stockSyncService");
 const n11Service = require("../services/n11Service");
 const xlsx = require("xlsx");
@@ -1846,6 +1855,93 @@ exports.getTrendyolCategories = async (req, res) => {
     }
 };
 
+/**
+ * Trendyol kategori özellikleri (createProducts attributes için)
+ * GET /product-management/trendyol/categories/:categoryId/attributes
+ */
+exports.getTrendyolCategoryAttributesForProduct = async (req, res) => {
+    try {
+        const userId = toObjectId(req.user?._id || req.user?.id);
+        if (!userId) return res.status(401).json({ error: "Yetkilendirme hatası" });
+
+        const rawId = req.params.categoryId;
+        if (rawId == null || !/^\d+$/.test(String(rawId).trim())) {
+            return res.status(400).json({ error: "Geçerli categoryId gerekli (sayısal, leaf kategori)" });
+        }
+        const categoryId = parseInt(String(rawId).trim(), 10);
+
+        const marketplace = await Marketplace.findOne({
+            userId,
+            marketplaceName: { $regex: /^trendyol$/i }
+        });
+        if (!marketplace) {
+            return res.status(404).json({ error: "Trendyol entegrasyonu bulunamadı" });
+        }
+
+        const creds = decryptCredentials(marketplace.credentials);
+        const { apiKey, apiSecret, sellerId, supplierId } = creds;
+        const actualSellerId = sellerId || supplierId;
+        if (!apiKey || !apiSecret || !actualSellerId) {
+            return res.status(400).json({ error: "Trendyol API bilgileri eksik" });
+        }
+
+        const data = await fetchTrendyolCategoryAttributes(creds, categoryId, actualSellerId);
+        return res.status(200).json({ success: true, data });
+    } catch (error) {
+        const st = error.response?.status;
+        const body = error.response?.data;
+        const msg = body?.errors?.[0]?.message || body?.message || error.message;
+        logger.error("[TRENDYOL CAT ATTR] Hata:", msg);
+        return res.status(st && st >= 400 && st < 600 ? st : 500).json({
+            error: msg || "Trendyol kategori özellikleri alınamadı"
+        });
+    }
+};
+
+/**
+ * Trendyol marka arama / sayfalı liste (createProducts brandId)
+ * GET /product-management/trendyol/brands?name=&page=&size=
+ */
+exports.searchTrendyolBrands = async (req, res) => {
+    try {
+        const userId = toObjectId(req.user?._id || req.user?.id);
+        if (!userId) return res.status(401).json({ error: "Yetkilendirme hatası" });
+
+        const name = String(req.query.name || req.query.q || "").trim();
+        const page = Math.max(0, parseInt(String(req.query.page || "0"), 10) || 0);
+        const size = Math.min(100, Math.max(1, parseInt(String(req.query.size || "40"), 10) || 40));
+
+        const marketplace = await Marketplace.findOne({
+            userId,
+            marketplaceName: { $regex: /^trendyol$/i }
+        });
+        if (!marketplace) {
+            return res.status(404).json({ error: "Trendyol entegrasyonu bulunamadı" });
+        }
+
+        const creds = decryptCredentials(marketplace.credentials);
+        const { apiKey, apiSecret, sellerId, supplierId } = creds;
+        const actualSellerId = sellerId || supplierId;
+        if (!apiKey || !apiSecret || !actualSellerId) {
+            return res.status(400).json({ error: "Trendyol API bilgileri eksik" });
+        }
+
+        const brands = await fetchTrendyolBrands(creds, actualSellerId, { name, page, size });
+        return res.status(200).json({
+            success: true,
+            data: { brands, query: { name, page, size } }
+        });
+    } catch (error) {
+        const st = error.response?.status;
+        const body = error.response?.data;
+        const msg = body?.errors?.[0]?.message || body?.message || error.message;
+        logger.error("[TRENDYOL BRANDS] Hata:", msg);
+        return res.status(st && st >= 400 && st < 600 ? st : 500).json({
+            error: msg || "Trendyol marka listesi alınamadı"
+        });
+    }
+};
+
 // ═══════════════════════════════════════════════════════════════
 // 📊 DASHBOARD & İSTATİSTİKLER
 // ═══════════════════════════════════════════════════════════════
@@ -3492,15 +3588,20 @@ exports.createAndDistribute = async (req, res) => {
         const {
             name, barcode, sku, description, images,
             price, listPrice, stock, category, brand,
-            attributes, targetMarketplaces, platformCategories
+            attributes, targetMarketplaces, platformCategories,
+            vatRate, dimensionalWeight, marketplaceExtras
         } = req.body;
 
         // Zorunlu alan kontrolü
-        if (!name || !barcode || !sku || !price) {
+        if (!name || !barcode || !sku || price === undefined || price === null || price === "") {
             return res.status(400).json({
                 error: "Zorunlu alanlar eksik",
                 required: ["name", "barcode", "sku", "price"]
             });
+        }
+        const priceNum = Number(price);
+        if (Number.isNaN(priceNum) || priceNum <= 0) {
+            return res.status(400).json({ error: "Satış fiyatı 0'dan büyük sayısal bir değer olmalıdır." });
         }
 
         // 🛡️ Duplike kontrolü (Barkod + SKU + İsim)
@@ -3515,6 +3616,13 @@ exports.createAndDistribute = async (req, res) => {
 
         // Ürün oluştur
         const stockVal = stock || 0;
+        const listPriceNum = listPrice != null && listPrice !== "" ? Number(listPrice) : priceNum;
+        const attrObj = attributes && typeof attributes === "object" ? { ...attributes } : {};
+        if (dimensionalWeight != null && dimensionalWeight !== "") {
+            const dw = Number(dimensionalWeight);
+            if (!Number.isNaN(dw)) attrObj.weight = dw;
+        }
+
         const productMapping = new ProductMapping({
             userId,
             masterProduct: {
@@ -3523,12 +3631,13 @@ exports.createAndDistribute = async (req, res) => {
                 sku,
                 description: description || "",
                 images: images || [],
-                price,
-                listPrice: listPrice || price,
+                price: priceNum,
+                listPrice: !Number.isNaN(listPriceNum) && listPriceNum > 0 ? listPriceNum : priceNum,
                 stock: stockVal,
+                vatRate: vatRate != null && vatRate !== "" ? Number(vatRate) : 20,
                 category: category || "",
                 brand: brand || "",
-                attributes: attributes || {}
+                attributes: attrObj
             },
             marketplaceMappings: [],
             stockTracking: {
@@ -3543,15 +3652,45 @@ exports.createAndDistribute = async (req, res) => {
 
         logger.info(`[PRODUCT] Yeni ürün oluşturuldu: ${name} (${barcode})`);
 
-        // Platformlara dağıt (varsa)
+        // Platformlara dağıt
+        // - Body'de targetMarketplaces: [] gönderildiyse → yalnızca kayıt, dağıtım yok (sihirbaz "Kaydet").
+        // - Alan hiç yoksa (eski istemciler) ve liste boşsa → aktif entegrasyonların tamamına gönder.
         const distributeResults = [];
-        if (!targetMarketplaces || targetMarketplaces.length === 0) {
+        const hasTargetsKey = Object.prototype.hasOwnProperty.call(req.body, "targetMarketplaces");
+        const rawTargetsArr = Array.isArray(targetMarketplaces) ? targetMarketplaces : [];
+        let targets = [...new Set(rawTargetsArr.map((t) => String(t || "").trim()).filter(Boolean))];
+        const explicitEmptyList = hasTargetsKey && rawTargetsArr.length === 0;
+
+        if (explicitEmptyList) {
+            targets = [];
+            logger.info(`[PRODUCT] targetMarketplaces=[] — dağıtım atlanıyor (yalnızca kayıt): ${name} / ${barcode}`);
+        } else if (targets.length === 0) {
+            const integrations = await Marketplace.find({ userId, isActive: { $ne: false } })
+                .select("marketplaceName")
+                .lean();
+            targets = [...new Set(integrations.map((r) => r.marketplaceName).filter(Boolean))];
+            if (targets.length > 0) {
+                logger.info(
+                    `[PRODUCT] targetMarketplaces belirtilmedi — ${targets.length} aktif entegrasyona otomatik dağıtım: ${targets.join(", ")}`
+                );
+            } else {
+                logger.info(
+                    `[PRODUCT] Dağıtım yok — bağlı aktif pazaryeri bulunamadı (create-and-distribute: ${name} / ${barcode})`
+                );
+            }
+        }
+
+        const uploadSupported = new Set(["Trendyol", "Hepsiburada", "N11", "ÇiçekSepeti"]);
+        const skippedUnsupported = targets.filter((t) => !uploadSupported.has(String(t || "").trim()));
+        targets = targets.filter((t) => uploadSupported.has(String(t || "").trim()));
+        if (skippedUnsupported.length > 0) {
             logger.info(
-                `[PRODUCT] Dağıtım atlandı — targetMarketplaces boş veya yok (create-and-distribute: ${name} / ${barcode})`
+                `[PRODUCT] Ürün yüklemesi desteklenmeyen pazaryerleri atlandı: ${skippedUnsupported.join(", ")}`
             );
         }
-        if (targetMarketplaces && targetMarketplaces.length > 0) {
-            for (const target of targetMarketplaces) {
+
+        if (targets.length > 0) {
+            for (const target of targets) {
                 try {
                     const rawCategory = (() => {
                         if (!platformCategories || typeof platformCategories !== "object") return null;
@@ -3575,7 +3714,10 @@ exports.createAndDistribute = async (req, res) => {
                     );
 
                     const distResult = await distributeProductToMarketplaces(
-                        userId, productMapping._id, [target], normalizedCategory
+                        userId, productMapping._id, [target], normalizedCategory,
+                        marketplaceExtras && typeof marketplaceExtras === "object"
+                            ? { marketplaceExtras }
+                            : null
                     );
                     const items = Array.isArray(distResult) ? distResult : [];
                     const errItem = items.find((i) => i.status === "error");
@@ -3611,7 +3753,8 @@ exports.createAndDistribute = async (req, res) => {
         const distBad = distributeResults.filter((r) => !r.success);
         let summaryMessage = "Ürün oluşturuldu";
         if (distributeResults.length === 0) {
-            summaryMessage = "Ürün oluşturuldu (pazaryeri seçilmedi — sadece programda kayıtlı)";
+            summaryMessage =
+                "Ürün oluşturuldu (bağlı aktif pazaryeri yok — sadece programda kayıtlı; entegrasyon ekledikten sonra dağıtabilirsiniz)";
         } else if (distBad.length === 0) {
             summaryMessage = `Ürün oluşturuldu; ${distOk.length} pazaryerine yükleme tamamlandı veya kuyrukta`;
         } else if (distOk.length === 0) {

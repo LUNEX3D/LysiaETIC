@@ -13,6 +13,229 @@ import { Card, CardHeader, Badge, Btn, StatCard, EmptyState, LoadingState, Error
 
 const PAGE_SIZE = 30;
 
+/** Controlled number input için güvenli string (0 korunur, NaN boş). */
+function formNumStr(v) {
+    if (v === null || v === undefined || v === "") return "";
+    const n = Number(v);
+    return Number.isFinite(n) ? String(n) : "";
+}
+
+/**
+ * Pazaryeri satırlarından ortalama komisyon % ve kargo (form önerisi).
+ * Kargo 0 geçerlidir; yalnızca komisyon için >0 satırları ortalamaya alınır (yüzde).
+ * Satır yoksa veya hepsi boşsa ürün üst alanlarına düşülür.
+ */
+function suggestFromMarketplaceFees(product) {
+    const rows = product?.marketplaceFees;
+    const masterComm = Number(product?.commissionRate);
+    const masterShip = Number(product?.shippingCost);
+
+    if (!Array.isArray(rows) || rows.length === 0) {
+        return {
+            commissionRate: Number.isFinite(masterComm) && masterComm > 0 ? masterComm : null,
+            shippingCost: Number.isFinite(masterShip) ? Math.round(masterShip * 100) / 100 : null,
+        };
+    }
+
+    const comms = rows
+        .map(r => r.commissionRate)
+        .filter(c => c != null && c !== "" && Number.isFinite(Number(c)) && Number(c) > 0);
+    const commissionRate = comms.length
+        ? Math.round((comms.reduce((a, b) => a + Number(b), 0) / comms.length) * 10) / 10
+        : (Number.isFinite(masterComm) && masterComm > 0 ? masterComm : null);
+
+    const ships = rows
+        .map(r => r.shippingCost)
+        .filter(c => c != null && c !== "" && Number.isFinite(Number(c)));
+    const shippingCost = ships.length
+        ? Math.round((ships.reduce((a, b) => a + Number(b), 0) / ships.length) * 100) / 100
+        : (Number.isFinite(masterShip) ? Math.round(masterShip * 100) / 100 : null);
+
+    return { commissionRate, shippingCost };
+}
+
+/** Düzenleme modunda öneri butonunu göster (liste veya kayıtlı değerlerden en az biri). */
+function shouldShowApplyMpSuggestion(product) {
+    if (!product) return false;
+    if (Array.isArray(product.marketplaceFees) && product.marketplaceFees.length > 0) return true;
+    const s = suggestFromMarketplaceFees(product);
+    return s.commissionRate != null || s.shippingCost != null;
+}
+
+/** Önerilen komisyon/kargoyu forma yazar (pazaryeri → yoksa kayıtlı ürün değerleri). */
+function applyMpSuggestionToEditForm(prev, product) {
+    const s = suggestFromMarketplaceFees(product);
+    const masterC = Number(product?.commissionRate);
+    const masterS = Number(product?.shippingCost);
+    const comm = s.commissionRate != null ? s.commissionRate : (Number.isFinite(masterC) && masterC > 0 ? masterC : null);
+    const ship = s.shippingCost != null ? s.shippingCost : (Number.isFinite(masterS) ? masterS : null);
+    return {
+        ...prev,
+        commissionRate: comm != null ? String(comm) : prev.commissionRate,
+        shippingCost: ship != null ? String(ship) : prev.shippingCost,
+    };
+}
+
+function mpRowAccent(name) {
+    const n = String(name || "").toLowerCase();
+    if (n.includes("trendyol")) return "#f97316";
+    if (n.includes("hepsi") || n.includes("hb") || n.includes("burada")) return "#ea580c";
+    if (n.includes("n11")) return "#a78bfa";
+    if (n.includes("çiçek") || n.includes("cicek")) return "#34d399";
+    if (n.includes("amazon")) return "#fbbf24";
+    return T.accent;
+}
+
+function FeeSourceBadge({ source, type, t, compact }) {
+    const label = compact
+        ? (type === "commission"
+            ? (source === "marketplace_sync" ? t("cost.src_sync_short") : source === "orders90d" ? t("cost.src_orders_short") : source === "master" ? t("cost.src_master_short") : t("cost.src_none_short"))
+            : (source === "marketplace_sync" ? t("cost.src_ship_sync_short") : source === "orders90d" ? t("cost.src_ship_orders_short") : source === "master" ? t("cost.src_ship_master_short") : t("cost.src_ship_none_short")))
+        : (type === "commission"
+            ? (source === "marketplace_sync" ? t("cost.src_sync") : source === "orders90d" ? t("cost.src_orders") : source === "master" ? t("cost.src_master") : t("cost.src_none"))
+            : (source === "orders90d" ? t("cost.src_orders") : source === "master" ? t("cost.src_master") : t("cost.src_none")));
+    const color = type === "commission"
+        ? (source === "marketplace_sync" ? T.accent : source === "orders90d" ? T.blue : source === "master" ? T.textDim : T.textMuted)
+        : (source === "orders90d" ? T.blue : source === "master" ? T.cyan : T.textMuted);
+    return (
+        <Badge
+            color={color}
+            size="sm"
+            style={{
+                fontWeight: 700,
+                maxWidth: "100%",
+                ...(compact ? { fontSize: "0.58rem", padding: "2px 6px", letterSpacing: "0.02em" } : {}),
+            }}
+        >
+            {label}
+        </Badge>
+    );
+}
+
+/** Pazaryeri satırları — ürün hücresiyle aynı satırda liste (<ul>) */
+function MarketplaceFeesRowList({ product, t, stacked }) {
+    const fees = product?.marketplaceFees;
+    if (!Array.isArray(fees) || fees.length === 0) return null;
+
+    const ulBase = {
+        listStyle: "none",
+        margin: 0,
+        padding: 0,
+        display: "flex",
+        flexDirection: "column",
+        gap: 5,
+        minWidth: 0,
+    };
+    const ulStyle = stacked
+        ? {
+            ...ulBase,
+            flex: "1 1 100%",
+            borderLeft: "none",
+            paddingLeft: 0,
+            marginLeft: 0,
+            marginTop: 8,
+            paddingTop: 8,
+            borderTop: `1px solid ${T.border}`,
+        }
+        : {
+            ...ulBase,
+            flex: "1 1 140px",
+            borderLeft: `1px solid ${T.border}`,
+            paddingLeft: 12,
+            marginLeft: 2,
+            maxHeight: 88,
+            overflowY: "auto",
+        };
+
+    return (
+        <ul
+            aria-label={t("cost.mp_breakdown")}
+            style={ulStyle}
+        >
+            {fees.map((row, i) => {
+                const accent = mpRowAccent(row.marketplaceName);
+                return (
+                    <li
+                        key={`${row.marketplaceName}-${i}`}
+                        style={{
+                            display: "flex",
+                            alignItems: "center",
+                            flexWrap: "wrap",
+                            gap: "6px 10px",
+                            fontSize: "0.7rem",
+                            lineHeight: 1.35,
+                        }}
+                    >
+                        <span
+                            style={{
+                                width: 3,
+                                height: 14,
+                                borderRadius: 2,
+                                background: accent,
+                                flexShrink: 0,
+                                alignSelf: "center",
+                            }}
+                        />
+                        <span
+                            style={{
+                                fontWeight: 800,
+                                color: T.text,
+                                maxWidth: 120,
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                            }}
+                            title={row.marketplaceName}
+                        >
+                            {row.marketplaceName}
+                        </span>
+                        <span
+                            style={{
+                                fontFamily: T.fontMono,
+                                fontWeight: 700,
+                                color: T.textSec,
+                                whiteSpace: "nowrap",
+                            }}
+                        >
+                            <span style={{ color: T.text }}>{fmt(row.price)}</span>
+                            <span style={{ color: T.textMuted, margin: "0 4px" }}>·</span>
+                            <span style={{ color: row.commissionRate != null ? T.text : T.textMuted }}>{row.commissionRate != null ? `%${row.commissionRate}` : "—"}</span>
+                            <span style={{ color: T.textMuted, margin: "0 4px" }}>·</span>
+                            <span style={{ color: row.shippingCost > 0 ? T.text : T.textMuted }}>{row.shippingCost > 0 ? fmt(row.shippingCost) : "—"}</span>
+                        </span>
+                        <span style={{ display: "inline-flex", flexWrap: "wrap", gap: 4, alignItems: "center" }}>
+                            {row.commissionSource && row.commissionSource !== "none" && (
+                                <FeeSourceBadge source={row.commissionSource} type="commission" t={t} compact />
+                            )}
+                            {row.shippingSource && row.shippingSource !== "none" && (
+                                <FeeSourceBadge source={row.shippingSource} type="shipping" t={t} compact />
+                            )}
+                        </span>
+                    </li>
+                );
+            })}
+        </ul>
+    );
+}
+
+const applySuggestedBtnStyle = {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: "0.75rem",
+    padding: "8px 14px",
+    borderRadius: T.rFull,
+    border: `1px solid ${T.accent}40`,
+    background: `linear-gradient(135deg, ${T.accent}18, rgba(0,187,249,0.08))`,
+    color: T.accent,
+    fontSize: "0.72rem",
+    fontWeight: 800,
+    fontFamily: "inherit",
+    cursor: "pointer",
+    boxShadow: `0 0 20px ${T.accent}12`,
+    transition: "transform 0.2s, box-shadow 0.2s",
+};
+
 const BrainCosts = ({ t, onError }) => {
     const { isMobile, isTablet } = useResponsive();
 
@@ -54,7 +277,7 @@ const BrainCosts = ({ t, onError }) => {
             params.set("limit", "200");
 
             const res = await API.get(`/ai-engine/brain/products?${params.toString()}`);
-            if (res.data.success) {
+            if (res.data && res.data.success !== false) {
                 let prods = res.data.products || [];
                 // Client-side filter for "hasCost"
                 if (filterMode === "hasCost") {
@@ -84,12 +307,17 @@ const BrainCosts = ({ t, onError }) => {
     /* ═══ SINGLE SAVE ═══ */
     const handleEdit = (product) => {
         setEditingBarcode(product.barcode);
+        const sugg = suggestFromMarketplaceFees(product);
+        const masterC = Number(product.commissionRate);
+        const masterS = Number(product.shippingCost);
+        const commissionVal = Number.isFinite(masterC) && masterC > 0 ? masterC : sugg.commissionRate;
+        const shippingVal = sugg.shippingCost != null ? sugg.shippingCost : (Number.isFinite(masterS) ? masterS : null);
         setEditForm({
-            costPrice: product.costPrice || "",
-            commissionRate: product.commissionRate || "",
-            shippingCost: product.shippingCost || "",
-            packagingCost: product.packagingCost || "",
-            otherCost: "",
+            costPrice: formNumStr(product.costPrice),
+            commissionRate: formNumStr(commissionVal),
+            shippingCost: formNumStr(shippingVal),
+            packagingCost: formNumStr(product.packagingCost),
+            otherCost: formNumStr(product.otherCost),
         });
         setSaveSuccess(null);
     };
@@ -111,7 +339,7 @@ const BrainCosts = ({ t, onError }) => {
             if (editForm.otherCost !== "") body.otherCost = Number(editForm.otherCost);
 
             const res = await API.post("/ai-engine/brain/update-cost", body);
-            if (res.data.success) {
+            if (res.data && res.data.success !== false) {
                 // Update local state
                 setProducts(prev => prev.map(p =>
                     p.barcode === barcode
@@ -120,6 +348,7 @@ const BrainCosts = ({ t, onError }) => {
                             costPrice: body.costPrice ?? p.costPrice,
                             commissionRate: body.commissionRate ?? p.commissionRate,
                             shippingCost: body.shippingCost ?? p.shippingCost,
+                            packagingCost: body.packagingCost ?? p.packagingCost,
                             hasCostData: (body.costPrice ?? p.costPrice) > 0,
                         }
                         : p
@@ -172,7 +401,7 @@ const BrainCosts = ({ t, onError }) => {
             });
 
             const res = await API.post("/ai-engine/brain/bulk-update-cost", { products: payload });
-            if (res.data.success) {
+            if (res.data && res.data.success !== false) {
                 setBulkEdits({});
                 setBulkMode(false);
                 loadProducts(); // Refresh all data
@@ -228,7 +457,7 @@ const BrainCosts = ({ t, onError }) => {
                 if (items.length === 0) { onError?.(t("cost.csv_empty")); return; }
 
                 const res = await API.post("/ai-engine/brain/bulk-update-cost", { products: items.slice(0, 100) });
-                if (res.data.success) {
+                if (res.data && res.data.success !== false) {
                     setImportResult({ updated: res.data.updated, failed: res.data.failed, total: items.length });
                     loadProducts();
                     setTimeout(() => setImportResult(null), 8000);
@@ -504,16 +733,23 @@ const BrainCosts = ({ t, onError }) => {
                                         border: justSaved ? `1px solid ${T.green}40` : undefined,
                                         background: justSaved ? T.greenDim : undefined,
                                     }}>
-                                        {/* Header */}
-                                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "0.6rem" }}>
-                                            <div style={{ flex: 1, minWidth: 0 }}>
-                                                <div style={{ fontWeight: 700, fontSize: "0.88rem", color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                                    {product.name}
+                                        {/* Ürün + pazaryeri listesi (aynı blok) */}
+                                        <div style={{ display: "flex", flexDirection: "row", flexWrap: "wrap", alignItems: "flex-start", gap: "10px 12px", marginBottom: "0.6rem" }}>
+                                            <div style={{ flex: "1 1 160px", minWidth: 0 }}>
+                                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                                                    <div style={{ minWidth: 0 }}>
+                                                        <div style={{ fontWeight: 700, fontSize: "0.88rem", color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                                            {product.name}
+                                                        </div>
+                                                        <div style={{ fontSize: "0.68rem", color: T.textDim, fontFamily: T.fontMono, marginTop: 2 }}>{product.barcode}</div>
+                                                    </div>
+                                                    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, flexShrink: 0 }}>
+                                                        {!hasCost && <Badge color={T.red} size="sm">{t("cost.missing")}</Badge>}
+                                                        {justSaved && <Badge color={T.green} size="sm">✓ {t("cost.saved")}</Badge>}
+                                                    </div>
                                                 </div>
-                                                <div style={{ fontSize: "0.68rem", color: T.textDim, fontFamily: T.fontMono, marginTop: 2 }}>{product.barcode}</div>
                                             </div>
-                                            {!hasCost && <Badge color={T.red} size="sm">{t("cost.missing")}</Badge>}
-                                            {justSaved && <Badge color={T.green} size="sm">✓ {t("cost.saved")}</Badge>}
+                                            <MarketplaceFeesRowList product={product} t={t} stacked />
                                         </div>
 
                                         {/* Data Grid */}
@@ -526,6 +762,16 @@ const BrainCosts = ({ t, onError }) => {
                                         {/* Edit Section */}
                                         {isEditing ? (
                                             <div style={{ padding: "0.75rem", borderRadius: T.rSm, background: T.bgGlass, border: `1px solid ${T.border}` }}>
+                                                {shouldShowApplyMpSuggestion(product) && (
+                                                    <button
+                                                        type="button"
+                                                        style={applySuggestedBtnStyle}
+                                                        onClick={() => setEditForm(f => applyMpSuggestionToEditForm(f, product))}
+                                                    >
+                                                        <span aria-hidden style={{ opacity: 0.9 }}>✦</span>
+                                                        {t("cost.apply_mp_suggested")}
+                                                    </button>
+                                                )}
                                                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem", marginBottom: "0.6rem" }}>
                                                     <LabeledInput label={t("cost.col_cost")} value={editForm.costPrice} onChange={v => setEditForm(p => ({ ...p, costPrice: v }))} />
                                                     <LabeledInput label={`${t("cost.col_commission")} (%)`} value={editForm.commissionRate} onChange={v => setEditForm(p => ({ ...p, commissionRate: v }))} />
@@ -557,40 +803,43 @@ const BrainCosts = ({ t, onError }) => {
                             <div key={product.barcode}>
                                 <div style={{
                                     display: "grid",
-                                    gridTemplateColumns: "2.5fr 1fr 1fr 1fr 1fr 1fr 80px",
+                                    gridTemplateColumns: "minmax(220px, 2.8fr) 1fr 1fr 1fr 1fr 1fr 80px",
                                     gap: "0.5rem", padding: "0.65rem 1rem",
-                                    borderRadius: T.rSm, alignItems: "center",
+                                    borderRadius: T.rSm, alignItems: "flex-start",
                                     background: justSaved ? T.greenDim : isEditing ? T.accentDim : T.bgCard,
                                     border: `1px solid ${justSaved ? T.green + "30" : isEditing ? T.accent + "25" : T.border}`,
                                     transition: "all 0.25s",
                                 }}>
-                                    {/* Product */}
-                                    <div style={{ minWidth: 0 }}>
-                                        <div style={{ fontWeight: 700, fontSize: "0.84rem", color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                            {product.name}
+                                    {/* Ürün + pazaryeri listesi (aynı satır) */}
+                                    <div style={{ display: "flex", flexDirection: "row", alignItems: "flex-start", gap: "10px", minWidth: 0, flexWrap: "nowrap" }}>
+                                        <div style={{ flex: "0 1 200px", minWidth: 0 }}>
+                                            <div style={{ fontWeight: 700, fontSize: "0.84rem", color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                                {product.name}
+                                            </div>
+                                            <div style={{ display: "flex", gap: 6, marginTop: 3, alignItems: "center", flexWrap: "wrap" }}>
+                                                <span style={{ fontSize: "0.68rem", color: T.textDim, fontFamily: T.fontMono }}>{product.barcode}</span>
+                                                {!hasCost && <Badge color={T.red} size="sm">{t("cost.missing")}</Badge>}
+                                                {justSaved && <Badge color={T.green} size="sm">✓ {t("cost.saved")}</Badge>}
+                                            </div>
                                         </div>
-                                        <div style={{ display: "flex", gap: 6, marginTop: 3, alignItems: "center" }}>
-                                            <span style={{ fontSize: "0.68rem", color: T.textDim, fontFamily: T.fontMono }}>{product.barcode}</span>
-                                            {!hasCost && <Badge color={T.red} size="sm">{t("cost.missing")}</Badge>}
-                                            {justSaved && <Badge color={T.green} size="sm">✓ {t("cost.saved")}</Badge>}
-                                        </div>
+                                        <MarketplaceFeesRowList product={product} t={t} stacked={false} />
                                     </div>
                                     {/* Price */}
-                                    <div style={{ textAlign: "right", fontWeight: 700, fontSize: "0.84rem", color: T.text, fontFamily: T.fontMono }}>{fmt(product.price)}</div>
+                                    <div style={{ textAlign: "right", fontWeight: 700, fontSize: "0.84rem", color: T.text, fontFamily: T.fontMono, paddingTop: 4 }}>{fmt(product.price)}</div>
                                     {/* Cost */}
-                                    <div style={{ textAlign: "right", fontWeight: 700, fontSize: "0.84rem", color: product.costPrice > 0 ? T.text : T.red, fontFamily: T.fontMono }}>
+                                    <div style={{ textAlign: "right", fontWeight: 700, fontSize: "0.84rem", color: product.costPrice > 0 ? T.text : T.red, fontFamily: T.fontMono, paddingTop: 4 }}>
                                         {product.costPrice > 0 ? fmt(product.costPrice) : "—"}
                                     </div>
                                     {/* Commission */}
-                                    <div style={{ textAlign: "right", fontSize: "0.82rem", color: T.textSec, fontFamily: T.fontMono }}>
+                                    <div style={{ textAlign: "right", fontSize: "0.82rem", color: T.textSec, fontFamily: T.fontMono, paddingTop: 4 }}>
                                         {product.commissionRate > 0 ? `%${product.commissionRate}` : "—"}
                                     </div>
                                     {/* Shipping */}
-                                    <div style={{ textAlign: "right", fontSize: "0.82rem", color: T.textSec, fontFamily: T.fontMono }}>
+                                    <div style={{ textAlign: "right", fontSize: "0.82rem", color: T.textSec, fontFamily: T.fontMono, paddingTop: 4 }}>
                                         {product.shippingCost > 0 ? fmt(product.shippingCost) : "—"}
                                     </div>
                                     {/* Margin */}
-                                    <div style={{ textAlign: "right" }}>
+                                    <div style={{ textAlign: "right", paddingTop: 2 }}>
                                         {product.costPrice > 0 ? (
                                             <Badge color={product.profitMargin > 15 ? T.green : product.profitMargin > 5 ? T.yellow : T.red} size="sm">
                                                 {fmtP(product.profitMargin)}
@@ -600,7 +849,7 @@ const BrainCosts = ({ t, onError }) => {
                                         )}
                                     </div>
                                     {/* Action */}
-                                    <div style={{ textAlign: "right" }}>
+                                    <div style={{ textAlign: "right", paddingTop: 2 }}>
                                         <button onClick={() => isEditing ? handleCancelEdit() : handleEdit(product)}
                                             style={{
                                                 background: isEditing ? T.redDim : hasCost ? T.bgGlass : T.yellowDim,
@@ -625,6 +874,18 @@ const BrainCosts = ({ t, onError }) => {
                                         background: T.bgGlass, border: `1px solid ${T.accent}15`,
                                         alignItems: "end",
                                     }}>
+                                        {shouldShowApplyMpSuggestion(product) && (
+                                            <div style={{ gridColumn: "1 / -1", marginBottom: 6 }}>
+                                                <button
+                                                    type="button"
+                                                    style={applySuggestedBtnStyle}
+                                                    onClick={() => setEditForm(f => applyMpSuggestionToEditForm(f, product))}
+                                                >
+                                                    <span aria-hidden style={{ opacity: 0.9 }}>✦</span>
+                                                    {t("cost.apply_mp_suggested")}
+                                                </button>
+                                            </div>
+                                        )}
                                         <LabeledInput label={`${t("cost.col_cost")} (₺)`} value={editForm.costPrice} onChange={v => setEditForm(p => ({ ...p, costPrice: v }))} />
                                         <LabeledInput label={`${t("cost.col_commission")} (%)`} value={editForm.commissionRate} onChange={v => setEditForm(p => ({ ...p, commissionRate: v }))} />
                                         <LabeledInput label={`${t("cost.col_shipping")} (₺)`} value={editForm.shippingCost} onChange={v => setEditForm(p => ({ ...p, shippingCost: v }))} />
@@ -661,6 +922,7 @@ const BrainCosts = ({ t, onError }) => {
                 <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: "0.75rem" }}>
                     {[
                         { icon: "🎯", title: t("cost.help_why_title"), desc: t("cost.help_why_desc") },
+                        { icon: "🏪", title: t("cost.help_mp_title"), desc: t("cost.help_mp_desc") },
                         { icon: "📥", title: t("cost.help_csv_title"), desc: t("cost.help_csv_desc") },
                         { icon: "📝", title: t("cost.help_bulk_title"), desc: t("cost.help_bulk_desc") },
                         { icon: "🔄", title: t("cost.help_auto_title"), desc: t("cost.help_auto_desc") },

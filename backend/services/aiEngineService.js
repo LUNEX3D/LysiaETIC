@@ -34,6 +34,11 @@ const Order = require("../models/Order");
 const Recommendation = require("../models/Recommendation");
 const AIGoal = require("../models/AIGoal");
 const logger = require("../config/logger");
+const {
+    getTurkeyTodayStart,
+    getTurkeyTomorrowStart,
+    getTurkeyYesterdayStart,
+} = require("../utils/turkeyTime");
 
 // ─── HELPERS ────────────────────────────────────────────────────────────────
 
@@ -65,6 +70,78 @@ const STRATEGY = {
     stock_clearance:  { priceWeight: 0.5, stockWeight: 1.5, profitWeight: 0.4 },
 };
 
+/** Stratejiye göre öneri eşikleri ve davranışı */
+function getRecommendationStrategyTuning(strategyMode) {
+    const m = strategyMode || "balanced";
+    return {
+        marginLowTrigger: m === "high_profit" ? 7 : m === "aggressive_sales" ? 3.5 : 5,
+        marginTaxWarnMax: m === "high_profit" ? 3.5 : 2.5,
+        dynamicLiftMinMargin: m === "high_profit" ? 20 : 25,
+        skipDynamicPriceLift: m === "aggressive_sales" || m === "stock_clearance",
+        deadDiscountBoost: m === "stock_clearance" ? 1.22 : m === "aggressive_sales" ? 1.12 : 1,
+        stockLowDays: m === "aggressive_sales" ? 12 : 10,
+        enableOverstockDiscount: m === "stock_clearance" || m === "balanced" || m === "aggressive_sales",
+        priceIncreaseCapPct: m === "high_profit" ? 40 : 28,
+        minSoldForMarginRec: m === "aggressive_sales" ? 0 : 1,
+    };
+}
+
+const REC_TYPE_PRECEDENCE = {
+    loss_detection: 1,
+    smart_restock: 2,
+    price_optimization: 3,
+    stock_optimization: 4,
+    anomaly_detection: 5,
+    dead_product: 6,
+    inventory_pressure: 7,
+    trend_detection: 8,
+    dynamic_pricing: 9,
+    tax_warning: 10,
+};
+
+/** Aynı barkoda birden fazla öneri: öncelik + tür sırasıyla tekilleştir */
+function dedupeRecommendationsByPrimaryTarget(recs) {
+    const priorityOrder = { critical: 0, high: 1, medium: 2, low: 3 };
+    const byBar = new Map();
+    const noTarget = [];
+    for (const r of recs) {
+        const bar = r.actionPayload?.targetId;
+        if (!bar) {
+            noTarget.push(r);
+            continue;
+        }
+        const cur = byBar.get(bar);
+        if (!cur) {
+            byBar.set(bar, r);
+            continue;
+        }
+        const pr = (priorityOrder[r.priority] ?? 3) - (priorityOrder[cur.priority] ?? 3);
+        if (pr < 0) {
+            byBar.set(bar, r);
+        } else if (pr === 0) {
+            const ta = REC_TYPE_PRECEDENCE[r.type] ?? 99;
+            const tb = REC_TYPE_PRECEDENCE[cur.type] ?? 99;
+            if (ta < tb) byBar.set(bar, r);
+        }
+    }
+    return [...byBar.values(), ...noTarget];
+}
+
+/** Zararı kapatacak minimum fiyat (komisyon + maliyet dahil) */
+function suggestBreakEvenPrice(p) {
+    const tax = p.taxRate ?? 20;
+    let np = Math.max(
+        Math.ceil(Number(p.price) || 0),
+        Math.ceil((p.costPrice || 0) * 1.06 + (p.shippingCost || 0) + (p.packagingCost || 0))
+    );
+    for (let i = 0; i < 50; i++) {
+        const pr = calcProfit(np, p.costPrice, p.commissionRate, p.shippingCost, p.packagingCost || 0, p.otherCost || 0, tax);
+        if (pr > 0) return np;
+        np = Math.ceil(np * 1.02);
+    }
+    return Math.ceil((Number(p.price) || 0) * 1.22);
+}
+
 // ═════════════════════════════════════════════════════════════════════════════
 // 1. DATA COLLECTION
 // ═════════════════════════════════════════════════════════════════════════════
@@ -74,8 +151,9 @@ async function collectData(userId) {
     const d7  = new Date(now - 7 * dayMs);
     const d30 = new Date(now - 30 * dayMs);
     const d90 = new Date(now - 90 * dayMs);
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const yesterdayStart = new Date(todayStart - dayMs);
+    const todayStart = getTurkeyTodayStart(now);
+    const tomorrowStart = getTurkeyTomorrowStart(now);
+    const yesterdayStart = getTurkeyYesterdayStart(now);
 
     const user = await User.findById(userId).select("preferences").lean();
     const userTaxRate = user?.preferences?.defaultVatRate !== undefined ? user.preferences.defaultVatRate : 20;
@@ -94,7 +172,7 @@ async function collectData(userId) {
         Product.find({ userId, status: "active" }).lean(),
         Order.find({ user: userId, orderDate: { $gte: d30 }, isCancelled: { $ne: true } }).lean(),
         Order.find({ user: userId, orderDate: { $gte: d90 }, isCancelled: { $ne: true } }).lean(),
-        Order.find({ user: userId, orderDate: { $gte: todayStart }, isCancelled: { $ne: true } }).lean(),
+        Order.find({ user: userId, orderDate: { $gte: todayStart, $lt: tomorrowStart }, isCancelled: { $ne: true } }).lean(),
         Order.find({ user: userId, orderDate: { $gte: yesterdayStart, $lt: todayStart }, isCancelled: { $ne: true } }).lean(),
         AIGoal.find({ userId, status: "active" }).lean(),
         Recommendation.find({ userId, createdAt: { $gte: d30 } }).lean(),
@@ -335,167 +413,206 @@ function analyzeProducts(products, orders90) {
 function generateRecommendations(analyzedProducts, data, strategyMode) {
     const recs = [];
     const sw = STRATEGY[strategyMode] || STRATEGY.balanced;
+    const tune = getRecommendationStrategyTuning(strategyMode);
     const hasOrderData = data.hasOrderData;
+    const taxDefault = 20;
 
     for (const p of analyzedProducts) {
-        // ── PRICE OPTIMIZATION (low margin) ──
-        if ((p.profitMargin < 5 || p.avgSnapshotProfit < 0) && p.costPrice > 0 && p.totalSold > 0) {
+        const soldOk = tune.minSoldForMarginRec === 0 ? (p.totalSold >= 0) : (p.totalSold > 0);
+        const priceCapMul = 1 + tune.priceIncreaseCapPct / 100;
+
+        // ── PRICE OPTIMIZATION (düşük marj — strateji eşiği) ──
+        if ((p.profitMargin < tune.marginLowTrigger || p.avgSnapshotProfit < 0) && p.costPrice > 0 && soldOk && p.price > 0) {
             const currentMargin = p.avgSnapshotProfit < 0 ? (p.avgSnapshotProfit / p.price * 100) : p.profitMargin;
-            const targetMargin = 12; // Hedef %12 net kâr
-            const suggestedIncrease = Math.max(5, Math.ceil((targetMargin - currentMargin) / 100 * p.price));
-            const newPrice = p.price + suggestedIncrease;
-            const newProfit = calcProfit(newPrice, p.costPrice, p.commissionRate, p.shippingCost, 0, 0);
-            
+            const targetMargin = strategyMode === "high_profit" ? 15 : 12;
+            const suggestedIncrease = Math.max(3, Math.ceil((targetMargin - currentMargin) / 100 * p.price));
+            let newPrice = Math.ceil(p.price + suggestedIncrease);
+            const maxPrice = Math.ceil(p.price * priceCapMul);
+            newPrice = Math.min(newPrice, maxPrice);
+            if (newPrice <= p.price) newPrice = Math.min(maxPrice, Math.ceil(p.price * 1.03));
+            const newProfit = calcProfit(newPrice, p.costPrice, p.commissionRate, p.shippingCost, p.packagingCost || 0, p.otherCost || 0, p.taxRate ?? taxDefault);
+
             recs.push({
                 type: "price_optimization",
                 title: `Fiyat Artışı Önerisi: ${p.name.slice(0, 50)}`,
-                description: p.avgSnapshotProfit < 0 
-                    ? `Ürün şu an zararda satılıyor (Birim zarar: ${Math.abs(p.avgSnapshotProfit)}₺). Fiyatı ${p.price.toFixed(0)}₺ → ${newPrice.toFixed(0)}₺ yaparak kâra geçin.`
-                    : `Kâr marjı çok düşük (%${p.profitMargin.toFixed(1)}). Fiyatı ${p.price.toFixed(0)}₺ → ${newPrice.toFixed(0)}₺ yaparak marjı artırın.`,
+                description: p.avgSnapshotProfit < 0
+                    ? `Ürün şu an zararda veya marj çok düşük (birim: ${p.avgSnapshotProfit < 0 ? `${Math.abs(p.avgSnapshotProfit).toFixed(1)}₺ zarar` : `%${p.profitMargin.toFixed(1)} marj`}). Önerilen fiyat: ${p.price.toFixed(0)}₺ → ${newPrice.toFixed(0)}₺.`
+                    : `Kâr marjı hedefin altında (%${p.profitMargin.toFixed(1)}). ${p.price.toFixed(0)}₺ → ${newPrice.toFixed(0)}₺ ile marj iyileştirilebilir.`,
                 category: "pricing",
                 priority: (p.avgSnapshotProfit < 0 || p.profitMargin < 0) ? "critical" : "high",
-                confidenceScore: clamp(Math.round(70 + (p.totalSold * 0.5) * sw.priceWeight), 40, 95),
+                confidenceScore: clamp(Math.round((68 + Math.min(p.totalSold, 40) * 0.4) * sw.priceWeight), 42, 94),
                 impact: {
-                    profitChange: round2((newProfit - p.profit) * Math.max(p.avgDailySales * 30, 1)),
-                    revenueChange: round2(suggestedIncrease * Math.max(p.avgDailySales * 30, 1)),
+                    profitChange: round2((newProfit - p.profit) * Math.max(p.avgDailySales * 30, p.totalSold > 0 ? 1 : 0.2)),
+                    revenueChange: round2((newPrice - p.price) * Math.max(p.avgDailySales * 30, 1)),
                     salesChange: Math.round(-p.avgDailySales * 0.05 * 30),
-                    riskLevel: "low"
+                    riskLevel: "low",
                 },
                 actionPayload: {
                     actionType: "update_price",
                     targetId: p.barcode,
                     targetName: p.name,
-                    params: { oldPrice: p.price, newPrice, reason: "low_margin" }
+                    params: { oldPrice: p.price, newPrice, reason: "low_margin" },
                 },
                 relatedProducts: [p.barcode],
                 strategyMode,
             });
         }
 
-        // ── DYNAMIC PRICING (high margin + high demand) ──
-        if (p.profitMargin > 25 && p.avgDailySales > 1 && p.stock > 20 && sw.profitWeight > 1) {
-            const suggestedIncrease = Math.ceil(p.price * 0.05);
+        // ── DYNAMIC PRICING (yüksek marj + talep) — agresif/stok temizlikte kapat ──
+        if (!tune.skipDynamicPriceLift && p.profitMargin > tune.dynamicLiftMinMargin && p.avgDailySales > 0.85 && p.stock > 15 && sw.profitWeight >= 1) {
+            const pctLift = strategyMode === "high_profit" ? 0.06 : 0.05;
+            const suggestedIncrease = Math.max(1, Math.ceil(p.price * pctLift));
+            let newPrice = Math.ceil(p.price + suggestedIncrease);
+            newPrice = Math.min(newPrice, Math.ceil(p.price * priceCapMul));
+            if (newPrice <= p.price) continue;
             recs.push({
                 type: "dynamic_pricing",
                 title: `Dinamik Fiyat Artışı: ${p.name.slice(0, 50)}`,
-                description: `Yüksek talep + yüksek marj. Fiyatı %5 artırarak kârı optimize edin.`,
+                description: `Yüksek marj (%${p.profitMargin.toFixed(0)}) ve güçlü talep. Kademeli %${Math.round(pctLift * 100)} artış önerilir.`,
                 category: "pricing",
                 priority: "medium",
-                confidenceScore: clamp(Math.round(60 + p.avgDailySales * 5), 40, 90),
+                confidenceScore: clamp(Math.round(58 + p.avgDailySales * 6 * sw.profitWeight), 42, 90),
                 impact: {
-                    profitChange: round2(suggestedIncrease * p.avgDailySales * 30 * 0.8),
+                    profitChange: round2(suggestedIncrease * p.avgDailySales * 30 * 0.75),
                     revenueChange: round2(suggestedIncrease * p.avgDailySales * 30),
                     salesChange: Math.round(-p.avgDailySales * 0.03 * 30),
-                    riskLevel: "low"
+                    riskLevel: "low",
                 },
                 actionPayload: {
                     actionType: "update_price",
                     targetId: p.barcode,
                     targetName: p.name,
-                    params: { oldPrice: p.price, newPrice: p.price + suggestedIncrease, reason: "high_demand_profit" }
+                    params: { oldPrice: p.price, newPrice, reason: "high_demand_profit" },
                 },
                 relatedProducts: [p.barcode],
                 strategyMode,
             });
         }
 
-        // ── STOCK OPTIMIZATION (low stock with sales) ──
-        if (p.stock > 0 && p.daysOfStock < 10 && p.avgDailySales > 0.3) {
-            const restockQty = Math.ceil(p.avgDailySales * 30);
+        // ── INVENTORY PRESSURE (yüksek stok, düşük devir) ──
+        if (tune.enableOverstockDiscount && p.costPrice > 0 && p.stock >= 25 && p.daysOfStock > 50 && p.avgDailySales < 0.35 && p.price > 0) {
+            let discountPct = Math.min(28, 8 + Math.floor((p.daysOfStock - 50) / 8));
+            discountPct = Math.round(discountPct * tune.deadDiscountBoost);
+            discountPct = Math.min(40, discountPct);
             recs.push({
-                type: "stock_optimization",
-                title: `Stok Uyarısı: ${p.name.slice(0, 50)}`,
-                description: `Stok ${p.stock} adet, tahmini ${p.daysOfStock} gün yeter. ${restockQty} adet sipariş önerilir.`,
-                category: "stock",
-                priority: p.daysOfStock < 3 ? "critical" : "high",
-                confidenceScore: clamp(Math.round(75 + p.avgDailySales * 3), 50, 95),
+                type: "inventory_pressure",
+                title: `Stok Baskısı — İndirim: ${p.name.slice(0, 50)}`,
+                description: `${p.stock} adet stok, ~${Math.round(p.daysOfStock)} gün devir. Satış hızı düşük; %${discountPct} indirimle devir artırılabilir.`,
+                category: "pricing",
+                priority: p.daysOfStock > 90 ? "high" : "medium",
+                confidenceScore: clamp(62 + Math.min(p.daysOfStock / 5, 20), 50, 88),
                 impact: {
-                    profitChange: round2(p.profit * restockQty * 0.8),
-                    revenueChange: round2(p.price * restockQty),
-                    salesChange: restockQty,
-                    riskLevel: "low"
-                },
-                actionPayload: {
-                    actionType: "create_stock_order",
-                    targetId: p.barcode,
-                    targetName: p.name,
-                    params: { currentStock: p.stock, restockQuantity: restockQty, daysOfStock: p.daysOfStock }
-                },
-                relatedProducts: [p.barcode],
-                strategyMode,
-            });
-        }
-
-        // ── SMART RESTOCK (out of stock with history) ──
-        if (p.stock === 0 && p.totalSold > 0) {
-            const restockQty = Math.max(Math.ceil(p.avgDailySales * 30), 10);
-            recs.push({
-                type: "smart_restock",
-                title: `Stok Tükendi: ${p.name.slice(0, 50)}`,
-                description: `Stok sıfır! Son 90 günde ${p.totalSold} adet satıldı. Acil ${restockQty} adet tedarik edin.`,
-                category: "stock",
-                priority: "critical",
-                confidenceScore: 90,
-                impact: {
-                    profitChange: round2(p.profit * restockQty * 0.7),
-                    revenueChange: round2(p.price * restockQty),
-                    salesChange: restockQty,
-                    riskLevel: "medium"
-                },
-                actionPayload: {
-                    actionType: "create_stock_order",
-                    targetId: p.barcode,
-                    targetName: p.name,
-                    params: { currentStock: 0, restockQuantity: restockQty, urgency: "critical" }
-                },
-                relatedProducts: [p.barcode],
-                strategyMode,
-            });
-        }
-
-        // ── DEAD PRODUCT RECOVERY — "Pasife al" DEĞİL → "Nasıl satılır?" ──
-        if (hasOrderData && p.daysSinceLastSale > 30 && p.stock > 0) {
-            // Kademeli indirim stratejisi: ne kadar uzun süredir satılmıyorsa o kadar agresif indirim
-            const discountPct = p.daysSinceLastSale > 90 ? 40 : p.daysSinceLastSale > 60 ? 30 : 15;
-
-            // Satış stratejisi önerileri oluştur
-            const strategies = [];
-            if (p.daysSinceLastSale > 60) {
-                strategies.push(`%${discountPct} indirimle fiyatı ${Math.round(p.price * (1 - discountPct / 100))}₺ yapın`);
-                strategies.push("Ürünü kampanya/vitrin sayfasına ekleyin");
-                strategies.push("Başka ürünlerle kombin/set oluşturun");
-            } else {
-                strategies.push(`%${discountPct} indirim uygulayın`);
-                strategies.push("Ürün başlığı ve açıklamasını SEO uyumlu güncelleyin");
-            }
-            if (p.stock > 20) strategies.push("Çoklu alıma özel ek indirim tanımlayın");
-            strategies.push("Sosyal medya veya reklam ile görünürlüğü artırın");
-
-            recs.push({
-                type: "dead_product",
-                title: `Satış Bekleyen Ürün: ${p.name.slice(0, 50)}`,
-                description: `${p.daysSinceLastSale} gündür satış yok, ${p.stock} adet stokta. Satış stratejisi: ${strategies[0]}. Ayrıca: ${strategies.slice(1).join(", ")}.`,
-                category: "performance",
-                priority: p.daysSinceLastSale > 60 ? "high" : "medium",
-                confidenceScore: clamp(Math.round(60 + p.daysSinceLastSale * 0.3), 50, 90),
-                impact: {
-                    profitChange: round2(p.price * (1 - discountPct / 100) * p.stock * 0.3 * 0.7),
-                    revenueChange: round2(p.price * (1 - discountPct / 100) * p.stock * 0.3),
-                    salesChange: Math.ceil(p.stock * 0.3),
-                    riskLevel: "medium"
+                    profitChange: round2(p.profit * p.stock * 0.15),
+                    revenueChange: round2(p.price * p.stock * 0.12),
+                    salesChange: Math.ceil(p.stock * 0.12),
+                    riskLevel: "medium",
                 },
                 actionPayload: {
                     actionType: "apply_discount",
                     targetId: p.barcode,
                     targetName: p.name,
-                    params: { daysSinceLastSale: p.daysSinceLastSale, stock: p.stock, discountPercent: discountPct }
+                    params: { discountPercent: discountPct, reason: "slow_moving_overstock", daysOfStock: p.daysOfStock },
                 },
                 relatedProducts: [p.barcode],
                 strategyMode,
             });
         }
 
-        // ── TREND DETECTION (sales spike) ──
+        const stockDaysLow = tune.stockLowDays;
+
+        // ── STOCK OPTIMIZATION ──
+        if (p.stock > 0 && p.daysOfStock < stockDaysLow && p.avgDailySales > 0.25) {
+            const horizon = strategyMode === "aggressive_sales" ? 21 : 30;
+            const restockQty = Math.max(Math.ceil(p.avgDailySales * horizon), p.stock < 5 ? 15 : 5);
+            recs.push({
+                type: "stock_optimization",
+                title: `Stok Uyarısı: ${p.name.slice(0, 50)}`,
+                description: `Stok ${p.stock} adet, tahmini ${p.daysOfStock.toFixed(1)} gün yeter. Önerilen tedarik: ${restockQty} adet (${horizon} günlük talep).`,
+                category: "stock",
+                priority: p.daysOfStock < 4 ? "critical" : "high",
+                confidenceScore: clamp(Math.round(72 + p.avgDailySales * 4 * sw.stockWeight), 50, 95),
+                impact: {
+                    profitChange: round2(p.profit * restockQty * 0.75),
+                    revenueChange: round2(p.price * restockQty),
+                    salesChange: restockQty,
+                    riskLevel: "low",
+                },
+                actionPayload: {
+                    actionType: "create_stock_order",
+                    targetId: p.barcode,
+                    targetName: p.name,
+                    params: { currentStock: p.stock, restockQuantity: restockQty, daysOfStock: p.daysOfStock },
+                },
+                relatedProducts: [p.barcode],
+                strategyMode,
+            });
+        }
+
+        // ── SMART RESTOCK ──
+        if (p.stock === 0 && p.totalSold > 0) {
+            const restockQty = Math.max(Math.ceil((p.avgDailySales || 0.15) * 30), 10);
+            recs.push({
+                type: "smart_restock",
+                title: `Stok Tükendi: ${p.name.slice(0, 50)}`,
+                description: `Stok sıfır. Son dönem ${p.totalSold} adet satış. Acil ${restockQty} adet tedarik önerilir.`,
+                category: "stock",
+                priority: "critical",
+                confidenceScore: 92,
+                impact: {
+                    profitChange: round2(p.profit * restockQty * 0.65),
+                    revenueChange: round2(p.price * restockQty),
+                    salesChange: restockQty,
+                    riskLevel: "medium",
+                },
+                actionPayload: {
+                    actionType: "create_stock_order",
+                    targetId: p.barcode,
+                    targetName: p.name,
+                    params: { currentStock: 0, restockQuantity: restockQty, urgency: "critical" },
+                },
+                relatedProducts: [p.barcode],
+                strategyMode,
+            });
+        }
+
+        // ── DEAD PRODUCT RECOVERY ──
+        if (hasOrderData && p.daysSinceLastSale > 28 && p.stock > 0) {
+            let discountPct = p.daysSinceLastSale > 90 ? 38 : p.daysSinceLastSale > 60 ? 28 : 14;
+            discountPct = Math.min(45, Math.round(discountPct * tune.deadDiscountBoost));
+            const strategies = [];
+            if (p.daysSinceLastSale > 60) {
+                strategies.push(`%${discountPct} indirim → ~${Math.round(p.price * (1 - discountPct / 100))}₺`);
+                strategies.push("Kampanya / vitrin önerisi");
+            } else {
+                strategies.push(`%${discountPct} indirim`);
+                strategies.push("Başlık ve SEO güncellemesi");
+            }
+            if (p.stock > 20) strategies.push("Çoklu alım indirimi");
+            recs.push({
+                type: "dead_product",
+                title: `Satış Bekleyen Ürün: ${p.name.slice(0, 50)}`,
+                description: `${p.daysSinceLastSale} gündür satış yok, ${p.stock} adet stok. ${strategies.join(" · ")}.`,
+                category: "performance",
+                priority: p.daysSinceLastSale > 60 ? "high" : "medium",
+                confidenceScore: clamp(Math.round(58 + p.daysSinceLastSale * 0.25), 48, 90),
+                impact: {
+                    profitChange: round2(p.price * (1 - discountPct / 100) * p.stock * 0.25 * 0.65),
+                    revenueChange: round2(p.price * (1 - discountPct / 100) * p.stock * 0.22),
+                    salesChange: Math.ceil(p.stock * 0.22),
+                    riskLevel: "medium",
+                },
+                actionPayload: {
+                    actionType: "apply_discount",
+                    targetId: p.barcode,
+                    targetName: p.name,
+                    params: { daysSinceLastSale: p.daysSinceLastSale, stock: p.stock, discountPercent: discountPct },
+                },
+                relatedProducts: [p.barcode],
+                strategyMode,
+            });
+        }
+
+        // ── TREND DETECTION ──
         if (p.dailySales && Object.keys(p.dailySales).length >= 7) {
             const entries = Object.entries(p.dailySales).sort((a, b) => a[0].localeCompare(b[0]));
             const recent7 = entries.slice(-7);
@@ -503,25 +620,25 @@ function generateRecommendations(analyzedProducts, data, strategyMode) {
             if (recent7.length >= 5 && prev7.length >= 3) {
                 const recentAvg = recent7.reduce((s, [, v]) => s + v, 0) / recent7.length;
                 const prevAvg = prev7.reduce((s, [, v]) => s + v, 0) / prev7.length;
-                if (prevAvg > 0 && recentAvg > prevAvg * 1.5) {
+                if (prevAvg > 0.05 && recentAvg > prevAvg * 1.45) {
                     recs.push({
                         type: "trend_detection",
                         title: `Satış Artışı: ${p.name.slice(0, 50)}`,
-                        description: `Son 7 günde satışlar %${Math.round(((recentAvg - prevAvg) / prevAvg) * 100)} arttı! Stok ve fiyat stratejinizi gözden geçirin.`,
+                        description: `Son 7 günde günlük ortalama %${Math.round(((recentAvg - prevAvg) / prevAvg) * 100)} arttı. Stok ve fiyatı gözden geçirin.`,
                         category: "performance",
                         priority: "high",
-                        confidenceScore: clamp(Math.round(65 + (recentAvg - prevAvg) * 10), 50, 92),
+                        confidenceScore: clamp(Math.round(62 + (recentAvg - prevAvg) * 12), 48, 92),
                         impact: {
                             profitChange: round2(p.profit * (recentAvg - prevAvg) * 30),
                             revenueChange: round2(p.price * (recentAvg - prevAvg) * 30),
                             salesChange: Math.round((recentAvg - prevAvg) * 30),
-                            riskLevel: "low"
+                            riskLevel: "low",
                         },
                         actionPayload: {
                             actionType: "review_strategy",
                             targetId: p.barcode,
                             targetName: p.name,
-                            params: { recentAvg: round2(recentAvg), prevAvg: round2(prevAvg), growthPct: round2(((recentAvg - prevAvg) / prevAvg) * 100) }
+                            params: { recentAvg: round2(recentAvg), prevAvg: round2(prevAvg), growthPct: round2(((recentAvg - prevAvg) / prevAvg) * 100) },
                         },
                         relatedProducts: [p.barcode],
                         strategyMode,
@@ -530,34 +647,35 @@ function generateRecommendations(analyzedProducts, data, strategyMode) {
             }
         }
 
-        // ── LOSS DETECTION (negative profit) ──
-        if (p.profit < 0 && p.totalSold > 0) {
+        // ── LOSS DETECTION ──
+        if (p.profit < 0 && p.totalSold > 0 && p.costPrice > 0) {
             const totalLoss = Math.abs(p.profit) * p.totalSold;
+            const newPrice = suggestBreakEvenPrice(p);
             recs.push({
                 type: "loss_detection",
                 title: `Zarar Tespiti: ${p.name.slice(0, 50)}`,
-                description: `Bu ürün satış başına ${Math.abs(p.profit).toFixed(2)}₺ zarar ettiriyor! Son 90 günde toplam ${totalLoss.toFixed(0)}₺ kayıp.`,
+                description: `Birim zarar ~${Math.abs(p.profit).toFixed(2)}₺. Tahmini toplam kayıp etki: ${totalLoss.toFixed(0)}₺. Kâra dönüş için önerilen fiyat: ${newPrice}₺.`,
                 category: "financial",
                 priority: "critical",
-                confidenceScore: 95,
+                confidenceScore: 96,
                 impact: {
-                    profitChange: round2(totalLoss),
+                    profitChange: round2(totalLoss * 0.85),
                     revenueChange: 0,
                     salesChange: 0,
-                    riskLevel: "high"
+                    riskLevel: "high",
                 },
                 actionPayload: {
                     actionType: "update_price",
                     targetId: p.barcode,
                     targetName: p.name,
-                    params: { oldPrice: p.price, newPrice: Math.ceil(p.costPrice * 1.15 + (p.shippingCost || 0)), reason: "loss_prevention" }
+                    params: { oldPrice: p.price, newPrice, reason: "loss_prevention" },
                 },
                 relatedProducts: [p.barcode],
                 strategyMode,
             });
         }
 
-        // ── ANOMALY DETECTION (sudden drop) ──
+        // ── ANOMALY DETECTION ──
         if (p.dailySales && Object.keys(p.dailySales).length >= 14) {
             const entries = Object.entries(p.dailySales).sort((a, b) => a[0].localeCompare(b[0]));
             const recent3 = entries.slice(-3);
@@ -565,25 +683,25 @@ function generateRecommendations(analyzedProducts, data, strategyMode) {
             if (recent3.length >= 2 && prev10.length >= 5) {
                 const recentAvg = recent3.reduce((s, [, v]) => s + v, 0) / recent3.length;
                 const prevAvg = prev10.reduce((s, [, v]) => s + v, 0) / prev10.length;
-                if (prevAvg > 1 && recentAvg < prevAvg * 0.4) {
+                if (prevAvg > 0.4 && recentAvg < prevAvg * 0.42) {
                     recs.push({
                         type: "anomaly_detection",
                         title: `Satış Düşüşü: ${p.name.slice(0, 50)}`,
-                        description: `Son 3 günde satışlar %${Math.round(((prevAvg - recentAvg) / prevAvg) * 100)} düştü! Fiyat, stok veya rekabet kontrol edin.`,
+                        description: `Son günlerde satış hızı belirgin düştü (~%${Math.round(((prevAvg - recentAvg) / prevAvg) * 100)}). Fiyat, stok ve rekabet kontrolü.`,
                         category: "performance",
                         priority: "high",
-                        confidenceScore: clamp(Math.round(60 + (prevAvg - recentAvg) * 5), 50, 88),
+                        confidenceScore: clamp(Math.round(58 + (prevAvg - recentAvg) * 6), 48, 88),
                         impact: {
-                            profitChange: round2(-p.profit * (prevAvg - recentAvg) * 30),
-                            revenueChange: round2(-p.price * (prevAvg - recentAvg) * 30),
-                            salesChange: -Math.round((prevAvg - recentAvg) * 30),
-                            riskLevel: "high"
+                            profitChange: round2(-Math.abs(p.profit) * (prevAvg - recentAvg) * 24),
+                            revenueChange: round2(-p.price * (prevAvg - recentAvg) * 24),
+                            salesChange: -Math.round((prevAvg - recentAvg) * 24),
+                            riskLevel: "high",
                         },
                         actionPayload: {
                             actionType: "investigate",
                             targetId: p.barcode,
                             targetName: p.name,
-                            params: { recentAvg: round2(recentAvg), prevAvg: round2(prevAvg), dropPct: round2(((prevAvg - recentAvg) / prevAvg) * 100) }
+                            params: { recentAvg: round2(recentAvg), prevAvg: round2(prevAvg), dropPct: round2(((prevAvg - recentAvg) / prevAvg) * 100) },
                         },
                         relatedProducts: [p.barcode],
                         strategyMode,
@@ -591,24 +709,39 @@ function generateRecommendations(analyzedProducts, data, strategyMode) {
                 }
             }
         }
-        // ── KDV ve Kar Marjı Uyarısı ──
-        if (p.price > 0 && p.costPrice > 0) {
-            const taxEffect = p.price - (p.price / 1.20);
-            if (p.profitMargin < 2 && p.profitMargin >= 0) {
+
+        // ── KDV / marj sıkışması — uygulanabilir fiyat önerisi ──
+        if (p.price > 0 && p.costPrice > 0 && p.profitMargin >= 0 && p.profitMargin < tune.marginTaxWarnMax) {
+            const bumpPct = strategyMode === "high_profit" ? 0.05 : 0.04;
+            const newPrice = Math.min(Math.ceil(p.price * priceCapMul), Math.ceil(p.price * (1 + bumpPct)));
+            if (newPrice > p.price) {
+                const taxEffect = p.price - (p.price / (1 + (p.taxRate ?? taxDefault) / 100));
                 recs.push({
                     type: "tax_warning",
-                    title: `Vergi Yükü Uyarısı: ${p.name.slice(0, 40)}`,
-                    description: `Bu üründe KDV yükü (${taxEffect.toFixed(0)}₺) kâr marjınızı neredeyse sıfırlıyor. Fiyatı %3-5 artırarak güvenli bölgeye geçebilirsiniz.`,
+                    title: `Marj / KDV Sıkışması: ${p.name.slice(0, 40)}`,
+                    description: `Net marj çok düşük (%${p.profitMargin.toFixed(1)}). KDV ve sabit giderler sonrası risk yüksek. Öneri: ${p.price.toFixed(0)}₺ → ${newPrice}₺.`,
                     category: "pricing",
                     priority: "medium",
-                    confidenceScore: 85,
-                    impact: { profitChange: round2(p.price * 0.05 * 30), revenueChange: 0, salesChange: 0, riskLevel: "low" }
+                    confidenceScore: 82,
+                    impact: {
+                        profitChange: round2((newPrice - p.price) * Math.max(p.avgDailySales * 30, 1) * 0.5),
+                        revenueChange: round2((newPrice - p.price) * 15),
+                        salesChange: 0,
+                        riskLevel: "low",
+                    },
+                    actionPayload: {
+                        actionType: "update_price",
+                        targetId: p.barcode,
+                        targetName: p.name,
+                        params: { oldPrice: p.price, newPrice, reason: "tax_margin_buffer", taxBurdenHint: round2(taxEffect) },
+                    },
+                    relatedProducts: [p.barcode],
+                    strategyMode,
                 });
             }
         }
     }
 
-    // Sort by priority then confidence
     const priorityOrder = { critical: 0, high: 1, medium: 2, low: 3 };
     recs.sort((a, b) => {
         const pd = (priorityOrder[a.priority] || 3) - (priorityOrder[b.priority] || 3);
@@ -616,7 +749,8 @@ function generateRecommendations(analyzedProducts, data, strategyMode) {
         return (b.confidenceScore || 0) - (a.confidenceScore || 0);
     });
 
-    return recs;
+    const deduped = dedupeRecommendationsByPrimaryTarget(recs);
+    return deduped;
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -1184,6 +1318,25 @@ function analyzeUserPreferences(pastRecs) {
 // 14. ACTION ENGINE — Execute on ProductMapping (idempotent)
 // ═════════════════════════════════════════════════════════════════════════════
 
+/** LysiaBrain önerisi sonrası master fiyatı bağlı tüm pazaryerlerine iletir */
+async function pushProductMappingPriceToMarketplaces(userId, pm) {
+    const { syncStockToAllMarketplaces } = require("./stockSyncService");
+    const marketplaceStock = typeof pm.getMarketplaceStock === "function"
+        ? pm.getMarketplaceStock()
+        : (pm.stockTracking?.totalStock ?? pm.masterProduct?.stock ?? 0);
+    const salePrice = Number(pm.masterProduct?.price) || 0;
+    const listPrice = Number(pm.masterProduct?.listPrice) || salePrice;
+    if (salePrice <= 0) {
+        return { syncResults: [], ok: 0, fail: 0, skipped: true };
+    }
+    const priceUpdate = { salePrice, listPrice };
+    const syncResults = await syncStockToAllMarketplaces(userId, pm, marketplaceStock, null, priceUpdate);
+    await pm.save();
+    const ok = (syncResults || []).filter(r => r.syncStatus === "success").length;
+    const fail = (syncResults || []).filter(r => r.syncStatus === "error").length;
+    return { syncResults, ok, fail, skipped: false };
+}
+
 async function executeRecommendation(recId, userId) {
     const rec = await Recommendation.findOne({ _id: recId, userId });
     if (!rec) throw new Error("Öneri bulunamadı");
@@ -1209,7 +1362,20 @@ async function executeRecommendation(recId, userId) {
                     pm.updatedAt = new Date();
                     pm.addSyncLog("price_update", "AI Engine", params.oldPrice, params.newPrice, "success", `AI fiyat güncelleme: ${params.oldPrice}₺ → ${params.newPrice}₺`);
                     await pm.save();
-                    result = { success: true, message: `${pm.masterProduct.name} fiyatı ${params.oldPrice}₺ → ${params.newPrice}₺ güncellendi`, data: { oldPrice: params.oldPrice, newPrice: params.newPrice } };
+                    let mpSuffix = "";
+                    try {
+                        const mpSync = await pushProductMappingPriceToMarketplaces(userId, pm);
+                        if (mpSync.ok > 0) mpSuffix = ` Pazaryeri: ${mpSync.ok} platform güncellendi.`;
+                        if (mpSync.fail > 0) mpSuffix += ` (${mpSync.fail} platform hata — entegrasyon/barcode kontrol edin)`;
+                    } catch (syncErr) {
+                        logger.warn(`[AI ACTION] Pazaryeri fiyat push: ${syncErr.message}`);
+                        mpSuffix = ` (Yerel kayıt OK; pazaryeri bildirimi: ${syncErr.message})`;
+                    }
+                    result = {
+                        success: true,
+                        message: `${pm.masterProduct.name} fiyatı ${params.oldPrice}₺ → ${params.newPrice}₺ güncellendi.${mpSuffix}`,
+                        data: { oldPrice: params.oldPrice, newPrice: params.newPrice },
+                    };
                 } else {
                     const product = await Product.findOne({ userId, barcode: targetId });
                     if (!product) { result = { success: false, message: "Ürün bulunamadı" }; break; }
@@ -1229,7 +1395,15 @@ async function executeRecommendation(recId, userId) {
                     pm.updatedAt = new Date();
                     pm.addSyncLog("price_update", "AI Engine", oldPrice, discountedPrice, "success", `AI indirim: %${params.discountPercent}`);
                     await pm.save();
-                    result = { success: true, message: `${pm.masterProduct.name} fiyatı %${params.discountPercent} indirimle ${discountedPrice}₺ yapıldı` };
+                    let mpSuffix = "";
+                    try {
+                        const mpSync = await pushProductMappingPriceToMarketplaces(userId, pm);
+                        if (mpSync.ok > 0) mpSuffix = ` Pazaryeri: ${mpSync.ok} platform güncellendi.`;
+                        if (mpSync.fail > 0) mpSuffix += ` (${mpSync.fail} platform hata)`;
+                    } catch (syncErr) {
+                        mpSuffix = ` (Pazaryeri: ${syncErr.message})`;
+                    }
+                    result = { success: true, message: `${pm.masterProduct.name} fiyatı %${params.discountPercent} indirimle ${discountedPrice}₺ yapıldı.${mpSuffix}` };
                 } else {
                     result = { success: false, message: "Ürün bulunamadı" };
                 }
@@ -1248,7 +1422,15 @@ async function executeRecommendation(recId, userId) {
                         pm.updatedAt = new Date();
                         pm.addSyncLog("price_update", "AI Engine", String(currentPrice), String(discountedPrice), "success", `AI satış stratejisi: %${discountPct} indirim uygulandı`);
                         await pm.save();
-                        result = { success: true, message: `${pm.masterProduct.name} için %${discountPct} indirim uygulandı (${currentPrice}₺ → ${discountedPrice}₺). Satış stratejisi aktif.` };
+                        let mpSuffix = "";
+                        try {
+                            const mpSync = await pushProductMappingPriceToMarketplaces(userId, pm);
+                            if (mpSync.ok > 0) mpSuffix = ` Pazaryeri: ${mpSync.ok} platform güncellendi.`;
+                            if (mpSync.fail > 0) mpSuffix += ` (${mpSync.fail} platform hata)`;
+                        } catch (syncErr) {
+                            mpSuffix = ` (Pazaryeri: ${syncErr.message})`;
+                        }
+                        result = { success: true, message: `${pm.masterProduct.name} için %${discountPct} indirim uygulandı (${currentPrice}₺ → ${discountedPrice}₺). Satış stratejisi aktif.${mpSuffix}` };
                     } else {
                         result = { success: true, message: `${pm.masterProduct.name} için satış stratejisi notu oluşturuldu. Fiyat bilgisi eksik — manuel kontrol edin.` };
                     }

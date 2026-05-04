@@ -27,7 +27,7 @@ import {
     FaLightbulb, FaArrowRight, FaPlay, FaPlus, FaEye,
     FaStar, FaBolt, FaCrosshairs, FaChartBar,
     FaBoxOpen, FaExternalLinkAlt, FaSortAmountDown,
-    FaStore, FaTag, FaPercentage,
+    FaStore, FaTag, FaPercentage, FaClock,
 } from "react-icons/fa";
 
 // 
@@ -726,6 +726,7 @@ const MAIN_TABS = [
 
 const FILTER_OPTIONS = [
     { key: "best", label: "En yi Fırsatlar", icon: <FaStar />, sortBy: null },
+    { key: "fresh", label: "En Güncel", icon: <FaClock />, sortBy: "fresh" },
     { key: "trend", label: "Trend Olanlar", icon: <FaFire />, sortBy: "trend" },
     { key: "profit", label: "Yksek Kâr", icon: <FaDollarSign />, sortBy: "profit" },
     { key: "competition", label: "Dk Rekabet", icon: <FaShieldAlt />, sortBy: "competition" },
@@ -753,6 +754,7 @@ export default function RadarProPage({ userId }) {
     const [error, setError] = useState("");
     const [activeFilter, setActiveFilter] = useState("best");
     const [simOpp, setSimOpp] = useState(null);
+    const [radarMeta, setRadarMeta] = useState(null);
 
     //  ürün Tab State 
     const [products, setProducts] = useState([]);
@@ -771,6 +773,7 @@ export default function RadarProPage({ userId }) {
             const res = await getOpportunities({ sortBy });
             const data = res?.data || {};
             setOpportunities(data.opportunities || []);
+            setRadarMeta(data.meta || null);
             setAnalyzing(data.stats?.analyzing === true);
         } catch (err) {
             setError(err?.response?.data?.message || err.message || "Fırsatlar yüklenemedi");
@@ -817,6 +820,7 @@ export default function RadarProPage({ userId }) {
                 const data = res?.data || {};
                 if (data.opportunities?.length > 0) {
                     setOpportunities(data.opportunities);
+                    if (data.meta) setRadarMeta(data.meta);
                     setAnalyzing(false);
                 }
             } catch { /* ignore */ }
@@ -832,6 +836,7 @@ export default function RadarProPage({ userId }) {
             const data = res?.data || {};
             if (data.opportunities?.length > 0) {
                 setOpportunities(data.opportunities);
+                if (data.meta) setRadarMeta(data.meta);
                 setAnalyzing(false);
             } else {
                 setAnalyzing(true);
@@ -876,6 +881,22 @@ export default function RadarProPage({ userId }) {
                         <p style={{ color: "#94a3b8", fontSize: "0.72rem", margin: "0.15rem 0 0" }}>
                             AI destekli pazar analizi  en iyi frsatlar, tek tkla aksiyon
                         </p>
+                        {mainTab === "opportunities" && radarMeta?.newestFreshness && (
+                            <p style={{
+                                color: radarMeta.isStale ? "#fbbf24" : "#64748b",
+                                fontSize: "0.68rem",
+                                margin: "0.35rem 0 0",
+                                fontWeight: 600,
+                            }}>
+                                Son analiz:{" "}
+                                {new Date(radarMeta.newestFreshness).toLocaleString("tr-TR", {
+                                    dateStyle: "short",
+                                    timeStyle: "short",
+                                })}
+                                {radarMeta.isStale && " — veriler hedef tazelik süresini aştı; Yeni Analiz önerilir."}
+                                {radarMeta.serpConfigured === false && " — Google trend katmanı için SerpAPI anahtarı yok."}
+                            </p>
+                        )}
                     </div>
 
                     <motion.button

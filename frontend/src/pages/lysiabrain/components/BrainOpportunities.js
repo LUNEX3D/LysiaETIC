@@ -20,7 +20,7 @@ const BrainOpportunities = ({ t, onError }) => {
         try {
             setLoading(true);
             const res = await API.get("/ai-engine/brain/section/opportunities");
-            if (res.data.success) setData(res.data.opportunities || []);
+            if (res.data && res.data.success !== false) setData(res.data.opportunities || []);
         } catch (e) { onError?.(e.response?.data?.message || t("error.data_load_fail")); }
         finally { setLoading(false); }
     }, [t, onError]);

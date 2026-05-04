@@ -1397,6 +1397,15 @@ exports.searchCategories = async (req, res) => {
                 return results;
             };
             searchResults = flattenAndSearch(categories);
+            // Trendyol: yaprak sonuçları önce göster (ürün yalnızca leaf categoryId ile açılır)
+            if (normalizedName.includes("trendyol") && searchResults.length > 1) {
+                searchResults.sort((a, b) => {
+                    const aLeaf = !a.hasChildren;
+                    const bLeaf = !b.hasChildren;
+                    if (aLeaf !== bLeaf) return aLeaf ? -1 : 1;
+                    return (a.path || "").localeCompare(b.path || "", "tr");
+                });
+            }
         }
 
         logger.info(`[CATEGORY SEARCH] ${marketplaceName} — "${query}" → ${searchResults.length} sonuç`);

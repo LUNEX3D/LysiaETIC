@@ -35,12 +35,167 @@ const AIAdvisor = require("../services/aiProductAdvisor");
 const Recommendation = require("../models/Recommendation");
 const AIGoal = require("../models/AIGoal");
 const AIAnalysisCache = require("../models/AIAnalysisCache");
+const Order = require("../models/Order");
+const ProductMapping = require("../models/ProductMapping");
 const logger = require("../config/logger");
+const { getTurkeyTodayStart, getTurkeyTomorrowStart } = require("../utils/turkeyTime");
 
 let aiWorker = null;
 try { aiWorker = require("../services/aiBackgroundWorker"); } catch (e) { /* worker not available */ }
 
 const uid = (req) => req.user?._id || req.user?.id;
+
+function round2Brain(n) {
+    return Math.round((Number(n) || 0) * 100) / 100;
+}
+
+/** Sipariş / mapping anahtarı için pazaryeri adını normalize et */
+function normMarketplaceKey(name) {
+    const s = String(name || "").trim().toLowerCase();
+    if (s.includes("trendyol")) return "trendyol";
+    if (s.includes("hepsi") || s === "hb" || s.includes("hepsiburada")) return "hepsiburada";
+    if (s.includes("n11")) return "n11";
+    if (s.includes("çiçek") || s.includes("cicek")) return "ciceksepeti";
+    if (s.includes("amazon")) return "amazon";
+    return s.replace(/\s+/g, "_") || "other";
+}
+
+/**
+ * Son siparişlerden barkod + pazaryeri bazlı ortalama komisyon % ve kargo (satır başına).
+ */
+async function buildMarketplaceOrderFeeMap(userId, sinceDate) {
+    try {
+        const rows = await Order.aggregate([
+            { $match: { user: userId, orderDate: { $gte: sinceDate }, isCancelled: { $ne: true } } },
+            { $unwind: "$items" },
+            { $match: { "items.barcode": { $exists: true, $nin: [null, ""] } } },
+            {
+                $group: {
+                    _id: { bc: "$items.barcode", mp: "$marketplaceName" },
+                    sumComm: { $sum: { $ifNull: ["$items.commissionAmount", 0] } },
+                    sumRev: {
+                        $sum: {
+                            $multiply: [
+                                { $ifNull: ["$items.price", 0] },
+                                { $cond: [{ $gt: [{ $ifNull: ["$items.quantity", 1] }, 0] }, "$items.quantity", 1] },
+                            ],
+                        },
+                    },
+                    sumShip: { $sum: { $ifNull: ["$items.shippingCost", 0] } },
+                    n: { $sum: 1 },
+                },
+            },
+        ]).allowDiskUse(true);
+
+        const map = new Map();
+        for (const r of rows) {
+            const bc = String(r._id.bc || "");
+            const mpRaw = r._id.mp || "Diğer";
+            const key = `${bc}|||${normMarketplaceKey(mpRaw)}`;
+            const rev = Number(r.sumRev) || 0;
+            const comm = Number(r.sumComm) || 0;
+            const effCommPct = rev > 0 ? (comm / rev) * 100 : 0;
+            const n = Math.max(Number(r.n) || 0, 1);
+            const avgShip = (Number(r.sumShip) || 0) / n;
+            map.set(key, {
+                avgCommissionPct: Math.round(effCommPct * 10) / 10,
+                avgShippingCost: round2Brain(avgShip),
+                orderLineCount: r.n,
+                marketplaceLabel: mpRaw,
+            });
+        }
+        return map;
+    } catch (e) {
+        logger.warn(`[AI Brain] buildMarketplaceOrderFeeMap: ${e.message}`);
+        return new Map();
+    }
+}
+
+/**
+ * Sipariş haritasından barkod bazlı ortalama komisyon % / kargo (pazaryeri adı eşleşmediğinde satır başına yedek).
+ */
+function buildBarcodeOrderFeeFallback(orderFeeMap) {
+    const commLists = new Map();
+    const shipLists = new Map();
+    for (const [key, hint] of orderFeeMap.entries()) {
+        const sep = "|||";
+        const i = key.indexOf(sep);
+        if (i <= 0) continue;
+        const bc = key.slice(0, i);
+        const n = Number(hint?.orderLineCount) || 0;
+        if (n < 1) continue;
+        if (!commLists.has(bc)) commLists.set(bc, []);
+        if (!shipLists.has(bc)) shipLists.set(bc, []);
+        const pct = Number(hint.avgCommissionPct);
+        if (Number.isFinite(pct) && pct > 0) commLists.get(bc).push(pct);
+        const sh = Number(hint.avgShippingCost);
+        if (Number.isFinite(sh) && sh > 0) shipLists.get(bc).push(sh);
+    }
+    const out = new Map();
+    const barcodes = new Set([...commLists.keys(), ...shipLists.keys()]);
+    for (const bc of barcodes) {
+        const ca = commLists.get(bc) || [];
+        const sa = shipLists.get(bc) || [];
+        out.set(bc, {
+            avgCommissionPct: ca.length ? round2Brain(ca.reduce((a, b) => a + b, 0) / ca.length) : null,
+            avgShippingCost: sa.length ? round2Brain(sa.reduce((a, b) => a + b, 0) / sa.length) : null,
+        });
+    }
+    return out;
+}
+
+/** Önbellekteki brain yanıtına, veritabanından anlık bugünkü sipariş özetini yazar (Komuta Merkezi cirosu). */
+async function liveTodayOrderTotals(userId) {
+    const todayStart = getTurkeyTodayStart();
+    const tomorrowStart = getTurkeyTomorrowStart();
+    const agg = await Order.aggregate([
+        { $match: { user: userId, orderDate: { $gte: todayStart, $lt: tomorrowStart }, isCancelled: { $ne: true } } },
+        { $group: { _id: null, revenue: { $sum: "$totalPrice" }, count: { $sum: 1 } } },
+    ]);
+    const r = agg[0];
+    return { todayRevenue: round2Brain(r?.revenue), todayOrders: r?.count || 0 };
+}
+
+function mergeLiveTodayIntoBrainPayload(payload, live) {
+    const tr = live.todayRevenue;
+    return {
+        ...payload,
+        businessHealth: {
+            ...(payload.businessHealth || {}),
+            metrics: {
+                ...((payload.businessHealth && payload.businessHealth.metrics) || {}),
+                todayRevenue: tr,
+            },
+        },
+        moneyTracker: {
+            ...(payload.moneyTracker || {}),
+            summary: {
+                ...((payload.moneyTracker && payload.moneyTracker.summary) || {}),
+                todayRevenue: tr,
+            },
+        },
+    };
+}
+
+/** Önbellekten dönen brain yanıtında öneri listesi/özet DB ile güncellenir (onay sonrası UI senkron). aiBackgroundWorker.getCachedAnalysis ile aynı pasif ürün filtresi. */
+function filterBrainRecommendationsForCacheUI(recs) {
+    if (!Array.isArray(recs)) return recs;
+    return recs.filter((r) => {
+        if (r.actionPayload?.actionType === "mark_inactive") return false;
+        if (r.title && /Ölü Ürün/i.test(r.title)) return false;
+        if (r.description && /[Pp]asife al/i.test(r.description)) return false;
+        return true;
+    });
+}
+
+async function mergeFreshRecommendationsIntoBrainPayload(payload, userId) {
+    const { allRecs, recSummary } = await AIBrain.fetchRecommendationsForBrainDashboard(userId);
+    return {
+        ...payload,
+        recommendations: filterBrainRecommendationsForCacheUI(allRecs),
+        recSummary,
+    };
+}
 
 // ═════════════════════════════════════════════════════════════════════════════
 // GET /brain — Full AI Operations Brain Dashboard (CACHED — reads from background worker)
@@ -61,7 +216,10 @@ exports.getBrainDashboard = async (req, res) => {
                         logger.warn(`[AI Brain] Strategy change re-analysis failed: ${e.message}`)
                     );
                 }
-                return res.json(cached);
+                const live = await liveTodayOrderTotals(userId);
+                const merged = mergeLiveTodayIntoBrainPayload(cached, live);
+                const withRecs = await mergeFreshRecommendationsIntoBrainPayload(merged, userId);
+                return res.json({ ...withRecs, success: withRecs.success !== false });
             }
         }
 
@@ -93,7 +251,9 @@ exports.getBrainDashboard = async (req, res) => {
             ).catch(e => logger.warn(`[AI Brain] Cache update failed: ${e.message}`));
         }
 
-        res.json(result);
+        const liveFresh = await liveTodayOrderTotals(userId);
+        const mergedFresh = mergeLiveTodayIntoBrainPayload(result, liveFresh);
+        res.json({ ...mergedFresh, success: mergedFresh.success !== false });
     } catch (err) {
         logger.error(`[AI Brain] getBrainDashboard error: ${err.message}`);
         res.status(500).json({ success: false, message: "AI Brain yüklenemedi", error: err.message });
@@ -170,7 +330,7 @@ exports.getBrainSection = async (req, res) => {
                 result = { success: true, causes: AIBrain.analyzeCauses(analyzed, data) };
                 break;
             case "opportunities":
-                result = { success: true, opportunities: AIBrain.scanOpportunities(analyzed, data) };
+                result = { success: true, opportunities: AIBrain.scanOpportunities(analyzed, data, userId) };
                 break;
             case "self_eval":
                 result = { success: true, selfEvaluation: await AIBrain.selfEvaluate(userId) };
@@ -336,7 +496,7 @@ exports.getBrainOpportunities = async (req, res) => {
         const userId = uid(req);
         const data = await AIEngine.collectData(userId);
         const analyzed = AIEngine.analyzeProducts(data.products, data.orders90);
-        const opportunities = AIBrain.scanOpportunities(analyzed, data);
+        const opportunities = AIBrain.scanOpportunities(analyzed, data, userId);
         res.json({ success: true, opportunities });
     } catch (err) {
         logger.error(`[AI Brain] getBrainOpportunities error: ${err.message}`);
@@ -542,7 +702,13 @@ exports.getBrainProducts = async (req, res) => {
     try {
         const userId = uid(req);
         const { search, limit = 50, noCostOnly } = req.query;
-        const data = await AIEngine.collectData(userId);
+        const d90 = new Date(Date.now() - 90 * 86400000);
+
+        const [data, orderFeeMap] = await Promise.all([
+            AIEngine.collectData(userId),
+            buildMarketplaceOrderFeeMap(userId, d90),
+        ]);
+        const barcodeFeeFb = buildBarcodeOrderFeeFallback(orderFeeMap);
         const analyzed = AIEngine.analyzeProducts(data.products, data.orders90);
 
         let filtered = analyzed;
@@ -554,23 +720,113 @@ exports.getBrainProducts = async (req, res) => {
             filtered = filtered.filter(p => p.costPrice === 0);
         }
 
-        const products = filtered.slice(0, parseInt(limit)).map(p => ({
-            name: p.name,
-            barcode: p.barcode,
-            category: p.category,
-            price: p.price,
-            costPrice: p.costPrice,
-            commissionRate: p.commissionRate,
-            shippingCost: p.shippingCost,
-            stock: p.stock,
-            profit: p.profit,
-            profitMargin: p.profitMargin,
-            totalSold: p.totalSold,
-            avgDailySales: p.avgDailySales,
-            healthScore: p.healthScore,
-            daysOfStock: p.daysOfStock,
-            hasCostData: p.costPrice > 0,
-        }));
+        const lim = parseInt(limit, 10) || 50;
+        const slice = filtered.slice(0, lim);
+        const barcodes = [...new Set(slice.map(p => p.barcode).filter(Boolean))];
+
+        const pms = barcodes.length
+            ? await ProductMapping.find({ userId, "masterProduct.barcode": { $in: barcodes } })
+                .select("masterProduct marketplaceMappings")
+                .lean()
+            : [];
+        const pmByBarcode = new Map(pms.map(pm => [String(pm.masterProduct?.barcode || ""), pm]));
+
+        const products = slice.map((p) => {
+            const pm = pmByBarcode.get(String(p.barcode));
+            const masterShip = Number(pm?.masterProduct?.shippingCost) || Number(p.shippingCost) || 0;
+            const masterPack = Number(pm?.masterProduct?.packagingCost) || Number(p.packagingCost) || 0;
+            const bcFb = barcodeFeeFb.get(String(p.barcode)) || null;
+
+            const marketplaceFees = (pm?.marketplaceMappings || [])
+                .filter(m => m.isActive !== false)
+                .map((m) => {
+                    const mk = normMarketplaceKey(m.marketplaceName);
+                    const hintKey = `${String(p.barcode)}|||${mk}`;
+                    const hint = orderFeeMap.get(hintKey);
+                    const commFromSync = Number(m.commissionRate);
+                    const commFromOrders = hint && hint.orderLineCount > 0 && Number(hint.avgCommissionPct) > 0
+                        ? round2Brain(hint.avgCommissionPct)
+                        : null;
+                    const commissionRate = Number.isFinite(commFromSync) && commFromSync > 0
+                        ? round2Brain(commFromSync)
+                        : (commFromOrders != null ? commFromOrders
+                            : (bcFb?.avgCommissionPct != null && bcFb.avgCommissionPct > 0 ? round2Brain(bcFb.avgCommissionPct) : null));
+
+                    const shipFromOrders = hint && hint.orderLineCount > 0 && Number(hint.avgShippingCost) > 0
+                        ? round2Brain(hint.avgShippingCost)
+                        : null;
+                    const shippingCost = shipFromOrders != null ? shipFromOrders
+                        : (bcFb?.avgShippingCost != null && bcFb.avgShippingCost > 0 ? round2Brain(bcFb.avgShippingCost) : round2Brain(masterShip));
+                    // Kargo siparişten gelmiyorsa değer her zaman master ürün kaydından (0 dahil); "none" yanıltıcı olur.
+                    const shippingSource = shipFromOrders != null ? "orders90d"
+                        : (bcFb?.avgShippingCost != null && bcFb.avgShippingCost > 0 ? "orders90d"
+                            : "master");
+                    const commissionSource = (Number.isFinite(commFromSync) && commFromSync > 0)
+                        ? "marketplace_sync"
+                        : (commFromOrders != null ? "orders90d"
+                            : (bcFb?.avgCommissionPct != null && bcFb.avgCommissionPct > 0 ? "orders90d" : "none"));
+
+                    return {
+                        marketplaceName: m.marketplaceName,
+                        marketplaceProductId: m.marketplaceProductId || "",
+                        price: m.price != null ? Number(m.price) : p.price,
+                        listPrice: m.listPrice != null ? Number(m.listPrice) : p.listPrice,
+                        commissionRate,
+                        shippingCost,
+                        commissionSource,
+                        shippingSource,
+                        orderSampleSize: hint?.orderLineCount || 0,
+                    };
+                });
+
+            // Tablo özet sütunları: master/mapping ortalaması boşsa pazaryeri satırlarından (sipariş vb.) türet
+            const summaryCommission = (() => {
+                const base = Number(p.commissionRate) || 0;
+                if (base > 0) return round2Brain(base);
+                const nums = marketplaceFees.map(f => f.commissionRate).filter(c => c != null && Number(c) > 0);
+                if (!nums.length) return base;
+                return round2Brain(nums.reduce((a, b) => a + Number(b), 0) / nums.length);
+            })();
+            const summaryShipping = (() => {
+                const base = Number(p.shippingCost) || 0;
+                if (base > 0) return round2Brain(base);
+                const nums = marketplaceFees.map(f => f.shippingCost).filter(c => c != null && Number.isFinite(Number(c)));
+                if (!nums.length) return round2Brain(base);
+                return round2Brain(nums.reduce((a, b) => a + Number(b), 0) / nums.length);
+            })();
+
+            const priceForMargin = Number(p.price) || 0;
+            const taxR = p.taxRate != null ? Number(p.taxRate) : 20;
+            const pcost = Number(p.costPrice) || 0;
+            const ppack = Number(p.packagingCost || masterPack) || 0;
+            const pother = Number(p.otherCost) || 0;
+            const priceExcl = priceForMargin > 0 ? priceForMargin / (1 + taxR / 100) : 0;
+            const commAmt = priceForMargin * ((summaryCommission || 0) / 100);
+            const profitAmt = priceExcl - pcost - commAmt - (summaryShipping || 0) - ppack - pother;
+            const summaryProfit = round2Brain(profitAmt);
+            const summaryProfitMargin = priceForMargin > 0 ? round2Brain((profitAmt / priceForMargin) * 100) : 0;
+
+            return {
+                name: p.name,
+                barcode: p.barcode,
+                category: p.category,
+                price: p.price,
+                listPrice: p.listPrice,
+                costPrice: p.costPrice,
+                commissionRate: summaryCommission,
+                shippingCost: summaryShipping,
+                packagingCost: p.packagingCost || masterPack,
+                stock: p.stock,
+                profit: summaryProfit,
+                profitMargin: summaryProfitMargin,
+                totalSold: p.totalSold,
+                avgDailySales: p.avgDailySales,
+                healthScore: p.healthScore,
+                daysOfStock: p.daysOfStock,
+                hasCostData: p.costPrice > 0,
+                marketplaceFees,
+            };
+        });
 
         const stats = {
             total: analyzed.length,
@@ -609,26 +865,8 @@ exports.getFullDashboard = async (req, res) => {
         const recs = AIEngine.generateRecommendations(analyzed, data, strategyMode);
         AIEngine.saveRecommendations(userId, recs, strategyMode).catch(e => logger.error(`[AI] bg save error: ${e.message}`));
 
-        // Get ALL recommendations from DB (pending, approved, executed, rejected)
-        const allRecs = await Recommendation.find({ userId, status: { $in: ["pending", "approved", "executed", "rejected"] } })
-            .sort({ createdAt: -1 })
-            .limit(50)
-            .lean();
-
-        const priorityOrder = { critical: 0, high: 1, medium: 2, low: 3 };
-        allRecs.sort((a, b) => {
-            const statusOrder = { pending: 0, approved: 1, executed: 2, rejected: 3 };
-            const sd = (statusOrder[a.status] || 4) - (statusOrder[b.status] || 4);
-            if (sd !== 0) return sd;
-            return (priorityOrder[a.priority] || 3) - (priorityOrder[b.priority] || 3);
-        });
-
-        const [pendingCount, executedCount, approvedCount, rejectedCount] = await Promise.all([
-            Recommendation.countDocuments({ userId, status: "pending" }),
-            Recommendation.countDocuments({ userId, status: "executed" }),
-            Recommendation.countDocuments({ userId, status: "approved" }),
-            Recommendation.countDocuments({ userId, status: "rejected" }),
-        ]);
+        const { allRecs, recSummary: recSumDash } = await AIBrain.fetchRecommendationsForBrainDashboard(userId);
+        const { pending: pendingCount } = recSumDash;
 
         // Product health segments
         const segments = {
@@ -683,7 +921,7 @@ exports.getFullDashboard = async (req, res) => {
             learning,
             goals,
             recommendations: allRecs,
-            recSummary: { pending: pendingCount, executed: executedCount, approved: approvedCount, rejected: rejectedCount },
+            recSummary: recSumDash,
             productHealth: {
                 segments,
                 avgHealthScore: Math.round(analyzed.reduce((s, p) => s + p.healthScore, 0) / (analyzed.length || 1)),
@@ -751,7 +989,31 @@ exports.approveRecommendation = async (req, res) => {
         await rec.save();
 
         logger.info(`🤖 [AI] Öneri onaylandı: ${rec._id} — ${rec.title}`);
-        res.json({ success: true, message: "Öneri onaylandı", recommendation: rec });
+
+        const skipExecute = req.query.execute === "false" || req.body?.execute === false;
+        if (!skipExecute) {
+            try {
+                const { recommendation, result } = await AIEngine.executeRecommendation(rec._id, userId);
+                return res.json({
+                    success: true,
+                    message: result.message,
+                    recommendation,
+                    executionResult: result,
+                    autoExecuted: true,
+                });
+            } catch (execErr) {
+                logger.warn(`🤖 [AI] Onay sonrası uygulama: ${execErr.message}`);
+                return res.json({
+                    success: true,
+                    message: "Öneri onaylandı; otomatik uygulama tamamlanamadı — Uygula ile tekrar deneyin.",
+                    recommendation: rec,
+                    executionError: execErr.message,
+                    autoExecuted: false,
+                });
+            }
+        }
+
+        res.json({ success: true, message: "Öneri onaylandı", recommendation: rec, autoExecuted: false });
     } catch (err) {
         logger.error(`[AI] approveRecommendation error: ${err.message}`);
         res.status(500).json({ success: false, message: "Onaylama başarısız", error: err.message });
@@ -1126,13 +1388,36 @@ exports.bulkApproveRecommendations = async (req, res) => {
             return res.status(400).json({ success: false, message: "Öneri ID listesi zorunlu" });
         }
 
-        const result = await Recommendation.updateMany(
-            { _id: { $in: ids }, userId, status: "pending" },
-            { $set: { status: "approved" } }
-        );
+        const pending = await Recommendation.find({ _id: { $in: ids }, userId, status: "pending" });
+        let approved = 0;
+        let executedOk = 0;
+        let executedFail = 0;
+        const details = [];
 
-        logger.info(`🤖 [AI] Toplu onay: ${result.modifiedCount} öneri onaylandı (userId: ${userId})`);
-        res.json({ success: true, message: `${result.modifiedCount} öneri onaylandı`, approved: result.modifiedCount });
+        for (const rec of pending) {
+            rec.status = "approved";
+            await rec.save();
+            approved++;
+            try {
+                const { result } = await AIEngine.executeRecommendation(rec._id, userId);
+                if (result.success) executedOk++;
+                else executedFail++;
+                details.push({ id: rec._id, title: rec.title, executed: result.success, message: result.message });
+            } catch (e) {
+                executedFail++;
+                details.push({ id: rec._id, title: rec.title, executed: false, message: e.message });
+            }
+        }
+
+        logger.info(`🤖 [AI] Toplu onay+uygula: ${approved} onay, ${executedOk} başarılı, ${executedFail} hata (userId: ${userId})`);
+        res.json({
+            success: true,
+            message: `${approved} öneri onaylandı ve uygulandı (${executedOk} başarılı${executedFail ? `, ${executedFail} hata` : ""}).`,
+            approved,
+            executedOk,
+            executedFail,
+            details,
+        });
     } catch (err) {
         logger.error(`[AI] bulkApproveRecommendations error: ${err.message}`);
         res.status(500).json({ success: false, message: "Toplu onay başarısız", error: err.message });

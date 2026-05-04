@@ -20,6 +20,38 @@ const ProductMapping = require("../../models/ProductMapping");
 const googleTrendsService = require("./googleTrendsService");
 const amazonRadarService = require("./amazonRadarService");
 
+/** Deterministic shuffle — aynı gün aynı kullanıcıya “tek tip liste” üretmez; SerpAPI çağrısından bağımsız çeşitlilik */
+function hashString32(str) {
+    let h = 2166136261;
+    const s = String(str || "");
+    for (let i = 0; i < s.length; i++) {
+        h ^= s.charCodeAt(i);
+        h = Math.imul(h, 16777619);
+    }
+    return h >>> 0;
+}
+
+function mulberry32(seed) {
+    let a = seed >>> 0;
+    return function rand() {
+        a |= 0;
+        a = (a + 0x6d2b79f5) | 0;
+        let t = Math.imul(a ^ (a >>> 15), 1 | a);
+        t ^= t + Math.imul(t ^ (t >>> 7), 61 | t);
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+}
+
+function deterministicShuffle(arr, seedStr) {
+    const out = [...arr];
+    const rand = mulberry32(hashString32(seedStr));
+    for (let i = out.length - 1; i > 0; i--) {
+        const j = Math.floor(rand() * (i + 1));
+        [out[i], out[j]] = [out[j], out[i]];
+    }
+    return out;
+}
+
 // ── Türkçe stop words ──
 const STOP_WORDS = new Set([
     "ve", "ile", "için", "bir", "bu", "da", "de", "den", "dan", "mi", "mu",
@@ -109,8 +141,10 @@ async function extractKeywords(userId, opts = {}) {
             ...(SEASONAL_TRENDS[(currentMonth + 1) % 12] || []).slice(0, 2),
         ];
 
-        // ── 6. Evergreen keyword'ler ──
-        const relevantEvergreen = EVERGREEN_KEYWORDS.filter(kw => {
+        // ── 6. Evergreen — önce haftalık karıştır (tüm kullanıcılarda aynı sıra gelmesin) ──
+        const weekBucket = Math.floor(Date.now() / (7 * 86400000));
+        const evergreenShuffled = deterministicShuffle([...EVERGREEN_KEYWORDS], `ew-${weekBucket}-v1`);
+        const relevantEvergreen = evergreenShuffled.filter(kw => {
             const kwLower = kw.toLowerCase();
             return [...categories].some(cat =>
                 cat.toLowerCase().split(/[\s>/]+/).some(w => kwLower.includes(w) || w.length > 3)
@@ -145,17 +179,21 @@ async function extractKeywords(userId, opts = {}) {
             }
         }
 
-        // ── 9. Tüm keyword'leri birleştir ve deduplicate ──
-        const allKeywordsSet = new Set([
-            ...userKeywords,
-            ...categoryKeywords,
+        // ── 9. Birleştir: önce kullanıcıya özel çekirdek, sonra harici havuzu kullanıcı+gün+tuz ile karıştır ──
+        const dayKey = new Date().toISOString().slice(0, 10);
+        const shuffleSalt = opts.shuffleSalt != null ? String(opts.shuffleSalt) : "";
+        const seed = `${userId}|${dayKey}|${shuffleSalt}|radar-kw-v2`;
+
+        const prioritizedCore = [...new Set([...userKeywords, ...categoryKeywords])];
+        const exploratoryPool = [...new Set([
             ...trendKeywords,
             ...relevantEvergreen,
             ...googleTrendKeywords,
             ...amazonKeywords,
-        ]);
+        ])].filter(k => k && !prioritizedCore.includes(k));
 
-        const allKeywords = [...allKeywordsSet].slice(0, 40); // Max 40 keyword (artırıldı)
+        const exploratoryShuffled = deterministicShuffle(exploratoryPool, seed);
+        const allKeywords = [...new Set([...prioritizedCore, ...exploratoryShuffled])].slice(0, 45);
 
         logger.info(
             `[KeywordService] User ${String(userId).slice(-6)} — ` +
@@ -185,10 +223,13 @@ async function extractKeywords(userId, opts = {}) {
             evergreenKeywords: EVERGREEN_KEYWORDS.slice(0, 5),
             googleTrendKeywords: [],
             amazonKeywords: [],
-            allKeywords: [
-                ...(SEASONAL_TRENDS[new Date().getMonth()] || []),
-                ...EVERGREEN_KEYWORDS.slice(0, 5),
-            ],
+            allKeywords: deterministicShuffle(
+                [...new Set([
+                    ...(SEASONAL_TRENDS[new Date().getMonth()] || []),
+                    ...EVERGREEN_KEYWORDS.slice(0, 8),
+                ])],
+                `fallback-${userId}-${Date.now()}`
+            ).slice(0, 20),
             userCategories: [],
             userBrands: [],
         };

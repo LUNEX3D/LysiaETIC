@@ -22,6 +22,30 @@ const logger = require("../config/logger");
 // ─── Base URL ────────────────────────────────────────────────────────────────
 const TRENDYOL_BASE = "https://www.trendyol.com";
 const IS_WINDOWS = os.platform() === "win32";
+const TRENDYOL_SCRAPER_VERBOSE = process.env.TRENDYOL_SCRAPER_VERBOSE === "1";
+
+let trendyolPageFetchFailBatch = 0;
+let trendyolPageFetchFailSample = "";
+
+function trendyolBestsellerBatchStart() {
+    trendyolPageFetchFailBatch = 0;
+    trendyolPageFetchFailSample = "";
+}
+
+function trendyolBestsellerBatchEnd(label) {
+    if (trendyolPageFetchFailBatch === 0) return;
+    logger.warn(
+        `[TrendyolScraper] ${label}: ${trendyolPageFetchFailBatch} kategori/sayfa isteği başarısız (HTML veya gömülü JSON yok). ` +
+        `Örnek: ${trendyolPageFetchFailSample}. Ayrıntı için TRENDYOL_SCRAPER_VERBOSE=1`
+    );
+    trendyolPageFetchFailBatch = 0;
+    trendyolPageFetchFailSample = "";
+}
+
+function noteTrendyolPageFetchFailed(pathOnly) {
+    trendyolPageFetchFailBatch++;
+    if (!trendyolPageFetchFailSample) trendyolPageFetchFailSample = pathOnly || "";
+}
 
 // ─── Trendyol Kategorileri (Ana kategoriler) ────────────────────────────────
 // slug: Trendyol'un gerçek en çok satanlar URL'si (ör: /kadin?sst=BEST_SELLER)
@@ -77,7 +101,9 @@ function fetchWithPowerShell(url, timeoutSec = 20) {
         }, (error, stdout, stderr) => {
             if (error || !stdout || stdout.length < 100) {
                 const errMsg = stderr || error?.message || "Bilinmeyen hata";
-                logger.warn(`[TrendyolScraper] PowerShell fetch başarısız: ${url} — ${errMsg.substring(0, 200)}`);
+                if (TRENDYOL_SCRAPER_VERBOSE) {
+                    logger.warn(`[TrendyolScraper] PowerShell fetch başarısız: ${url} — ${errMsg.substring(0, 200)}`);
+                }
                 resolve(null);
                 return;
             }
@@ -109,7 +135,9 @@ function fetchWithCurlImpersonate(url, timeoutSec = 20) {
         }, (error, stdout, stderr) => {
             if (error || !stdout || stdout.length < 100) {
                 const errMsg = stderr || error?.message || "Bilinmeyen hata";
-                logger.warn(`[TrendyolScraper] curl_ff117 fetch başarısız: ${url} — ${errMsg.substring(0, 200)}`);
+                if (TRENDYOL_SCRAPER_VERBOSE) {
+                    logger.warn(`[TrendyolScraper] curl_ff117 fetch başarısız: ${url} — ${errMsg.substring(0, 200)}`);
+                }
                 resolve(null);
                 return;
             }
@@ -245,7 +273,12 @@ async function fetchTrendyolPage(url, propsKey, retries = 2) {
 
             if (!html) {
                 if (attempt === retries) {
-                    logger.warn(`[TrendyolScraper] Sayfa çekilemedi (${retries + 1} deneme): ${url.split("?")[0]}`);
+                    const pathOnly = url.split("?")[0];
+                    if (TRENDYOL_SCRAPER_VERBOSE) {
+                        logger.warn(`[TrendyolScraper] Sayfa çekilemedi (${retries + 1} deneme): ${pathOnly}`);
+                    } else {
+                        noteTrendyolPageFetchFailed(pathOnly);
+                    }
                     return null;
                 }
                 await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
@@ -254,14 +287,23 @@ async function fetchTrendyolPage(url, propsKey, retries = 2) {
 
             const parsed = extractPropsFromHtml(html, propsKey);
             if (!parsed) {
-                logger.warn(`[TrendyolScraper] "${propsKey}" bulunamadı: ${url}`);
+                if (TRENDYOL_SCRAPER_VERBOSE) {
+                    logger.warn(`[TrendyolScraper] "${propsKey}" bulunamadı: ${url}`);
+                } else {
+                    noteTrendyolPageFetchFailed(url.split("?")[0]);
+                }
                 return null;
             }
 
             return parsed;
         } catch (err) {
             if (attempt === retries) {
-                logger.warn(`[TrendyolScraper] Sayfa çekme başarısız (${retries + 1} deneme): ${url} — ${err.message}`);
+                const pathOnly = url.split("?")[0];
+                if (TRENDYOL_SCRAPER_VERBOSE) {
+                    logger.warn(`[TrendyolScraper] Sayfa çekme başarısız (${retries + 1} deneme): ${pathOnly} — ${err.message}`);
+                } else {
+                    noteTrendyolPageFetchFailed(pathOnly);
+                }
                 return null;
             }
             await new Promise(r => setTimeout(r, 1500 * (attempt + 1)));
@@ -399,7 +441,9 @@ async function getCategoryProducts(categoryKey, options = {}) {
         const firstPageData = await fetchCategoryPage(category.slug, sort, page);
 
         if (!firstPageData) {
-            logger.warn(`[TrendyolScraper] Kategori sayfası boş, arama fallback: ${category.slug}`);
+            if (TRENDYOL_SCRAPER_VERBOSE) {
+                logger.warn(`[TrendyolScraper] Kategori sayfası boş, arama fallback: ${category.slug}`);
+            }
             return searchProducts(category.name, options);
         }
 
@@ -494,6 +538,7 @@ async function getBestSellers(categoryKey = "", limit = 20, sort = "BEST_SELLER"
     // En az ~2 sayfa (48+) ürün / kategori — tek sayfa hep aynı SKU'ları veriyordu
     const perCategory = Math.max(56, Math.ceil(limit / allCategoryKeys.length) + 12);
 
+    trendyolBestsellerBatchStart();
     try {
         const results = await Promise.allSettled(
             allCategoryKeys.map(catKey => getCategoryProducts(catKey, { sort, limit: perCategory }))
@@ -530,6 +575,7 @@ async function getBestSellers(categoryKey = "", limit = 20, sort = "BEST_SELLER"
                 finalProducts = diversifyBestSellersByCategory(allProducts, limit);
             }
 
+            trendyolBestsellerBatchEnd("getBestSellers");
             logger.info(`[TrendyolScraper] En çok satanlar: ${finalProducts.length} ürün (${allCategoryKeys.length} kategoriden, çeşitlendirilmiş)`);
             return {
                 products: finalProducts,
@@ -541,6 +587,7 @@ async function getBestSellers(categoryKey = "", limit = 20, sort = "BEST_SELLER"
         logger.warn(`[TrendyolScraper] Paralel kategori çekme hatası: ${err.message}`);
     }
 
+    trendyolBestsellerBatchEnd("getBestSellers");
     // Fallback: arama ile en çok satanları getir
     logger.warn("[TrendyolScraper] Kategori sayfaları başarısız, arama fallback kullanılıyor");
     const result = await searchProducts("en çok satan", { sort, limit });
