@@ -26,7 +26,7 @@ import {
 import {
     getProducts, getProductDetail, updateProduct, deleteProduct,
     syncFromMarketplace, distributeProduct, bulkDistribute,
-    syncStock, syncPrice, triggerAutoSync, getSyncLogs,
+    syncStock, syncPrice, triggerAutoSync, getSyncLogs, getSyncJobStatus,
     getProductManagementDashboard, syncAllMarketplaces,
     bulkDistributeSelected, exportProducts,
     createAndDistribute,
@@ -44,6 +44,7 @@ import {
 } from "../services/productManagementApi";
 import { searchCategories, getCategoryTree, resolveForDistribute } from "../services/categoryCenterApi";
 import { getUserMarketplaces } from "../services/marketplaceApi";
+import { logUserActivity } from "../services/errorCenterLog";
 import ProductUploadWizard from "./ProductUploadWizard";
 import "../styles/ProductManagementCenter.css";
 
@@ -145,6 +146,8 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
     const [dashboard, setDashboard] = useState(null);
     const [actionLoading, setActionLoading] = useState("");
     const [toast, setToast] = useState(null);
+    /** @type {null | { title: string, jobId?: string, status: string, progressPercent?: number, message?: string, etaSeconds?: number|null, phase?: string }} */
+    const [syncProgress, setSyncProgress] = useState(null);
     const [stockFilter, setStockFilter] = useState("");
     const [syncLogs, setSyncLogs] = useState([]);
     const [logsLoading, setLogsLoading] = useState(false);
@@ -153,6 +156,7 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
     const [psSelected, setPsSelected] = useState(new Set());
     const [psCloseLoading, setPsCloseLoading] = useState(false);
     const searchRef = useRef(null);
+    const syncPollTimerRef = useRef(null);
     const LIMIT = 20;
 
     // ── Bulk Tab State ──
@@ -177,9 +181,13 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
     const [bulkFieldSafety, setBulkFieldSafety] = useState("");
     const [bulkResult, setBulkResult] = useState(null);
     const bulkSearchRef = useRef(null);
+    /** Toplu sil: pazaryeri kapsamı */
+    const [bulkDeleteLocalOnly, setBulkDeleteLocalOnly] = useState(false);
+    const [bulkDeleteMpScope, setBulkDeleteMpScope] = useState("all"); // "all" | "pick"
+    const [bulkDeleteMpPick, setBulkDeleteMpPick] = useState([]);
 
     // ── Delete Confirm Modal State ──
-    const [deleteConfirm, setDeleteConfirm] = useState(null);       // { id, name, platforms: [] }
+    const [deleteConfirm, setDeleteConfirm] = useState(null);       // { id, name, platforms, selectedForRemoval, localOnly }
     const [deleteLoading, setDeleteLoading] = useState(false);
     const [deleteResult, setDeleteResult] = useState(null);         // { success, msg, mpResults: [] }
 
@@ -309,6 +317,65 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
     useEffect(() => { loadDashboard(); }, []); // eslint-disable-line
 
     const loadLogs = useCallback(async () => { setLogsLoading(true); try { const r = await getSyncLogs({ limit: 40 }); setSyncLogs(r.logs || []); } catch {} finally { setLogsLoading(false); } }, []);
+
+    const formatSyncEta = (sec) => {
+        if (sec == null || Number.isNaN(Number(sec))) return "—";
+        const s = Math.max(0, Math.round(Number(sec)));
+        if (s < 60) return `~${s} sn`;
+        if (s < 3600) return `~${Math.ceil(s / 60)} dk`;
+        return `~${Math.ceil(s / 3600)} sa`;
+    };
+
+    const startSyncJobPoll = useCallback((jobId, title, kind) => {
+        const poll = async () => {
+            try {
+                const data = await getSyncJobStatus(jobId);
+                const j = data.job;
+                setSyncProgress({
+                    title,
+                    jobId,
+                    status: j.status,
+                    progressPercent: typeof j.progressPercent === "number" ? j.progressPercent : 0,
+                    message: j.message || "",
+                    etaSeconds: j.etaSeconds,
+                    phase: j.phase
+                });
+                if (j.status === "running") {
+                    syncPollTimerRef.current = setTimeout(poll, 1000);
+                    return;
+                }
+                if (j.status === "completed") {
+                    syncPollTimerRef.current = null;
+                    setSyncProgress(null);
+                    const r = j.result;
+                    if (kind === "auto") {
+                        const n = Array.isArray(r?.results) ? r.results.length : 0;
+                        const ok = Array.isArray(r?.results) ? r.results.filter(x => x.status === "success").length : 0;
+                        showToast(`Oto sync tamamlandı (${ok}/${n} başarılı)`);
+                    } else if (kind === "all") {
+                        showToast(`Toplu çekme bitti — yeni: ${r?.summary?.totalNew ?? 0}, güncellenen: ${r?.summary?.totalUpdated ?? 0}${(r?.summary?.totalErrors > 0) ? ` (${r.summary.totalErrors} platform hatası)` : ""}`);
+                    } else {
+                        showToast(`${r?.stats?.new ?? 0} yeni, ${r?.stats?.updated ?? 0} güncellendi`);
+                    }
+                    loadProducts(0);
+                    loadDashboard();
+                    loadLogs();
+                    return;
+                }
+                syncPollTimerRef.current = null;
+                setSyncProgress(null);
+                showToast(j.error || "İşlem başarısız", "error");
+            } catch (e) {
+                syncPollTimerRef.current = null;
+                setSyncProgress(null);
+                showToast(e.response?.data?.error || e.message || "Durum alınamadı", "error");
+            }
+        };
+        setSyncProgress({ title, jobId, status: "running", progressPercent: 0, message: "Başlatılıyor...", etaSeconds: null });
+        poll();
+    }, [showToast, loadProducts, loadDashboard, loadLogs]);
+
+    useEffect(() => () => { if (syncPollTimerRef.current) clearTimeout(syncPollTimerRef.current); }, []);
 
     const loadUploadMpProducts = useCallback(async (p = 0, s = uploadMpSearch, fp = uploadMpFilterPl, ft = uploadMpFilterType) => {
         setUploadMpLoading(true);
@@ -763,13 +830,23 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
 
     const handleStockUpdate = async (id, stock) => {
         setActionLoading(`s-${id}`);
-        try { await syncStock(id, Number(stock)); showToast(`Stok güncellendi: ${stock}`); loadProducts(page); } catch (e) { showToast("Stok hatası", "error"); }
+        try {
+            await syncStock(id, Number(stock));
+            showToast(`Stok güncellendi: ${stock}`);
+            logUserActivity("marketplace", "Stok güncellendi", `Ürün #${String(id).slice(-8)} → ${stock} adet`, "success", { productId: id, stock: Number(stock) });
+            loadProducts(page);
+        } catch (e) { showToast("Stok hatası", "error"); }
         finally { setActionLoading(""); }
     };
 
     const handlePriceUpdate = async (id, price, listPrice) => {
         setActionLoading(`p-${id}`);
-        try { await syncPrice(id, Number(price), listPrice ? Number(listPrice) : null); showToast(`Fiyat güncellendi: ${fmt(price)}`); loadProducts(page); } catch (e) { showToast("Fiyat hatası", "error"); }
+        try {
+            await syncPrice(id, Number(price), listPrice ? Number(listPrice) : null);
+            showToast(`Fiyat güncellendi: ${fmt(price)}`);
+            logUserActivity("marketplace", "Fiyat güncellendi", `Ürün #${String(id).slice(-8)} → ${fmt(price)}`, "success", { productId: id, price: Number(price) });
+            loadProducts(page);
+        } catch (e) { showToast("Fiyat hatası", "error"); }
         finally { setActionLoading(""); }
     };
 
@@ -861,18 +938,44 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
     const askDelete = (id) => {
         const p = products.find(x => x._id === id) || detail;
         const mp = p?.masterProduct || {};
-        const mappings = (p?.marketplaceMappings || []).filter(m => m.syncStatus !== "error").map(m => m.marketplaceName);
-        setDeleteConfirm({ id, name: mp.name || mp.barcode || "Ürün", platforms: mappings });
+        const platformList = [...new Set((p?.marketplaceMappings || []).map(m => m.marketplaceName).filter(Boolean))];
+        setDeleteConfirm({
+            id,
+            name: mp.name || mp.barcode || "Ürün",
+            platforms: platformList,
+            selectedForRemoval: [...platformList],
+            localOnly: false,
+        });
         setDeleteResult(null);
+    };
+
+    const toggleDeletePlatform = (pl) => {
+        setDeleteConfirm((c) => {
+            if (!c) return c;
+            const has = c.selectedForRemoval.includes(pl);
+            const next = has ? c.selectedForRemoval.filter((x) => x !== pl) : [...c.selectedForRemoval, pl];
+            return { ...c, selectedForRemoval: next };
+        });
     };
 
     // Silme işlemini gerçekleştir
     const executeDelete = async () => {
         if (!deleteConfirm) return;
-        const { id } = deleteConfirm;
+        const { id, platforms, selectedForRemoval, localOnly } = deleteConfirm;
         setDeleteLoading(true); setDeleteResult(null);
         try {
-            const res = await deleteProduct(id, { deleteFromMarketplaces: true });
+            const opts = { deleteFromMarketplaces: !localOnly };
+            if (!localOnly && platforms.length > 0) {
+                if (selectedForRemoval.length === 0) {
+                    showToast("En az bir pazaryeri seçin veya \"sadece yerel sil\" işaretleyin", "error");
+                    setDeleteLoading(false);
+                    return;
+                }
+                const allPicked = platforms.length === selectedForRemoval.length
+                    && platforms.every((pl) => selectedForRemoval.includes(pl));
+                if (!allPicked) opts.platforms = selectedForRemoval;
+            }
+            const res = await deleteProduct(id, opts);
             const mpResults = res.marketplaceResults || [];
             const mpSuccess = mpResults.filter(r => r.status === "success").length;
             const mpError = mpResults.filter(r => r.status === "error").length;
@@ -888,16 +991,36 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
         } finally { setDeleteLoading(false); }
     };
 
+    const syncJobBusy = syncProgress?.status === "running";
+
     const handleSyncFrom = async (mp) => {
-        setActionLoading(`sync-${mp._id}`);
-        try { const r = await syncFromMarketplace(mp._id, mp.marketplaceName); showToast(`${mp.marketplaceName}: ${r.stats?.created || 0} yeni, ${r.stats?.updated || 0} güncellendi`); loadProducts(0); loadDashboard(); } catch (e) { showToast(`Sync hatası`, "error"); }
-        finally { setActionLoading(""); }
+        try {
+            const r = await syncFromMarketplace(mp._id, mp.marketplaceName, { async: true });
+            if (r.jobId) startSyncJobPoll(r.jobId, `${mp.marketplaceName} — ürün çekme`, "single");
+            else showToast("Sunucu iş kimliği döndürmedi", "error");
+        } catch (e) {
+            showToast(e.response?.data?.error || "Senkron başlatılamadı", "error");
+        }
     };
 
     const handleSyncAll = async () => {
-        setActionLoading("sync-all");
-        try { await syncAllMarketplaces(); showToast("Tüm platformlar senkronize edildi"); loadProducts(0); loadDashboard(); } catch { showToast("Toplu sync hatası", "error"); }
-        finally { setActionLoading(""); }
+        try {
+            const r = await syncAllMarketplaces({ async: true });
+            if (r.jobId) startSyncJobPoll(r.jobId, "Tüm platformlar — ürün çekme", "all");
+            else showToast("Sunucu iş kimliği döndürmedi", "error");
+        } catch (e) {
+            showToast(e.response?.data?.error || "Toplu senkron başlatılamadı", "error");
+        }
+    };
+
+    const handleAutoSyncJob = async () => {
+        try {
+            const r = await triggerAutoSync({ async: true });
+            if (r.jobId) startSyncJobPoll(r.jobId, "Otomatik stok senkronu", "auto");
+            else showToast("Sunucu iş kimliği döndürmedi", "error");
+        } catch (e) {
+            showToast(e.response?.data?.error || "Oto sync başlatılamadı", "error");
+        }
     };
 
     const handleDistributeUndistributed = async () => {
@@ -906,6 +1029,13 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
             const r = await distributeUndistributed({});
             const s = r.stats || {};
             showToast(`${s.distributed || 0} ürün dağıtıldı${s.error > 0 ? `, ${s.error} hata` : ""}`);
+            logUserActivity(
+                "marketplace",
+                "Dağıtım (bekleyen ürünler)",
+                `${s.distributed || 0} ürün${s.error > 0 ? `, ${s.error} hata` : ""}`,
+                s.error > 0 ? "warning" : "success",
+                { stats: s }
+            );
             loadProducts(0); loadDashboard();
         } catch (e) { showToast(e.response?.data?.error || "Dağıtım hatası", "error"); }
         finally { setActionLoading(""); }
@@ -914,7 +1044,13 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
     const handleBulkDistribute = async (targets) => {
         if (selected.size === 0) return showToast("Ürün seçin", "error");
         setActionLoading("bulk"); setBulkModal(false);
-        try { await bulkDistributeSelected(Array.from(selected), targets); showToast(`${selected.size} ürün dağıtıldı`); loadProducts(page); setSelected(new Set()); } catch { showToast("Dağıtım hatası", "error"); }
+        try {
+            const ids = Array.from(selected);
+            await bulkDistributeSelected(ids, targets);
+            showToast(`${selected.size} ürün dağıtıldı`);
+            logUserActivity("marketplace", "Toplu dağıtım", `${ids.length} ürün seçilen pazaryerlerine gönderildi`, "success", { count: ids.length, targets });
+            loadProducts(page); setSelected(new Set());
+        } catch { showToast("Dağıtım hatası", "error"); }
         finally { setActionLoading(""); }
     };
 
@@ -1077,8 +1213,8 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
         </div>
     );
 
-    const Pill = ({ color, children }) => (
-        <span className="ud-pm-pill" style={{ background: color + "15", color, border: `1px solid ${color}30` }}>{children}</span>
+    const Pill = ({ color, children, style: pillStyle }) => (
+        <span className="ud-pm-pill" style={{ background: color + "15", color, border: `1px solid ${color}30`, ...pillStyle }}>{children}</span>
     );
 
     /* ═══════════════════════════════════════════════════════════════
@@ -1329,8 +1465,8 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
                 <button className="ud-pm-btn sm green outline" onClick={handleExport} disabled={actionLoading === "export"}>
                     {actionLoading === "export" ? <span className="spinner" /> : <FaFileExcel />} Excel
                 </button>
-                <button className="ud-pm-btn sm accent" onClick={handleSyncAll} disabled={actionLoading === "sync-all"}>
-                    {actionLoading === "sync-all" ? <span className="spinner" /> : <FaSync />} Çek
+                <button className="ud-pm-btn sm accent" onClick={handleSyncAll} disabled={syncJobBusy}>
+                    {syncJobBusy ? <span className="spinner" /> : <FaSync />} Çek
                 </button>
                 <button className="ud-pm-btn sm purple outline" onClick={handleDistributeUndistributed} disabled={actionLoading === "dist-undist"}
                     title="Platformlarda eksik olan ürünleri otomatik dağıt">
@@ -1555,9 +1691,9 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
                         <p>Düzenlemek veya yüklemek için soldan bir ürün seçin.</p>
                     </div>
                 ) : (
-                    <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
+                    <div style={{ height: "100%", minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
                         {/* Üst Bilgi */}
-                        <div style={{ padding: 20, borderBottom: "1px solid var(--ud-pm-border)", display: "flex", justifyContent: "space-between", alignItems: "flex-start", background: "rgba(255,255,255,0.02)" }}>
+                        <div style={{ flexShrink: 0, padding: 20, borderBottom: "1px solid var(--ud-pm-border)", display: "flex", justifyContent: "space-between", alignItems: "flex-start", background: "rgba(255,255,255,0.02)" }}>
                             <div style={{ display: "flex", gap: 15 }}>
                                 <div style={{ width: 80, height: 80, borderRadius: 8, overflow: "hidden", border: "1px solid var(--ud-pm-border)", background: "#fff" }}>
                                     {uploadMpProduct.masterProduct?.images?.[0] ? <img src={uploadMpProduct.masterProduct.images[0]} style={{ width: "100%", height: "100%", objectFit: "contain" }} alt="" /> : <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "#ccc" }}><FaImage size={24} /></div>}
@@ -1574,8 +1710,9 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
                             <button className="ud-pm-btn sm outline" onClick={() => openDetail(uploadMpProduct._id)}><FaBolt /> Tüm Bilgiler</button>
                         </div>
 
-                        {/* Pazaryeri Listesi */}
-                        <div style={{ flex: 1, overflowY: "auto", padding: 20 }}>
+                        {/* Pazaryeri listesi + kategori: kategori seçilince dikey alan bölünür */}
+                        <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+                            <div style={{ flexShrink: 0, padding: "16px 20px 12px", maxHeight: uploadMpSelectedPlatform ? "min(38vh, 400px)" : "none", overflowY: uploadMpSelectedPlatform ? "auto" : "visible" }}>
                             <h3 style={{ fontSize: 14, marginBottom: 15, display: "flex", alignItems: "center", gap: 8, color: "var(--ud-pm-text)" }}><FaStore /> Satış Platformları</h3>
                             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 15 }}>
                                 {marketplaces.map(mp => {
@@ -1634,11 +1771,12 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
                                     );
                                 })}
                             </div>
+                            </div>
 
                             {/* Kategori Seçim Alanı */}
                             {uploadMpSelectedPlatform && (
-                                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} style={{ marginTop: 30, borderTop: "1px solid var(--ud-pm-border)", paddingTop: 20 }}>
-                                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 15 }}>
+                                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden", marginTop: 8, borderTop: "1px solid var(--ud-pm-border)", padding: "12px 20px 20px" }}>
+                                    <div style={{ flexShrink: 0, display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 15 }}>
                                         <h3 style={{ fontSize: 14, margin: 0, display: "flex", alignItems: "center", gap: 8, color: "var(--ud-pm-text)" }}>
                                             <FaSitemap color={PL_COLOR[uploadMpSelectedPlatform]} /> {uploadMpSelectedPlatform} Kategori Seçimi
                                         </h3>
@@ -1648,7 +1786,7 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
                                     </div>
 
                                     {/* Mevcut Kategori / Breadcrumb */}
-                                    <div className="ud-pm-cat-breadcrumb-container">
+                                    <div className="ud-pm-cat-breadcrumb-container" style={{ flexShrink: 0 }}>
                                         <div className="ud-pm-cat-breadcrumb-title">
                                             <FaFolderOpen /> Kategori Yolu:
                                         </div>
@@ -1689,7 +1827,7 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
                                     </div>
 
                                     {/* Arama */}
-                                    <div className="ud-pm-field" style={{ marginBottom: 15 }}>
+                                    <div className="ud-pm-field" style={{ flexShrink: 0, marginBottom: 12 }}>
                                         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
                                             <label style={{ margin: 0 }}>Kategori Ara <small>(En az 2 harf)</small></label>
                                             <button className="ud-pm-btn sm outline" onClick={resetUploadMpCategoryState}>
@@ -1714,7 +1852,7 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
                                     </div>
 
                                     {/* Sonuçlar veya Ağaç */}
-                                    <div className="ud-pm-cat-results" style={{ maxHeight: 500, overflowY: "auto" }}>
+                                    <div className="ud-pm-cat-results ud-pm-upload-mp-cat-scroll" style={{ flex: 1, minHeight: 0 }}>
                                         {uploadMpCatSearch.length >= 2 ? (
                                             /* Arama Sonuçları */
                                             uploadMpCatResults.length > 0 ? (
@@ -1750,7 +1888,7 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
                                     </div>
 
                                     {/* Gönderim Butonu */}
-                                    <div style={{ marginTop: 25, display: "flex", justifyContent: "flex-end", gap: 10 }}>
+                                    <div style={{ marginTop: 16, flexShrink: 0, display: "flex", justifyContent: "flex-end", gap: 10 }}>
                                         <button className="ud-pm-btn outline" onClick={() => { setUploadMpSelectedPlatform(null); resetUploadMpCategoryState(); }}>Vazgeç</button>
                                         {!normalizeUploadCategory(uploadMpSelectedCategory) && (
                                             <div style={{ alignSelf: "center", color: "var(--ud-pm-yellow)", fontSize: 11, marginRight: 6 }}>
@@ -2431,8 +2569,8 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
                             </div>
                         </div>
                         <button className="ud-pm-btn" style={{ width: "100%", justifyContent: "center", background: PL_COLOR[mp.marketplaceName] || "var(--ud-pm-accent)" }}
-                            onClick={() => handleSyncFrom(mp)} disabled={actionLoading === `sync-${mp._id}`}>
-                            {actionLoading === `sync-${mp._id}` ? <span className="spinner" /> : <FaSync />} Ürün Çek
+                            onClick={() => handleSyncFrom(mp)} disabled={syncJobBusy}>
+                            <FaSync /> Ürün Çek
                         </button>
                     </div>
                 ))}
@@ -2442,13 +2580,13 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
                         <div><div className="mp-name">Tüm Platformlar</div><div className="mp-status">Toplu senkâronizasyon</div></div>
                     </div>
                     <div style={{ display: "flex", gap: 6 }}>
-                        <button className="ud-pm-btn accent" style={{ flex: 1, justifyContent: "center" }} onClick={handleSyncAll} disabled={actionLoading === "sync-all"}>
-                            {actionLoading === "sync-all" ? <span className="spinner" /> : <FaSync />} Tümünü Çek
+                        <button className="ud-pm-btn accent" style={{ flex: 1, justifyContent: "center" }} onClick={handleSyncAll} disabled={syncJobBusy}>
+                            <FaSync /> Tümünü Çek
                         </button>
                         <button className="ud-pm-btn purple" style={{ flex: 1, justifyContent: "center" }}
-                            onClick={async () => { setActionLoading("auto"); try { await triggerAutoSync(); showToast("Oto sync tamamlandı"); loadProducts(page); } catch { showToast("Hata", "error"); } finally { setActionLoading(""); } }}
-                            disabled={actionLoading === "auto"}>
-                            {actionLoading === "auto" ? <span className="spinner" /> : <FaBolt />} Oto Sync
+                            onClick={handleAutoSyncJob}
+                            disabled={syncJobBusy}>
+                            <FaBolt /> Oto Sync
                         </button>
                     </div>
                 </div>
@@ -2497,12 +2635,11 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
                     onClick={() => { if (!distActionLoading && !distCenterLoading) closeDistFlow(); }}
                 >
                     <motion.div
-                        className="ud-pm-modal ud-pm-dist-modal"
+                        className={`ud-pm-modal ud-pm-dist-modal ud-pm-dist-modal--${phase}`}
                         initial={{ scale: 0.94, y: 16 }}
                         animate={{ scale: 1, y: 0 }}
                         exit={{ scale: 0.94, y: 16 }}
                         onClick={(e) => e.stopPropagation()}
-                        style={{ maxWidth: phase === "search" ? 560 : 480 }}
                     >
                         <div className="ud-pm-modal-header" style={{ marginBottom: 14 }}>
                             <div className="product-info" style={{ alignItems: "flex-start" }}>
@@ -2553,7 +2690,7 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
                                     <span className="search-spinner">{distLoadingSearch ? <FaSpinner className="ud-pm-spin" /> : null}</span>
                                 </div>
                                 {distResults.length > 0 && (
-                                    <div className="ud-pm-cat-results" style={{ maxHeight: 160, marginBottom: 10 }}>
+                                    <div className="ud-pm-cat-results ud-pm-dist-cat-results">
                                         {distResults.map((cat) => (
                                             <div
                                                 key={String(cat.id)}
@@ -2568,7 +2705,7 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
                                 )}
                                 {distLoadingTree ? <div className="ud-pm-cat-loading"><FaSpinner className="spin" /> Yükleniyor...</div>
                                     : (
-                                        <div className="ud-pm-cat-tree-container" style={{ maxHeight: 280, overflowY: "auto" }}>
+                                        <div className="ud-pm-cat-tree-container ud-pm-dist-cat-tree">
                                             {distTree.length ? distTree.map((c) => renderDistCategoryNode(c, 0, []))
                                                 : <div style={{ fontSize: 12, color: "var(--ud-pm-text-dim)" }}>Kategori bulunamadı.</div>}
                                         </div>
@@ -2727,6 +2864,108 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
                                         <div style={{ color: "var(--ud-pm-text-sub)", fontSize: 11, lineHeight: 1.6, background: "var(--ud-pm-glass)", borderRadius: 8, padding: "10px 12px", maxHeight: 120, overflowY: "auto", whiteSpace: "pre-wrap" }}>{mp.description}</div>
                                     </div>
                                 )}
+
+                                {Array.isArray(p.categoryFieldOverview) && p.categoryFieldOverview.length > 0 && (
+                                    <div style={{ marginBottom: 16 }}>
+                                        <div style={{ color: "var(--ud-pm-text)", fontSize: 13, fontWeight: 700, marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}>
+                                            <FaClipboardList style={{ color: "var(--ud-pm-accent)" }} /> Kategori gereksinimleri
+                                        </div>
+                                        <div style={{ fontSize: 11, color: "var(--ud-pm-text-dim)", marginBottom: 10, lineHeight: 1.5 }}>
+                                            Her pazaryerinin <strong>kategori şeması</strong> ile ürün kaydındaki değerler birleştirilir (marka, renk, boyut, tablo alanları vb.). Zorunlu satırlar üstte listelenir.
+                                        </div>
+                                        {p.categoryFieldOverview.map((block, bi) => {
+                                            const pl = block.marketplace || "";
+                                            const plColor = PL_COLOR[pl] || "var(--ud-pm-accent)";
+                                            const attrs = Array.isArray(block.attributes) ? block.attributes : [];
+                                            return (
+                                                <div
+                                                    key={`${pl}-${block.categoryId || bi}`}
+                                                    style={{
+                                                        marginBottom: 12,
+                                                        borderRadius: 10,
+                                                        border: "1px solid var(--ud-pm-glass-border)",
+                                                        background: "var(--ud-pm-glass)",
+                                                        overflow: "hidden"
+                                                    }}
+                                                >
+                                                    <div style={{ padding: "8px 10px", borderBottom: "1px solid var(--ud-pm-glass-border)", display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
+                                                        <span style={{ fontWeight: 700, fontSize: 12, color: plColor }}>{pl}</span>
+                                                        {block.categoryId != null && (
+                                                            <Pill color="var(--ud-pm-text-dim)" style={{ fontSize: 10 }}>Kat. ID: {block.categoryId}</Pill>
+                                                        )}
+                                                        {block.categoryName && (
+                                                            <span style={{ fontSize: 11, color: "var(--ud-pm-text-sub)", flex: "1 1 140px" }}>{block.categoryName}</span>
+                                                        )}
+                                                        {block.syncStatus && (
+                                                            <Pill color="var(--ud-pm-text-dim)" style={{ fontSize: 10 }}>{block.syncStatus}</Pill>
+                                                        )}
+                                                    </div>
+                                                    <div style={{ padding: "8px 10px" }}>
+                                                        {block.skipped && block.message && (
+                                                            <div style={{ fontSize: 11, color: "var(--ud-pm-text-dim)" }}>{block.message}</div>
+                                                        )}
+                                                        {block.error && (
+                                                            <div style={{ fontSize: 11, color: "var(--ud-pm-red)", marginBottom: 6 }}>{block.error}</div>
+                                                        )}
+                                                        {!block.skipped && !block.error && attrs.length === 0 && (
+                                                            <div style={{ fontSize: 11, color: "var(--ud-pm-text-dim)" }}>Bu kategori için özellik listesi boş döndü.</div>
+                                                        )}
+                                                        {attrs.length > 0 && (
+                                                            <div style={{ maxHeight: 280, overflow: "auto" }}>
+                                                                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                                                                    <thead>
+                                                                        <tr style={{ textAlign: "left", color: "var(--ud-pm-text-dim)", borderBottom: "1px solid var(--ud-pm-glass-border)" }}>
+                                                                            <th style={{ padding: "6px 4px", fontWeight: 700 }}>Özellik</th>
+                                                                            <th style={{ padding: "6px 4px", fontWeight: 700, width: 56 }}>Zorunlu</th>
+                                                                            <th style={{ padding: "6px 4px", fontWeight: 700 }}>Mevcut değer</th>
+                                                                            <th style={{ padding: "6px 4px", fontWeight: 700 }}>Örnek / liste</th>
+                                                                        </tr>
+                                                                    </thead>
+                                                                    <tbody>
+                                                                        {attrs.map((row, ri) => {
+                                                                            const sample = (row.valueSample || []).map((v) => v.name).filter(Boolean).slice(0, 4).join(", ");
+                                                                            const more =
+                                                                                row.valueTotal > (row.valueSample || []).length
+                                                                                    ? ` (+${row.valueTotal - (row.valueSample || []).length})`
+                                                                                    : row.valueTotal > 4 && sample
+                                                                                      ? ` (+${row.valueTotal - 4})`
+                                                                                      : "";
+                                                                            return (
+                                                                                <tr
+                                                                                    key={`${row.attributeId ?? "a"}-${row.name}-${ri}`}
+                                                                                    style={{
+                                                                                        borderBottom: "1px solid rgba(128,128,128,0.08)",
+                                                                                        background: row.required ? "rgba(245,158,11,0.04)" : "transparent"
+                                                                                    }}
+                                                                                >
+                                                                                    <td style={{ padding: "6px 4px", color: "var(--ud-pm-text)", fontWeight: row.required ? 600 : 500 }}>
+                                                                                        {row.name || row.attributeId || "—"}
+                                                                                        {row.variant ? <span style={{ color: "var(--ud-pm-purple)", fontWeight: 600, marginLeft: 4 }}>varyant</span> : null}
+                                                                                        {row.type ? <div style={{ fontSize: 9, color: "var(--ud-pm-text-dim)", fontWeight: 400 }}>{row.type}</div> : null}
+                                                                                    </td>
+                                                                                    <td style={{ padding: "6px 4px", color: row.required ? "var(--ud-pm-yellow)" : "var(--ud-pm-text-dim)" }}>
+                                                                                        {row.required ? "Evet" : "—"}
+                                                                                    </td>
+                                                                                    <td style={{ padding: "6px 4px", color: row.currentValue ? "var(--ud-pm-green)" : "var(--ud-pm-red)", wordBreak: "break-word" }}>
+                                                                                        {row.currentValue || "—"}
+                                                                                    </td>
+                                                                                    <td style={{ padding: "6px 4px", color: "var(--ud-pm-text-sub)", wordBreak: "break-word" }}>
+                                                                                        {sample || "—"}
+                                                                                        {more}
+                                                                                    </td>
+                                                                                </tr>
+                                                                            );
+                                                                        })}
+                                                                    </tbody>
+                                                                </table>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
                             </>
                         )}
                     </motion.div>
@@ -2740,7 +2979,7 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
        ═══════════════════════════════════════════════════════════════ */
     const renderDeleteConfirmModal = () => {
         if (!deleteConfirm) return null;
-        const { name, platforms } = deleteConfirm;
+        const { name, platforms, selectedForRemoval, localOnly } = deleteConfirm;
         const hasPlatforms = platforms.length > 0;
 
         return ReactDOM.createPortal(
@@ -2790,20 +3029,41 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
                                     </div>
                                 </div>
 
-                                {hasPlatforms && (
+                                <label style={{
+                                    display: "flex", alignItems: "center", gap: 8, cursor: "pointer", marginBottom: 12,
+                                    padding: "10px 12px", borderRadius: 10, border: "1px solid var(--ud-pm-glass-border)", background: "var(--ud-pm-glass)",
+                                }}>
+                                    <input
+                                        type="checkbox"
+                                        className="ud-pm-checkbox"
+                                        checked={!!localOnly}
+                                        onChange={(e) => setDeleteConfirm((c) => (c ? { ...c, localOnly: e.target.checked } : c))}
+                                    />
+                                    <span style={{ color: "var(--ud-pm-text)", fontSize: 12, fontWeight: 600 }}>Sadece yerel kaydı sil (pazaryerlerine dokunma)</span>
+                                </label>
+
+                                {hasPlatforms && !localOnly && (
                                     <div style={{ background: "var(--ud-pm-glass)", border: "1px solid var(--ud-pm-glass-border)", borderRadius: 10, padding: "12px 14px", marginBottom: 14 }}>
                                         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
                                             <FaGlobe style={{ color: "var(--ud-pm-red)", fontSize: 14 }} />
-                                            <div style={{ color: "var(--ud-pm-text)", fontSize: 13, fontWeight: 700 }}>Tüm pazaryerlerinden kaldırılacak</div>
+                                            <div style={{ color: "var(--ud-pm-text)", fontSize: 13, fontWeight: 700 }}>Pazaryerlerinden kaldır</div>
                                         </div>
-                                        <div style={{ color: "var(--ud-pm-text-dim)", fontSize: 11, marginBottom: 8, lineHeight: 1.5 }}>
-                                            Ürün aşağıdaki platformlardan tamamen silinecek veya stok 0'a çekilecek:
+                                        <div style={{ color: "var(--ud-pm-text-dim)", fontSize: 11, marginBottom: 10, lineHeight: 1.5 }}>
+                                            İşaretli platformlarda stok 0 / arşiv / silme uygulanır (platform kurallarına göre). Tümünü seçili bırakmak = ürünün olduğu her yer.
                                         </div>
-                                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                                        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                                             {platforms.map(pl => (
-                                                <span key={pl} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 10px", borderRadius: 6, fontSize: 11, fontWeight: 600, background: `${PL_COLOR[pl] || "var(--ud-pm-accent)"}18`, color: PL_COLOR[pl] || "var(--ud-pm-accent)", border: `1px solid ${PL_COLOR[pl] || "var(--ud-pm-accent)"}30` }}>
-                                                    <FaStore style={{ fontSize: 9 }} /> {pl}
-                                                </span>
+                                                <label key={pl} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 12, color: "var(--ud-pm-text)" }}>
+                                                    <input
+                                                        type="checkbox"
+                                                        className="ud-pm-checkbox"
+                                                        checked={selectedForRemoval.includes(pl)}
+                                                        onChange={() => toggleDeletePlatform(pl)}
+                                                    />
+                                                    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontWeight: 600 }}>
+                                                        <FaStore style={{ fontSize: 10, color: PL_COLOR[pl] || "var(--ud-pm-accent)" }} /> {pl}
+                                                    </span>
+                                                </label>
                                             ))}
                                         </div>
                                     </div>
@@ -2812,7 +3072,7 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
                                 {!hasPlatforms && (
                                     <div style={{ background: "rgba(78,205,196,0.06)", border: "1px solid rgba(78,205,196,0.15)", borderRadius: 10, padding: "10px 14px", marginBottom: 14, display: "flex", alignItems: "center", gap: 8 }}>
                                         <FaInfoCircle style={{ color: "var(--ud-pm-accent)", fontSize: 14, flexShrink: 0 }} />
-                                        <span style={{ color: "var(--ud-pm-text-sub)", fontSize: 12 }}>Bu ürün hiçbir pazaryerine dağıtılmamış. Sİadece yerel kayıt silinecek.</span>
+                                        <span style={{ color: "var(--ud-pm-text-sub)", fontSize: 12 }}>Bu ürün hiçbir pazaryerine dağıtılmamış. Sadece yerel kayıt silinecek.</span>
                                     </div>
                                 )}
 
@@ -2831,7 +3091,7 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
                                     <button className="ud-pm-btn red" style={{ flex: 1, justifyContent: "center" }}
                                         onClick={executeDelete} disabled={deleteLoading}>
                                         {deleteLoading ? <span className="spinner" /> : <FaTrash />}
-                                        {hasPlatforms ? "Her Yerden Sil" : "Sil"}
+                                        {localOnly ? "Yerel Sil" : hasPlatforms ? "Sil (pazaryeri + yerel)" : "Sil"}
                                     </button>
                                 </div>
                             </>
@@ -2881,13 +3141,31 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
         finally { setBulkActionLoading(false); }
     };
 
+    const toggleBulkDeleteMpPick = (mpName) => {
+        setBulkDeleteMpPick((prev) => (prev.includes(mpName) ? prev.filter((x) => x !== mpName) : [...prev, mpName]));
+    };
+
     const handleBulkDelete = async () => {
         if (bulkSelected.size === 0) return showToast("Ürün seçin", "error");
-        const confirmMsg = `${bulkSelected.size} ürünü silmek ve tüm pazaryerlerinden kaldırmak istediğinize emin misiniz?\nBu işlem geri alınamaz!`;
+        if (!bulkDeleteLocalOnly && bulkDeleteMpScope === "pick") {
+            if (bulkDeleteMpPick.length === 0) return showToast("En az bir pazaryeri seçin veya \"Tüm pazaryerler\" moduna dönün", "error");
+        }
+        let confirmMsg = `${bulkSelected.size} ürün kalıcı silinecek. Bu işlem geri alınamaz!`;
+        if (bulkDeleteLocalOnly) {
+            confirmMsg = `${bulkSelected.size} ürün yalnızca program kaydından silinsin mi?\nPazaryeri listelerinizde ürün kalır.`;
+        } else if (bulkDeleteMpScope === "pick") {
+            confirmMsg = `${bulkSelected.size} ürün silinsin; pazaryerinden kaldırma yalnızca şunlar için uygulansın mı?\n${bulkDeleteMpPick.join(", ")}\n\nYerel kayıt da silinir. Geri alınamaz!`;
+        } else {
+            confirmMsg = `${bulkSelected.size} ürün silinecek ve ürünün bulunduğu tüm pazaryerlerinden kaldırılacak.\nBu işlem geri alınamaz!`;
+        }
         if (!window.confirm(confirmMsg)) return;
         setBulkActionLoading(true); setBulkResult(null);
         try {
-            const r = await bulkDeleteProducts(Array.from(bulkSelected), { deleteFromMarketplaces: true });
+            const opts = { deleteFromMarketplaces: !bulkDeleteLocalOnly };
+            if (!bulkDeleteLocalOnly && bulkDeleteMpScope === "pick" && bulkDeleteMpPick.length > 0) {
+                opts.platforms = bulkDeleteMpPick;
+            }
+            const r = await bulkDeleteProducts(Array.from(bulkSelected), opts);
             const mpStats = r.marketplaceStats || {};
             setBulkResult({ type: "delete", deletedCount: r.deletedCount, mpSuccess: mpStats.success || 0, mpError: mpStats.error || 0, fromMP: true });
             showToast(r.message); setBulkSelected(new Set()); loadBulkProducts(0); loadDashboard();
@@ -3011,7 +3289,16 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
                             {actions.map(a => (
                                 <button key={a.id} className={`ud-pm-bulk-action-btn ${bulkAction === a.id ? "active" : ""}`}
                                     style={bulkAction === a.id ? { background: `${a.color}12`, borderColor: a.color } : {}}
-                                    onClick={() => { setBulkAction(bulkAction === a.id ? "" : a.id); setBulkResult(null); }}>
+                                    onClick={() => {
+                                        setBulkResult(null);
+                                        const next = bulkAction === a.id ? "" : a.id;
+                                        if (next === "delete") {
+                                            setBulkDeleteLocalOnly(false);
+                                            setBulkDeleteMpScope("all");
+                                            setBulkDeleteMpPick([]);
+                                        }
+                                        setBulkAction(next);
+                                    }}>
                                     <span className="action-icon" style={{ color: bulkAction === a.id ? a.color : "var(--ud-pm-text-sub)" }}>{a.icon}</span>
                                     <div>
                                         <div className="action-label" style={bulkAction === a.id ? { color: a.color } : {}}>{a.label}</div>
@@ -3150,12 +3437,52 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
                                     <div className="ud-pm-delete-warning">
                                         <strong style={{ color: "var(--ud-pm-red)" }}>{bulkSelected.size} ürün</strong> kalıcı olarak silinecek. Bu işlem geri alınamaz!
                                     </div>
-                                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, fontSize: 11, color: "var(--ud-pm-text-sub)" }}>
-                                        <FaGlobe style={{ color: "var(--ud-pm-red)", fontSize: 13 }} />
-                                        Ürünler tüm pazaryerlerinden de kaldırılacak <span style={{ opacity: 0.6 }}>(stok 0'a çekilir / silinir)</span>
-                                    </div>
+                                    <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", marginBottom: 10, fontSize: 11, color: "var(--ud-pm-text-sub)" }}>
+                                        <input type="checkbox" className="ud-pm-checkbox" checked={bulkDeleteLocalOnly} onChange={(e) => setBulkDeleteLocalOnly(e.target.checked)} />
+                                        Sadece yerel kayıt sil (pazaryerlerine dokunma)
+                                    </label>
+                                    {!bulkDeleteLocalOnly && (
+                                        <>
+                                            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--ud-pm-text)", marginBottom: 6 }}>Pazaryeri kapsamı</div>
+                                            <div className="ud-pm-mode-group" style={{ marginBottom: 10 }}>
+                                                <button type="button" className={`ud-pm-mode-btn ${bulkDeleteMpScope === "all" ? "active" : ""}`}
+                                                    style={bulkDeleteMpScope === "all" ? { color: "var(--ud-pm-red)", borderColor: "var(--ud-pm-red)", background: "rgba(239,68,68,0.08)" } : {}}
+                                                    onClick={() => setBulkDeleteMpScope("all")}>
+                                                    <FaGlobe style={{ fontSize: 10 }} /> Tümü (ürünün olduğu her pazaryeri)
+                                                </button>
+                                                <button type="button" className={`ud-pm-mode-btn ${bulkDeleteMpScope === "pick" ? "active" : ""}`}
+                                                    style={bulkDeleteMpScope === "pick" ? { color: "var(--ud-pm-red)", borderColor: "var(--ud-pm-red)", background: "rgba(239,68,68,0.08)" } : {}}
+                                                    onClick={() => setBulkDeleteMpScope("pick")}>
+                                                    Seçili pazaryerleri
+                                                </button>
+                                            </div>
+                                            {bulkDeleteMpScope === "pick" && (
+                                                <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12, maxHeight: 160, overflowY: "auto" }}>
+                                                    {(marketplaces.length ? marketplaces : []).map((mp) => {
+                                                        const n = mp.marketplaceName;
+                                                        return (
+                                                            <label key={mp._id || n} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 11, color: "var(--ud-pm-text)" }}>
+                                                                <input type="checkbox" className="ud-pm-checkbox" checked={bulkDeleteMpPick.includes(n)} onChange={() => toggleBulkDeleteMpPick(n)} />
+                                                                <FaStore style={{ fontSize: 9, color: PL_COLOR[n] || "var(--ud-pm-accent)" }} /> {n}
+                                                            </label>
+                                                        );
+                                                    })}
+                                                    {marketplaces.length === 0 && (
+                                                        <span style={{ fontSize: 10, color: "var(--ud-pm-text-dim)" }}>Entegrasyon listesi yüklenemedi; yine de silme yerelde çalışır.</span>
+                                                    )}
+                                                </div>
+                                            )}
+                                            {bulkDeleteMpScope === "all" && (
+                                                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, fontSize: 11, color: "var(--ud-pm-text-sub)" }}>
+                                                    <FaGlobe style={{ color: "var(--ud-pm-red)", fontSize: 13 }} />
+                                                    Her ürün için eşleşen tüm pazaryerlerinden kaldırılır <span style={{ opacity: 0.6 }}>(stok 0 / arşiv / silme)</span>
+                                                </div>
+                                            )}
+                                        </>
+                                    )}
                                     <button className="ud-pm-btn red" style={{ width: "100%", justifyContent: "center" }} onClick={handleBulkDelete} disabled={bulkSelected.size === 0 || bulkActionLoading}>
-                                        {bulkActionLoading ? <span className="spinner" /> : <FaTrash />} {bulkSelected.size} Ürünü Her Yerden Sil
+                                        {bulkActionLoading ? <span className="spinner" /> : <FaTrash />}
+                                        {bulkDeleteLocalOnly ? ` ${bulkSelected.size} Ürünü Yerel Sil` : ` ${bulkSelected.size} Ürünü Sil`}
                                     </button>
                                 </div>
                             </motion.div>
@@ -3477,6 +3804,52 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
 
             {/* Delete Confirm Modal */}
             {renderDeleteConfirmModal()}
+
+            {ReactDOM.createPortal(
+                <AnimatePresence>
+                    {syncProgress?.status === "running" && (
+                        <motion.div
+                            className="ud-pm-modal-overlay"
+                            style={{ zIndex: 10050 }}
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                        >
+                            <motion.div
+                                className="ud-pm-modal"
+                                initial={{ scale: 0.96, opacity: 0 }}
+                                animate={{ scale: 1, opacity: 1 }}
+                                exit={{ scale: 0.96, opacity: 0 }}
+                                onClick={(e) => e.stopPropagation()}
+                                style={{
+                                    width: "min(96vw, 440px)",
+                                    padding: 24,
+                                    border: "1px solid var(--ud-pm-border)",
+                                }}
+                            >
+                                <h3 style={{ margin: "0 0 14px", fontSize: 16, fontWeight: 800, display: "flex", alignItems: "center", gap: 10 }}>
+                                    <span className="spinner" aria-hidden />
+                                    {syncProgress.title}
+                                </h3>
+                                <div style={{ height: 10, borderRadius: 6, background: "var(--ud-pm-glass)", overflow: "hidden", marginBottom: 12 }}>
+                                    <div style={{
+                                        height: "100%",
+                                        width: `${Math.min(100, Math.max(0, Number(syncProgress.progressPercent) || 0))}%`,
+                                        background: "linear-gradient(90deg, var(--ud-pm-accent), var(--ud-pm-purple))",
+                                        transition: "width 0.35s ease",
+                                    }} />
+                                </div>
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12, color: "var(--ud-pm-text-sub)", marginBottom: 10, gap: 12, flexWrap: "wrap" }}>
+                                    <span style={{ fontWeight: 700 }}>%{Math.round(Math.min(100, Math.max(0, Number(syncProgress.progressPercent) || 0)))}</span>
+                                    <span>Tahmini kalan: <strong style={{ color: "var(--ud-pm-text)" }}>{formatSyncEta(syncProgress.etaSeconds)}</strong></span>
+                                </div>
+                                <p style={{ margin: 0, fontSize: 12, color: "var(--ud-pm-text-dim)", lineHeight: 1.55 }}>{syncProgress.message || "…"}</p>
+                            </motion.div>
+                        </motion.div>
+                    )}
+                </AnimatePresence>,
+                document.body
+            )}
 
             {/* Toast */}
             <AnimatePresence>

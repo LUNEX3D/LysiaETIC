@@ -36,6 +36,11 @@ const {
     amazonWebhook,
     webhookHealth
 } = require("../controllers/webhookController");
+const {
+    webhookRateLimiter,
+    verifyWebhookToken,
+    verifyWebhookSignature,
+} = require("../middlewares/webhookSecurity");
 
 // ─── Health Check ──────────────────────────────────────────────────────────────
 // GET /api/webhooks/health — Webhook endpoint'lerinin aktif olduğunu doğrula
@@ -43,26 +48,62 @@ router.get("/health", webhookHealth);
 
 // ─── Trendyol Webhook ──────────────────────────────────────────────────────────
 // POST /api/webhooks/trendyol — Trendyol sipariş bildirimi
-router.post("/trendyol", trendyolWebhook);
+router.post(
+    "/trendyol",
+    webhookRateLimiter,
+    verifyWebhookToken("TRENDYOL"),
+    verifyWebhookSignature("TRENDYOL"),
+    trendyolWebhook
+);
 
 // ─── N11 Webhook ───────────────────────────────────────────────────────────────
 // POST /api/webhooks/n11 — N11 sipariş bildirimi
-router.post("/n11", n11Webhook);
+router.post(
+    "/n11",
+    webhookRateLimiter,
+    verifyWebhookToken("N11"),
+    verifyWebhookSignature("N11"),
+    n11Webhook
+);
 
 // ─── Hepsiburada Webhook ───────────────────────────────────────────────────────
 // POST /api/webhooks/hepsiburada — Hepsiburada paket/sipariş bildirimi
-router.post("/hepsiburada", hepsiburadaWebhook);
+router.post(
+    "/hepsiburada",
+    webhookRateLimiter,
+    verifyWebhookToken("HEPSIBURADA"),
+    verifyWebhookSignature("HEPSIBURADA"),
+    hepsiburadaWebhook
+);
 
 // ─── ÇiçekSepeti Webhook ──────────────────────────────────────────────────────
 // POST /api/webhooks/ciceksepeti — ÇiçekSepeti sipariş bildirimi
-router.post("/ciceksepeti", ciceksepetiWebhook);
+router.post(
+    "/ciceksepeti",
+    webhookRateLimiter,
+    verifyWebhookToken("CICEKSEPETI"),
+    verifyWebhookSignature("CICEKSEPETI"),
+    ciceksepetiWebhook
+);
 
 // ─── Noon Webhook ─────────────────────────────────────────────────────────────
 // POST /api/webhooks/noon — Noon (Orta Doğu) sipariş bildirimi
-router.post("/noon", noonWebhook);
+router.post(
+    "/noon",
+    webhookRateLimiter,
+    verifyWebhookToken("NOON"),
+    verifyWebhookSignature("NOON"),
+    noonWebhook
+);
 
 // ─── Amazon Webhook ───────────────────────────────────────────────────────────
 // POST /api/webhooks/amazon — Amazon SP-API bildirimi
-router.post("/amazon", amazonWebhook);
+router.post(
+    "/amazon",
+    webhookRateLimiter,
+    verifyWebhookToken("AMAZON"),
+    verifyWebhookSignature("AMAZON"),
+    amazonWebhook
+);
 
 module.exports = router;

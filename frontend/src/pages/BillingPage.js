@@ -63,6 +63,9 @@ const BillingPage = () => {
 
     // ── Sekmeler ──
     const [activeTab, setActiveTab] = useState("overview");
+    /** QNB sağlayıcı kartındaki “Ayarlar” → Otomatik Fatura formunu açmak için artan sayaç */
+    const [autoInvoiceSettingsTick, setAutoInvoiceSettingsTick] = useState(0);
+    const [providerSettingsHint, setProviderSettingsHint] = useState("");
 
     // ── Modallar ──
     const [showCreateModal, setShowCreateModal] = useState(false);
@@ -289,7 +292,7 @@ const BillingPage = () => {
                             <EmptyState
                                 icon="📭"
                                 title="Henüz belge yok"
-                                description="Sağlayıcınızda kayıtlıı belge bulunamadı."
+                                description="Sağlayıcınızda kayıtlı belge bulunamadı."
                             />
                         )}
                     </motion.div>
@@ -341,7 +344,12 @@ const BillingPage = () => {
                 );
 
             case "auto-invoice":
-                return <AutoInvoicePanel autoInvoice={autoInvoice} />;
+                return (
+                    <AutoInvoicePanel
+                        autoInvoice={autoInvoice}
+                        settingsRequestTick={autoInvoiceSettingsTick}
+                    />
+                );
 
             case "analysis":
                 if (!providers.isConnected) return renderNoConnection();
@@ -366,6 +374,17 @@ const BillingPage = () => {
                         onConnect={providers.connect}
                         onDisconnect={providers.disconnect}
                         onClearError={providers.clearError}
+                        onOpenProviderSettings={(provider) => {
+                            if (provider.id === "qnb-esolutions") {
+                                setProviderSettingsHint("");
+                                setActiveTab("auto-invoice");
+                                setAutoInvoiceSettingsTick((n) => n + 1);
+                                return;
+                            }
+                            setProviderSettingsHint(
+                                "Bu sağlayıcıda gelişmiş ayar formu henüz yok. Bağlantı bilgilerini güncellemek için önce bağlantıyı kesip aynı karttan yeniden “Bağlan” ile giriş yapın."
+                            );
+                        }}
                     />
                 );
 
@@ -406,7 +425,7 @@ const BillingPage = () => {
                             Faturalandırma & e-Belge Yönetimi
                         </h1>
                         <p style={{ color: colors.dim, fontSize: "0.8rem", margin: "0.25rem 0 0" }}>
-                            e-Fatura, e-Arşiv, e-İrsaliye — Tüm e-belge işlemlerİşinizi tek yerden yönetin
+                            e-Fatura, e-Arşiv, e-İrsaliye — Tüm e-belge işlemlerinizi tek yerden yönetin
                         </p>
                     </div>
                     <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
@@ -481,6 +500,15 @@ const BillingPage = () => {
 
             {/* ── İÇERİK ── */}
             <div style={{ padding: "clamp(1rem, 3vw, 1.75rem) clamp(1rem, 4vw, 2rem)" }}>
+                {providerSettingsHint && activeTab === "providers" && (
+                    <div style={{ marginBottom: "1rem" }}>
+                        <AlertBox
+                            type="info"
+                            message={providerSettingsHint}
+                            onClose={() => setProviderSettingsHint("")}
+                        />
+                    </div>
+                )}
                 <AnimatePresence mode="wait">
                     <motion.div
                         key={activeTab}

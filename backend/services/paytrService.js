@@ -200,6 +200,11 @@ class PayTRService {
         const creds = this.getCredentials();
         const { merchant_oid, status, total_amount, hash } = callbackData;
 
+        if (!this.hasValidCredentials()) {
+            logger.error("PayTR callback: credentials eksik, doğrulama reddedildi");
+            return false;
+        }
+
         if (!merchant_oid || !status || !total_amount || !hash) {
             logger.error("PayTR callback: Eksik parametreler", {
                 hasMerchantOid: !!merchant_oid,
@@ -259,7 +264,22 @@ class PayTRService {
      */
     processCallback(callbackData) {
         try {
-            logger.info(`PayTR callback ham veri: ${JSON.stringify(callbackData)}`);
+            const safeLogData = {
+                merchant_oid: callbackData?.merchant_oid,
+                status: callbackData?.status,
+                total_amount: callbackData?.total_amount,
+                payment_type: callbackData?.payment_type,
+                test_mode: callbackData?.test_mode
+            };
+            logger.info(`PayTR callback alındı: ${JSON.stringify(safeLogData)}`);
+
+            if (!this.hasValidCredentials()) {
+                logger.error("PayTR callback: credentials eksik, callback reddedildi");
+                return {
+                    success: false,
+                    error: "PayTR credentials missing"
+                };
+            }
 
             // Boş body kontrolü
             if (!callbackData || Object.keys(callbackData).length === 0) {

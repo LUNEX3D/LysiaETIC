@@ -319,6 +319,8 @@ const useAutoInvoice = () => {
                 : new Date().toISOString().split("T")[0],
             enabledMarketplaces: cfg.enabledMarketplaces || [],
             triggerStatuses: cfg.triggerStatuses || ["Shipped", "Delivered"],
+            invoiceDelayDays: Math.max(0, Math.min(90, Number(cfg.invoiceDelayDays) || 0)),
+            autoUploadInvoiceToMarketplace: !!cfg.autoUploadInvoiceToMarketplace,
             documentType: cfg.documentType || "EARSIVFATURA",
             invoiceTypeCode: cfg.invoiceTypeCode || "SATIS",
             invoiceSeriesCode: cfg.invoiceSeriesCode || "LYS",

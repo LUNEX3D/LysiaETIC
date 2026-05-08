@@ -231,9 +231,47 @@ const TypingIndicator = () => (
         <div style={{ display: "flex", gap: "0.2rem" }}>
             {[0, 1, 2].map(j => (<motion.div key={j} animate={{ y: [0, -6, 0], opacity: [0.4, 1, 0.4] }} transition={{ duration: 0.8, repeat: Infinity, delay: j * 0.15 }} style={{ width: 7, height: 7, borderRadius: "50%", background: C.accent }} />))}
         </div>
-        <span style={{ color: C.muted, fontSize: "0.72rem", fontStyle: "italic" }}>AI sinir alar alyor...</span>
+        <span style={{ color: C.muted, fontSize: "0.72rem", fontStyle: "italic" }}>Ajan çalışıyor: niyet · veri · yanıt…</span>
     </div>
 );
+
+const PanelAgentTrace = ({ trace, agentModel, agentNote }) => {
+    const [open, setOpen] = useState(false);
+    if (!trace?.length) return null;
+    return (
+        <div style={{ marginBottom: "0.55rem" }}>
+            <button
+                type="button"
+                onClick={() => setOpen((v) => !v)}
+                style={{
+                    background: "transparent",
+                    border: "none",
+                    cursor: "pointer",
+                    color: C.accent,
+                    fontSize: "0.68rem",
+                    fontWeight: 700,
+                    padding: 0,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "0.35rem",
+                    fontFamily: "inherit",
+                }}
+            >
+                {open ? "▼" : "▶"} Ajan akışı{agentModel ? ` · ${agentModel}` : ""}
+            </button>
+            {open && (
+                <div style={{ marginTop: "0.35rem", paddingLeft: "0.65rem", borderLeft: `2px solid ${C.accent}40`, fontSize: "0.65rem", lineHeight: 1.45, color: C.muted }}>
+                    {trace.map((s) => (
+                        <div key={s.id} style={{ marginBottom: "0.2rem" }}>
+                            <span style={{ color: C.accent, fontWeight: 700 }}>{s.label}:</span> {s.detail}
+                        </div>
+                    ))}
+                    {agentNote ? <div style={{ fontStyle: "italic", marginTop: "0.35rem", color: C.dim }}>{agentNote}</div> : null}
+                </div>
+            )}
+        </div>
+    );
+};
 
 /* 
    MAIN COMPONENT
@@ -310,7 +348,15 @@ const AIOperatorPanel = () => {
         try {
             const res = await API.post("/ai-chat/message", { message: msg, sessionId: chatSessionId });
             if (res.data.success && res.data.response) {
-                setChatMessages(prev => [...prev, { role: "ai", content: res.data.response.content, ts: new Date().toISOString(), suggestions: res.data.response.suggestions || [] }]);
+                setChatMessages(prev => [...prev, {
+                    role: "ai",
+                    content: res.data.response.content,
+                    ts: new Date().toISOString(),
+                    suggestions: res.data.response.suggestions || [],
+                    agentTrace: res.data.response.agentTrace,
+                    agentModel: res.data.response.agentModel,
+                    agentNote: res.data.response.agentNote,
+                }]);
                 playSound("success");
             } else {
                 setChatMessages(prev => [...prev, { role: "ai", content: "Bir hata oluştu. Tekrar deneyin. ", ts: new Date().toISOString(), suggestions: ["Tekrar dene"] }]);
@@ -636,10 +682,10 @@ const AIOperatorPanel = () => {
                                         <motion.div animate={{ boxShadow: [`0 0 15px ${C.accentAlt}30`, `0 0 25px ${C.accentAlt}50`, `0 0 15px ${C.accentAlt}30`] }} transition={{ duration: 3, repeat: Infinity }}
                                             style={{ width: 44, height: 44, borderRadius: 14, background: `linear-gradient(135deg, ${C.accentAlt}, ${C.accent})`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: "1.3rem" }}></motion.div>
                                         <div>
-                                            <span style={{ color: "#fff", fontSize: "0.95rem", fontWeight: 800 }}>AI Operatr Sohbet</span>
+                                            <span style={{ color: "#fff", fontSize: "0.95rem", fontWeight: 800 }}>Lysia Agent</span>
                                             <div style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
                                                 <motion.div animate={{ scale: [1, 1.3, 1] }} transition={{ duration: 2, repeat: Infinity }} style={{ width: 7, height: 7, borderRadius: "50%", background: C.green, boxShadow: `0 0 6px ${C.green}` }} />
-                                                <span style={{ color: C.muted, fontSize: "0.7rem" }}>evrimii  Neural Network Aktif</span>
+                                                <span style={{ color: C.muted, fontSize: "0.7rem" }}>Kurallı ajan · mağaza verisi · sohbet hafızası</span>
                                             </div>
                                         </div>
                                     </div>
@@ -649,10 +695,12 @@ const AIOperatorPanel = () => {
                                     {chatMessages.length === 0 && (
                                         <div style={{ textAlign: "center", padding: "2.5rem 1rem" }}>
                                             <motion.div initial={{ scale: 0, rotate: -180 }} animate={{ scale: 1, rotate: 0 }} transition={{ type: "spring", stiffness: 200 }} style={{ fontSize: "3.5rem", marginBottom: "1rem" }}></motion.div>
-                                            <p style={{ color: "#fff", fontSize: "1.1rem", fontWeight: 800, margin: 0 }}>Merhaba! </p>
-                                            <p style={{ color: C.muted, fontSize: "0.85rem", margin: "0.4rem 0 1.2rem" }}>Ben Pazaryönetim AI Operatr. letmenizi yönetmek için buradaym.</p>
+                                            <p style={{ color: "#fff", fontSize: "1.1rem", fontWeight: 800, margin: 0 }}>Lysia Agent</p>
+                                            <p style={{ color: C.muted, fontSize: "0.85rem", margin: "0.4rem 0 1.2rem", lineHeight: 1.5 }}>
+                                                Mesajlarınızı <strong style={{ color: C.text }}>niyet → veri → yanıt</strong> zincirinde işlerim. Yanıtlar harici bir sohbet modelinden değil; hesabınızdaki ölçümlerden üretilir.
+                                            </p>
                                             <div style={{ display: "flex", flexWrap: "wrap", gap: "0.4rem", justifyContent: "center" }}>
-                                                {["Nasl gidiyor?", "Satlarm nasl?", "Stok durumu", "Ne yapmalym?"].map((s, i) => (
+                                                {["Nasıl gidiyor?", "Satışlar nasıl?", "Stok durumu", "Ne yapmalıyım?"].map((s, i) => (
                                                     <motion.button key={s} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 + i * 0.1 }}
                                                         whileHover={{ scale: 1.06, boxShadow: `0 4px 15px ${C.accent}20` }} whileTap={{ scale: 0.95 }}
                                                         onClick={() => sendChat(s)}
@@ -664,6 +712,9 @@ const AIOperatorPanel = () => {
                                     {chatMessages.map((msg, i) => (
                                         <motion.div key={i} initial={{ opacity: 0, y: 10, scale: 0.97 }} animate={{ opacity: 1, y: 0, scale: 1 }} style={{ display: "flex", justifyContent: msg.role === "user" ? "flex-end" : "flex-start" }}>
                                             <div style={{ maxWidth: "82%", padding: "0.8rem 1.1rem", borderRadius: msg.role === "user" ? "16px 16px 4px 16px" : "16px 16px 16px 4px", background: msg.role === "user" ? `linear-gradient(135deg, ${C.accentAlt}, ${C.accent}80)` : `linear-gradient(135deg, ${C.card}, rgba(15,22,40,0.95))`, border: msg.role === "user" ? "none" : `1px solid ${C.glassBr}`, boxShadow: msg.role === "user" ? `0 4px 20px ${C.accentAlt}25` : `0 2px 10px rgba(0,0,0,0.2)` }}>
+                                                {msg.role === "ai" ? (
+                                                    <PanelAgentTrace trace={msg.agentTrace} agentModel={msg.agentModel} agentNote={msg.agentNote} />
+                                                ) : null}
                                                 <div style={{ color: msg.role === "user" ? "#fff" : C.text, fontSize: "0.83rem", lineHeight: 1.65, whiteSpace: "pre-wrap", wordBreak: "break-word" }} dangerouslySetInnerHTML={{ __html: renderContent(msg.content) }} />
                                                 <div style={{ textAlign: "right", marginTop: "0.3rem", fontSize: "0.58rem", color: msg.role === "user" ? "rgba(255,255,255,0.5)" : C.dim }}>{msg.ts ? new Date(msg.ts).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" }) : ""}</div>
                                             </div>
@@ -683,7 +734,7 @@ const AIOperatorPanel = () => {
                                 <div style={{ padding: "0.8rem 1.25rem", borderTop: `1px solid ${C.glassBr}`, display: "flex", gap: "0.5rem", alignItems: "flex-end", background: "rgba(5,10,18,0.5)" }}>
                                     <textarea ref={chatInputRef} value={chatInput} onChange={(e) => setChatInput(e.target.value)}
                                         onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendChat(); } }}
-                                        placeholder="AI Operatr'e mesaj yazn..." disabled={chatLoading} rows={1}
+                                        placeholder="Lysia Agent'a yazın…" disabled={chatLoading} rows={1}
                                         style={{ flex: 1, background: C.glass, border: `1px solid ${C.glassBr}`, borderRadius: 14, padding: "0.7rem 0.9rem", color: "#fff", fontSize: "0.83rem", resize: "none", outline: "none", fontFamily: "inherit", maxHeight: 80 }}
                                         onFocus={(e) => { e.target.style.borderColor = `${C.accent}50`; e.target.style.boxShadow = `0 0 15px ${C.accent}10`; }}
                                         onBlur={(e) => { e.target.style.borderColor = C.glassBr; e.target.style.boxShadow = "none"; }} />

@@ -92,24 +92,8 @@ const AdminUserAccess = () => {
                 localStorage.setItem("isImpersonating", "true");
                 localStorage.setItem("impersonatedBy", adminEmail);
 
-                window.open("/dashboard", "_blank");
-
-                setTimeout(() => {
-                    localStorage.setItem("token", adminToken);
-                    localStorage.setItem("userId", adminId);
-                    localStorage.setItem("userEmail", adminEmail);
-                    localStorage.setItem("userName", adminName);
-                    localStorage.setItem("userRole", adminRole);
-                    localStorage.removeItem("isImpersonating");
-                    localStorage.removeItem("impersonatedBy");
-                    localStorage.removeItem("adminBackup_token");
-                    localStorage.removeItem("adminBackup_userId");
-                    localStorage.removeItem("adminBackup_email");
-                    localStorage.removeItem("adminBackup_name");
-                    localStorage.removeItem("adminBackup_role");
-                }, 2000);
-
-                setMessage({ text: `${user.name} kullanıcısının paneli yeni sekmede açıldı.`, type: "success" });
+                setMessage({ text: `${user.name} kullanıcısı olarak panele geçiliyor...`, type: "success" });
+                window.location.href = "/dashboard";
             }
         } catch (err) {
             setMessage({ text: `Erişim sağlanamadı: ${err.response?.data?.message || err.message}`, type: "error" });
@@ -140,11 +124,11 @@ const AdminUserAccess = () => {
     return (
         <AdminLayout
             title="Kullanıcı Erişimi"
-            subtitle="Kullanıcı panellerine admin olarak erişim sağlayın"
+            subtitle="Kullanıcı panellerine güvenli şekilde erişim sağlayın"
             actions={
                 <div className="ap-actions">
                     <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--ap-muted)" }}>
-                        <FaInfoCircle /> Kullanıcı paneli yeni sekmede açılır
+                        <FaInfoCircle /> Geçiş aynı sekmede yapılır, dashboard'dan admin'e geri dönebilirsiniz
                     </span>
                 </div>
             }

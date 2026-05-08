@@ -183,6 +183,8 @@ exports.getConfig = async (req, res) => {
                 provider: "qnb",
                 enabledMarketplaces: [],
                 triggerStatuses: ["Shipped", "Delivered"],
+                invoiceDelayDays: 0,
+                autoUploadInvoiceToMarketplace: false,
                 documentType: "EARSIVFATURA",
                 invoiceTypeCode: "SATIS",
                 invoiceSeriesCode: "LYS",
@@ -223,7 +225,8 @@ exports.saveConfig = async (req, res) => {
             documentType, invoiceTypeCode, invoiceSeriesCode, currency, sendingType,
             supplier, defaultCustomer, qnbCredentials,
             defaultVatRate, pricesIncludeVat, defaultNote,
-            marketplaceSettings, autoInvoiceStartDate
+            marketplaceSettings, autoInvoiceStartDate,
+            invoiceDelayDays, autoUploadInvoiceToMarketplace,
         } = req.body;
 
         // Validasyon
@@ -266,6 +269,13 @@ exports.saveConfig = async (req, res) => {
         if (defaultVatRate !== undefined) config.defaultVatRate = defaultVatRate;
         if (pricesIncludeVat !== undefined) config.pricesIncludeVat = pricesIncludeVat;
         if (defaultNote !== undefined) config.defaultNote = defaultNote;
+        if (invoiceDelayDays !== undefined) {
+            const n = Math.floor(Number(invoiceDelayDays));
+            config.invoiceDelayDays = Math.max(0, Math.min(90, Number.isFinite(n) ? n : 0));
+        }
+        if (autoUploadInvoiceToMarketplace !== undefined) {
+            config.autoUploadInvoiceToMarketplace = !!autoUploadInvoiceToMarketplace;
+        }
         if (marketplaceSettings && typeof marketplaceSettings === "object") {
             if (!config.marketplaceSettings) config.marketplaceSettings = new Map();
             Object.entries(marketplaceSettings).forEach(([mp, settings]) => {
@@ -1295,7 +1305,11 @@ exports.getInvoicePdf = async (req, res) => {
                         try { await qnbService.logout({ sessionId, env, service: "earsiv" }); } catch (e) { /* ignore */ }
 
                         // faturaURL'yi kaydet (gelecek sefere hızlı erişim)
-                        await Invoice.updateOne({ _id: invoiceId }, { faturaURL: generatedURL }).catch(() => {});
+                        try {
+                            await Invoice.updateOne({ _id: invoiceId }, { faturaURL: generatedURL });
+                        } catch (saveErr) {
+                            logger.warn("[AutoInvoice] faturaURL kaydedilemedi: " + saveErr.message);
+                        }
 
                         res.setHeader("Content-Type", "text/html; charset=utf-8");
                         res.setHeader("Content-Disposition", "inline; filename=\"" + (invoice.invoiceNumber || "fatura") + ".html\"");

@@ -62,14 +62,16 @@ exports.getAllProducts = async (req, res) => {
             } = require("../services/hepsiburadaService");
             const hbCreds = normalizeCredentials(credentials);
             const { merchantId, secretKey, userAgent } = hbCreds;
-            const ep = getEndpoints(hbCreds);
+                const ep = getEndpoints(hbCreds);
             const hbHeaders = getHeaders(merchantId, secretKey, userAgent);
+                logger.info(`[Hepsiburada Products] Ortam: ${hbCreds.useSit ? "SIT" : "Production"} | merchantId=${String(merchantId || "").substring(0, 8)}...`);
             try {
                 // ── Adım 0: Kategori map — HB+HX+HC (resmi get-all-categories type birleşimi)
                 let categoryMap = new Map();
                 try {
                     categoryMap = await buildHepsiburadaCategoryNameMap(merchantId, secretKey, userAgent, {
-                        onlyLeaf: true
+                        onlyLeaf: true,
+                        useSit: hbCreds.useSit
                     });
                     logger.info(`[Hepsiburada CAT] ${categoryMap.size} kategori çekildi`);
                 } catch (catErr) {
@@ -131,21 +133,70 @@ exports.getAllProducts = async (req, res) => {
                 logger.info(`[Hepsiburada MPOP] Toplu detay: ${mpopDetailMap.size} ürün detayı çekildi`);
 
                 // ── Adım 2: Listing API'den fiyat/stok/SKU bilgilerini çek ──
-                const apiUrl = `${ep.LISTING}/listings/merchantid/${merchantId}?offset=0&limit=200`;
-                const response = await axios.get(apiUrl, { headers: hbHeaders, timeout: 15000 });
-
-                const rawData = response?.data;
                 let apiData = [];
-                if (Array.isArray(rawData)) {
-                    apiData = rawData;
-                } else if (rawData?.listings && Array.isArray(rawData.listings)) {
-                    apiData = rawData.listings;
-                } else if (rawData?.data && Array.isArray(rawData.data)) {
-                    apiData = rawData.data;
-                } else if (rawData?.items && Array.isArray(rawData.items)) {
-                    apiData = rawData.items;
-                } else if (rawData?.products && Array.isArray(rawData.products)) {
-                    apiData = rawData.products;
+                try {
+                    const apiUrl = `${ep.LISTING}/listings/merchantid/${merchantId}?offset=0&limit=200`;
+                    const response = await axios.get(apiUrl, { headers: hbHeaders, timeout: 15000 });
+                    const rawData = response?.data;
+                    if (Array.isArray(rawData)) {
+                        apiData = rawData;
+                    } else if (rawData?.listings && Array.isArray(rawData.listings)) {
+                        apiData = rawData.listings;
+                    } else if (rawData?.data && Array.isArray(rawData.data)) {
+                        apiData = rawData.data;
+                    } else if (rawData?.items && Array.isArray(rawData.items)) {
+                        apiData = rawData.items;
+                    } else if (rawData?.products && Array.isArray(rawData.products)) {
+                        apiData = rawData.products;
+                    }
+                } catch (listingErr) {
+                    const st = listingErr.response?.status;
+                    logger.warn(
+                        `[Hepsiburada Products] Listing endpoint hatası (status=${st || "-"}). ` +
+                        `MPOP fallback kullanılacak: ${listingErr.message}`
+                    );
+                }
+
+                // Listing 404/boş dönerse MPOP detaylarından ürün listesi üret (price/stock bilinmiyorsa 0)
+                if (!apiData.length && mpopDetailMap.size > 0) {
+                    const uniqueByMerchantSku = new Map();
+                    for (const d of mpopDetailMap.values()) {
+                        const key = String(d?.merchantSku || d?.hbSku || d?.barcode || "").trim();
+                        if (key && !uniqueByMerchantSku.has(key)) uniqueByMerchantSku.set(key, d);
+                    }
+                    products = Array.from(uniqueByMerchantSku.values()).map((detail) => {
+                        const matched = detail?.matchedHbProductInfo?.[0] || {};
+                        const varAttrs = matched?.variantTypeAttributes || [];
+                        const rawImg = matched?.images?.[0] || detail?.defaultImageUrl || detail?.defaultImageURL || detail?.imageUrl || "";
+                        const imageUrl = rawImg ? rawImg.replace("{size}", "550") : "";
+                        const productName = detail?.productName || matched?.productName || detail?.name || detail?.merchantSku || "İsimsiz Ürün";
+                        const rawCatId = detail?.categoryId || matched?.categoryId || "";
+                        const catName = (rawCatId ? categoryMap.get(String(rawCatId)) : "") || detail?.categoryName || "";
+                        const findAttr = (name) => varAttrs.find(a => a.name === name)?.value || "";
+                        return normalizeProduct({
+                            productId: detail?.hbSku || detail?.hepsiburadaSku || detail?.merchantSku || detail?.barcode,
+                            productName,
+                            productImage: imageUrl,
+                            stock: 0,
+                            price: 0,
+                            listPrice: 0,
+                            barcode: detail?.barcode || detail?.merchantSku || "",
+                            stockCode: detail?.merchantSku || "",
+                            categoryName: catName,
+                            brand: matched?.brand || detail?.brand || detail?.brandName || "",
+                            status: detail?.productStatus || "active",
+                            description: detail?.description || "",
+                            color: findAttr("Renk"),
+                            size: findAttr("Beden") || findAttr("Ayakkabı Numarası") || findAttr("Numara"),
+                            attributes: detail?.attributes || [],
+                        }, marketplaceName);
+                    });
+                    logger.info(`[Hepsiburada Products] Listing boş/404, MPOP fallback ile ${products.length} ürün döndü`);
+                    return ok(res, "Hepsiburada ürünleri (MPOP fallback) başarıyla çekildi.", {
+                        marketplace: marketplaceName,
+                        total: products.length,
+                        products
+                    });
                 }
 
                 if (!apiData.length) {

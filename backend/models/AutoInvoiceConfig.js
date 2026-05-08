@@ -46,6 +46,19 @@ const AutoInvoiceConfigSchema = new mongoose.Schema({
         default: ["Shipped", "Delivered"]
     }],
 
+    /**
+     * Sipariş tarihinden kaç tam gün sonra otomatik kesim yapılsın (0 = gecikme yok).
+     * Takvim günü — İstanbul yerel tarihine göre sipariş günü + N gün sonrası aşılmadan kesilmez.
+     * Manuel / "Tümünü Faturala" bu gecikmeyi uygulamaz.
+     */
+    invoiceDelayDays: { type: Number, default: 0, min: 0, max: 90 },
+
+    /**
+     * Pazaryeri paneline fatura otomatik yükleme (API entegrasyonu hazır olunca).
+     * Şu an yalnızca bayrak; kesim yine QNB'de yapılır.
+     */
+    autoUploadInvoiceToMarketplace: { type: Boolean, default: false },
+
     // ── Pazaryeri Bazlı Ayarlar ─────────────────────────────────────────
     // Her pazaryeri için ayrı KDV oranı, fatura notu vb. tanımlanabilir
     // Tanımlanmamışsa genel ayarlar (defaultVatRate, defaultNote) kullanılır
@@ -56,6 +69,8 @@ const AutoInvoiceConfigSchema = new mongoose.Schema({
             note: { type: String, default: "" }, // Pazaryerine özel fatura notu
             pricesIncludeVat: { type: Boolean },  // KDV dahil mi?
             invoiceSeriesCode: { type: String },  // Pazaryerine özel seri kodu
+            /** Bu pazaryeri için gecikme (tanımsızsa invoiceDelayDays) */
+            invoiceDelayDays: { type: Number, min: 0, max: 90 },
         }, { _id: false }),
         default: {}
     },

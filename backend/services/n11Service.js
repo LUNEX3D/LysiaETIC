@@ -1,5 +1,6 @@
 const axios = require("axios");
 const logger = require("../config/logger");
+const { resolveProductBrandName } = require("../utils/resolveProductBrandName");
 
 /**
  * N11 REST API SERVİSİ
@@ -124,7 +125,7 @@ const createProduct = async (credentials, products, integrator = "LysiaETIC") =>
 
             // categoryId: N11 geçerli bir kategori ID'si gerektirir
             // Fallback olarak 1000476 (Diğer) yerine 0 bırakıp zorunlu alan uyarısı ver
-            const categoryId = parseInt(product.categoryId);
+            const categoryId = parseInt(String(product.categoryId ?? "").trim(), 10);
             if (!categoryId || isNaN(categoryId)) {
                 logger.warn(`[N11 CREATE PRODUCT] categoryId eksik veya geçersiz — ürün: ${product.title || product.name}. N11 kategori eşleştirmesi yapılmadan ürün yüklenemez.`);
             }
@@ -159,6 +160,7 @@ const createProduct = async (credentials, products, integrator = "LysiaETIC") =>
             // NOT: product.attributes bir array olabilir — array?.brand her zaman undefined döner!
             // Bu yüzden brand bilgisi ayrı bir alan olarak (product.brand) gelmeli
             const brandName = (
+                resolveProductBrandName(product) ||
                 product.brand ||
                 (typeof product.attributes === "object" && !Array.isArray(product.attributes)
                     ? product.attributes?.brand
@@ -637,6 +639,73 @@ const getCategories = async (credentials) => {
     }
 };
 
+/** Kategori ağacı önbelleği — yaprak kontrolü için (≈55 dk) */
+const N11_CAT_TREE_CACHE_MS = 55 * 60 * 1000;
+let _n11CatTreeCache = { key: "", tree: /** @type {unknown[]} */ ([]), at: 0 };
+
+/**
+ * @param {unknown[]} nodes
+ * @param {string|number} targetId
+ * @returns {Record<string, unknown>|null}
+ */
+const findN11CategoryNode = (nodes, targetId) => {
+    const tid = Number(targetId);
+    if (!Array.isArray(nodes) || !Number.isFinite(tid)) return null;
+    for (const n of nodes) {
+        if (!n || typeof n !== "object") continue;
+        const id = Number(n.id);
+        if (id === tid) return n;
+        const subs = n.subCategories || n.subcategories || n.children;
+        const hit = findN11CategoryNode(subs, targetId);
+        if (hit) return hit;
+    }
+    return null;
+};
+
+/**
+ * Ürün oluşturma (product-create) için categoryId'nin yaprak kategori olup olmadığını doğrular.
+ * Üst kategori ile yükleme denemesi N11'de sıkça "category alanı geçersizdir" döner.
+ *
+ * @returns {Promise<{ ok: boolean, isLeaf?: boolean, categoryName?: string, skipped?: boolean, error?: string }>}
+ */
+const validateProductCategoryId = async (credentials, categoryId) => {
+    const idNum = parseInt(String(categoryId ?? "").trim(), 10);
+    if (!idNum || Number.isNaN(idNum)) {
+        return { ok: false, error: "categoryId geçersiz" };
+    }
+    const cacheKey = String(credentials.apiKey || "").slice(0, 12);
+    const now = Date.now();
+    let tree = _n11CatTreeCache.tree;
+    if (
+        !Array.isArray(tree) ||
+        tree.length === 0 ||
+        _n11CatTreeCache.key !== cacheKey ||
+        now - _n11CatTreeCache.at > N11_CAT_TREE_CACHE_MS
+    ) {
+        const res = await getCategories(credentials);
+        if (!res.success || !Array.isArray(res.categories)) {
+            logger.warn(
+                `[N11 CATEGORY VALIDATE] Kategori ağacı alınamadı, yaprak kontrolü atlanıyor: ${res.error || "?"}`
+            );
+            return { ok: true, isLeaf: true, skipped: true };
+        }
+        tree = res.categories;
+        _n11CatTreeCache = { key: cacheKey, tree, at: now };
+    }
+    const node = findN11CategoryNode(tree, idNum);
+    if (!node) {
+        logger.warn(
+            `[N11 CATEGORY VALIDATE] categoryId=${idNum} ağaçta bulunamadı; ` +
+                `ID eski/yanlış olabilir — N11 yine de reddedebilir`
+        );
+        return { ok: true, isLeaf: true, skipped: true };
+    }
+    const subs = node.subCategories || node.subcategories || node.children;
+    const hasChildren = Array.isArray(subs) && subs.length > 0;
+    const categoryName = String(node.name || node.categoryName || "").trim();
+    return { ok: true, isLeaf: !hasChildren, categoryName, hasChildren };
+};
+
 /**
  * Kategori Özellikleri Listeleme (GetCategoryAttributesList)
  * GET /cdn/category/{categoryId}/attribute
@@ -966,6 +1035,7 @@ module.exports = {
     // Kategori Servisleri
     getCategories,
     getCategoryAttributes,
+    validateProductCategoryId,
 
     // Sipariş Servisleri
     getOrders,

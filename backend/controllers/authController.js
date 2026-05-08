@@ -2,6 +2,7 @@ const jwt    = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 const crypto = require("crypto");
 const User   = require("../models/User");
+const AuditLog = require("../models/AuditLog");
 const logger = require("../config/logger");
 const { sendVerificationEmail, sendPasswordResetEmail } = require("../services/emailService");
 const { ok, created, badRequest, unauthorized, forbidden, notFound, conflict, serverError } = require("../utils/apiResponse");
@@ -509,6 +510,22 @@ exports.resetPassword = async (req, res) => {
         user.resetPasswordCode = undefined;
         user.resetPasswordExpires = undefined;
         await user.save();
+
+        try {
+            await AuditLog.create({
+                userId: user._id,
+                action: "password_reset_self",
+                category: "security",
+                severity: "info",
+                description: "Kullanıcı e-posta doğrulama kodu ile şifresini sıfırladı",
+                metadata: { email: user.email },
+                ipAddress: req.ip || req.connection?.remoteAddress,
+                userAgent: req.get("user-agent") || "",
+                success: true
+            });
+        } catch (auditErr) {
+            logger.warn(`Audit (password_reset_self) yazılamadı: ${auditErr.message}`);
+        }
 
         logger.info(`Şifre başarıyla sıfırlandı: ${user.email}`);
         return ok(res, "Şifreniz başarıyla değiştirildi! Artık yeni şifrenizle giriş yapabilirsiniz.");

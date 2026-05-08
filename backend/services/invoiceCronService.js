@@ -28,7 +28,7 @@ const logger = require("../config/logger");
 const AutoInvoiceConfig = require("../models/AutoInvoiceConfig");
 const Order = require("../models/Order");
 const Invoice = require("../models/Invoice");
-const { processAutoInvoice, normalizeMarketplaceName, getEffectiveTriggerStatuses } = require("./autoInvoiceService");
+const { processAutoInvoice, normalizeMarketplaceName, getEffectiveTriggerStatuses, getEffectiveInvoiceDelayDays, isOrderPastInvoiceDelay } = require("./autoInvoiceService");
 
 // ── Ayarlar ─────────────────────────────────────────────────────────────────
 const CRON_INTERVAL_MS = 10 * 60 * 1000;  // 10 dakika
@@ -124,6 +124,12 @@ const runInvoiceCron = async () => {
                     // enabledMarketplaces boşsa tümü aktif, doluysa sadece listedekiler
                     if (enabledMps.length > 0 && !enabledMps.includes(mp)) {
                         return; // Bu pazaryeri aktif değil
+                    }
+
+                    // Gecikme günü (otomatik yol): henüz vadesi gelmemiş siparişleri cron kuyruğuna alma
+                    const delayDays = getEffectiveInvoiceDelayDays(config, mp);
+                    if (!isOrderPastInvoiceDelay(o.orderDate, delayDays)) {
+                        return;
                     }
 
                     // Pazaryerine özel durum filtresi

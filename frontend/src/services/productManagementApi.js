@@ -42,8 +42,9 @@ export const updateChannelPricesLocal = async (productId, channels) => {
  * @param {Object} options - { deleteFromMarketplaces: Boolean, platforms: [String] }
  */
 export const deleteProduct = async (productId, options = {}) => {
-    const params = {};
-    if (options.deleteFromMarketplaces) params.deleteFromMarketplaces = "true";
+    const params = {
+        deleteFromMarketplaces: options.deleteFromMarketplaces !== false ? "true" : "false",
+    };
     if (options.platforms?.length > 0) params.platforms = options.platforms.join(",");
     const res = await API.delete(`${BASE}/products/${productId}`, { params });
     return res.data;
@@ -57,8 +58,16 @@ export const deleteProduct = async (productId, options = {}) => {
 // 🔄 SENKRONİZASYON & DAĞITIM
 // ═══════════════════════════════════════════════════════════════
 
-export const syncFromMarketplace = async (marketplaceId, marketplaceName) => {
-    const res = await API.post(`${BASE}/sync/from-marketplace`, { marketplaceId, marketplaceName });
+export const syncFromMarketplace = async (marketplaceId, marketplaceName, options = {}) => {
+    const payload = { marketplaceId, marketplaceName };
+    if (options.async) payload.async = true;
+    const res = await API.post(`${BASE}/sync/from-marketplace`, payload);
+    return res.data;
+};
+
+/** Uzun senkron işi durumu (ilerleme %, tahmini kalan süre) */
+export const getSyncJobStatus = async (jobId) => {
+    const res = await API.get(`${BASE}/sync/job/${jobId}`);
     return res.data;
 };
 
@@ -108,8 +117,8 @@ export const syncPrice = async (productMappingId, salePrice, listPrice = null, t
     return res.data;
 };
 
-export const triggerAutoSync = async () => {
-    const res = await API.post(`${BASE}/sync/auto`);
+export const triggerAutoSync = async (options = {}) => {
+    const res = await API.post(`${BASE}/sync/auto`, options.async ? { async: true } : {});
     return res.data;
 };
 
@@ -168,8 +177,8 @@ export const getProductManagementDashboard = async () => {
 /**
  * Tüm pazaryerlerinden ürünleri arka planda çek
  */
-export const syncAllMarketplaces = async () => {
-    const res = await API.post(`${BASE}/sync/all`);
+export const syncAllMarketplaces = async (options = {}) => {
+    const res = await API.post(`${BASE}/sync/all`, options.async ? { async: true } : {});
     return res.data;
 };
 
@@ -429,8 +438,10 @@ export const bulkUpdateStocks = async (productIds, mode, value, syncToMarketplac
  * @param {Object} options - { deleteFromMarketplaces: Boolean, platforms: [String] }
  */
 export const bulkDeleteProducts = async (productIds, options = {}) => {
-    const body = { productIds };
-    if (options.deleteFromMarketplaces) body.deleteFromMarketplaces = true;
+    const body = {
+        productIds,
+        deleteFromMarketplaces: options.deleteFromMarketplaces !== false,
+    };
     if (options.platforms?.length > 0) body.platforms = options.platforms;
     const res = await API.post(`${BASE}/bulk/delete`, body);
     return res.data;

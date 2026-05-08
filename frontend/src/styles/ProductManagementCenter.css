@@ -1112,8 +1112,22 @@
     width: 100%;
     max-width: 100%;
     box-sizing: border-box;
-    min-height: min(720px, max(400px, calc(100dvh - 200px)));
+    min-height: min(820px, max(480px, calc(100dvh - 140px)));
     align-items: stretch;
+}
+
+/* Ürün yükle: kategori ağacı/arama — panel içinde geniş kaydırma alanı */
+.ud-pm-cat-results.ud-pm-upload-mp-cat-scroll {
+    flex: 1;
+    min-height: min(48vh, 520px);
+    max-height: min(62vh, 680px);
+    overflow-y: auto;
+    margin-top: 4px;
+}
+
+.ud-pm-cat-results.ud-pm-upload-mp-cat-scroll .ud-pm-cat-tree-container {
+    max-height: none;
+    min-height: 220px;
 }
 
 /* ─── Image Gallery ───────────────────────────────────────── */
@@ -1603,8 +1617,32 @@
 }
 
 .ud-pm-dist-modal {
-    max-height: min(90vh, 720px);
+    max-height: min(92vh, 900px);
     overflow-y: auto;
+}
+
+.ud-pm-modal.ud-pm-dist-modal--menu {
+    width: min(94vw, 520px);
+    max-width: 520px;
+}
+
+.ud-pm-modal.ud-pm-dist-modal--search {
+    width: min(96vw, 920px);
+    max-width: 920px;
+}
+
+.ud-pm-modal.ud-pm-dist-modal--center {
+    width: min(94vw, 640px);
+    max-width: 640px;
+}
+
+.ud-pm-cat-results.ud-pm-dist-cat-results {
+    max-height: min(34vh, 340px);
+    margin-bottom: 10px;
+}
+
+.ud-pm-cat-tree-container.ud-pm-dist-cat-tree {
+    max-height: min(52vh, 540px);
 }
 
 .ud-pm-modal-overlay {

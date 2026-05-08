@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { FaGlobe, FaKey, FaEdit, FaTrash, FaTimes, FaCheck, FaPlug, FaRocket, FaFlag } from "react-icons/fa";
 import { motion, AnimatePresence } from "framer-motion";
 import API from "../services/api";
@@ -79,6 +79,17 @@ const MarketplaceIntegration = () => {
     const [formData, setFormData] = useState({});
     const userId = localStorage.getItem("userId");
 
+    /** Sunucudaki kayıtlı SIT/Canlı seçimini forma yansıt (maskeli güncellemede yanlışlıkla Canlı'ya dönmesini önler) */
+    const hydrateHepsiburadaToggleFromApi = useCallback(() => {
+        const row = integrations.find((i) => i.marketplaceName === "Hepsiburada");
+        const sit = row?.integrationHints?.useSit;
+        if (typeof sit !== "boolean") return;
+        setFormData((prev) => ({
+            ...prev,
+            Hepsiburada: { ...(prev.Hepsiburada || {}), useSit: sit }
+        }));
+    }, [integrations]);
+
     useEffect(() => {
         const fetchIntegrations = async () => {
             try {
@@ -97,6 +108,13 @@ const MarketplaceIntegration = () => {
         const credentials = {};
         platform.fields.forEach(field => {
             const val = platformFormData[field];
+            if (field === "useSit") {
+                credentials[field] =
+                    typeof val === "boolean"
+                        ? val
+                        : (platform.fieldDefaults?.[field] ?? false);
+                return;
+            }
             credentials[field] = val !== undefined && val !== null && val !== ""
                 ? val
                 : (platform.fieldDefaults?.[field] ?? "");
@@ -272,7 +290,11 @@ const MarketplaceIntegration = () => {
                                             animate={{ opacity: 1, y: 0 }}
                                             transition={{ delay: idx * 0.05, duration: 0.25 }}
                                         >
-                                            <div className="mi-pcard-head" onClick={() => setExpandedPlatform(isExpanded ? null : platform.name)}>
+                                            <div className="mi-pcard-head" onClick={() => {
+                                                const next = isExpanded ? null : platform.name;
+                                                setExpandedPlatform(next);
+                                                if (next === "Hepsiburada") hydrateHepsiburadaToggleFromApi();
+                                            }}>
                                                 <div className="mi-pcard-left">
                                                     <div className={`mi-pcard-dot ${isConnected ? "mi-pcard-dot--on" : ""}`} />
                                                     <h3>{platform.name}</h3>
@@ -385,7 +407,13 @@ const MarketplaceIntegration = () => {
                                             </AnimatePresence>
 
                                             {!isExpanded && (
-                                                <button className="mi-pcard-toggle" onClick={() => setExpandedPlatform(platform.name)}>
+                                                <button
+                                                    className="mi-pcard-toggle"
+                                                    onClick={() => {
+                                                        setExpandedPlatform(platform.name);
+                                                        if (platform.name === "Hepsiburada") hydrateHepsiburadaToggleFromApi();
+                                                    }}
+                                                >
                                                     {isConnected ? "Düzenle" : "Bağlan"}
                                                 </button>
                                             )}

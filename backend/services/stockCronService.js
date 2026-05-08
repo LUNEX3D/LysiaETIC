@@ -17,7 +17,7 @@ const PendingDeletion = require("../models/PendingDeletion");
 const User = require("../models/User");
 const logger = require("../config/logger");
 const { syncStockToAllMarketplaces, reserveStock, releaseStock } = require("./stockSyncService");
-const { checkPendingTrendyolBatches } = require("./productSyncService");
+const { checkPendingTrendyolBatches, checkPendingHepsiburadaUploads } = require("./productSyncService");
 // ✅ FIX: Credential'ları decrypt ederek kullan
 const { decryptCredentials } = require("../utils/encryption");
 
@@ -29,6 +29,56 @@ const processedOrders = new Map(); // key → timestamp
 
 // ✅ FIX #2: Cron re-entrancy lock — aynı anda iki runStockSync çalışmasını engelle
 let _cronRunning = false;
+
+const normMpKey = (n) => String(n || "").trim().toLowerCase();
+
+/**
+ * syncStockToAllMarketplaces sonrası kayıtta Mongo VersionError olursa (paralel ürün güncellemesi)
+ * güncel dokümanı çekip yalnızca pazaryeri stok senkro alanlarını birleştirir.
+ */
+const mergeMarketplaceSyncFromStale = (freshDoc, staleDoc) => {
+    if (!freshDoc?.marketplaceMappings || !staleDoc?.marketplaceMappings) return;
+    for (const sm of staleDoc.marketplaceMappings) {
+        const k = normMpKey(sm.marketplaceName);
+        const t = freshDoc.marketplaceMappings.find((m) => normMpKey(m.marketplaceName) === k);
+        if (!t) continue;
+        if (sm.stock !== undefined) t.stock = sm.stock;
+        if (sm.lastSyncDate) t.lastSyncDate = sm.lastSyncDate;
+        if (sm.syncStatus !== undefined) t.syncStatus = sm.syncStatus;
+        if (sm.isSynced !== undefined) t.isSynced = sm.isSynced;
+        if (sm.syncError !== undefined) t.syncError = sm.syncError;
+        if (sm.price !== undefined) t.price = sm.price;
+        if (sm.listPrice !== undefined) t.listPrice = sm.listPrice;
+    }
+};
+
+const isMongoVersionConflict = (err) =>
+    err?.name === "VersionError" ||
+    (typeof err?.message === "string" && err.message.includes("No matching document found"));
+
+/**
+ * @param {import("mongoose").Document} staleMapping — syncStockToAllMarketplaces ile mutasyona uğramış belge
+ */
+const saveProductMappingAfterPlatformSync = async (staleMapping) => {
+    try {
+        await staleMapping.save();
+        return;
+    } catch (e) {
+        if (!isMongoVersionConflict(e)) throw e;
+    }
+    let doc = await ProductMapping.findById(staleMapping._id);
+    if (!doc) throw new Error(`ProductMapping bulunamadı: ${staleMapping._id}`);
+    mergeMarketplaceSyncFromStale(doc, staleMapping);
+    try {
+        await doc.save();
+    } catch (e2) {
+        if (!isMongoVersionConflict(e2)) throw e2;
+        doc = await ProductMapping.findById(staleMapping._id);
+        if (!doc) throw e2;
+        mergeMarketplaceSyncFromStale(doc, staleMapping);
+        await doc.save();
+    }
+};
 
 /**
  * DB-level tekrar işleme koruması — server restart sonrası bile çalışır
@@ -153,7 +203,7 @@ const checkTrendyolOrders = async (userId, credentials) => {
                 // ✅ FIX: excludeMarketplace=null — kaynak platform dahil tüm platformlara push
                 // ESKİ: "Trendyol" geçiliyordu → Trendyol'daki stok güncellenmiyordu → tutarsızlık
                 const syncResults = await syncStockToAllMarketplaces(userId, mapping, marketplaceStock, null);
-                await mapping.save();
+                await saveProductMappingAfterPlatformSync(mapping);
 
                 // Log oluştur
                 await StockSyncLog.create({
@@ -286,7 +336,7 @@ const checkN11Orders = async (userId, credentials) => {
                 // ⚡ Tüm platformlara ANLIK push (güvenlik stoğu düşülmüş)
                 // ✅ FIX: excludeMarketplace=null — kaynak platform dahil tüm platformlara push
                 const syncResults = await syncStockToAllMarketplaces(userId, mapping, marketplaceStock, null);
-                await mapping.save();
+                await saveProductMappingAfterPlatformSync(mapping);
 
                 await StockSyncLog.create({
                     userId,
@@ -429,7 +479,7 @@ const checkHepsiburadaOrders = async (userId, credentials) => {
                 // ⚡ Tüm platformlara ANLIK push (güvenlik stoğu düşülmüş)
                 // ✅ FIX: excludeMarketplace=null — kaynak platform dahil tüm platformlara push
                 const syncResults = await syncStockToAllMarketplaces(userId, mapping, marketplaceStock, null);
-                await mapping.save();
+                await saveProductMappingAfterPlatformSync(mapping);
 
                 await StockSyncLog.create({
                     userId,
@@ -585,7 +635,7 @@ const checkCicekSepetiOrders = async (userId, credentials) => {
             // ✅ FIX: excludeMarketplace YOK — sipariş kaynağı dahil tüm platformlara push
             // Çünkü bizim hesapladığımız stok (safetyStock düşülmüş) platformun kendi düşürdüğünden farklı olabilir
             const syncResults = await syncStockToAllMarketplaces(userId, mapping, marketplaceStock, null);
-            await mapping.save();
+            await saveProductMappingAfterPlatformSync(mapping);
 
             // Log oluştur
             await StockSyncLog.create({
@@ -739,7 +789,7 @@ const checkAmazonOrders = async (userId, credentials) => {
                 // ⚡ TÜM platformlara ANLIK push (güvenlik stoğu düşülmüş)
                 // ✅ FIX: excludeMarketplace YOK — sipariş kaynağı dahil tüm platformlara push
                 const syncResults = await syncStockToAllMarketplaces(userId, mapping, marketplaceStock, null);
-                await mapping.save();
+                await saveProductMappingAfterPlatformSync(mapping);
 
                 // Log oluştur
                 await StockSyncLog.create({
@@ -868,7 +918,7 @@ const pushMasterStockToMarketplaces = async () => {
                 const errorCount = syncResults.filter(r => r.syncStatus === "error").length;
 
                 if (successCount > 0) {
-                    await mapping.save(); // syncStockToAllMarketplaces mapping.stock'u günceller
+                    await saveProductMappingAfterPlatformSync(mapping); // syncStockToAllMarketplaces → marketplaceMappings stok/sync alanları
                     synced++;
                 }
                 if (errorCount > 0) errors++;
@@ -1016,6 +1066,33 @@ const runStockSync = async () => {
             }
         } catch (tyErr) {
             logger.warn(`[STOCK CRON] Trendyol batch kontrolü: ${tyErr.message}`);
+        }
+
+        // ═══════════════════════════════════════════════════════
+        // ADIM 5: HEPSİBURADA ÜRÜN YÜKLEME TRACKING SONUÇLARI
+        // import/listing sonrası trackingId ile kesin başarı / red
+        // ═══════════════════════════════════════════════════════
+        try {
+            const users = await User.find({ isActive: true }).select("_id").lean();
+            let totalChecked = 0;
+            let totalUpdated = 0;
+            let totalFailed = 0;
+            let totalInProgress = 0;
+            for (const u of users) {
+                const hbPending = await checkPendingHepsiburadaUploads(u._id);
+                totalChecked += hbPending.checked || 0;
+                totalUpdated += hbPending.updated || 0;
+                totalFailed += hbPending.failed || 0;
+                totalInProgress += hbPending.inProgress || 0;
+            }
+            if (totalChecked > 0) {
+                logger.info(
+                    `[STOCK CRON] 📋 Hepsiburada tracking — kontrol: ${totalChecked}, kesinleşen: ${totalUpdated}, ` +
+                    `başarısız: ${totalFailed}, işlemde: ${totalInProgress}`
+                );
+            }
+        } catch (hbErr) {
+            logger.warn(`[STOCK CRON] Hepsiburada tracking kontrolü: ${hbErr.message}`);
         }
 
         // ✅ FIX #7: Timestamp bazlı LRU bellek temizliği

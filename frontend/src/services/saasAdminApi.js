@@ -67,3 +67,6 @@ export const updatePlanDefinitions = (planDefinitions) => API.put(`${BASE}/plan-
 
 // ─── 13. Public Paket Bilgileri (Auth gerektirmez) ────────────────────────────
 export const getPublicPlans = () => API.get(`${BASE}/public/plans`);
+
+// ─── 14. İstemci Hata Kayıtları (Admin) ───────────────────────────────────────
+export const getClientErrorsAdmin = (params) => API.get("/client-errors/admin", { params });

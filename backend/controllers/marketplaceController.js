@@ -4,8 +4,61 @@
  * ✅ FIX H5: Credential şifreleme aktifleştirildi
  */
 const Marketplace = require("../models/Marketplace");
+const AutoOrderConfig = require("../models/AutoOrderConfig");
 const logger = require("../config/logger");
 const { encryptCredentials, decryptCredentials } = require("../utils/encryption");
+
+/** Hepsiburada useSit — DB/string/boolean karışığını tek tip boolean yap (normalizeCredentials ile uyumlu) */
+const coerceHbUseSitIncoming = (val) => {
+    if (val === true || val === 1) return true;
+    if (val === false || val === 0) return false;
+    if (typeof val === "string") {
+        const s = val.trim().toLowerCase();
+        if (s === "true" || s === "1" || s === "yes" || s === "on") return true;
+        if (s === "false" || s === "0" || s === "no" || s === "off" || s === "") return false;
+    }
+    return false;
+};
+
+/**
+ * İstemciden gelen boş / maskeli placeholder değerleri — DB'deki mevcut anahtarı korumak için.
+ * (getUserMarketplaces masked "••••••abcd" döner; yanlışlıkla şifrelenip saklanmasın.)
+ */
+const isMaskedOrEmptyCredentialValue = (val) => {
+    if (val === undefined || val === null) return true;
+    if (typeof val === "boolean") return false;
+    const s = String(val).trim();
+    if (s === "") return true;
+    if (/^[\u2022•.⋯]+$/.test(s)) return true;
+    if (s.startsWith("••") || s.startsWith("...")) return true;
+    return false;
+};
+
+/**
+ * POST/PUT ile gelen credential'ı mevcut kullanıcı kaydıyla birleştir — tek kaynak DB.
+ * @param {object|null} storedDecrypted — decryptCredentials çıktısı
+ * @param {object} incoming — req.body.credentials
+ */
+const mergeIncomingCredentialsWithStored = (storedDecrypted, incoming) => {
+    const base =
+        storedDecrypted && typeof storedDecrypted === "object" && !Array.isArray(storedDecrypted)
+            ? { ...storedDecrypted }
+            : {};
+    if (!incoming || typeof incoming !== "object" || Array.isArray(incoming)) return base;
+    for (const [key, val] of Object.entries(incoming)) {
+        if (key === "useSit") {
+            base.useSit = coerceHbUseSitIncoming(val);
+            continue;
+        }
+        if (typeof val === "boolean") {
+            base[key] = val;
+            continue;
+        }
+        if (isMaskedOrEmptyCredentialValue(val)) continue;
+        base[key] = val;
+    }
+    return base;
+};
 
 // ✅ Kullanıcının tüm pazaryeri entegrasyonlarını getir
 // ✅ FIX #2: IDOR — req.user._id kullanılıyor
@@ -56,7 +109,12 @@ exports.getUserMarketplaces = async (req, res) => {
                     } else if (lowName === "hepsiburada") {
                         const mid = decrypted.merchantId || decrypted.sellerId;
                         const sec = decrypted.secretKey || decrypted.serviceKey || decrypted.apiSecret;
-                        integrationHints = { apiConfigured: !!mid && !!sec };
+                        const useSit = coerceHbUseSitIncoming(decrypted.useSit);
+                        integrationHints = {
+                            apiConfigured: !!mid && !!sec,
+                            useSit,
+                            environment: useSit ? "SIT" : "PROD"
+                        };
                     } else if (lowName === "çiçeksepeti" || lowName === "ciceksepeti") {
                         integrationHints = { apiConfigured: !!decrypted.apiKey };
                     }
@@ -95,11 +153,44 @@ exports.addMarketplace = async (req, res) => {
             return res.status(400).json({ message: "❌ Lütfen tüm alanları doldurun! API bilgileri eksik olabilir." });
         }
 
-        // Credential'ları şifrele
-        const encryptedCreds = encryptCredentials(credentials);
-
         // Aynı kullanıcı ve pazaryeri için mevcut entegrasyon var mı kontrol et
         const existingMarketplace = await Marketplace.findOne({ userId, marketplaceName });
+
+        let payloadToEncrypt = credentials;
+
+        if (existingMarketplace) {
+            let decrypted = {};
+            try {
+                decrypted = decryptCredentials(existingMarketplace.credentials);
+            } catch (e) {
+                logger.error("Pazaryeri credential decrypt hatası (güncelleme)", {
+                    userId: String(userId),
+                    marketplaceName,
+                    error: e.message
+                });
+                return res.status(500).json({ message: "❌ Kayıtlı API bilgileri okunamadı. Destek ile iletişime geçin." });
+            }
+            payloadToEncrypt = mergeIncomingCredentialsWithStored(decrypted, credentials);
+            if (!payloadToEncrypt || Object.keys(payloadToEncrypt).length === 0) {
+                return res.status(400).json({
+                    message: "❌ Güncelleme için geçerli API bilgisi kalmadı; en az bir alanı gerçek değeriyle gönderin."
+                });
+            }
+        }
+
+        let payloadForEncrypt = payloadToEncrypt;
+        if (
+            String(marketplaceName || "").trim().toLowerCase() === "hepsiburada" &&
+            payloadForEncrypt &&
+            typeof payloadForEncrypt === "object"
+        ) {
+            payloadForEncrypt = {
+                ...payloadForEncrypt,
+                useSit: coerceHbUseSitIncoming(payloadForEncrypt.useSit)
+            };
+        }
+
+        const encryptedCreds = encryptCredentials(payloadForEncrypt);
 
         if (existingMarketplace) {
             // Mevcut entegrasyonu güncelle
@@ -147,8 +238,34 @@ exports.updateMarketplace = async (req, res) => {
             return res.status(400).json({ message: "❌ Lütfen API bilgilerini doldurun!" });
         }
 
-        // Credential'ları şifrele
-        const encryptedCreds = encryptCredentials(credentials);
+        const existing = await Marketplace.findOne({ _id: req.params.id, userId: req.user._id });
+        if (!existing) {
+            return res.status(404).json({ message: "❌ Pazaryeri bulunamadı veya yetkiniz yok!" });
+        }
+
+        let decrypted = {};
+        try {
+            decrypted = decryptCredentials(existing.credentials);
+        } catch (e) {
+            logger.error("Pazaryeri credential decrypt hatası (PUT)", {
+                userId: String(req.user._id),
+                id: String(req.params.id),
+                error: e.message
+            });
+            return res.status(500).json({ message: "❌ Kayıtlı API bilgileri okunamadı." });
+        }
+
+        let merged = mergeIncomingCredentialsWithStored(decrypted, credentials);
+        if (!merged || Object.keys(merged).length === 0) {
+            return res.status(400).json({
+                message: "❌ Geçerli API bilgisi kalmadı; maskeli/boş alanlar korunamadı."
+            });
+        }
+        if (String(existing.marketplaceName || "").trim().toLowerCase() === "hepsiburada") {
+            merged = { ...merged, useSit: coerceHbUseSitIncoming(merged.useSit) };
+        }
+
+        const encryptedCreds = encryptCredentials(merged);
 
         // ✅ FIX #4: IDOR kapatıldı — sadece kendi kaydını güncelleyebilir
         const updatedMarketplace = await Marketplace.findOneAndUpdate(
@@ -180,6 +297,16 @@ exports.deleteMarketplace = async (req, res) => {
 
         if (!deletedMarketplace) {
             return res.status(404).json({ message: "❌ Pazaryeri bulunamadı veya yetkiniz yok!" });
+        }
+
+        const orphanAo = await AutoOrderConfig.deleteMany({
+            user: req.user._id,
+            marketplace: deletedMarketplace._id
+        });
+        if (orphanAo.deletedCount > 0) {
+            logger.info(
+                `Pazaryeri silindi — otomatik sipariş yetim config temizlendi: ${orphanAo.deletedCount} — kullanıcı: ${req.user._id}`
+            );
         }
 
         logger.info(`Pazaryeri silindi: ${deletedMarketplace.marketplaceName} — kullanıcı: ${req.user._id}`);

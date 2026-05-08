@@ -428,7 +428,7 @@ const HBCategoryTreeNode = ({ node, depth = 0, searchQuery, C, expandAll }) => {
                     <FaFolder style={{ color: C.dim, fontSize: "0.75rem", flexShrink: 0, opacity: 0.5 }} />
                 )}
 
-                {/* Category Name */}
+                {/* Category Name — hbDisplayTitle: [HB|HX|HC] + resmi ID + yol (backend) */}
                 <span style={{
                     color: isLeaf ? C.green : hasChildren ? C.text : C.dim,
                     fontSize: "0.78rem", fontWeight: isLeaf ? 600 : hasChildren ? 500 : 400,
@@ -437,10 +437,19 @@ const HBCategoryTreeNode = ({ node, depth = 0, searchQuery, C, expandAll }) => {
                     display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
                     lineHeight: "1.35",
                 }}>
-                    {node.displayName || node.name}
+                    {node.hbDisplayTitle || node.displayName || node.name}
                 </span>
 
-                {/* Category ID Badge */}
+                {node.hbTreeType && (
+                    <span style={{
+                        color: C.accent, fontSize: "0.55rem", fontWeight: 700,
+                        background: `${C.accent}14`, padding: "0.1rem 0.25rem", borderRadius: 4, flexShrink: 0,
+                    }}>
+                        {node.hbTreeType}
+                    </span>
+                )}
+
+                {/* Resmi Kategori ID (MPOP / Kategori Merkezi ile aynı numara) */}
                 <span style={{
                     color: C.dim, fontSize: "0.58rem", fontFamily: "monospace",
                     background: `${C.text}08`, padding: "0.1rem 0.3rem", borderRadius: 4, flexShrink: 0,
@@ -475,7 +484,7 @@ const HBCategoryTreeNode = ({ node, depth = 0, searchQuery, C, expandAll }) => {
                 <div style={{ marginTop: "0.15rem" }}>
                     {node.children.map((child) => (
                         <HBCategoryTreeNode
-                            key={child.categoryId}
+                            key={child.nodeKey || `${child.hbTreeType || ""}|${child.categoryId}`}
                             node={child}
                             depth={depth + 1}
                             searchQuery={searchQuery}
@@ -655,7 +664,7 @@ const CategoryCenterPage = ({ userId }) => {
     // ✅ FIX: hbError koşulu kaldırıldı — hata sonrası tekrar tıklayınca yeniden yüklenebilsin
     useEffect(() => {
         if (activeTab === "hb-categories" && hbTree.length === 0 && !hbLoading) {
-            setHbError(""); // ÖÖnceki hatayı temizle
+            setHbError(""); // Önceki hatayı temizle
             loadHBCategories(hbSearchQuery);
         }
     }, [activeTab, hbTree.length, hbLoading, hbSearchQuery, loadHBCategories]);
@@ -1482,7 +1491,7 @@ const CategoryCenterPage = ({ userId }) => {
                                 <div style={{ padding: "0.5rem" }}>
                                     {hbTree.map((rootNode) => (
                                         <HBCategoryTreeNode
-                                            key={rootNode.categoryId}
+                                            key={rootNode.nodeKey || `${rootNode.hbTreeType || ""}|${rootNode.categoryId}`}
                                             node={rootNode}
                                             depth={0}
                                             searchQuery={hbSearchQuery}

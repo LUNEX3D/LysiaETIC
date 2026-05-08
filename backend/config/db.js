@@ -46,24 +46,33 @@ const connectDB = async () => {
     // Sistem DNS'i 127.0.0.1 olduğunda SRV çözümlemesi başarısız olur
     dns.setServers(["8.8.8.8", "1.1.1.1", "8.8.4.4"]);
 
+    // Bağlantı kurulmadan önce çalışan sorguların 10s'de düşmesini azaltır (model sync vb.)
+    const bufMs = Math.min(120000, Math.max(10000, parseInt(process.env.MONGOOSE_BUFFER_TIMEOUT_MS || "60000", 10) || 60000));
+    mongoose.set("bufferTimeoutMS", bufMs);
+
     const mongoUri = process.env.MONGO_URI;
     if (!mongoUri) {
         logger.error("MONGO_URI ortam değişkeni tanımlı değil!");
         process.exit(1);
     }
 
+    // Varsayılan: IPv4 zorlama KAPALI — Atlas SRV + bazı Windows/Wi‑Fi ağlarında replica IP (27017) kopması azalır.
+    // DNS/çözümleme için IPv4 şartsa .env: MONGODB_FORCE_IPV4=true
+    const forceIPv4 = String(process.env.MONGODB_FORCE_IPV4 || "").toLowerCase() === "true";
+
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
         try {
+            // minPoolSize: 0 — başlangıçta 5 soket açmak Atlas/firewall’da ani kopma tetikleyebiliyor
             const conn = await mongoose.connect(mongoUri, {
-                serverSelectionTimeoutMS: 30000,   // 30 saniye (varsayılan 10s)
-                connectTimeoutMS: 30000,           // bağlantı timeout
-                socketTimeoutMS: 60000,            // soket timeout (uzatıldı)
-                maxPoolSize: 20,                   // bağlantı havuzu (artırıldı)
-                minPoolSize: 5,                    // minimum bağlantı sayısı
-                heartbeatFrequencyMS: 10000,       // daha sık heartbeat
+                serverSelectionTimeoutMS: 45000,
+                connectTimeoutMS: 30000,
+                socketTimeoutMS: 120000,
+                maxPoolSize: Math.min(50, Math.max(5, parseInt(process.env.MONGODB_MAX_POOL_SIZE || "15", 10) || 15)),
+                minPoolSize: 0,
+                heartbeatFrequencyMS: 15000,
                 retryWrites: true,
                 retryReads: true,
-                family: 4                          // IPv4 zorla (DNS sorunlarını önler)
+                ...(forceIPv4 ? { family: 4 } : {})
             });
             logger.info(`MongoDB bağlantısı başarılı ✅ Host: ${conn.connection.host} (deneme ${attempt}/${MAX_RETRIES})`);
             return; // başarılı — çık

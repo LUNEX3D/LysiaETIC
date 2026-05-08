@@ -24,6 +24,7 @@ const Subscription = require("../models/Subscription");
 const SystemConfig = require("../models/SystemConfig");
 const paytrService = require("../services/paytrService");
 const logger = require("../config/logger");
+const mongoose = require("mongoose");
 
 // ─── FALLBACK PAKET TANIMLARI (DB'den okunamazsa kullanılır) ─────────────────────
 // ✅ FIX: saasAdminController.js'deki DEFAULT_PLAN_DEFINITIONS ile senkronize edildi
@@ -177,10 +178,17 @@ exports.getSubscriptionStatus = async (req, res) => {
             }
         }
 
-        // Süresi dolmuşsa durumu güncelle
-        if (!isActive && sub.status && sub.status !== "expired") {
+        // Süresi dolmuşsa durumu güncelle (suspended/cancelled statülerini ezme)
+        if (
+            !isActive &&
+            sub.status &&
+            sub.status !== "expired" &&
+            sub.status !== "suspended" &&
+            sub.status !== "cancelled"
+        ) {
             user.subscription.status = "expired";
             await user.save();
+            sub.status = "expired";
         }
 
         // Ödeme geçmişi
@@ -444,95 +452,93 @@ exports.paytrCallback = async (req, res) => {
         }
 
         if (status === "success") {
-            // ── 4. Ödeme başarılı ────────────────────────────────────────────
-            payment.status = "completed";
-            payment.paidAt = new Date();
-            payment.metadata.paytrResponse = result.rawData;
-            await payment.save();
+            // ── 4. Ödeme başarılı — transaction ile atomik güncelle ───────────
+            const session = await mongoose.startSession();
+            try {
+                await session.withTransaction(async () => {
+                    payment.status = "completed";
+                    payment.paidAt = new Date();
+                    payment.metadata.paytrResponse = result.rawData;
+                    await payment.save({ session });
 
-            logger.info(`✅ Ödeme başarılı: ${orderId} — ${totalAmount} TL — İşlem süresi: ${Date.now() - callbackStartTime}ms`);
-
-            // ── 5. Kullanıcı aboneliğini güncelle ────────────────────────────
-            const user = await User.findById(payment.userId);
-            if (user) {
-                const plan = payment.expectedPlan || payment.metadata.plan;
-                const billingCycle = payment.expectedBillingCycle || payment.metadata.billingCycle || "monthly";
-                const now = new Date();
-
-                // ✅ KRİTİK FIX: expire_date reset hatası
-                // Aktif aboneliği varsa kalan süreyi koru, üzerine ekle
-                // Yoksa şimdiden başlat
-                const existingSub = user.subscription ? user.subscription.toObject() : {};
-                const existingEndDate = existingSub.endDate ? new Date(existingSub.endDate) : null;
-                const isCurrentlyActive = existingEndDate && existingEndDate > now
-                    && existingSub.status === "active"
-                    && existingSub.plan === plan;
-
-                // Başlangıç noktası: aktif ve aynı plan ise mevcut bitiş tarihi, değilse şimdi
-                const baseDate = isCurrentlyActive ? existingEndDate : now;
-                const endDate = new Date(baseDate);
-
-                if (billingCycle === "yearly") {
-                    endDate.setFullYear(endDate.getFullYear() + 1);
-                } else {
-                    endDate.setMonth(endDate.getMonth() + 1);
-                }
-
-                // Önceki durumu logla (subscription değişim log'u)
-                logger.info(`📋 Abonelik değişimi — ${user.email}:`, {
-                    onceki: {
-                        plan: existingSub.plan || "yok",
-                        status: existingSub.status || "yok",
-                        endDate: existingSub.endDate ? new Date(existingSub.endDate).toISOString() : "yok"
-                    },
-                    yeni: {
-                        plan,
-                        status: "active",
-                        baseDate: baseDate.toISOString(),
-                        endDate: endDate.toISOString(),
-                        sureEklendi: isCurrentlyActive ? "mevcut süreye eklendi" : "şimdiden başlatıldı"
+                    const user = await User.findById(payment.userId).session(session);
+                    if (!user) {
+                        logger.error(`❌ PayTR callback: Kullanıcı bulunamadı — userId: ${payment.userId}, orderId: ${orderId}`);
+                        return;
                     }
-                });
 
-                // ✅ FIX: Mongoose subdocument'ı düzgün güncelle (toObject ile spread)
-                user.subscription = {
-                    ...existingSub,
-                    plan,
-                    status: "active",
-                    startDate: isCurrentlyActive ? existingSub.startDate : now,
-                    endDate,
-                    trialUsed: true,
-                    lastPaymentId: payment._id.toString(),
-                    autoRenew: true
-                };
-                await user.save();
+                    const plan = payment.expectedPlan || payment.metadata.plan;
+                    const billingCycle = payment.expectedBillingCycle || payment.metadata.billingCycle || "monthly";
+                    const now = new Date();
+                    const existingSub = user.subscription ? user.subscription.toObject() : {};
+                    const existingEndDate = existingSub.endDate ? new Date(existingSub.endDate) : null;
+                    const isCurrentlyActive = existingEndDate && existingEndDate > now
+                        && existingSub.status === "active"
+                        && existingSub.plan === plan;
+                    const baseDate = isCurrentlyActive ? existingEndDate : now;
+                    const endDate = new Date(baseDate);
+                    if (billingCycle === "yearly") endDate.setFullYear(endDate.getFullYear() + 1);
+                    else endDate.setMonth(endDate.getMonth() + 1);
 
-                // Subscription model'i de güncelle
-                const subDoc = await Subscription.findOneAndUpdate(
-                    { userId: user._id },
-                    {
+                    logger.info(`📋 Abonelik değişimi — ${user.email}:`, {
+                        onceki: {
+                            plan: existingSub.plan || "yok",
+                            status: existingSub.status || "yok",
+                            endDate: existingSub.endDate ? new Date(existingSub.endDate).toISOString() : "yok"
+                        },
+                        yeni: {
+                            plan,
+                            status: "active",
+                            baseDate: baseDate.toISOString(),
+                            endDate: endDate.toISOString(),
+                            sureEklendi: isCurrentlyActive ? "mevcut süreye eklendi" : "şimdiden başlatıldı"
+                        }
+                    });
+
+                    user.subscription = {
+                        ...existingSub,
                         plan,
                         status: "active",
                         startDate: isCurrentlyActive ? existingSub.startDate : now,
                         endDate,
-                        price: totalAmount,
-                        billingCycle,
-                        lastPaymentDate: now,
-                        nextPaymentDate: endDate,
-                        paymentMethod: "paytr",
-                        limits: (await getPlansFromDB())[plan]?.limits || {}
-                    },
-                    { upsert: true, new: true }
-                );
+                        trialUsed: true,
+                        lastPaymentId: payment._id.toString(),
+                        autoRenew: true
+                    };
+                    delete user.subscription.trialStartDate;
+                    delete user.subscription.trialEndDate;
+                    delete user.subscription.grantedBy;
+                    delete user.subscription.grantedAt;
+                    delete user.subscription.grantNote;
+                    await user.save({ session });
 
-                // Payment'a subscription ID bağla
-                payment.subscriptionId = subDoc._id;
-                await payment.save();
+                    const subDoc = await Subscription.findOneAndUpdate(
+                        { userId: user._id },
+                        {
+                            plan,
+                            status: "active",
+                            startDate: isCurrentlyActive ? existingSub.startDate : now,
+                            endDate,
+                            price: totalAmount,
+                            billingCycle,
+                            lastPaymentDate: now,
+                            nextPaymentDate: endDate,
+                            paymentMethod: "paytr",
+                            limits: (await getPlansFromDB())[plan]?.limits || {}
+                        },
+                        { upsert: true, new: true, session }
+                    );
 
-                logger.info(`🎉 Abonelik aktifleştirildi: ${user.email} → ${plan} (${billingCycle}) — Bitiş: ${endDate.toISOString()} — Toplam işlem: ${Date.now() - callbackStartTime}ms`);
-            } else {
-                logger.error(`❌ PayTR callback: Kullanıcı bulunamadı — userId: ${payment.userId}, orderId: ${orderId}`);
+                    payment.subscriptionId = subDoc._id;
+                    await payment.save({ session });
+
+                    logger.info(`🎉 Abonelik aktifleştirildi: ${user.email} → ${plan} (${billingCycle}) — Bitiş: ${endDate.toISOString()} — Toplam işlem: ${Date.now() - callbackStartTime}ms`);
+                });
+            } finally {
+                session.endSession();
             }
+
+            logger.info(`✅ Ödeme başarılı: ${orderId} — ${totalAmount} TL — İşlem süresi: ${Date.now() - callbackStartTime}ms`);
         } else {
             // ── 6. Ödeme başarısız — detaylı hata kaydı ──────────────────────
             payment.status = "failed";

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { getUserMarketplaces, fetchDashboardData } from "../services/marketplaceApi";
 import { getProductManagementDashboard } from "../services/productManagementApi";
 import { getNotifications, markNotificationAsRead, dismissNotification as apiDismissNotif, createBulkOrderNotifications } from "../services/notificationApi";
+import { logoutUser } from "../services/api";
 import { useApp } from "../context/AppContext";
 import MarketplaceIntegration from "../pages/MarketplaceIntegration";
 import OrdersPage from "../pages/OrdersPage";
@@ -21,6 +22,7 @@ import BillingPage from "../pages/BillingPage";
 import SubscriptionPage from "../pages/SubscriptionPage";
 import RoketfyPanel from "../pages/RoketfyPanel";
 import RadarProPage from "../pages/RadarProPage";
+import ErrorCenterPage from "../pages/ErrorCenterPage";
 import {
     FaBars, FaTimes, FaClipboardList, FaCog,
     FaChartLine, FaBoxOpen, FaMoneyBillWave,
@@ -28,11 +30,13 @@ import {
     FaChevronDown, FaBox, FaCrown,
     FaBrain, FaChartBar, FaBell, FaRocket, FaCrosshairs,
     FaCubes, FaSitemap, FaSignOutAlt, FaUserShield,
-    FaCloudUploadAlt, FaHeadset
+    FaCloudUploadAlt, FaHeadset, FaBug
 } from "react-icons/fa";
 import { motion, AnimatePresence } from "framer-motion";
 import Particles from "react-tsparticles";
 import { loadSlim } from "tsparticles-slim";
+import { classifyOrderStatus, getOrderStatusLabelTr } from "../utils/orderStatus";
+import { GlassCard, KpiCard, Pill, SectionTitle } from "../components/dashboard/DashboardUI";
 import "../styles/userDashboard.css";
 
 /* ═══════════════════════════════════════════════════════════
@@ -58,6 +62,18 @@ const getGreetingKey = () => {
     if (h < 12) return "dashboard.greeting.morning";
     if (h < 18) return "dashboard.greeting.afternoon";
     return "dashboard.greeting.evening";
+};
+
+const DASHBOARD_PANEL_STORAGE_KEY = "dashboardActivePanel";
+
+const getInitialDashboardPanel = () => {
+    try {
+        const v = localStorage.getItem(DASHBOARD_PANEL_STORAGE_KEY);
+        if (v && typeof v === "string") return v;
+    } catch {
+        // no-op
+    }
+    return "dashboard";
 };
 
 /* ═══════════════════════════════════════════════════════════
@@ -96,112 +112,13 @@ const playNotificationSound = () => {
 };
 
 /* ═══════════════════════════════════════════════════════════
-   KÜÇÜK BİLEŞENLER
-   ═══════════════════════════════════════════════════════════ */
-const GlassCard = ({ children, style, C, ...rest }) => {
-    const mobile = typeof window !== "undefined" && window.innerWidth < 768;
-    return (
-        <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.4 }}
-            style={{
-                background: `linear-gradient(135deg, ${C.card} 0%, ${C.bg}dd 100%)`,
-                border: `1px solid ${C.border}`,
-                borderRadius: mobile ? 12 : 16,
-                padding: mobile ? "1rem" : "1.5rem",
-                minWidth: 0,
-                overflow: "hidden",
-                ...style,
-            }}
-            {...rest}
-        >
-            {children}
-        </motion.div>
-    );
-};
-
-const KpiCard = ({ icon, label, value, sub, color, delay = 0, onClick, C }) => {
-    const mobile = typeof window !== "undefined" && window.innerWidth < 768;
-    return (
-        <motion.div
-            initial={{ opacity: 0, y: 24 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay, duration: 0.35 }}
-            whileHover={mobile ? {} : { y: -4, boxShadow: `0 12px 32px ${color}30` }}
-            onClick={onClick}
-            style={{
-                background: `linear-gradient(135deg, ${C.card} 0%, ${C.bg}ee 100%)`,
-                border: `1px solid ${color}30`,
-                borderRadius: mobile ? 12 : 14,
-                padding: mobile ? "0.75rem 0.85rem" : "1.25rem 1.5rem",
-                cursor: onClick ? "pointer" : "default",
-                position: "relative",
-                overflow: "hidden",
-                minWidth: 0,
-            }}
-        >
-            <div style={{ position: "absolute", top: 0, right: 0, width: mobile ? 80 : 120, height: mobile ? 80 : 120, background: `radial-gradient(circle, ${color}15 0%, transparent 70%)`, pointerEvents: "none" }} />
-            <div style={{ display: "flex", alignItems: "center", gap: mobile ? "0.5rem" : "0.75rem", marginBottom: mobile ? "0.4rem" : "0.75rem", position: "relative", zIndex: 1 }}>
-                <div style={{ background: `linear-gradient(135deg, ${color} 0%, ${color}cc 100%)`, padding: mobile ? "0.4rem" : "0.6rem", borderRadius: mobile ? 8 : 10, fontSize: mobile ? "1rem" : "1.3rem", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: `0 4px 12px ${color}40`, flexShrink: 0 }}>
-                    {icon}
-                </div>
-                <span style={{ color: C.muted, fontSize: mobile ? "0.65rem" : "0.8rem", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
-            </div>
-            <div style={{ position: "relative", zIndex: 1, minWidth: 0 }}>
-                <h3 style={{ fontSize: mobile ? "1.15rem" : "1.75rem", fontWeight: 800, color: C.text, margin: 0, lineHeight: 1.1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{value}</h3>
-                {sub && <p style={{ color: C.dim, fontSize: mobile ? "0.6rem" : "0.75rem", margin: "0.25rem 0 0", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sub}</p>}
-            </div>
-        </motion.div>
-    );
-};
-
-const Pill = ({ color, children }) => {
-    const mobile = typeof window !== "undefined" && window.innerWidth < 768;
-    return (
-        <span style={{
-            background: `${color}15`,
-            border: `1px solid ${color}35`,
-            padding: mobile ? "0.2rem 0.45rem" : "0.3rem 0.7rem",
-            borderRadius: mobile ? 8 : 10,
-            color,
-            fontSize: mobile ? "0.65rem" : "0.75rem",
-            fontWeight: 700,
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "0.25rem",
-            whiteSpace: "nowrap",
-            flexShrink: 0,
-        }}>
-            {children}
-        </span>
-    );
-};
-
-const SectionTitle = ({ icon, title, badge, action, C }) => {
-    const mobile = typeof window !== "undefined" && window.innerWidth < 768;
-    return (
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: mobile ? "0.75rem" : "1.25rem", gap: "0.5rem", flexWrap: "wrap" }}>
-            <h2 style={{ fontSize: mobile ? "0.9rem" : "1.1rem", fontWeight: 700, color: C.text, margin: 0, display: "flex", alignItems: "center", gap: "0.5rem", minWidth: 0 }}>
-                <span style={{ fontSize: mobile ? "1rem" : "1.3rem", flexShrink: 0 }}>{icon}</span>
-                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</span>
-            </h2>
-            <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", flexShrink: 0 }}>
-                {badge && !mobile && <Pill color={C.accent}>{badge}</Pill>}
-                {action}
-            </div>
-        </div>
-    );
-};
-
-/* ═══════════════════════════════════════════════════════════
    ANA BİLEŞEN
    ═══════════════════════════════════════════════════════════ */
 const UserDashboard = () => {
     const { theme: C, t, language, resolvedTheme } = useApp();
     const isDark = resolvedTheme === "dark";
     const [menuOpen, setMenuOpen] = useState(true);
-    const [activePanel, setActivePanel] = useState("dashboard");
+    const [activePanel, setActivePanel] = useState(getInitialDashboardPanel);
     const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
     const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
     const userRole = localStorage.getItem("userRole") || "user";
@@ -231,6 +148,7 @@ const UserDashboard = () => {
     const lastCheckRef = useRef(null);
 
     const userId = localStorage.getItem("userId");
+    const isImpersonating = localStorage.getItem("isImpersonating") === "true";
 
     // ── Abonelik süresi dolmuş global event dinleyicisi ──
     useEffect(() => {
@@ -259,6 +177,17 @@ const UserDashboard = () => {
         setActivePanel(panelId);
         if (isMobile) setMenuOpen(false);
     }, [isMobile]);
+
+    // Refresh sonrası aynı panelde kalması için activePanel'i sakla
+    useEffect(() => {
+        try {
+            if (activePanel) {
+                localStorage.setItem(DASHBOARD_PANEL_STORAGE_KEY, activePanel);
+            }
+        } catch {
+            // no-op
+        }
+    }, [activePanel]);
 
     // ── Pazaryerleri ──
     useEffect(() => {
@@ -464,16 +393,7 @@ const UserDashboard = () => {
             }
         });
 
-        const classify = (s) => {
-            const l = String(s || "").toLowerCase();
-            if (l.includes("created") || l.includes("yeni") || l.includes("new")) return "new";
-            if (l.includes("processing") || l.includes("işlem") || l.includes("hazırlan") || l.includes("picking")) return "processing";
-            if (l.includes("shipping") || l.includes("shipped") || l.includes("kargo") || l.includes("transit")) return "shipping";
-            if (l.includes("delivered") || l.includes("teslim")) return "delivered";
-            if (l.includes("cancel") || l.includes("iptal")) return "cancelled";
-            if (l.includes("return") || l.includes("iİade") || l.includes("refund")) return "returned";
-            return "processing";
-        };
+        const classify = (s) => classifyOrderStatus(s);
 
         const byStatus = { all: orders };
         ["new", "processing", "shipping", "delivered", "cancelled", "returned"].forEach(k => {
@@ -1171,11 +1091,11 @@ const UserDashboard = () => {
                                                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.3rem" }}>
                                                             <span style={{ color: C.accent, fontSize: "0.75rem", fontWeight: 700 }}>{order.marketplace || "N/A"}</span>
                                                             <Pill color={
-                                                                String(order.status || "").toLowerCase().includes("deliver") || String(order.status || "").toLowerCase().includes("teslim") ? C.green :
-                                                                String(order.status || "").toLowerCase().includes("ship") || String(order.status || "").toLowerCase().includes("kargo") ? C.purple :
-                                                                String(order.status || "").toLowerCase().includes("cancel") || String(order.status || "").toLowerCase().includes("iptal") ? C.red : C.yellow
+                                                                classifyOrderStatus(order.status) === "delivered" ? C.green :
+                                                                classifyOrderStatus(order.status) === "shipping" ? C.purple :
+                                                                classifyOrderStatus(order.status) === "cancelled" ? C.red : C.yellow
                                                             }>
-                                                                {order.status || t("dashboard.unknown")}
+                                                                {getOrderStatusLabelTr(order.status || t("dashboard.unknown"))}
                                                             </Pill>
                                                         </div>
                                                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -1200,11 +1120,11 @@ const UserDashboard = () => {
                                                         </span>
                                                         <div style={{ textAlign: "center" }}>
                                                             <Pill color={
-                                                                String(order.status || "").toLowerCase().includes("deliver") || String(order.status || "").toLowerCase().includes("teslim") ? C.green :
-                                                                String(order.status || "").toLowerCase().includes("ship") || String(order.status || "").toLowerCase().includes("kargo") ? C.purple :
-                                                                String(order.status || "").toLowerCase().includes("cancel") || String(order.status || "").toLowerCase().includes("iptal") ? C.red : C.yellow
+                                                                classifyOrderStatus(order.status) === "delivered" ? C.green :
+                                                                classifyOrderStatus(order.status) === "shipping" ? C.purple :
+                                                                classifyOrderStatus(order.status) === "cancelled" ? C.red : C.yellow
                                                             }>
-                                                                {order.status || t("dashboard.unknown")}
+                                                                {getOrderStatusLabelTr(order.status || t("dashboard.unknown"))}
                                                             </Pill>
                                                         </div>
                                                     </motion.div>
@@ -1315,6 +1235,7 @@ const UserDashboard = () => {
         { id: "users", icon: <FaUsers />, text: t("sidebar.userMgmt") },
         { id: "billing", icon: <FaFileInvoice />, text: t("sidebar.billing") },
         { id: "subscription", icon: <FaCrown />, text: language === "en" ? "Subscription & Plans" : "Abonelik & Paket" },
+        { id: "error-center", icon: <FaBug />, text: "Hata Merkezi" },
         { id: "support", icon: <FaHeadset />, text: t("sidebar.support") },
         { id: "settings", icon: <FaCog />, text: t("sidebar.settings") },
         ...(isAdmin ? [
@@ -1343,11 +1264,42 @@ const UserDashboard = () => {
         </div>
     );
 
-    const handleLogout = () => {
+    const handleLogout = async () => {
         setShowLogoutConfirm(false);
-        localStorage.clear();
+        await logoutUser().catch(() => {});
         window.location.href = "/login";
     };
+
+    const handleExitImpersonation = () => {
+        const backupToken = localStorage.getItem("adminBackup_token");
+        const backupUserId = localStorage.getItem("adminBackup_userId");
+        if (!backupToken || !backupUserId) return;
+
+        localStorage.setItem("token", backupToken);
+        localStorage.setItem("userId", backupUserId);
+        localStorage.setItem("userEmail", localStorage.getItem("adminBackup_email") || "");
+        localStorage.setItem("userName", localStorage.getItem("adminBackup_name") || "");
+        localStorage.setItem("userRole", localStorage.getItem("adminBackup_role") || "admin");
+        localStorage.removeItem("isImpersonating");
+        localStorage.removeItem("impersonatedBy");
+        localStorage.removeItem("adminBackup_token");
+        localStorage.removeItem("adminBackup_userId");
+        localStorage.removeItem("adminBackup_email");
+        localStorage.removeItem("adminBackup_name");
+        localStorage.removeItem("adminBackup_role");
+        window.location.href = "/admin/user-access";
+    };
+
+    /** Sipariş sayfasına her render'da yeni [] vermeyelim (OrdersPage gereksiz API tekrarını keser) */
+    const marketplacesForOrdersPage = useMemo(() => {
+        if (activePanel === "orders") return marketplaces;
+        if (activePanel.startsWith("orders-")) {
+            const marketplaceId = activePanel.slice("orders-".length);
+            const mp = marketplaces.find((m) => String(m._id) === String(marketplaceId));
+            return mp ? [mp] : [];
+        }
+        return marketplaces;
+    }, [activePanel, marketplaces]);
 
     const renderActivePanel = () => {
         if (activePanel.startsWith("finance-")) {
@@ -1356,9 +1308,9 @@ const UserDashboard = () => {
             return <FinancePage userId={userId} marketplaces={marketplaces} marketplaceId={marketplaceId} marketplace={marketplace} />;
         }
         if (activePanel.startsWith("orders-")) {
-            const marketplaceId = activePanel.split("-")[1];
-            const marketplace = marketplaces.find(m => m._id === marketplaceId);
-            return <OrdersPage userId={userId} marketplaces={[marketplace].filter(Boolean)} marketplaceId={marketplaceId} marketplace={marketplace} />;
+            const marketplaceId = activePanel.slice("orders-".length);
+            const marketplace = marketplaces.find((m) => String(m._id) === String(marketplaceId));
+            return <OrdersPage key={activePanel} userId={userId} marketplaces={marketplacesForOrdersPage} marketplaceId={marketplaceId} marketplace={marketplace} />;
         }
         if (activePanel.startsWith("inventory-")) {
             const marketplaceId = activePanel.split("-")[1];
@@ -1377,7 +1329,7 @@ const UserDashboard = () => {
         }
 
         switch (activePanel) {
-            case "orders": return <OrdersPage userId={userId} marketplaces={marketplaces} />;
+            case "orders": return <OrdersPage key="orders-all" userId={userId} marketplaces={marketplacesForOrdersPage} />;
             case "finance": return <FinancePage userId={userId} marketplaces={marketplaces} />;
             case "integration": return <MarketplaceIntegration userId={userId} />;
             case "users": return <UserProfilePage userId={userId} marketplaces={marketplaces} />;
@@ -1389,6 +1341,7 @@ const UserDashboard = () => {
             case "settings": return <SettingsPage userId={userId} />;
             case "billing": return <BillingPage userId={userId} />;
             case "subscription": return <SubscriptionPage />;
+            case "error-center": return <ErrorCenterPage />;
             case "support": return <SupportTicketsPage />;
             case "roketfy": return <RoketfyPanel />;
             case "radar-pro": return <RadarProPage userId={userId} />;
@@ -1400,6 +1353,14 @@ const UserDashboard = () => {
 
     return (
         <div className="dashboard-container">
+            {isImpersonating && (
+                <div style={{ position: "fixed", top: 8, left: "50%", transform: "translateX(-50%)", zIndex: 12000, background: "rgba(99,102,241,0.95)", color: "#fff", border: "1px solid rgba(165,180,252,0.45)", borderRadius: 999, padding: "8px 14px", display: "flex", alignItems: "center", gap: 10, fontSize: 12 }}>
+                    Admin olarak kullanıcı görünümündesiniz
+                    <button onClick={handleExitImpersonation} style={{ border: "none", borderRadius: 999, background: "#fff", color: "#3730a3", fontWeight: 700, padding: "5px 10px", cursor: "pointer" }}>
+                        Admin'e Dön
+                    </button>
+                </div>
+            )}
             <Particles id="tsparticles" init={particlesInit}
                 options={{
                     background: { color: C.particleBg || C.bg },

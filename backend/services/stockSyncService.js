@@ -359,12 +359,19 @@ const syncStockToAllMarketplaces = async (userId, productMapping, newStock, excl
                         masterBarcode;
                     break;
                 case "Hepsiburada":
-                    // Hepsiburada: merchantSku
+                    // Hepsiburada: merchantSku + (varsa) hepsiburadaSku birlikte kullanılmalı
                     productIdForMarketplace =
-                        marketplaceMapping.marketplaceSku ||
-                        marketplaceMapping.marketplaceProductId ||
-                        masterSku ||
-                        masterBarcode;
+                        {
+                            merchantSku:
+                                marketplaceMapping.marketplaceSku ||
+                                masterSku ||
+                                masterBarcode,
+                            hepsiburadaSku:
+                                marketplaceMapping.marketplaceProductId ||
+                                marketplaceMapping.marketplaceSku ||
+                                masterSku ||
+                                masterBarcode,
+                        };
                     break;
                 default:
                     productIdForMarketplace =
@@ -384,22 +391,66 @@ const syncStockToAllMarketplaces = async (userId, productMapping, newStock, excl
                 continue;
             }
 
-            logger.info(`[STOCK SYNC] ${mpName} güncelleniyor — productId: ${productIdForMarketplace}, stok: ${newStock}`);
+            const productIdLog = typeof productIdForMarketplace === "object"
+                ? `${productIdForMarketplace.merchantSku || "-"} / ${productIdForMarketplace.hepsiburadaSku || "-"}`
+                : productIdForMarketplace;
+            logger.info(`[STOCK SYNC] ${mpName} güncelleniyor — productId: ${productIdLog}, stok: ${newStock}`);
+
+            // Hepsiburada bazı hesaplarda inventory-uploads için fiyatı zorunlu istiyor.
+            // UI'dan fiyat gelmemişse mevcut mapping/master fiyatını fallback olarak gönder.
+            let effectivePriceUpdate = priceUpdate;
+            if (mpName === "Hepsiburada" && (!priceUpdate || priceUpdate.salePrice == null || priceUpdate.salePrice === "")) {
+                const fallbackSale =
+                    marketplaceMapping.price ??
+                    productMapping.masterProduct?.price ??
+                    productMapping.masterProduct?.listPrice;
+                const fallbackList =
+                    marketplaceMapping.listPrice ??
+                    productMapping.masterProduct?.listPrice ??
+                    fallbackSale;
+                if (fallbackSale != null && fallbackSale !== "") {
+                    effectivePriceUpdate = {
+                        salePrice: Number(fallbackSale) || 0,
+                        listPrice: Number(fallbackList) || Number(fallbackSale) || 0,
+                    };
+                    logger.info(`[HEPSIBURADA STOCK] Fiyat fallback aktif — salePrice=${effectivePriceUpdate.salePrice} listPrice=${effectivePriceUpdate.listPrice}`);
+                }
+            }
 
             // Stok + fiyat güncelle
             const updateResult = await updateStockOnMarketplace(
                 marketplace,
                 productIdForMarketplace,
                 newStock,
-                priceUpdate
+                effectivePriceUpdate
             );
+
+            if (updateResult.success && updateResult.skipped) {
+                results.push({
+                    name: mpName,
+                    syncStatus: "skipped",
+                    reason: updateResult.reason || "cooldown",
+                    message: updateResult.message || "Bu tur atlandı"
+                });
+                continue;
+            }
 
             if (updateResult.success) {
                 marketplaceMapping.stock = newStock;
                 marketplaceMapping.lastSyncDate = new Date();
-                marketplaceMapping.syncStatus = "synced";
-                if (priceUpdate?.salePrice)  marketplaceMapping.price     = priceUpdate.salePrice;
-                if (priceUpdate?.listPrice)  marketplaceMapping.listPrice  = priceUpdate.listPrice;
+                // Stok push başarılı olsa bile, ürün oluşturma henüz kesinleşmemiş (pending) mapping'i
+                // "synced"e çekmeyelim. Aksi halde UI ürünü platformda "Aktif" gösterir.
+                const prevStatus = String(marketplaceMapping.syncStatus || "").toLowerCase();
+                const wasConfirmed = marketplaceMapping.isSynced === true || prevStatus === "synced";
+                if (wasConfirmed) {
+                    marketplaceMapping.syncStatus = "synced";
+                    marketplaceMapping.isSynced = true;
+                } else if (!prevStatus) {
+                    marketplaceMapping.syncStatus = "pending";
+                    marketplaceMapping.isSynced = false;
+                }
+                if (effectivePriceUpdate?.salePrice)  marketplaceMapping.price     = effectivePriceUpdate.salePrice;
+                if (effectivePriceUpdate?.listPrice)  marketplaceMapping.listPrice  = effectivePriceUpdate.listPrice;
 
                 results.push({
                     name: mpName,
@@ -546,13 +597,76 @@ const updateTrendyolStock = async (credentials, productId, newStock, priceUpdate
 // Endpoint: POST /listings/merchantid/{merchantId}/inventory-uploads
 // Auth: Basic base64(merchantId:secretKey) + User-Agent header
 const updateHepsiburadaStock = async (credentials, productId, newStock, priceUpdate = null) => {
+    const parseHbStockFromRow = (row = {}) => {
+        const candidates = [
+            row.availableStock,
+            row.stock,
+            row.quantity,
+            row.available_stock,
+            row.sellableStock
+        ];
+        for (const v of candidates) {
+            const n = Number(v);
+            if (!Number.isNaN(n)) return n;
+        }
+        return null;
+    };
+
+    const checkHbReadbackStock = async (ep, merchantId, secretKey, userAgent, merchantSku, hbSku) => {
+        const {
+            getHeadersForGet,
+            normalizeHbMerchantSku
+        } = require("./hepsiburadaService");
+        const headers = getHeadersForGet(merchantId, secretKey, userAgent);
+        const needleMerchant = normalizeHbMerchantSku(merchantSku || "");
+        const needleHb = String(hbSku || "").trim();
+        const limit = 200;
+        for (let page = 0; page < 5; page++) {
+            const offset = page * limit;
+            const url = `${ep.LISTING}/listings/merchantid/${merchantId}?offset=${offset}&limit=${limit}`;
+            const resp = await axios.get(url, { headers, timeout: 15000 });
+            const rowsRaw = resp?.data?.data || resp?.data?.listings || resp?.data?.items || [];
+            const rows = Array.isArray(rowsRaw) ? rowsRaw : [];
+            for (const row of rows) {
+                const rowMerchant = normalizeHbMerchantSku(row.merchantSku || "");
+                const rowHb = String(row.hepsiburadaSku || row.hbSku || "").trim();
+                const matched = (needleMerchant && rowMerchant === needleMerchant) || (needleHb && rowHb === needleHb);
+                if (!matched) continue;
+                return {
+                    found: true,
+                    stock: parseHbStockFromRow(row),
+                    merchantSku: row.merchantSku || "",
+                    hepsiburadaSku: row.hepsiburadaSku || row.hbSku || "",
+                    raw: row
+                };
+            }
+            if (rows.length < limit) break;
+        }
+        return { found: false, stock: null };
+    };
+
+    const runHbSingleUpdate = async (ep, merchantId, secretKey, userAgent, hbSku, merchantSku, stockValue, pUpdate) => {
+        const {
+            getHeaders
+        } = require("./hepsiburadaService");
+        const headers = getHeaders(merchantId, secretKey, userAgent);
+        const singleUrl = `${ep.LISTING}/listings/merchantid/${merchantId}/sku/${encodeURIComponent(hbSku)}/merchantsku/${encodeURIComponent(merchantSku)}`;
+        const body = { newAvailableStock: parseInt(stockValue, 10) || 0 };
+        if (pUpdate?.salePrice != null && pUpdate?.salePrice !== "") {
+            body.newPrice = { currency: "TRY", amount: Number(pUpdate.salePrice) || 0 };
+        }
+        const fallbackResp = await axios.post(singleUrl, body, { headers, timeout: 15000 });
+        return fallbackResp;
+    };
+
     try {
         const {
             normalizeCredentials,
             getEndpoints,
             validateCredentials,
             normalizeHbMerchantSku,
-            postInventoryUploadListing
+            postInventoryUploadListing,
+            getHeaders
         } = require("./hepsiburadaService");
         const hbCreds = normalizeCredentials(credentials);
         const { merchantId, secretKey, userAgent } = hbCreds;
@@ -563,8 +677,15 @@ const updateHepsiburadaStock = async (credentials, productId, newStock, priceUpd
         }
 
         const ep = getEndpoints(hbCreds);
-        const hbs = String(productId || "").trim();
-        const ms = normalizeHbMerchantSku(productId) || hbs.toUpperCase().replace(/\s+/g, "");
+        const rawMerchantSku = typeof productId === "object"
+            ? productId.merchantSku
+            : productId;
+        const rawHbSku = typeof productId === "object"
+            ? (productId.hepsiburadaSku || productId.merchantSku)
+            : productId;
+
+        const hbs = String(rawHbSku || "").trim();
+        const ms = normalizeHbMerchantSku(rawMerchantSku) || String(rawMerchantSku || "").toUpperCase().replace(/\s+/g, "");
         const listing = {
             hepsiburadaSku: hbs,
             merchantSku: ms || hbs,
@@ -581,7 +702,137 @@ const updateHepsiburadaStock = async (credentials, productId, newStock, priceUpd
             rows: [listing]
         });
 
-        return { success: true, response: response.data };
+        const respData = response?.data || {};
+        const locationHeader = response?.headers?.location || response?.headers?.Location || "";
+        const locationMatch = String(locationHeader).match(/inventory-uploads\/id\/([a-zA-Z0-9-]+)/i);
+        const inventoryUploadId =
+            respData.inventoryUploadId ||
+            respData.id ||
+            respData.data?.inventoryUploadId ||
+            respData.data?.id ||
+            respData?.result?.inventoryUploadId ||
+            respData?.result?.id ||
+            response?.headers?.["x-inventory-upload-id"] ||
+            response?.headers?.["inventory-upload-id"] ||
+            locationMatch?.[1] ||
+            null;
+        const responseErrorMsg =
+            respData?.errors?.[0]?.message ||
+            respData?.message ||
+            respData?.error ||
+            null;
+        const responseSuccess = typeof respData.success === "boolean"
+            ? respData.success
+            : !responseErrorMsg;
+        if (!responseSuccess) {
+            const err = responseErrorMsg || "Hepsiburada inventory-uploads başarısız";
+            logger.warn(`[HEPSIBURADA STOCK] Güncelleme reddedildi — merchantSku=${ms} hbSku=${hbs} error=${err}`);
+            return { success: false, error: err, response: respData };
+        }
+
+        // HB inventory-uploads async çalışır; gerçek sonucu kısa poll ile doğrula
+        if (inventoryUploadId) {
+            const headers = getHeaders(merchantId, secretKey, userAgent);
+            const statusUrl = `${ep.LISTING}/listings/merchantid/${merchantId}/inventory-uploads/id/${encodeURIComponent(String(inventoryUploadId))}`;
+            for (let i = 1; i <= 3; i++) {
+                try {
+                    if (i > 1) await new Promise((resolve) => setTimeout(resolve, i * 1500));
+                    const stResp = await axios.get(statusUrl, { headers, timeout: 15000 });
+                    const stData = stResp?.data || {};
+                    const rawStatus = String(
+                        stData.status ||
+                        stData.resultStatus ||
+                        stData.uploadStatus ||
+                        stData.data?.status ||
+                        ""
+                    ).toUpperCase();
+
+                    if (["FAILED", "FAIL", "ERROR", "REJECTED"].includes(rawStatus) || stData.success === false) {
+                        const reason = stData.message || stData.error || stData.data?.message || "HB envanter güncellemesi reddedildi";
+                        logger.error(`[HEPSIBURADA STOCK] ❌ Reddedildi — uploadId=${inventoryUploadId} merchantSku=${ms} hbSku=${hbs} reason=${reason}`);
+                        return { success: false, error: reason, response: stData };
+                    }
+
+                    if (["SUCCESS", "COMPLETED", "DONE", "PROCESSED"].includes(rawStatus) || stData.success === true) {
+                        // Onay sonrası read-back kontrolü: HB paneldeki gerçek stok ile eşleşiyor mu?
+                        try {
+                            const readback = await checkHbReadbackStock(ep, merchantId, secretKey, userAgent, ms, hbs);
+                            if (readback.found && Number(readback.stock) !== Number(newStock)) {
+                                logger.warn(
+                                    `[HEPSIBURADA STOCK] Read-back farklı — merchantSku=${ms} hbSku=${hbs} ` +
+                                    `beklenen=${newStock} görünen=${readback.stock} ` +
+                                    `(HB row merchantSku=${readback.merchantSku || "-"} hbSku=${readback.hepsiburadaSku || "-"}) ` +
+                                    `Tekil endpoint ile tekrar denenecek.`
+                                );
+                                await runHbSingleUpdate(
+                                    ep,
+                                    merchantId,
+                                    secretKey,
+                                    userAgent,
+                                    readback.hepsiburadaSku || hbs,
+                                    readback.merchantSku || ms,
+                                    newStock,
+                                    priceUpdate
+                                );
+                                const readback2 = await checkHbReadbackStock(ep, merchantId, secretKey, userAgent, ms, hbs);
+                                if (readback2.found && Number(readback2.stock) !== Number(newStock)) {
+                                    return {
+                                        success: false,
+                                        error: `HB read-back uyumsuz: beklenen ${newStock}, görünen ${readback2.stock}`,
+                                        response: { uploadId: inventoryUploadId, readback: readback2 }
+                                    };
+                                }
+                            } else if (!readback.found) {
+                                logger.warn(`[HEPSIBURADA STOCK] Read-back listing bulunamadı — merchantSku=${ms} hbSku=${hbs}`);
+                                return {
+                                    success: false,
+                                    error: "HB read-back listing bulunamadı",
+                                    response: { uploadId: inventoryUploadId }
+                                };
+                            }
+                        } catch (rbErr) {
+                            logger.warn(`[HEPSIBURADA STOCK] Read-back kontrol hatası — merchantSku=${ms} hbSku=${hbs} error=${rbErr.message}`);
+                            return {
+                                success: false,
+                                error: `HB doğrulama hatası: ${rbErr.message}`,
+                                response: { uploadId: inventoryUploadId }
+                            };
+                        }
+
+                        logger.info(`[HEPSIBURADA STOCK] ✅ Onaylandı — uploadId=${inventoryUploadId} merchantSku=${ms} hbSku=${hbs} stok=${newStock}`);
+                        return { success: true, response: stData, inventoryUploadId };
+                    }
+                } catch (pollErr) {
+                    logger.warn(`[HEPSIBURADA STOCK] Poll hatası — uploadId=${inventoryUploadId} deneme=${i}/3 error=${pollErr.message}`);
+                }
+            }
+            logger.warn(`[HEPSIBURADA STOCK] ⏳ Beklemede — uploadId=${inventoryUploadId} merchantSku=${ms} hbSku=${hbs}`);
+            return {
+                success: false,
+                error: "HB envanter güncellemesi beklemede/sonuçlanmadı (inventoryUploadId sorgusunda net başarı dönmedi)",
+                response: respData,
+                inventoryUploadId
+            };
+        }
+
+        // Fallback: Tekil fiyat/stok endpoint'i (HB dokümanında beta olarak geçer, bazı hesaplarda tek güvenilir yol)
+        try {
+            const fallbackResp = await runHbSingleUpdate(ep, merchantId, secretKey, userAgent, hbs, ms, newStock, priceUpdate);
+            if (fallbackResp.status >= 200 && fallbackResp.status < 300) {
+                logger.info(`[HEPSIBURADA STOCK] ✅ Tekil endpoint fallback başarılı — merchantSku=${ms} hbSku=${hbs} stok=${newStock}`);
+                return { success: true, response: fallbackResp.data, fallback: "single-update" };
+            }
+        } catch (fbErr) {
+            const fbMsg = fbErr.response?.data?.message || fbErr.message;
+            logger.warn(`[HEPSIBURADA STOCK] Tekil endpoint fallback başarısız — merchantSku=${ms} hbSku=${hbs} error=${fbMsg}`);
+        }
+
+        logger.warn(`[HEPSIBURADA STOCK] UploadId alınamadı — merchantSku=${ms} hbSku=${hbs}. İşlem durumu doğrulanamadı. raw=${JSON.stringify(respData).slice(0, 300)}`);
+        return {
+            success: false,
+            error: "HB yanıtında inventoryUploadId yok; işlem doğrulanamadı",
+            response: respData
+        };
     } catch (error) {
         logger.error("[HEPSIBURADA STOCK] Hata:", error.response?.data || error.message);
         return { success: false, error: error.response?.data?.message || error.message };
@@ -652,15 +903,43 @@ const updateN11Stock = async (credentials, productId, newStock, priceUpdate = nu
 //   istekleri birbirini engelliyordu (Kullanıcı A'nın isteği Kullanıcı B'yi bekletti)
 // YENİ: sellerId bazlı Map → her kullanıcı kendi rate limit'ini takip eder
 const _csRateLimitMap = new Map(); // sellerId → lastRequestTime
+const _csStockCooldownMap = new Map(); // `${sellerId}:${stockCode}` → cooldownUntilMs
 const CS_RATE_LIMIT_MS = 5500; // 5.5 saniye güvenlik payı
 
+/** Aynı satıcıya giden CS isteklerini sıraya alır — "aynı anda istek yapılmamalıdır" hatasını engeller */
+const _csSerializedChains = new Map();
+const runCicekSepetiSerialized = (sellerKey, fn) => {
+    const prev = _csSerializedChains.get(sellerKey) || Promise.resolve();
+    const run = prev.then(() => fn());
+    _csSerializedChains.set(sellerKey, run.catch(() => {}));
+    return run;
+};
+
 const updateCicekSepetiStock = async (credentials, stockCode, newStock, priceUpdate = null) => {
+    const apiKey0 = credentials.apiKey || credentials.apiSecret;
+    const sellerId0 = credentials.sellerId || credentials.supplierId;
+    const queueKey = sellerId0 || apiKey0 || "cs";
+    return runCicekSepetiSerialized(queueKey, async () => {
     try {
         const apiKey       = credentials.apiKey       || credentials.apiSecret;
         const sellerId     = credentials.sellerId     || credentials.supplierId;
         const integratorName = credentials.integratorName || "";
         if (!apiKey) {
             return { success: false, error: "ÇiçekSepeti credentials eksik: apiKey gerekli" };
+        }
+
+        const cooldownKey = `${sellerId || apiKey}:${String(stockCode || "").trim()}`;
+        const cooldownUntil = _csStockCooldownMap.get(cooldownKey) || 0;
+        const now0 = Date.now();
+        if (cooldownUntil > now0) {
+            const leftSec = Math.ceil((cooldownUntil - now0) / 1000);
+            logger.info(`[CICEKSEPETI STOCK] ⏭ Cooldown atlandı — stockCode: ${stockCode}, kalan: ${leftSec}s`);
+            return {
+                success: true,
+                skipped: true,
+                reason: "cooldown",
+                message: `ÇiçekSepeti limit cooldown aktif (${leftSec}s)`
+            };
         }
 
         // 🛡️ Per-tenant rate limit — bu kullanıcının son isteğinden 5.5 saniye geçmemişse bekle
@@ -729,7 +1008,6 @@ const updateCicekSepetiStock = async (credentials, stockCode, newStock, priceUpd
 
         return { success: true, batchId, response: stockResponse.data };
     } catch (error) {
-        // ✅ FIX: Hata detayını düzgün logla — obje ise JSON.stringify ile yazdır
         const errData = error.response?.data;
         const errCode = error.response?.status;
         let errMsg = error.message;
@@ -739,9 +1017,37 @@ const updateCicekSepetiStock = async (credentials, stockCode, newStock, priceUpd
             else if (typeof errData === "string") errMsg = errData;
             else errMsg = JSON.stringify(errData);
         }
+
+        const isRateLimited =
+            errCode === 400 &&
+            /limit aşım|limit aşımı|kalan süre|aynı anda istek|5 saniyede 1|30 dakikada 1|farklı istekleri/i.test(errMsg);
+
+        if (isRateLimited) {
+            const m = errMsg.match(/Kalan Süre:\s*(\d+)/i);
+            let sec = m ? parseInt(m[1], 10) : NaN;
+            if (!Number.isFinite(sec) || sec <= 0) {
+                if (/30 dakikada 1 kez|aynı isteği 30/i.test(errMsg)) sec = 1800;
+                else if (/5 saniyede 1 kez|farklı istekleri/i.test(errMsg)) sec = 8;
+                else if (/aynı anda istek/i.test(errMsg)) sec = 25;
+                else sec = 60;
+            }
+            const cooldownMs = Math.max(5, sec) * 1000;
+            const sid = credentials.sellerId || credentials.supplierId || credentials.apiKey || "cs";
+            const ck = `${sid}:${String(stockCode || "").trim()}`;
+            _csStockCooldownMap.set(ck, Date.now() + cooldownMs);
+            logger.warn(`[CICEKSEPETI STOCK] ⏸ Cooldown — stockCode: ${stockCode}, ${Math.ceil(cooldownMs / 1000)}s`);
+            return {
+                success: true,
+                skipped: true,
+                reason: "rate_limit",
+                message: errMsg
+            };
+        }
+
         logger.error(`[CICEKSEPETI STOCK] ❌ Hata — stockCode: ${stockCode} | status: ${errCode} | error: ${errMsg}`);
         return { success: false, error: errMsg };
     }
+    });
 };
 
 // ═══════════════════════════════════════════════════════════════
@@ -876,6 +1182,9 @@ const manualStockSync = async (userId, productMappingId, newStock, priceUpdate =
 
         // Tüm pazaryerlerinde stok + fiyat senkronize et
         const syncResults = await syncStockToAllMarketplaces(userId, mapping, marketplaceStock, null, priceUpdate);
+        const hasError = syncResults.some((x) => x.syncStatus === "error");
+        const successCount = syncResults.filter((x) => x.syncStatus === "success").length;
+        const errorMarketplaces = syncResults.filter((x) => x.syncStatus === "error").map((x) => `${x.name}: ${x.error || "bilinmeyen hata"}`);
 
         // Stok log oluştur
         await StockSyncLog.create({
@@ -893,7 +1202,7 @@ const manualStockSync = async (userId, productMappingId, newStock, priceUpdate =
                 newValue: newStock,
                 difference: newStock - oldStock
             },
-            status: "success",
+            status: hasError ? "error" : "success",
             affectedMarketplaces: syncResults,
             notification: {
                 priority: newStock === 0 ? "critical" : newStock <= mapping.stockTracking.lowStockThreshold ? "high" : "medium"
@@ -917,7 +1226,7 @@ const manualStockSync = async (userId, productMappingId, newStock, priceUpdate =
                     newValue: priceUpdate.salePrice,
                     difference: priceUpdate.salePrice - oldPrice
                 },
-                status: "success",
+                status: hasError ? "error" : "success",
                 affectedMarketplaces: syncResults,
                 notification: { priority: "low" }
             });
@@ -925,15 +1234,20 @@ const manualStockSync = async (userId, productMappingId, newStock, priceUpdate =
 
         await mapping.save();
 
-        logger.info(`[MANUAL SYNC] ✅ ${mapping.masterProduct.name} | stok: ${oldStock}→${newStock} | platformlara: ${marketplaceStock}`);
+        if (hasError) {
+            logger.warn(`[MANUAL SYNC] ⚠️ Kısmi başarısız — ${mapping.masterProduct.name} | stok: ${oldStock}→${newStock} | başarılı: ${successCount}/${syncResults.length} | hatalar: ${errorMarketplaces.join(" | ")}`);
+        } else {
+            logger.info(`[MANUAL SYNC] ✅ ${mapping.masterProduct.name} | stok: ${oldStock}→${newStock} | platformlara: ${marketplaceStock}`);
+        }
 
         return {
-            success: true,
+            success: !hasError,
             oldStock,
             newStock,
             marketplaceStock,
             oldPrice,
             newPrice: priceUpdate?.salePrice || oldPrice,
+            errorMarketplaces,
             marketplaces: syncResults
         };
     } catch (error) {
@@ -946,7 +1260,15 @@ const manualStockSync = async (userId, productMappingId, newStock, priceUpdate =
 // 🔄 OTOMATİK STOK SENKRONİZASYONU (Kullanıcı tetiklemeli)
 // ═══════════════════════════════════════════════════════════════
 
-const autoStockSync = async (userId) => {
+/** @param {(p: { phase?: string, progressPercent?: number, current?: number, total?: number, message?: string }) => void} [onProgress] */
+const autoStockSync = async (userId, onProgress) => {
+    const report = (partial) => {
+        try {
+            onProgress?.(partial);
+        } catch (e) {
+            /* ignore */
+        }
+    };
     try {
         logger.info(`[AUTO SYNC] Kullanıcı ${userId} için otomatik stok senkronizasyonu başlatılıyor...`);
 
@@ -956,8 +1278,23 @@ const autoStockSync = async (userId) => {
         });
 
         const results = [];
+        const n = mappings.length;
+        if (n === 0) {
+            report({ phase: "done", progressPercent: 100, current: 0, total: 0, message: "Oto sync: açık ürün yok" });
+            return results;
+        }
 
-        for (const mapping of mappings) {
+        report({ phase: "process", progressPercent: 2, current: 0, total: n, message: `${n} ürün bulundu` });
+
+        for (let i = 0; i < mappings.length; i++) {
+            const mapping = mappings[i];
+            report({
+                phase: "process",
+                progressPercent: 5 + Math.floor((i / n) * 90),
+                current: i,
+                total: n,
+                message: `(${i + 1}/${n}) ${mapping.masterProduct?.name || mapping.masterProduct?.barcode || "ürün"}`
+            });
             try {
                 // 🛡️ Güvenlik stoğu düşülmüş stoku hesapla
                 const marketplaceStock = mapping.getMarketplaceStock();
@@ -1011,6 +1348,13 @@ const autoStockSync = async (userId) => {
         }
 
         logger.info(`[AUTO SYNC] Tamamlandı - ${results.length} ürün işlendi`);
+        report({
+            phase: "done",
+            progressPercent: 100,
+            current: n,
+            total: n,
+            message: `Bitti — ${results.filter(r => r.status === "success").length}/${n} başarılı`
+        });
 
         return results;
     } catch (error) {

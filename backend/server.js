@@ -65,6 +65,7 @@ const autoOrderRoutes         = require("./routes/autoOrderRoutes");
 // ✅ FIX #3: Webhook route'ları — pazaryeri anlık bildirim endpoint'leri
 const webhookRoutes           = require("./routes/webhookRoutes");
 const ticketRoutes            = require("./routes/ticketRoutes");
+const clientErrorRoutes       = require("./routes/clientErrorRoutes");
 
 // ─── 3. DNS & App ─────────────────────────────────────────────────────────────
 dns.setServers(["1.1.1.1", "8.8.8.8"]);
@@ -95,9 +96,7 @@ const allowedOrigins = [
     "http://127.0.0.1:3000",
     "http://localhost:5000",
     "http://127.0.0.1:5000",
-    // Production — hem HTTP hem HTTPS (SSL sertifikası eklenene kadar HTTP de gerekli)
-    "http://13.51.158.124",
- 
+    // Production origins — ek domain / geçici IP için CORS_EXTRA_ORIGINS kullanın
     // Yeni domain — pazaryonetim.com (IDN + punycode güvenli ekleme)
     "https://pazaryönetim.com",
     "https://www.pazaryönetim.com",
@@ -303,6 +302,7 @@ app.use("/api/category-center", categoryCenterRoutes);
 app.use("/api/radar",          radarRoutes);
 app.use("/api/auto-order",    autoOrderRoutes);
 app.use("/api/tickets",       ticketRoutes);
+app.use("/api/client-errors", clientErrorRoutes);
 // ✅ FIX #3: Webhook endpoint'leri — auth gerektirmez, pazaryerlerinden gelir
 app.use("/api/webhooks",       webhookRoutes);
 
@@ -395,10 +395,22 @@ app.use((err, req, res, next) => {
 const connectDB = require("./config/db");
 
 mongoose.connection.on("disconnected", () =>
-    logger.warn("MongoDB bağlantısı kesildi!")
+    logger.warn(
+        "MongoDB bağlantısı geçici olarak kesildi — sürücü çoğu durumda otomatik yeniden bağlanır; " +
+            "birkaç saniye içinde 'MongoDB yeniden bağlandı' görünmeli. Görünmüyorsa Atlas IP listesi / ağ / VPN kontrol edin. " +
+            "IPv4 sorununda: MONGODB_FORCE_IPV4=true deneyin."
+    )
 );
 mongoose.connection.on("reconnected", () =>
     logger.info("MongoDB yeniden bağlandı ✅")
+);
+mongoose.connection.on("connected", () => {
+    if (mongoose.connection.readyState === 1) {
+        logger.debug(`MongoDB topology hazır — host: ${mongoose.connection.host || "-"}`);
+    }
+});
+mongoose.connection.on("error", (err) =>
+    logger.error(`MongoDB bağlantı hatası: ${err?.message || err}`)
 );
 
 let server; // global referans — graceful shutdown için
@@ -406,6 +418,16 @@ let server; // global referans — graceful shutdown için
 const startServer = async () => {
     // ─── 13a. Önce MongoDB bağlantısını kur ────────────────────────────────────
     await connectDB();
+
+    // Route'lar model yüklerken DB kapalıyken index() tetiklenmesin diye: bağlantı sonrası tek seferlik temizlik
+    try {
+        const AutoOrderConfig = require("./models/AutoOrderConfig");
+        if (typeof AutoOrderConfig.cleanupLegacyAutoOrderIndexes === "function") {
+            await AutoOrderConfig.cleanupLegacyAutoOrderIndexes();
+        }
+    } catch (e) {
+        logger.warn(`AutoOrderConfig index temizliği atlandı: ${e.message}`);
+    }
 
     // ─── 14. Sunucuyu başlat (DB bağlantısı başarılı olduktan sonra) ───────────
     const PORT = process.env.PORT || 5000;

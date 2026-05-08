@@ -7,6 +7,7 @@
  * ✅ v2: 429 Rate Limit otomatik retry (exponential backoff) + toast bildirimi
  */
 import axios from "axios";
+import { pushClientError } from "./clientErrorStore";
 
 // ✅ Production'da REACT_APP_API_URL boş string = Nginx reverse proxy (/api)
 // Development'ta REACT_APP_API_URL=http://localhost:5000
@@ -109,6 +110,28 @@ API.interceptors.response.use(
     (response) => response,
     async (error) => {
         const originalRequest = error.config;
+        const statusCode = error.response?.status || 0;
+        const requestPath = originalRequest?.url || "";
+        const userMessage = error.response?.data?.message || error.message || "Bilinmeyen hata";
+
+        const skipErrorLog =
+            requestPath.includes("/auth/refresh-token") ||
+            requestPath.includes("/client-errors");
+
+        if (!skipErrorLog) {
+            let source = "api";
+            const p = String(requestPath || "");
+            if (p.includes("product-management") || p.includes("marketplace")) {
+                source = "marketplace";
+            }
+            pushClientError({
+                source,
+                statusCode,
+                path: requestPath,
+                method: String(originalRequest?.method || "get").toUpperCase(),
+                message: userMessage,
+            });
+        }
 
         // ─── 429 Rate Limit — Otomatik Retry (exponential backoff) ──────────
         if (error.response?.status === 429) {

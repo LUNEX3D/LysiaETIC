@@ -2,6 +2,55 @@
 const moment = require("moment");
 const _ = require("lodash");
 const logger = require("../config/logger");
+const { marketplaceOrderDateToIsoString, trendyolOrderDateMsToUtcMs } = require("../utils/helpers");
+
+/**
+ * Trendyol paket yanıtından brüt, satıcı/TY indirimi ve faturalanacak (packageTotalPrice) tutarları.
+ */
+function extractTrendyolPackageMoney(pkg, lineFallbackTotal) {
+    const n = (v) => {
+        const x = Number(v);
+        return Number.isFinite(x) ? x : 0;
+    };
+    const lines = Array.isArray(pkg.lines) ? pkg.lines : [];
+    let lineGrossSum = 0;
+    let lineSellerSum = 0;
+    let lineTySum = 0;
+    for (const line of lines) {
+        const qty = Math.max(1, n(line.quantity));
+        const lg = n(line.lineGrossAmount);
+        const amt = n(line.amount || line.price);
+        const unitGross = lg > 0 ? lg : amt;
+        lineGrossSum += unitGross * qty;
+        lineSellerSum += n(line.lineSellerDiscount);
+        lineTySum += n(line.lineTyDiscount || line.tyDiscount);
+    }
+    let sellerDisc = n(pkg.packageSellerDiscount);
+    let tyDisc = n(pkg.packageTyDiscount || pkg.totalTyDiscount);
+    if (sellerDisc <= 0 && lineSellerSum > 0) sellerDisc = lineSellerSum;
+    if (tyDisc <= 0 && lineTySum > 0) tyDisc = lineTySum;
+
+    const grossPkg = n(pkg.packageGrossAmount || pkg.grossAmount);
+    const grossFinal = grossPkg > 0 ? grossPkg : (lineGrossSum > 0 ? lineGrossSum : n(lineFallbackTotal));
+
+    let invoicePkg = n(pkg.packageTotalPrice);
+    if (invoicePkg <= 0 && grossFinal > 0 && (sellerDisc > 0 || tyDisc > 0)) {
+        invoicePkg = Math.max(0, grossFinal - sellerDisc - tyDisc);
+    }
+    if (invoicePkg <= 0) {
+        invoicePkg = n(pkg.totalPrice);
+    }
+    if (invoicePkg <= 0 && grossFinal > 0) {
+        invoicePkg = grossFinal;
+    }
+
+    return {
+        grossOrderAmount: grossFinal,
+        sellerDiscountTotal: sellerDisc,
+        tyDiscountTotal: tyDisc,
+        invoiceAmount: invoicePkg,
+    };
+}
 
 const fetchTrendyolOrders = async (sellerId, apiKey, apiSecret, startDate, endDate) => {
     try {
@@ -29,18 +78,25 @@ const fetchTrendyolOrders = async (sellerId, apiKey, apiSecret, startDate, endDa
                         Authorization: authHeader,
                         "User-Agent": userAgent,
                         "Content-Type": "application/json"
-                    }
+                    },
+                    timeout: 90000
                 });
 
                 if (!response.data || !Array.isArray(response.data.content)) break;
 
                 orders.push(...response.data.content.map(pkg => {
-                    // ✅ FIX: Tutar hesaplama — grossAmount, totalPrice, packageTotalPrice, packageGrossAmount veya line toplamı
                     const lineTotal = Array.isArray(pkg.lines)
                         ? pkg.lines.reduce((sum, line) => sum + (Number(line.amount || line.price || line.lineGrossAmount || 0) * Number(line.quantity || 1)), 0)
                         : 0;
-                    const rawTotal = Number(pkg.grossAmount || pkg.totalPrice || pkg.packageTotalPrice || pkg.packageGrossAmount || 0);
-                    const finalTotal = rawTotal > 0 ? rawTotal : lineTotal;
+                    const money = extractTrendyolPackageMoney(pkg, lineTotal);
+                    const finalTotal =
+                        money.invoiceAmount > 0
+                            ? money.invoiceAmount
+                            : (money.grossOrderAmount > 0 ? money.grossOrderAmount : lineTotal);
+
+                    const tyOrderMsUtc = trendyolOrderDateMsToUtcMs(pkg.orderDate);
+                    const tyOrderForParse =
+                        tyOrderMsUtc != null && Number.isFinite(tyOrderMsUtc) ? tyOrderMsUtc : pkg.orderDate;
 
                     return {
                         orderNumber: pkg.orderNumber,
@@ -49,9 +105,13 @@ const fetchTrendyolOrders = async (sellerId, apiKey, apiSecret, startDate, endDa
                         customerLastName: pkg.customerLastName || "",
                         customerEmail: pkg.customerEmail || "",
                         totalPrice: finalTotal > 0 ? finalTotal.toFixed(2) : "0.00",
+                        grossOrderAmount: money.grossOrderAmount,
+                        sellerDiscountTotal: money.sellerDiscountTotal,
+                        tyDiscountTotal: money.tyDiscountTotal,
+                        invoiceAmount: money.invoiceAmount,
                         status: pkg.status,
-                        orderDate: new Date(pkg.orderDate).toLocaleString("tr-TR", { timeZone: "Europe/Istanbul" }),
-                        orderDateRaw: pkg.orderDate, // epoch ms — sync için
+                        orderDate: marketplaceOrderDateToIsoString(tyOrderForParse) || undefined,
+                        orderDateRaw: tyOrderForParse,
                         // ── Müşteri adres bilgileri (fatura için) ──
                         shipmentAddress: pkg.shipmentAddress ? {
                             fullName: pkg.shipmentAddress.fullName || "",
@@ -71,16 +131,30 @@ const fetchTrendyolOrders = async (sellerId, apiKey, apiSecret, startDate, endDa
                             company: pkg.invoiceAddress.company || "",
                         } : {},
                         products: pkg.lines.map(line => {
-                            let img = line.imageUrl || line.productImageUrl || "";
-                            if (!img || img.includes("default-product.jpg")) {
-                                img = "https://placehold.co/400x400/1e293b/4ecdc4?text=Urun";
+                            let img =
+                                line.imageUrl ||
+                                line.productImageUrl ||
+                                line.pictureUrl ||
+                                line.coverImageUrl ||
+                                line.thumbnail ||
+                                line.variantImage ||
+                                line.colorImageUrl ||
+                                "";
+                            if (!img && Array.isArray(line.images) && line.images.length) {
+                                const fi = line.images[0];
+                                img = typeof fi === "string" ? fi : (fi && (fi.url || fi.imageUrl || fi.image)) || "";
                             }
+                            if (!img || img.includes("default-product.jpg")) {
+                                img = "";
+                            }
+                            const msku = line.merchantSku || line.sku || "";
                             return {
                                 productName: line.productName,
                                 quantity: line.quantity,
                                 price: line.amount || line.price || line.lineGrossAmount || 0,
                                 barcode: line.barcode || line.productBarcode || "",
-                                merchantSku: line.merchantSku || line.sku || "",
+                                sku: msku,
+                                merchantSku: msku,
                                 productCode: line.productCode || "",
                                 imageUrl: img,
                                 commissionAmount: line.commissionFee || 0
@@ -226,9 +300,11 @@ const fetchHepsiburadaOrders = async (merchantId, serviceKey, startDate, endDate
                             productName: sub.productName || sub.name || 'Ürün',
                             quantity: Number(sub.quantity || 1),
                             price: Number(sub.totalPrice?.amount || sub.totalPrice || sub.price?.amount || sub.price || sub.merchantTotalPrice || 0),
-                            imageUrl: (sub.imageUrl || sub.productImageUrl || "").includes("default-product.jpg")
-                                ? "https://placehold.co/400x400/1e293b/4ecdc4?text=Urun"
-                                : (sub.imageUrl || sub.productImageUrl || "https://placehold.co/400x400/1e293b/4ecdc4?text=Urun"),
+                            imageUrl: (() => {
+                                const u = sub.imageUrl || sub.productImageUrl || sub.pictureUrl || "";
+                                if (!u || u.includes("default-product.jpg")) return "";
+                                return u;
+                            })(),
                             sku: sub.hbSku || sub.sku || sub.merchantSku || '',
                             barcode: sub.merchantSku || sub.productBarcode || sub.sku || '',
                             commissionAmount: Number(sub.commission?.amount || 0)
@@ -241,9 +317,11 @@ const fetchHepsiburadaOrders = async (merchantId, serviceKey, startDate, endDate
                         productName: item.productName || item.name || 'Ürün',
                         quantity: qty,
                         price: lineTotal > 0 ? lineTotal.toFixed(2) : itemUnitPrice.toFixed(2),
-                        imageUrl: (item.imageUrl || item.productImageUrl || "").includes("default-product.jpg")
-                            ? "https://placehold.co/400x400/1e293b/4ecdc4?text=Urun"
-                            : (item.imageUrl || item.productImageUrl || "https://placehold.co/400x400/1e293b/4ecdc4?text=Urun"),
+                        imageUrl: (() => {
+                            const u = item.imageUrl || item.productImageUrl || item.pictureUrl || "";
+                            if (!u || u.includes("default-product.jpg")) return "";
+                            return u;
+                        })(),
                         sku: item.sku || item.merchantSku || '',
                         barcode: item.merchantSku || item.productBarcode || item.sku || '',
                         commissionAmount: Number(item.commission?.amount || 0)
@@ -507,9 +585,7 @@ const fetchHepsiburadaOrders = async (merchantId, serviceKey, startDate, endDate
         const uniqueOrders = Array.from(allOrderMap.values()).map(order => {
             return {
                 ...order,
-                orderDate: order.orderDate
-                    ? new Date(order.orderDate).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' })
-                    : 'Bilinmiyor',
+                orderDate: marketplaceOrderDateToIsoString(order.orderDate) || (order.orderDate ? String(order.orderDate) : "Bilinmiyor"),
                 orderDateRaw: order.orderDate,
                 totalPrice: order.totalPrice > 0 ? order.totalPrice.toFixed(2) : '0.00',
             };
@@ -551,7 +627,8 @@ const fetchN11Orders = async (apiKey, secretKey, startDate, endDate) => {
                     appkey: cleanAscii(apiKey),
                     appsecret: cleanAscii(secretKey),
                     "Content-Type": "application/json"
-                }
+                },
+                timeout: 60000
             });
 
             const data = response.data?.content || [];
@@ -593,14 +670,16 @@ const fetchN11Orders = async (apiKey, secretKey, startDate, endDate) => {
                     products: pkg.lines.map(line => {
                         let img = line.imageUrl || line.productImageUrl || line.productImage || "";
                         if (!img || img.includes("default-product.jpg")) {
-                            img = "https://placehold.co/400x400/1e293b/4ecdc4?text=Urun";
+                            img = "";
                         }
+                        const msku = line.merchantSku || line.sku || "";
                         return {
                             productName: line.productName,
                             quantity: line.quantity,
                             price: Number(line.sellerInvoiceAmount || line.price || 0),
                             barcode: line.barcode || line.productBarcode || "",
-                            merchantSku: line.merchantSku || line.sku || "",
+                            sku: msku,
+                            merchantSku: msku,
                             productCode: line.productCode || "",
                             imageUrl: img
                         };
@@ -681,12 +760,21 @@ const fetchCicekSepetiOrders = async (apiKey, sellerId, integratorName) => {
 
                 if (!items.length) break;
 
-                orders.push(...items.map(order => ({
+                orders.push(...items.map(order => {
+                    const dStr = order.orderCreateDate;
+                    const tStr = (order.orderCreateTime || "00:00:00").trim();
+                    const p = String(dStr || "").split(/[./]/);
+                    let csIsoRaw = null;
+                    if (p.length === 3) {
+                        const [dd, mm, yy] = p;
+                        const pad = (x) => String(x).padStart(2, "0");
+                        csIsoRaw = `${yy}-${pad(mm)}-${pad(dd)}T${tStr.length === 5 ? `${tStr}:00` : tStr}+03:00`;
+                    }
+                    return {
                     orderNumber: order.orderId?.toString(),
                     orderItemId: order.orderItemId,
-                    orderDate: moment(`${order.orderCreateDate} ${order.orderCreateTime}`, "DD/MM/YYYY HH:mm").isValid()
-                        ? moment(`${order.orderCreateDate} ${order.orderCreateTime}`, "DD/MM/YYYY HH:mm").format("DD-MM-YYYY HH:mm")
-                        : order.orderCreateDate,
+                    orderDate: marketplaceOrderDateToIsoString(csIsoRaw) || undefined,
+                    orderDateRaw: csIsoRaw || (dStr && tStr ? `${dStr} ${tStr}` : order.orderCreateDate),
                     customerName: order.receiverName || order.senderName || "Bilinmiyor",
                     customerPhone: order.receiverPhone || "",
                     totalPrice: (order.totalPrice || 0).toFixed(2),
@@ -715,13 +803,16 @@ const fetchCicekSepetiOrders = async (apiKey, sellerId, integratorName) => {
                         productName: order.name || "Ürün",
                         quantity: order.quantity || 1,
                         price: (order.itemPrice || 0).toFixed(2),
-                        imageUrl: (order.imageUrl || order.productImageUrl || "").includes("default-product.jpg") 
-                            ? "https://placehold.co/400x400/1e293b/4ecdc4?text=Urun" 
-                            : (order.imageUrl || order.productImageUrl || "https://placehold.co/400x400/1e293b/4ecdc4?text=Urun"),
+                        imageUrl: (() => {
+                            const u = order.imageUrl || order.productImageUrl || "";
+                            if (!u || u.includes("default-product.jpg")) return "";
+                            return u;
+                        })(),
                         barcode: order.barcode || "",
+                        sku: order.productCode || order.code || "",
                         productCode: order.productCode || order.code || ""
                     }]
-                })));
+                }; }));
 
                 logger.info(`[ÇiçekSepeti] Sayfa ${page}: ${items.length} sipariş çekildi (toplam: ${totalCount})`);
 
@@ -1009,6 +1100,7 @@ const fetchEPttAVMOrders = async (merchantId, apiKey, apiSecret, startDate, endD
 };
 
 module.exports = {
+    extractTrendyolPackageMoney,
     fetchTrendyolOrders,
     fetchHepsiburadaOrders,
     fetchN11Orders,

@@ -7,6 +7,7 @@ const Product = require("../models/Product");
 const logger = require("../config/logger");
 // ✅ FIX: Credential'ları decrypt et — DB'de şifreli saklanıyor
 const { decryptCredentials } = require("../utils/encryption");
+const { extractTrendyolPackageMoney } = require("./ordersService");
 
 const REQUEST_TIMEOUT_MS = 15000; // 15 saniye timeout
 const RETRY_LIMIT = 3;
@@ -178,12 +179,25 @@ const fetchTrendyolOrders = async (credentials, start, end) => {
 
     const content = Array.isArray(result.response?.data?.content) ? result.response.data.content : [];
 
-    const orders = content.map(pkg => ({
-        orderNumber: pkg.orderNumber,
-        orderDate: pkg.orderDate,
-        totalPrice: pkg.grossAmount,
-        status: pkg.status
-    }));
+    const orders = content.map(pkg => {
+        const lineTotal = Array.isArray(pkg.lines)
+            ? pkg.lines.reduce(
+                (sum, line) => sum + (Number(line.amount || line.price || line.lineGrossAmount || 0) * Number(line.quantity || 1)),
+                0
+            )
+            : 0;
+        const money = extractTrendyolPackageMoney(pkg, lineTotal);
+        const totalPrice =
+            money.invoiceAmount > 0
+                ? money.invoiceAmount
+                : (money.grossOrderAmount > 0 ? money.grossOrderAmount : lineTotal);
+        return {
+            orderNumber: pkg.orderNumber,
+            orderDate: pkg.orderDate,
+            totalPrice,
+            status: pkg.status
+        };
+    });
 
     const summary = summarizeOrders(orders);
     return { ...summary, errorCount: 0, healthStatus: "healthy", pendingSync: 0 };

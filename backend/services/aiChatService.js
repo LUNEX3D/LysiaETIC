@@ -3,15 +3,13 @@
  * AI CHAT SERVICE — LysiaETIC AI Operatör
  * ═══════════════════════════════════════════════════════════════════════════════
  *
- * GPT OLMADAN GPT GİBİ ÇALIŞAN CHAT SİSTEMİ
+ * Hibrit ajan: Ollama (yerel, ücretsiz) veya OpenAI + mağaza bağlamı + kural tabanlı özet;
+ * dil modeli kapalıysa yalnızca kural tabanlı yanıt (intent → şablon / veri).
  *
- * Nasıl çalışır?
- *   1. Intent Detection  — Kullanıcı ne istiyor? (regex + keyword matching)
- *   2. Entity Extraction — Hangi ürün? Hangi marketplace? Ne kadar?
- *   3. Context Tracking  — Son 10 mesajı hatırla, bağlamı koru
- *   4. Data Query        — İlgili veriyi DB'den çek
- *   5. Response Build    — Akıllı, doğal dilde cevap üret
- *   6. Action Suggest    — Gerekirse aksiyon öner veya uygula
+ * Akış:
+ *   1. Intent + varlık çıkarımı
+ *   2. Kural tabanlı yanıt (sayılar ve öneriler için güvenilir kaynak)
+ *   3. LLM açıksa: mağaza özeti + iç motor özeti ile doğal dilde cevap
  *
  * INTENT CATEGORIES:
  *   - greeting          → Selamlama
@@ -39,15 +37,181 @@ const AIMemory = require("../models/AIMemory");
 const Product = require("../models/Product");
 const Order = require("../models/Order");
 const logger = require("../config/logger");
+const { isLlmEnabled, chatCompletion, getLlmConfig } = require("./llmChatRouter");
+
+/** Ajan yanıtında gösterilecek Türkçe niyet etiketleri */
+const INTENT_LABELS_TR = {
+    greeting: "Selamlama",
+    status_query: "Genel durum",
+    sales_query: "Satış / ciro",
+    product_query: "Ürün performansı",
+    stock_query: "Stok",
+    price_query: "Fiyat",
+    price_action: "Fiyat aksiyonu",
+    stock_action: "Stok aksiyonu",
+    analysis_request: "Analiz",
+    recommendation: "Öneri",
+    problem_query: "Sorun / risk",
+    profit_query: "Kârlılık",
+    marketplace_query: "Pazaryeri",
+    help: "Yardım",
+    unknown: "Belirsiz",
+    wellbeing_chat: "Hal hatır",
+};
+
+/** Bu niyetlerde mağaza / operatör verisi okunur */
+const INTENTS_USING_STORE_DATA = new Set([
+    "status_query", "sales_query", "product_query", "stock_query", "price_query",
+    "analysis_request", "recommendation", "problem_query", "profit_query", "marketplace_query",
+]);
+
+const AGENT_MODEL_ID = "lysia-agent-v1";
+
+const AGENT_NOTE_HYBRID =
+    "Hibrit ajan: niyet + mağaza özeti + dil modeli (ücretsiz yerel Ollama veya isteğe bağlı OpenAI). İşletme sayıları yalnızca MAĞAZA_VERİSİ ve iç motor özetine dayanmalıdır.";
+
+const AGENT_NOTE_RULES =
+    "Kurallı mod: dil modeli kapalı (Ollama/OpenAI yok veya hata); yanıt şablon / kural tabanlıdır.";
+
+const LYSIA_AGENT_SYSTEM_PROMPT = `Sen "Lysia Agent" adında, LysiaETIC platformunda çalışan bir e-ticaret ve pazaryeri satıcı asistanısın.
+Kullanıcıyla öncelikle Türkçe, doğal ve profesyonel konuş.
+
+KURALLAR:
+1) "MAĞAZA_VERİSİ" bloğundaki rakamlar bu kullanıcının hesabına ait özet veridir; iş / mağaza sorularında bunları esas al. Bu blokta olmayan sipariş, stok veya ciro detayını asla uydurma.
+2) "İÇ MOTOR ÖZETİ" varsa iş sorusunda onu destek olarak kullan; çelişki olursa MAĞAZA_VERİSİ ve iç motor özetindeki somut rakamlara öncelik ver.
+3) Kullanıcı iş dışı genel konu sorarsa (bilgi, sohbet, hayat, teknik genel sorular) makul uzunlukta cevap ver; bilmediğini kabul et. Her yanıtı zorla satışa bağlamak zorunda değilsin; nazikçe teklif edebilirsin.
+4) Güvenlik: API anahtarı, şifre veya gizli veri isteme; kullanıcıdan hassas kimlik bilgisi toplama.
+5) Markdown başlıkları kullanabilirsin; abartılı emoji kullanma (gerekirse en fazla bir iki tane).`;
+
+/**
+ * Sohbette "ajan akışı" — kullanıcıya şeffaflık için adımlar
+ */
+function buildAgentTrace(intent, confidence, entities, options = {}) {
+    const trace = [
+        {
+            id: "perceive",
+            label: "Algılama",
+            detail: "Mesajınız güvenli biçimde alındı ve tokenize edildi.",
+            status: "done",
+        },
+        {
+            id: "intent",
+            label: "Niyet çıkarımı",
+            detail: `${INTENT_LABELS_TR[intent] || intent} · güven ${Math.round(Number(confidence) || 0)}%`,
+            status: "done",
+        },
+    ];
+
+    const ent = entities && typeof entities === "object" ? entities : {};
+    const parts = [];
+    if (ent.marketplaces?.length) parts.push(`Kanallar: ${ent.marketplaces.join(", ")}`);
+    if (ent.timeframe) parts.push(`Zaman: ${ent.timeframe}`);
+    if (ent.barcode) parts.push(`Barkod: ${ent.barcode}`);
+    if (ent.numbers?.length) parts.push(`Sayılar: ${ent.numbers.slice(0, 5).join(", ")}`);
+    if (ent.percentage != null) parts.push(`Oran: %${ent.percentage}`);
+    if (parts.length > 0) {
+        trace.push({
+            id: "entities",
+            label: "Varlıklar",
+            detail: parts.join(" · "),
+            status: "done",
+        });
+    }
+
+    if (INTENTS_USING_STORE_DATA.has(intent)) {
+        trace.push({
+            id: "retrieve",
+            label: "Veri katmanı",
+            detail: options.dataDetail || "Ürün, sipariş ve AI Operatör metrikleri okundu.",
+            status: "done",
+        });
+    }
+
+    if (options.storeContextInjected) {
+        trace.push({
+            id: "context",
+            label: "Mağaza bağlamı",
+            detail: "Özet metrikler dil modeline iletildi.",
+            status: "done",
+        });
+    }
+
+    if (options.llmModel) {
+        const llmTag = String(options.llmModel).startsWith("ollama:") ? "Ollama (yerel)" : "OpenAI";
+        trace.push({
+            id: "llm",
+            label: "Dil modeli",
+            detail: `${options.llmModel} (${llmTag})`,
+            status: "done",
+        });
+    } else if (options.llmSkippedReason) {
+        trace.push({
+            id: "llm",
+            label: "Dil modeli",
+            detail: options.llmSkippedReason,
+            status: "skipped",
+        });
+    }
+
+    trace.push({
+        id: "synthesize",
+        label: "Yanıt üretimi",
+        detail: options.llmModel ? "LLM + mağaza bağlamı birleştirildi." : "Kural tabanlı şablon.",
+        status: "done",
+    });
+
+    return trace;
+}
+
+/**
+ * LLM sistem mesajına giden kısa mağaza özeti
+ */
+async function buildStoreContextSummary(userId) {
+    const lines = [];
+    try {
+        const stats = await AIOperator.getQuickStats(userId);
+        lines.push(`Sağlık skoru: ${stats.healthScore ?? "—"}/100 (${stats.rating || "—"})`);
+        if (stats.pendingRecs != null) lines.push(`Bekleyen öneriler: ${stats.pendingRecs}`);
+        if (stats.criticalAlerts != null) lines.push(`Kritik / yüksek uyarı sayısı: ${stats.criticalAlerts}`);
+        if (stats.productCount != null) lines.push(`Ürün (özet): ${stats.productCount}`);
+        if (stats.orderCount != null) lines.push(`Sipariş (özet): ${stats.orderCount}`);
+    } catch (e) {
+        lines.push(`Hızlı istatistik alınamadı: ${e.message}`);
+    }
+    try {
+        const observation = await AIOperator.observe(userId);
+        const m = observation?.metrics;
+        if (m) {
+            lines.push("--- Sipariş / stok metrikleri (AI Operatör) ---");
+            lines.push(`Ürün: ${m.activeProducts}/${m.totalProducts} aktif/toplam`);
+            lines.push(`Bugün: ${m.totalOrdersToday} sipariş, ${Number(m.todayRevenue || 0).toFixed(0)} TL ciro`);
+            lines.push(`Bu hafta ciro: ${Number(m.weekRevenue || 0).toFixed(0)} TL`);
+            lines.push(`Bu ay: ${Number(m.monthRevenue || 0).toFixed(0)} TL (${m.totalOrders30} sipariş, ~30 gün)`);
+            if (m.outOfStock) lines.push(`Stokta yok: ${m.outOfStock} kalem`);
+            if (m.lowStock) lines.push(`Düşük stok: ${m.lowStock}`);
+            if (m.lossProducts) lines.push(`Zarar riski ürün sayısı: ${m.lossProducts}`);
+            if (m.avgMargin >= 0) lines.push(`Ortalama kâr marjı (özet): %${Number(m.avgMargin).toFixed(1)}`);
+        }
+    } catch (e) {
+        lines.push(`Detaylı gözlem alınamadı: ${e.message}`);
+    }
+    return lines.join("\n");
+}
 
 // ═════════════════════════════════════════════════════════════════════════════
 // INTENT DETECTION — Kullanıcının niyetini anla
 // ═════════════════════════════════════════════════════════════════════════════
 
 const INTENT_PATTERNS = [
-    // Selamlama
+    // Hal hatır — "nasılsın" / "naber" tam mesaj; uzun karşılama metnini tekrarlatma
+    { intent: "wellbeing_chat", patterns: [
+        /^(nasılsın|naber|ne\s*haber)(\s*[\?!\.…]*)?\s*$/i,
+        /^(nasıl\s*gidiyorsun|iyi\s*misin|iyi\s*misiniz|how\s+are\s+you)(\s*[\?!\.…]*)?\s*$/i,
+    ], priority: 0 },
+
+    // Selamlama (nasılsın / naber burada değil — wellbeing_chat)
     { intent: "greeting", patterns: [
-        /^(merhaba|selam|hey|hi|hello|günaydın|iyi\s*günler|iyi\s*akşamlar|iyi\s*geceler|naber|nasılsın)/i,
+        /^(merhaba|selam|hey|hi|hello|günaydın|iyi\s*günler|iyi\s*akşamlar|iyi\s*geceler)\b/i,
     ], priority: 1 },
 
     // Durum sorgusu
@@ -177,6 +341,15 @@ function extractEntities(message) {
 
 const responseGenerators = {
 
+    wellbeing_chat: async () => {
+        return {
+            content:
+                `İyiyim, teşekkür ederim. Ben yazılım tabanlı bir işletme ajanıyım; sizin gibi yorulmam ama panelinizdeki işleri hızlandırmak için buradayım.\n\n` +
+                `Siz nasılsınız? Hazırsanız doğrudan mağaza özetine geçebiliriz.`,
+            suggestions: ["Nasıl gidiyor?", "Stok durumu", "Ne yapmalıyım?", "Yardım"],
+        };
+    },
+
     greeting: async (userId, entities, context) => {
         const stats = await AIOperator.getQuickStats(userId);
         const hour = new Date().getHours();
@@ -195,7 +368,10 @@ const responseGenerators = {
         }
 
         return {
-            content: `${greeting}! 🤖 Ben LysiaETIC AI Operatör. İşletmenizi yönetmek için buradayım.${statusLine}\n\nSize nasıl yardımcı olabilirim? Satış durumu, stok analizi, fiyat optimizasyonu veya herhangi bir konuda sorabilirsiniz.`,
+            content:
+                `${greeting}! Ben **Lysia Agent** — mağazanız için çalışan işletme operatör asistanıyım. ` +
+                `Sorularınızı niyet ve veri katmanları üzerinden işler, yanıtları doğrudan hesabınızdaki ölçümlere bağlarım.${statusLine}\n\n` +
+                `Bugün neye odaklanalım? Örneğin satış özeti, stok riski veya “ne yapmalıyım?” diye sorabilirsiniz.`,
             suggestions: ["Bugün nasıl gidiyor?", "Stok durumu ne?", "Ne yapmalıyım?", "Sorunları göster"],
         };
     },
@@ -589,8 +765,27 @@ const responseGenerators = {
     },
 
     help: async (userId, entities, context) => {
+        const cfg = getLlmConfig();
+        const llmLine =
+            !llmOn
+                ? " şu an yalnızca kural tabanlı modda yanıt üretirim."
+                : cfg.type === "ollama"
+                    ? " **yerel Ollama** (ücretsiz, kendi bilgisayarınızda) ile doğal dilde konuşurum."
+                    : " **OpenAI** (ücretli API) ile doğal dilde konuşurum.";
         return {
-            content: `🤖 **LysiaETIC AI Operatör — Yardım**\n\nBen işletmenizi yöneten yapay zeka asistanınızım. İşte yapabileceklerim:\n\n📊 **Sorgular:**\n• "Nasıl gidiyor?" — Genel durum özeti\n• "Bugün kaç satış oldu?" — Satış raporu\n• "Stok durumu ne?" — Stok analizi\n• "Kâr ne kadar?" — Kârlılık raporu\n• "Sorunlar ne?" — Problem tespiti\n• "Trendyol nasıl?" — Marketplace analizi\n\n🎯 **Öneriler:**\n• "Ne yapmalıyım?" — AI önerileri\n• "Analiz yap" — Detaylı analiz\n• "Öneri ver" — Aksiyon önerileri\n\n⚡ **Aksiyonlar:**\n• "Fiyat güncelle" — Fiyat değişikliği\n• "Stok ekle" — Stok siparişi\n\n🧠 **Özellikler:**\n• Konuşma hafızası — Son mesajlarınızı hatırlarım\n• Öğrenme — Yaptığım aksiyonların sonuçlarını takip ederim\n• Proaktif uyarılar — Kritik durumları size bildiririm\n\n3 Kontrol Modu:\n🟢 Passive — Sadece analiz + öneri\n🟡 Assisted — Öneri + onay ile uygulama\n🔴 Autonomous — Tam otomatik`,
+            content:
+                `**Lysia Agent — sistem kartı**\n\n` +
+                `Çok katmanlı bir e-ticaret asistanıyım: niyet çıkarımı, mağaza verisi ve` +
+                llmLine +
+                `\n\n📊 **Sorgu örnekleri:**\n` +
+                `• "Nasıl gidiyor?" — Genel durum\n` +
+                `• "Bugün kaç satış?" — Ciro / sipariş\n` +
+                `• "Stok durumu?" — Envanter riski\n` +
+                `• "Kâr ne kadar?" — Kârlılık\n` +
+                `• "Trendyol nasıl?" — Kanal bazlı bakış\n\n` +
+                `🎯 **Öneri:** "Ne yapmalıyım?" veya "Analiz yap"\n` +
+                `⚡ **Aksiyon (rehber):** Fiyat / stok ifadeleri — güvenlik kuralları geçerlidir.\n\n` +
+                `**Çalışma modları:** Pasif · Asistan · Otonom (AI Operatör panelinden).`,
             suggestions: ["Nasıl gidiyor?", "Ne yapmalıyım?", "Stok durumu", "Kâr raporu"],
         };
     },
@@ -611,7 +806,14 @@ const responseGenerators = {
 
     unknown: async (userId, entities, context) => {
         return {
-            content: "🤔 Tam olarak ne istediğinizi anlayamadım. Şunları sorabilirsiniz:\n\n• \"Nasıl gidiyor?\" — Genel durum\n• \"Satışlar nasıl?\" — Satış raporu\n• \"Stok durumu\" — Stok analizi\n• \"Ne yapmalıyım?\" — AI önerileri\n• \"Yardım\" — Tüm komutlar\n\nVeya doğal dilde sorunuzu yazın, anlamaya çalışacağım! 🤖",
+            content:
+                `Niyet sınıfım **belirsiz** kaldı; yine de yardımcı olmak için şu kalıpları öneririm:\n\n` +
+                `• "Nasıl gidiyor?" — Özet\n` +
+                `• "Satışlar?" — Ciro\n` +
+                `• "Stok?" — Envanter\n` +
+                `• "Ne yapmalıyım?" — Önceliklendirme\n` +
+                `• "Yardım" — Yetenek listesi\n\n` +
+                `Cümleyi biraz daha net yazarsanız, aynı ajan hattı tekrar devreye girer.`,
             suggestions: ["Nasıl gidiyor?", "Ne yapmalıyım?", "Yardım", "Stok durumu"],
         };
     },
@@ -625,6 +827,9 @@ async function processMessage(userId, sessionId, userMessage) {
     const startTime = Date.now();
 
     try {
+        userMessage = String(userMessage || "").trim();
+        if (userMessage.length > 8000) userMessage = userMessage.slice(0, 8000);
+
         // 1. Intent Detection
         const { intent, confidence } = detectIntent(userMessage);
 
@@ -660,21 +865,77 @@ async function processMessage(userId, sessionId, userMessage) {
             operationMode: conversation.context?.operationMode || "assisted",
         };
 
-        // 6. Generate response
+        // 6. Kural tabanlı yanıt (öneriler, snapshot, LLM için sayısal zemin)
         const generator = responseGenerators[intent] || responseGenerators.unknown;
-        const response = await generator(userId, entities, context);
+        const ruleResponse = await generator(userId, entities, context);
+
+        let finalContent = ruleResponse.content;
+        let llmModelUsed = null;
+        let llmSkippedReason = null;
+        let storeContextInjected = false;
+
+        if (isLlmEnabled()) {
+            try {
+                const storeContext = await buildStoreContextSummary(userId);
+                storeContextInjected = true;
+
+                const factualBlock =
+                    ruleResponse.content && ruleResponse.content.length > 0
+                        ? `\n\n=== İÇ MOTOR ÖZETİ (işletme sorunuz buysa buradaki sayı ve maddelere sadık kal; çelişki olursa MAĞAZA_VERİSİ önceliklidir) ===\n${ruleResponse.content.slice(0, 8000)}`
+                        : "";
+
+                const systemPayload = `${LYSIA_AGENT_SYSTEM_PROMPT}\n\n=== MAĞAZA_VERİSİ ===\n${storeContext}${factualBlock}`;
+
+                const priorMsgs = conversation.messages.slice(0, -1).slice(-10);
+                const openAiMessages = priorMsgs
+                    .filter((m) => m.role === "user" || m.role === "ai")
+                    .map((m) => ({
+                        role: m.role === "ai" ? "assistant" : "user",
+                        content: String(m.content || "").slice(0, 4000),
+                    }));
+                openAiMessages.push({ role: "user", content: userMessage.slice(0, 4000) });
+
+                const { text, model } = await chatCompletion(
+                    [{ role: "system", content: systemPayload }, ...openAiMessages],
+                    { temperature: 0.65, max_tokens: 1400, timeoutMs: 90000 }
+                );
+                finalContent = text;
+                llmModelUsed = model;
+            } catch (e) {
+                llmSkippedReason = `LLM kullanılamadı: ${e.message}`;
+                logger.warn(`[AI Chat] ${llmSkippedReason}`);
+            }
+        } else {
+            llmSkippedReason = "LLM kapalı — .env içinde USE_OLLAMA=true veya OLLAMA_BASE_URL (yerel) ya da OPENAI_API_KEY (bulut) tanımlayın; tamamen kapatmak için LYSIA_LLM_PROVIDER=none";
+        }
+
+        const agentTrace = buildAgentTrace(intent, confidence, entities, {
+            dataDetail: INTENTS_USING_STORE_DATA.has(intent)
+                ? "MongoDB + AI Operatör gözlemi (ürün / sipariş / skor)."
+                : undefined,
+            storeContextInjected: !!(storeContextInjected && llmModelUsed),
+            llmModel: llmModelUsed,
+            llmSkippedReason: llmModelUsed ? null : llmSkippedReason,
+        });
+
+        const agentNoteFinal = llmModelUsed ? AGENT_NOTE_HYBRID : AGENT_NOTE_RULES;
+        const agentModelFinal = llmModelUsed ? `${AGENT_MODEL_ID} · ${llmModelUsed}` : AGENT_MODEL_ID;
 
         // 7. Add AI response
         conversation.messages.push({
             role: "ai",
-            content: response.content,
+            content: finalContent,
             metadata: {
                 intent,
                 confidence,
                 entities,
-                emotionalTone: response.emotionalTone || "neutral",
-                suggestions: response.suggestions || [],
-                dataSnapshot: response.dataSnapshot,
+                emotionalTone: ruleResponse.emotionalTone || "neutral",
+                suggestions: ruleResponse.suggestions || [],
+                dataSnapshot: ruleResponse.dataSnapshot,
+                agentTrace,
+                agentModel: agentModelFinal,
+                agentNote: agentNoteFinal,
+                llmModel: llmModelUsed || undefined,
             },
             timestamp: new Date(),
         });
@@ -702,11 +963,14 @@ async function processMessage(userId, sessionId, userMessage) {
         return {
             success: true,
             response: {
-                content: response.content,
-                suggestions: response.suggestions || [],
+                content: finalContent,
+                suggestions: ruleResponse.suggestions || [],
                 intent,
                 confidence,
                 entities,
+                agentTrace,
+                agentModel: agentModelFinal,
+                agentNote: agentNoteFinal,
             },
             conversationId: conversation._id,
             sessionId,
@@ -718,10 +982,15 @@ async function processMessage(userId, sessionId, userMessage) {
         return {
             success: false,
             response: {
-                content: "Bir hata oluştu. Lütfen tekrar deneyin. 🔄",
+                content: "Sistem tarafında bir hata oluştu; ajan hattı yanıtı tamamlayamadı. Lütfen tekrar deneyin.",
                 suggestions: ["Tekrar dene", "Yardım"],
                 intent: "error",
                 confidence: 0,
+                agentTrace: [
+                    { id: "error", label: "Hata", detail: err.message || "Bilinmeyen", status: "error" },
+                ],
+                agentModel: AGENT_MODEL_ID,
+                agentNote: AGENT_NOTE_RULES,
             },
             durationMs: Date.now() - startTime,
         };
@@ -744,6 +1013,10 @@ async function getConversationHistory(userId, sessionId) {
             metadata: {
                 intent: m.metadata?.intent,
                 suggestions: m.metadata?.suggestions,
+                agentTrace: m.metadata?.agentTrace,
+                agentModel: m.metadata?.agentModel,
+                agentNote: m.metadata?.agentNote,
+                llmModel: m.metadata?.llmModel,
             },
         })),
         sessionId,
@@ -778,4 +1051,8 @@ module.exports = {
     clearConversation,
     detectIntent,
     extractEntities,
+    buildAgentTrace,
+    AGENT_MODEL_ID,
+    AGENT_NOTE_HYBRID,
+    AGENT_NOTE_RULES,
 };

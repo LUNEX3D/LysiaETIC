@@ -69,6 +69,9 @@ const decodeObjectStrings = (obj) => {
 const CACHE_TTL_HOURS = 24;
 const CACHE_TTL_MS = CACHE_TTL_HOURS * 60 * 60 * 1000;
 
+/** Aynı kullanıcı+platform için eşzamanlı tam çekimleri tekilleştir (HB ~50k kategori × 3 istek önleme) */
+const categoryTreeFetchInflight = new Map();
+
 /** Büyük HB ağaçları tek Mongo dokümanına sığmaz (~16MB BSON); disk cache kullan */
 const CATEGORY_FILE_CACHE_DIR = path.join(__dirname, "..", "cache", "category-cache");
 const MONGO_CATEGORY_MAX_BYTES = 14 * 1024 * 1024;
@@ -127,22 +130,53 @@ const writeCategoryFileCache = async (userId, cacheKey, categories) => {
  * + API'den gelen `paths` array'i ve `type` alanı korunuyor (v6)
  */
 const normalizeHBCategory = (cat) => {
-    const id = String(cat.categoryId || cat.id || "");
-    // API'den gelen paths array'i: ["Üst Kategori", "Alt Kategori", "Yaprak"]
-    const apiPaths = Array.isArray(cat.paths) && cat.paths.length > 0
-        ? cat.paths.map(p => decodeHtmlEntities(p))
-        : null;
+    const id = String(cat.categoryId || cat.id || "").trim();
+    const hbTreeType = String(cat.hbTreeType || cat.type || "").trim() || null;
+    /** HB/HX/HC aynı categoryId ile çakışmasın diye dahili anahtar */
+    const nodeKey = hbTreeType && id ? `${hbTreeType}|${id}` : id;
+
+    let apiPaths = null;
+    if (Array.isArray(cat.paths) && cat.paths.length > 0) {
+        apiPaths = cat.paths
+            .map((p) => {
+                if (p == null) return "";
+                const s =
+                    typeof p === "string"
+                        ? p
+                        : String(p.name || p.categoryName || p.title || p.id || "");
+                return decodeHtmlEntities(s);
+            })
+            .filter(Boolean);
+    }
+
+    const parentRaw =
+        cat.parentCategoryId != null && String(cat.parentCategoryId).trim() !== ""
+            ? String(cat.parentCategoryId).trim()
+            : null;
+    const parentKey = parentRaw && hbTreeType ? `${hbTreeType}|${parentRaw}` : parentRaw;
+
+    const name = decodeHtmlEntities(cat.name || cat.categoryName || "");
+    const hbDisplayTitle =
+        cat.hbDisplayTitle ||
+        (hbTreeType ? `[${hbTreeType}] ${id}${name ? ` — ${name}` : ""}` : name || id);
+
     return {
+        nodeKey,
         id,
         categoryId: id,
-        name: decodeHtmlEntities(cat.name || cat.categoryName || ""),
+        hbTreeType,
+        hbDisplayTitle,
+        hbSearchBlob: String(cat.hbSearchBlob || "").toLowerCase(),
+        name,
         displayName: decodeHtmlEntities(cat.displayName || cat.name || cat.categoryName || ""),
-        parentCategoryId: cat.parentCategoryId ? String(cat.parentCategoryId) : null,
+        parentCategoryId: parentRaw,
+        parentKey,
         leaf: cat.leaf === true || cat.leaf === "true",
         available: cat.available === true || cat.available === "true",
         status: cat.status || "ACTIVE",
-        type: cat.type || null,           // HB, HX, HC
-        apiPaths                           // API'den gelen yol bilgisi
+        type: cat.type || hbTreeType,
+        pathDisplay: cat.pathDisplay || "",
+        apiPaths
     };
 };
 
@@ -154,8 +188,8 @@ const buildCategoryMap = (categories) => {
     const catMap = new Map();
     for (const cat of categories) {
         const normalized = normalizeHBCategory(cat);
-        if (normalized.id) {
-            catMap.set(normalized.id, normalized);
+        if (normalized.nodeKey) {
+            catMap.set(normalized.nodeKey, normalized);
         }
     }
     return catMap;
@@ -174,8 +208,8 @@ const buildTree = (catMap, childrenKey = "children") => {
         node.hasChildren = false;
     }
     for (const [, node] of catMap) {
-        if (node.parentCategoryId && catMap.has(node.parentCategoryId)) {
-            const parent = catMap.get(node.parentCategoryId);
+        if (node.parentKey && catMap.has(node.parentKey)) {
+            const parent = catMap.get(node.parentKey);
             parent[childrenKey].push(node);
             parent.hasChildren = true;
         } else {
@@ -204,28 +238,28 @@ const buildTree = (catMap, childrenKey = "children") => {
  */
 const createPathResolver = (catMap) => {
     const pathCache = new Map();
-    const getPath = (id, visited = new Set()) => {
-        if (pathCache.has(id)) return pathCache.get(id);
-        if (visited.has(id)) return [];
-        visited.add(id);
-        const node = catMap.get(id);
+    const getPath = (mapKey, visited = new Set()) => {
+        if (pathCache.has(mapKey)) return pathCache.get(mapKey);
+        if (visited.has(mapKey)) return [];
+        visited.add(mapKey);
+        const node = catMap.get(mapKey);
         if (!node) return [];
 
         // v6: API'den gelen paths array'i varsa onu kullan
         if (node.apiPaths && node.apiPaths.length > 0) {
             const result = [...node.apiPaths];
-            pathCache.set(id, result);
+            pathCache.set(mapKey, result);
             return result;
         }
 
-        // Fallback: parentCategoryId ile recursive hesapla
-        if (!node.parentCategoryId || !catMap.has(node.parentCategoryId)) {
+        // Fallback: parentKey (aynı hbTreeType) ile recursive hesapla
+        if (!node.parentKey || !catMap.has(node.parentKey)) {
             const result = [node.name];
-            pathCache.set(id, result);
+            pathCache.set(mapKey, result);
             return result;
         }
-        const result = [...getPath(node.parentCategoryId, visited), node.name];
-        pathCache.set(id, result);
+        const result = [...getPath(node.parentKey, visited), node.name];
+        pathCache.set(mapKey, result);
         return result;
     };
     return getPath;
@@ -237,8 +271,8 @@ const createPathResolver = (catMap) => {
 const findParentIds = (catMap) => {
     const parentIds = new Set();
     for (const [, node] of catMap) {
-        if (node.parentCategoryId && catMap.has(node.parentCategoryId)) {
-            parentIds.add(node.parentCategoryId);
+        if (node.parentKey && catMap.has(node.parentKey)) {
+            parentIds.add(node.parentKey);
         }
     }
     return parentIds;
@@ -316,184 +350,39 @@ const fetchCiceksepetiCategoryTree = async (credentials) => {
 };
 
 /**
- * Hepsiburada Kategori Çekme (Sayfalı + Detaylı)
+ * Hepsiburada kategori ağacı — tek kaynak: hepsiburadaService.fetchHepsiburadaCategories
  *
- * v6: HB API'de 3 farklı type var: HB (ana), HX (express), HC (global).
- *     Filtre yok çağrısı sadece HB type'ını döndürür (~6.500).
- *     HC tek başına ~48.000 kategori içerir.
- *     Bu yüzden HER ZAMAN 3 type'ı ayrı ayrı çekip birleştiriyoruz.
- *
- *     Ayrıca API'den gelen `paths` array'i (parent yol bilgisi) korunuyor.
+ * - HB + HX + HC ayrı çekilir; satırda hbTreeType ile işaretlenir (karışıklık olmasın).
+ * - Birleştirme: hbTreeType|categoryId (aynı kaydın API tekrarı elenir; farklı ağaç aynı ID ile çakışırsa ikisi de kalır).
+ * - listing-external isteklerinde merchantId query parametresi eklenir.
+ * - UI alanları: categoryId (resmi), hbDisplayTitle, pathDisplay, leaf, available
  */
 const fetchHepsiburadaCategoryTree = async (credentials, options = {}) => {
-    const { normalizeCredentials, getHeaders, HB_ENDPOINTS, HB_SIT_ENDPOINTS, getEndpoints, validateCredentials } = require("../services/hepsiburadaService");
-    const hbCreds = normalizeCredentials(credentials);
-
-    const validation = validateCredentials(hbCreds, "kategori ağacı çekme");
+    const hb = require("../services/hepsiburadaService");
+    const hbCreds = hb.normalizeCredentials(credentials);
+    const validation = hb.validateCredentials(hbCreds, "kategori ağacı çekme");
     if (!validation.valid) {
         throw new Error(validation.error);
     }
-
     const { merchantId, secretKey, userAgent } = hbCreds;
-    const headers = getHeaders(merchantId, secretKey, userAgent);
+    const userEp = hb.getEndpoints(hbCreds);
+    const useSit = userEp.MPOP === hb.HB_SIT_ENDPOINTS.MPOP;
     const onlyLeaf = options.onlyLeaf === true;
 
-    // Endpoint stratejisi
-    const userEp = getEndpoints(hbCreds);
-    const prodEp = HB_ENDPOINTS;
-    const sitEp = HB_SIT_ENDPOINTS;
-    const isSitUser = (userEp.MPOP === sitEp.MPOP);
+    logger.info(
+        `[HB CATEGORIES] Ortam: ${useSit ? "SIT" : "Production"}, merchantId: ${merchantId ? String(merchantId).substring(0, 8) + "..." : "YOK"}, onlyLeaf=${onlyLeaf} — HB+HX+HC (birleşik servis)`
+    );
 
-    const buildBaseUrls = (ep) => {
-        const urls = [`${ep.MPOP}/product/api/categories/get-all-categories`];
-        if (ep.CATEGORY !== ep.MPOP) {
-            urls.push(`${ep.CATEGORY}/product/api/categories/get-all-categories`);
-        }
-        return urls;
-    };
+    const categories = await hb.fetchHepsiburadaCategories(merchantId, secretKey, userAgent, {
+        onlyLeaf,
+        useSit,
+        forUi: true
+    });
 
-    const allBaseUrls = isSitUser
-        ? [...buildBaseUrls(sitEp), ...buildBaseUrls(prodEp)]
-        : [...buildBaseUrls(prodEp), ...buildBaseUrls(sitEp)];
-    const baseUrls = [...new Set(allBaseUrls)];
-
-    logger.info(`[HB CATEGORIES] Ortam: ${isSitUser ? "SIT" : "Production"}, merchantId: ${merchantId ? merchantId.substring(0, 8) + "..." : "YOK"}, onlyLeaf=${onlyLeaf}`);
-
-    const fetchPaginated = async (queryOpts = {}, label = "") => {
-        const categories = [];
-        let page = 0;
-        let hasMore = true;
-        const size = 2000;
-        let workingBaseUrl = null;
-
-        while (hasMore) {
-            const urlsToTry = workingBaseUrl ? [workingBaseUrl] : baseUrls;
-            let pageSuccess = false;
-
-            for (const baseUrl of urlsToTry) {
-                const params = new URLSearchParams({
-                    status: "ACTIVE", version: "1",
-                    page: String(page), size: String(size)
-                });
-                if (merchantId && baseUrl.includes("listing-external")) {
-                    params.set("merchantId", merchantId);
-                }
-                if (queryOpts.leaf === true || queryOpts.leaf === "true") params.set("leaf", "true");
-                else if (queryOpts.leaf === false || queryOpts.leaf === "false") params.set("leaf", "false");
-                if (queryOpts.available === true || queryOpts.available === "true") params.set("available", "true");
-                if (queryOpts.type) params.set("type", queryOpts.type);
-
-                const url = `${baseUrl}?${params.toString()}`;
-                try {
-                    if (page === 0) logger.info(`[HB CATEGORIES${label}] Deneniyor: ${url}`);
-                    const response = await axios.get(url, { headers, timeout: 45000 });
-                    const data = response.data;
-
-                    let cats = [];
-                    if (Array.isArray(data)) {
-                        cats = data;
-                    } else if (data && typeof data === "object") {
-                        const inner = data.data || data.content || data.categories;
-                        if (Array.isArray(inner)) cats = inner;
-                    }
-
-                    if (cats.length > 0) {
-                        categories.push(...cats);
-                        workingBaseUrl = baseUrl;
-                        page++;
-                        pageSuccess = true;
-                        if (cats.length < size) hasMore = false;
-                        if (page === 1) {
-                            logger.info(`[HB CATEGORIES${label}] ✅ ${cats.length} kategori bulundu`);
-                        }
-                        break;
-                    } else {
-                        if (workingBaseUrl === baseUrl) { hasMore = false; pageSuccess = true; break; }
-                        logger.warn(`[HB CATEGORIES${label}] ${baseUrl} boş sonuç, sonraki deneniyor...`);
-                    }
-                } catch (err) {
-                    const errDetail = err.response
-                        ? `HTTP ${err.response.status}: ${JSON.stringify(err.response.data || "").substring(0, 200)}`
-                        : err.message;
-                    logger.warn(`[HB CATEGORIES${label}] ${baseUrl} başarısız: ${errDetail}`);
-                }
-            }
-            if (!pageSuccess) { hasMore = false; }
-        }
-
-        if (categories.length > 0) logger.info(`[HB CATEGORIES${label}] ✅ Toplam ${categories.length} kategori`);
-        return categories;
-    };
-
-    // ═══════════════════════════════════════════════════════════════
-    // v6: Ana çekme stratejisi — HER ZAMAN 3 type'ı ayrı ayrı çek
-    //
-    // HB API Dokümantasyonu (developers.hepsiburada.com):
-    //   - type parametresi olmadan sadece HB (~6.500) döndürür
-    //   - HX (express ~400) ve HC (global ~48.000) ayrı type ile çekilmeli
-    //   - ⚠️ leaf varsayılanı TRUE — parametre gönderilmezse sadece yaprak gelir
-    //   - ⚠️ available varsayılanı TRUE — parametre gönderilmezse sadece aktif gelir
-    //   - Parent kategorileri almak için leaf=false AÇIKÇA gönderilmeli
-    //
-    // Bu yüzden:
-    //   1. Her zaman type bazlı (HB+HX+HC) çekiyoruz
-    //   2. onlyLeaf=false ise: leaf=true + leaf=false ayrı ayrı çekip birleştiriyoruz
-    //   3. onlyLeaf=true ise: leaf=true & available=true ile çekiyoruz
-    // ═══════════════════════════════════════════════════════════════
-    let allCategories = [];
-    const TYPES = ["HB", "HX", "HC"];
-
-    if (onlyLeaf) {
-        // Sadece yaprak kategoriler — leaf=true (available filtresi KALDIRILDI — tüm leaf'ler gelsin)
-        for (const type of TYPES) {
-            try {
-                const cats = await fetchPaginated({ leaf: true, type }, ` ${type}-leaf`);
-                if (cats.length > 0) allCategories.push(...cats);
-            } catch (e) { logger.warn(`[HB CATEGORIES] ${type} leaf hatası: ${e.message}`); }
-        }
-        // Hiçbir type sonuç vermediyse type'sız dene (fallback)
-        if (allCategories.length === 0) {
-            allCategories = await fetchPaginated({ leaf: true }, " leaf-fallback");
-        }
-    } else {
-        // Tüm kategoriler — leaf=true + leaf=false ayrı ayrı çek
-        // (API varsayılanı leaf=true olduğu için parametre göndermezsen parent gelmez!)
-        // ✅ FIX: available filtresi KALDIRILDI — "kolye ucu" gibi kategoriler available=false
-        //    olsa bile listeye dahil edilmeli (kategori ağacı tam görünsün)
-        for (const type of TYPES) {
-            try {
-                // Yaprak kategoriler (leaf=true) — available filtresi YOK
-                const leafCats = await fetchPaginated({ leaf: true, type }, ` ${type}-leaf`);
-                if (leafCats.length > 0) allCategories.push(...leafCats);
-                // Parent kategoriler (leaf=false)
-                const parentCats = await fetchPaginated({ leaf: false, type }, ` ${type}-parent`);
-                if (parentCats.length > 0) allCategories.push(...parentCats);
-            } catch (e) { logger.warn(`[HB CATEGORIES] ${type} all hatası: ${e.message}`); }
-        }
-        // Hiçbir type sonuç vermediyse type'sız dene (fallback)
-        if (allCategories.length === 0) {
-            allCategories = await fetchPaginated({ leaf: true }, " leaf-fallback");
-            const parentFallback = await fetchPaginated({ leaf: false }, " parent-fallback");
-            if (parentFallback.length > 0) allCategories.push(...parentFallback);
-        }
-    }
-
-    // Duplikasyon temizliği
-    const seenIds = new Set();
-    const uniqueCategories = [];
-    for (const cat of allCategories) {
-        const id = String(cat.categoryId || cat.id || "");
-        if (id && !seenIds.has(id)) {
-            seenIds.add(id);
-            uniqueCategories.push(cat);
-        }
-    }
-
-    logger.info(`[HB CATEGORIES] Toplam ${uniqueCategories.length} benzersiz kategori (ham: ${allCategories.length}, types: ${TYPES.join("+")})`);
-    if (uniqueCategories.length === 0) {
+    if (!categories.length) {
         throw new Error("Hepsiburada kategori API'sinden veri alınamadı. Lütfen entegrasyon bilgilerinizi kontrol edin.");
     }
-    return uniqueCategories;
+    return categories;
 };
 
 const fetchAmazonCategoryTree = async () => {
@@ -516,6 +405,26 @@ const normalizePlatformName = (name) => {
 };
 
 /**
+ * Hepsiburada: SIT ve PROD kategori ağaçları farklı ID’ler kullanır; MPOP import ortamı ile aynı
+ * listing host’undan gelen liste kullanılmalı. Cache anahtarına ortam eklenir (dosya + Mongo).
+ */
+const resolveHepsiburadaCategoryCacheKey = (normalizedName, marketplace) => {
+    if (!normalizedName.includes("hepsiburada") || !marketplace?.credentials) {
+        return normalizedName;
+    }
+    try {
+        const creds = decryptCredentials(marketplace.credentials);
+        const { normalizeCredentials } = require("../services/hepsiburadaService");
+        if (normalizeCredentials(creds).useSit) {
+            return `${normalizedName}_sit`;
+        }
+    } catch (e) {
+        logger.warn(`[CATEGORY CACHE] Hepsiburada ortam anahtarı okunamadı: ${e.message}`);
+    }
+    return normalizedName;
+};
+
+/**
  * Belirli bir platform için kategori ağacını çek — CACHE'Lİ
  *
  * 1. Önce MongoDB cache'e bak (24 saat geçerli)
@@ -530,7 +439,8 @@ const normalizePlatformName = (name) => {
 const getOrFetchCategories = async (userId, marketplace, options = {}) => {
     const { forceRefresh = false, onlyLeaf = false } = options;
     const mpName = marketplace.marketplaceName;
-    const cacheKey = normalizePlatformName(mpName);
+    const normalizedBase = normalizePlatformName(mpName);
+    const cacheKey = resolveHepsiburadaCategoryCacheKey(normalizedBase, marketplace);
 
     // ── 1. Cache'e bak (dosya → Mongo; büyük listeler sadece dosyada) ──
     if (!forceRefresh) {
@@ -539,7 +449,7 @@ const getOrFetchCategories = async (userId, marketplace, options = {}) => {
             if (fromFile) {
                 const ageMs = Date.now() - new Date(fromFile.cachedAt).getTime();
                 logger.info(
-                    `[CATEGORY CACHE] ✅ ${mpName} — dosya cache'den okundu (${fromFile.categories.length} kategori, yaş: ${Math.round(ageMs / 60000)}dk)`
+                    `[CATEGORY CACHE] ✅ ${mpName} — dosya cache'den okundu (${fromFile.categories.length} kategori, yaş: ${Math.round(ageMs / 60000)}dk, key=${cacheKey})`
                 );
                 return fromFile.categories;
             }
@@ -554,7 +464,9 @@ const getOrFetchCategories = async (userId, marketplace, options = {}) => {
             if (cached && cached.categories && cached.categories.length > 0) {
                 const ageMs = Date.now() - new Date(cached.cachedAt).getTime();
                 if (ageMs < CACHE_TTL_MS) {
-                    logger.info(`[CATEGORY CACHE] ✅ ${mpName} — cache'den okundu (${cached.categories.length} kategori, yaş: ${Math.round(ageMs / 60000)}dk)`);
+                    logger.info(
+                        `[CATEGORY CACHE] ✅ ${mpName} — cache'den okundu (${cached.categories.length} kategori, yaş: ${Math.round(ageMs / 60000)}dk, key=${cacheKey})`
+                    );
                     return cached.categories;
                 }
                 logger.info(`[CATEGORY CACHE] ⏰ ${mpName} — cache süresi dolmuş (${Math.round(ageMs / 3600000)}sa), yenileniyor...`);
@@ -564,66 +476,84 @@ const getOrFetchCategories = async (userId, marketplace, options = {}) => {
         }
     }
 
-    // ── 2. Canlı API'den çek ──
-    const credentials = decryptCredentials(marketplace.credentials);
-    let categories = [];
-    const normalizedName = normalizePlatformName(mpName);
-
-    if (normalizedName.includes("trendyol")) {
-        categories = await fetchTrendyolCategoryTree(credentials);
-    } else if (normalizedName === "n11") {
-        categories = await fetchN11CategoryTree(credentials);
-    } else if (normalizedName.includes("ciceksepeti")) {
-        categories = await fetchCiceksepetiCategoryTree(credentials);
-    } else if (normalizedName.includes("hepsiburada")) {
-        categories = await fetchHepsiburadaCategoryTree(credentials, { onlyLeaf });
-    } else if (normalizedName.includes("amazon")) {
-        categories = await fetchAmazonCategoryTree(credentials);
-    } else {
-        throw new Error(`${mpName} için kategori çekme desteklenmiyor`);
+    const inflightKey = `${String(userId)}|${cacheKey}|ol:${onlyLeaf}|fr:${forceRefresh}`;
+    const inflight = categoryTreeFetchInflight.get(inflightKey);
+    if (inflight) {
+        logger.info(`[CATEGORY CACHE] ⏳ ${mpName} — eşzamanlı çekim birleştiriliyor (key=${cacheKey})`);
+        return inflight;
     }
 
-    // ── 3. HTML entity decode uygula ──
-    categories = categories.map(cat => decodeObjectStrings(cat));
+    const fetchPromise = (async () => {
+        try {
+            // ── 2. Canlı API'den çek ──
+            const credentials = decryptCredentials(marketplace.credentials);
+            let categories = [];
+            const normalizedName = normalizePlatformName(mpName);
 
-    // ── 4. Cache'e yaz (büyük listeler Mongo BSON sınırını aşar → disk) ──
-    if (categories.length > 0) {
-        const fileOnly = shouldUseFileOnlyCategoryCache(categories);
-        if (fileOnly) {
-            try {
-                await writeCategoryFileCache(userId, cacheKey, categories);
-                logger.info(
-                    `[CATEGORY CACHE] 💾 ${mpName} — ${categories.length} kategori dosyaya cache'lendi (Mongo atlandı: boyut, TTL: ${CACHE_TTL_HOURS}sa)`
-                );
-            } catch (err) {
-                logger.warn(`[CATEGORY CACHE] Dosya cache yazma hatası: ${err.message}`);
+            if (normalizedName.includes("trendyol")) {
+                categories = await fetchTrendyolCategoryTree(credentials);
+            } else if (normalizedName === "n11") {
+                categories = await fetchN11CategoryTree(credentials);
+            } else if (normalizedName.includes("ciceksepeti")) {
+                categories = await fetchCiceksepetiCategoryTree(credentials);
+            } else if (normalizedName.includes("hepsiburada")) {
+                categories = await fetchHepsiburadaCategoryTree(credentials, { onlyLeaf });
+            } else if (normalizedName.includes("amazon")) {
+                categories = await fetchAmazonCategoryTree(credentials);
+            } else {
+                throw new Error(`${mpName} için kategori çekme desteklenmiyor`);
             }
-        } else {
-            try {
-                await CategoryCache.findOneAndUpdate(
-                    { userId, marketplaceName: cacheKey },
-                    {
-                        categories,
-                        totalCount: categories.length,
-                        cachedAt: new Date(),
-                        expiresAt: new Date(Date.now() + CACHE_TTL_MS)
-                    },
-                    { upsert: true, new: true }
-                );
-                logger.info(`[CATEGORY CACHE] 💾 ${mpName} — ${categories.length} kategori cache'lendi (TTL: ${CACHE_TTL_HOURS}sa)`);
-            } catch (err) {
-                logger.warn(`[CATEGORY CACHE] Cache yazma hatası: ${err.message}`);
-                try {
-                    await writeCategoryFileCache(userId, cacheKey, categories);
-                    logger.info(`[CATEGORY CACHE] 💾 ${mpName} — yedek: ${categories.length} kategori dosyaya yazıldı`);
-                } catch (e2) {
-                    logger.warn(`[CATEGORY CACHE] Dosya cache yedek yazma hatası: ${e2.message}`);
+
+            // ── 3. HTML entity decode uygula ──
+            categories = categories.map((cat) => decodeObjectStrings(cat));
+
+            // ── 4. Cache'e yaz (büyük listeler Mongo BSON sınırını aşar → disk) ──
+            if (categories.length > 0) {
+                const fileOnly = shouldUseFileOnlyCategoryCache(categories);
+                if (fileOnly) {
+                    try {
+                        await writeCategoryFileCache(userId, cacheKey, categories);
+                        logger.info(
+                            `[CATEGORY CACHE] 💾 ${mpName} — ${categories.length} kategori dosyaya cache'lendi (Mongo atlandı: boyut, TTL: ${CACHE_TTL_HOURS}sa, key=${cacheKey})`
+                        );
+                    } catch (err) {
+                        logger.warn(`[CATEGORY CACHE] Dosya cache yazma hatası: ${err.message}`);
+                    }
+                } else {
+                    try {
+                        await CategoryCache.findOneAndUpdate(
+                            { userId, marketplaceName: cacheKey },
+                            {
+                                categories,
+                                totalCount: categories.length,
+                                cachedAt: new Date(),
+                                expiresAt: new Date(Date.now() + CACHE_TTL_MS)
+                            },
+                            { upsert: true, new: true }
+                        );
+                        logger.info(
+                            `[CATEGORY CACHE] 💾 ${mpName} — ${categories.length} kategori cache'lendi (TTL: ${CACHE_TTL_HOURS}sa, key=${cacheKey})`
+                        );
+                    } catch (err) {
+                        logger.warn(`[CATEGORY CACHE] Cache yazma hatası: ${err.message}`);
+                        try {
+                            await writeCategoryFileCache(userId, cacheKey, categories);
+                            logger.info(`[CATEGORY CACHE] 💾 ${mpName} — yedek: ${categories.length} kategori dosyaya yazıldı`);
+                        } catch (e2) {
+                            logger.warn(`[CATEGORY CACHE] Dosya cache yedek yazma hatası: ${e2.message}`);
+                        }
+                    }
                 }
             }
-        }
-    }
 
-    return categories;
+            return categories;
+        } finally {
+            categoryTreeFetchInflight.delete(inflightKey);
+        }
+    })();
+
+    categoryTreeFetchInflight.set(inflightKey, fetchPromise);
+    return fetchPromise;
 };
 
 /**
@@ -1122,24 +1052,29 @@ exports.getHepsiburadaCategoryTree = async (req, res) => {
         let resultTree = roots;
         if (q.length >= 2) {
             const matchedIds = new Set();
-            const markAncestors = (id) => {
-                if (matchedIds.has(id)) return;
-                matchedIds.add(id);
-                const node = catMap.get(id);
-                if (node?.parentCategoryId && catMap.has(node.parentCategoryId)) {
-                    markAncestors(node.parentCategoryId);
+            const markAncestors = (mapKey) => {
+                if (matchedIds.has(mapKey)) return;
+                matchedIds.add(mapKey);
+                const node = catMap.get(mapKey);
+                if (node?.parentKey && catMap.has(node.parentKey)) {
+                    markAncestors(node.parentKey);
                 }
             };
-            for (const [id, node] of catMap) {
-                if (matchesAllWords(node.name || "", q) ||
-                    matchesAllWords(node.displayName || "", q)) {
-                    markAncestors(id);
+            for (const [mapKey, node] of catMap) {
+                const blob = (node.hbSearchBlob || `${node.name} ${node.hbDisplayTitle || ""} ${node.pathDisplay || ""}`).toLowerCase();
+                if (
+                    matchesAllWords(node.name || "", q) ||
+                    matchesAllWords(node.displayName || "", q) ||
+                    matchesAllWords(node.hbDisplayTitle || "", q) ||
+                    matchesAllWords(blob, q)
+                ) {
+                    markAncestors(mapKey);
                 }
             }
             const filterTree = (nodes) => {
                 return nodes
-                    .filter(n => matchedIds.has(n.categoryId || n.id))
-                    .map(n => ({ ...n, children: filterTree(n.children || []) }));
+                    .filter((n) => matchedIds.has(n.nodeKey))
+                    .map((n) => ({ ...n, children: filterTree(n.children || []) }));
             };
             resultTree = filterTree(roots);
         }
@@ -1197,12 +1132,14 @@ exports.exportHepsiburadaCategoriesExcel = async (req, res) => {
         const getPath = createPathResolver(catMap);
 
         let rows = [];
-        for (const [id, node] of catMap) {
-            const pathArr = getPath(id);
+        for (const [mapKey, node] of catMap) {
+            const pathArr = getPath(mapKey);
             const pathStr = pathArr.join(" > ");
             rows.push({
-                categoryId: id,
+                hbTreeType: node.hbTreeType || "",
+                categoryId: node.categoryId,
                 name: node.name,
+                hbDisplayTitle: node.hbDisplayTitle || "",
                 path: pathStr,
                 depth: pathArr.length,
                 parentCategoryId: node.parentCategoryId || "",
@@ -1213,9 +1150,13 @@ exports.exportHepsiburadaCategoriesExcel = async (req, res) => {
         }
 
         if (q.length >= 2) {
-            rows = rows.filter(r =>
-                r.name.toLowerCase().includes(q) ||
-                r.path.toLowerCase().includes(q)
+            rows = rows.filter(
+                (r) =>
+                    r.name.toLowerCase().includes(q) ||
+                    r.path.toLowerCase().includes(q) ||
+                    String(r.categoryId).includes(q) ||
+                    (r.hbDisplayTitle && r.hbDisplayTitle.toLowerCase().includes(q)) ||
+                    (r.hbTreeType && r.hbTreeType.toLowerCase().includes(q))
             );
         }
 
@@ -1223,8 +1164,10 @@ exports.exportHepsiburadaCategoriesExcel = async (req, res) => {
 
         const excelRows = rows.map((r, idx) => ({
             "#": idx + 1,
+            "Ağaç Tipi": r.hbTreeType || "",
             "Kategori ID": r.categoryId,
             "Kategori Adı": r.name,
+            "HB Görünen": r.hbDisplayTitle || "",
             "Tam Yol": r.path,
             "Derinlik": r.depth,
             "Üst Kategori ID": r.parentCategoryId,
@@ -1236,7 +1179,7 @@ exports.exportHepsiburadaCategoriesExcel = async (req, res) => {
         const wb = xlsx.utils.book_new();
         const ws = xlsx.utils.json_to_sheet(excelRows);
         ws["!cols"] = [
-            { wch: 6 }, { wch: 14 }, { wch: 35 }, { wch: 70 },
+            { wch: 6 }, { wch: 10 }, { wch: 14 }, { wch: 35 }, { wch: 55 }, { wch: 70 },
             { wch: 10 }, { wch: 16 }, { wch: 14 }, { wch: 14 }, { wch: 12 }
         ];
         xlsx.utils.book_append_sheet(wb, ws, "HB Kategoriler");
@@ -1336,27 +1279,32 @@ exports.searchCategories = async (req, res) => {
             const getPath = createPathResolver(catMap);
             const parentIds = findParentIds(catMap);
 
-            for (const [id, node] of catMap) {
-                const pathArr = getPath(id);
+            for (const [mapKey, node] of catMap) {
+                const pathArr = getPath(mapKey);
                 const pathStr = pathArr.join(" > ");
                 const name = node.name || "";
+                const blob = (node.hbSearchBlob || `${name} ${node.hbDisplayTitle || ""} ${pathStr}`).toLowerCase();
 
-                // ✅ Gelişmiş arama: Türkçe normalize + kelime bazlı
                 const nameMatch = matchesAllWords(name, query);
                 const pathMatch = matchesAllWords(pathStr, query);
+                const titleMatch = matchesAllWords(node.hbDisplayTitle || "", query);
+                const blobMatch = matchesAllWords(blob, query);
 
-                if (nameMatch || pathMatch) {
-                    // HB Dokümantasyon: Ürün açılabilecek kategoriler = leaf:true + available:true + status:ACTIVE
-                    const canListProduct = node.leaf && node.available && (node.status === "ACTIVE");
+                if (nameMatch || pathMatch || titleMatch || blobMatch) {
+                    const canListProduct = node.leaf && node.available && node.status === "ACTIVE";
                     searchResults.push({
-                        id: node.id,
+                        id: node.categoryId,
+                        categoryId: node.categoryId,
+                        nodeKey: node.nodeKey,
+                        hbTreeType: node.hbTreeType || null,
+                        hbDisplayTitle: node.hbDisplayTitle || "",
                         name: node.name,
                         path: pathStr,
                         leaf: node.leaf,
                         available: node.available,
-                        type: node.type || null,       // HB, HX, HC
-                        canListProduct,                 // Ürün açılabilir mi?
-                        hasChildren: parentIds.has(id)
+                        type: node.type || null,
+                        canListProduct,
+                        hasChildren: parentIds.has(node.nodeKey)
                     });
                 }
             }
@@ -1554,6 +1502,19 @@ const flattenCategoriesWithPath = (categories, isFlat = false) => {
 };
 
 /**
+ * Ürün açmaya uygun hedef kategoriler — otomatik eşleştirmede üst düğüm / kapalı HB reyonu hatasını engeller.
+ * - HB: leaf + available + ACTIVE (canListProduct)
+ * - N11/ÇiçekSepeti: ağaçta çocuğu olmayan düğüm (leaf)
+ */
+const filterListingEligibleTargets = (flatList, isFlatHb) => {
+    if (!Array.isArray(flatList)) return [];
+    if (isFlatHb) {
+        return flatList.filter((t) => t.canListProduct === true);
+    }
+    return flatList.filter((t) => t.leaf === true);
+};
+
+/**
  * Manuel Onaylı Otomatik Eşleştirme — Tek tek eşleştirme önerileri sun
  * POST /api/category-center/auto-match/prepare
  *
@@ -1642,7 +1603,16 @@ exports.autoMatchPrepare = async (req, res) => {
 
             // ── 5. Flat listeye dönüştür ──
             const flatCategories = flattenCategoriesWithPath(categories, platform.isFlat);
-            logger.info(`[AUTO-MATCH PREPARE] ${platform.name} — ${flatCategories.length} kategori (flat)`);
+            const eligibleTargets = filterListingEligibleTargets(flatCategories, platform.isFlat);
+            logger.info(
+                `[AUTO-MATCH PREPARE] ${platform.name} — ${flatCategories.length} düğüm, ` +
+                `${eligibleTargets.length} ürün listelenebilir yaprak`
+            );
+
+            if (eligibleTargets.length === 0) {
+                logger.warn(`[AUTO-MATCH PREPARE] ${platform.name} — listelenebilir yaprak yok, atlanıyor`);
+                continue;
+            }
 
             // ── 6. Her boş eşleştirme için öneri bul ──
             for (const mapping of allMappings) {
@@ -1653,7 +1623,7 @@ exports.autoMatchPrepare = async (req, res) => {
                 if (!masterPath) continue;
 
                 // En iyi 5 eşleşmeyi bul
-                const scored = flatCategories.map(target => ({
+                const scored = eligibleTargets.map(target => ({
                     ...target,
                     score: segmentSimilarityScore(masterPath, target.path)
                 })).filter(s => s.score >= MIN_SCORE)
@@ -1801,6 +1771,7 @@ exports.autoMatch = async (req, res) => {
         let totalUpdated = 0;
         let totalSkipped = 0;
         let totalNoMatch = 0;
+        let totalAmbiguous = 0;
 
         for (const platform of activePlatforms) {
             logger.info(`[AUTO-MATCH] ${platform.name} işleniyor...`);
@@ -1834,12 +1805,22 @@ exports.autoMatch = async (req, res) => {
 
             // ── 5. Flat listeye dönüştür ──
             const flatCategories = flattenCategoriesWithPath(categories, platform.isFlat);
-            logger.info(`[AUTO-MATCH] ${platform.name} — ${flatCategories.length} kategori (flat)`);
+            const eligibleTargets = filterListingEligibleTargets(flatCategories, platform.isFlat);
+            logger.info(
+                `[AUTO-MATCH] ${platform.name} — ${flatCategories.length} düğüm, ` +
+                `${eligibleTargets.length} listelenebilir yaprak`
+            );
+
+            if (eligibleTargets.length === 0) {
+                results[platform.key] = { status: "skipped", reason: "Listelenebilir yaprak kategori yok" };
+                continue;
+            }
 
             // ── 6. Her master kategori için en iyi eşleşmeyi bul ──
             let matched = 0;
             let skipped = 0;
             let noMatch = 0;
+            let ambiguous = 0;
             const bulkOps = [];
 
             for (const mapping of allMappings) {
@@ -1855,34 +1836,43 @@ exports.autoMatch = async (req, res) => {
                     continue;
                 }
 
-                // En iyi eşleşmeyi bul
                 let bestScore = 0;
-                let bestMatch = null;
-
-                for (const target of flatCategories) {
+                const ties = [];
+                for (const target of eligibleTargets) {
                     const score = segmentSimilarityScore(masterPath, target.path);
                     if (score > bestScore) {
                         bestScore = score;
-                        bestMatch = target;
+                        ties.length = 0;
+                        ties.push(target);
+                    } else if (score === bestScore && score > 0) {
+                        ties.push(target);
                     }
                 }
 
-                if (bestMatch && bestScore >= MIN_SCORE) {
-                    bulkOps.push({
-                        updateOne: {
-                            filter: { _id: mapping._id },
-                            update: {
-                                $set: {
-                                    [platform.idField]: Number(bestMatch.id) || bestMatch.id,
-                                    [platform.pathField]: bestMatch.path
-                                }
+                if (ties.length === 0 || bestScore < MIN_SCORE) {
+                    noMatch++;
+                    continue;
+                }
+                if (ties.length > 1) {
+                    ambiguous++;
+                    noMatch++;
+                    continue;
+                }
+
+                const bestMatch = ties[0];
+
+                bulkOps.push({
+                    updateOne: {
+                        filter: { _id: mapping._id },
+                        update: {
+                            $set: {
+                                [platform.idField]: Number(bestMatch.id) || bestMatch.id,
+                                [platform.pathField]: bestMatch.path
                             }
                         }
-                    });
-                    matched++;
-                } else {
-                    noMatch++;
-                }
+                    }
+                });
+                matched++;
             }
 
             // ── 7. Toplu güncelleme ──
@@ -1893,20 +1883,29 @@ exports.autoMatch = async (req, res) => {
             results[platform.key] = {
                 status: "completed",
                 totalCategories: flatCategories.length,
+                listingEligible: eligibleTargets.length,
                 matched,
                 skipped,
                 noMatch,
+                ambiguous,
                 minScore: MIN_SCORE
             };
 
             totalUpdated += matched;
             totalSkipped += skipped;
             totalNoMatch += noMatch;
+            totalAmbiguous += ambiguous;
 
-            logger.info(`[AUTO-MATCH] ${platform.name} ✅ — eşleşen: ${matched}, atlanan: ${skipped}, eşleşmeyen: ${noMatch}`);
+            logger.info(
+                `[AUTO-MATCH] ${platform.name} ✅ — eşleşen: ${matched}, atlanan: ${skipped}, ` +
+                `eşleşmeyen: ${noMatch}, belirsiz (eşit skor): ${ambiguous}`
+            );
         }
 
-        logger.info(`[AUTO-MATCH] Tamamlandı — toplam güncellenen: ${totalUpdated}, atlanan: ${totalSkipped}, eşleşmeyen: ${totalNoMatch}`);
+        logger.info(
+            `[AUTO-MATCH] Tamamlandı — güncellenen: ${totalUpdated}, atlanan: ${totalSkipped}, ` +
+            `eşleşmeyen: ${totalNoMatch}, belirsiz: ${totalAmbiguous}`
+        );
 
         return ok(res, "Otomatik eşleştirme tamamlandı", {
             results,
@@ -1914,6 +1913,7 @@ exports.autoMatch = async (req, res) => {
                 totalUpdated,
                 totalSkipped,
                 totalNoMatch,
+                totalAmbiguous,
                 minScore: MIN_SCORE
             }
         });
@@ -1984,9 +1984,19 @@ exports.autoMatchReset = async (req, res) => {
  */
 exports.invalidateCache = async (userId, marketplaceName) => {
     try {
-        const cacheKey = normalizePlatformName(marketplaceName);
-        await CategoryCache.deleteOne({ userId, marketplaceName: cacheKey });
-        logger.info(`[CATEGORY CACHE] 🗑️ ${marketplaceName} cache temizlendi (userId: ${userId})`);
+        const base = normalizePlatformName(marketplaceName);
+        const keys = base.includes("hepsiburada") ? [base, `${base}_sit`] : [base];
+        for (const cacheKey of keys) {
+            await CategoryCache.deleteOne({ userId, marketplaceName: cacheKey });
+            try {
+                await fs.unlink(getCategoryFilePath(userId, cacheKey));
+            } catch (e) {
+                if (e.code !== "ENOENT") {
+                    logger.warn(`[CATEGORY CACHE] Dosya silinemedi (${cacheKey}): ${e.message}`);
+                }
+            }
+        }
+        logger.info(`[CATEGORY CACHE] 🗑️ ${marketplaceName} cache temizlendi (userId: ${userId}, keys: ${keys.join(", ")})`);
     } catch (err) {
         logger.warn(`[CATEGORY CACHE] Cache temizleme hatası: ${err.message}`);
     }

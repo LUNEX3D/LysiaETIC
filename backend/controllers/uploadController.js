@@ -63,27 +63,16 @@ exports.uploadProduct = async (req, res) => {
                 if (!hbCreds.merchantId || !hbCreds.secretKey) {
                     return res.status(400).json({ error: "Hepsiburada merchantId / secretKey eksik" });
                 }
-                const ep = hb.getEndpoints(hbCreds);
-                let merchantSku = hb.normalizeHbMerchantSku(productData.barcode || productData.sku || "");
-                const hbSkuRaw = String(productData.barcode || productData.sku || "").trim();
-                if (!merchantSku) merchantSku = hb.normalizeHbMerchantSku(hbSkuRaw);
-                if (!merchantSku) {
-                    return res.status(400).json({ error: "Hepsiburada için barkod veya SKU gerekli" });
-                }
-                const hbResponse = await hb.postInventoryUploadListing({
-                    ep,
-                    merchantId: hbCreds.merchantId,
-                    secretKey: hbCreds.secretKey,
-                    userAgent: hbCreds.userAgent,
-                    rows: [{
-                        merchantSku,
-                        hepsiburadaSku: hbSkuRaw || merchantSku,
-                        availableStock: parseInt(productData.quantity, 10) || 0,
-                        price: parseFloat(productData.salePrice) || 0,
-                        listPrice: parseFloat(productData.listPrice || productData.salePrice) || 0
-                    }]
+                const hbUpload = await hb.uploadProductToHepsiburada(hbCreds, {
+                    ...productData,
+                    name: productData.name || productData.title,
+                    stock: productData.stock ?? productData.quantity,
+                    price: productData.price ?? productData.salePrice
                 });
-                return res.status(200).json({ success: true, data: hbResponse.data });
+                if (!hbUpload.success) {
+                    return res.status(400).json({ success: false, error: hbUpload.error, data: hbUpload });
+                }
+                return res.status(200).json({ success: true, data: hbUpload });
             }
 
             default:

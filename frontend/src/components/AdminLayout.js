@@ -5,8 +5,9 @@ import {
     FaUserShield, FaCog, FaSignOutAlt, FaBars, FaTimes,
     FaExternalLinkAlt, FaBuilding, FaCrown, FaCreditCard,
     FaPlug, FaTachometerAlt, FaChartBar, FaBullhorn,
-    FaHistory, FaTicketAlt, FaShieldAlt
+    FaHistory, FaTicketAlt, FaShieldAlt, FaBug
 } from "react-icons/fa";
+import { logoutUser } from "../services/api";
 import "../styles/admin.css";
 
 const AdminLayout = ({ title, subtitle, actions, children }) => {
@@ -27,8 +28,8 @@ const AdminLayout = ({ title, subtitle, actions, children }) => {
     };
     const role = roleMap[rawRole] || roleMap.admin;
 
-    const handleLogout = () => {
-        localStorage.clear();
+    const handleLogout = async () => {
+        await logoutUser().catch(() => {});
         navigate("/admin/login");
     };
 
@@ -71,6 +72,7 @@ const AdminLayout = ({ title, subtitle, actions, children }) => {
             items: [
                 { to: "/admin/servers", label: "Sunucu İzleme", icon: <FaServer /> },
                 { to: "/admin/audit-logs", label: "İşlem Logları", icon: <FaHistory /> },
+                { to: "/admin/client-errors", label: "İstemci Hataları", icon: <FaBug /> },
                 { to: "/admin/system-config", label: "Sistem Ayarları", icon: <FaCog /> },
             ]
         }

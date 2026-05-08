@@ -12,10 +12,12 @@ const {
     syncProductsFromMarketplace,
     distributeProductToMarketplaces,
     checkPendingN11Tasks,
+    checkPendingHepsiburadaUploads,
     checkPendingTrendyolBatches,
     deleteProductFromMarketplaces,
     fetchTrendyolCategoryAttributes,
-    fetchTrendyolBrands
+    fetchTrendyolBrands,
+    normalizeMarketplaceName
 } = require("../services/productSyncService");
 const { decryptCredentials } = require("../utils/encryption");
 const { manualStockSync, autoStockSync, syncStockToAllMarketplaces } = require("../services/stockSyncService");
@@ -25,6 +27,18 @@ const multer = require("multer");
 const fs = require("fs");
 const path = require("path");
 const duplicateGuard = require("../utils/productDuplicateGuard");
+const {
+    isHepsiburadaMappingListedForUi,
+    isHepsiburadaMappingVisibleForProductUi
+} = require("../services/hepsiburadaService");
+const { buildProductCategoryFieldOverview } = require("../services/categoryFieldOverviewService");
+const {
+    scheduleMarketplacePull,
+    scheduleAutoStockSync,
+    scheduleSyncAllMarketplaces,
+    getJobForStatus,
+    assertJobForUser
+} = require("../utils/syncJobRunner");
 
 // Multer — memory storage (dosyayı diske yazmadan RAM'de tut)
 const upload = multer({
@@ -190,16 +204,15 @@ const toObjectId = (id) => {
     try { return new mongoose.Types.ObjectId(id.toString()); } catch { return null; }
 };
 
-// Pazaryeri isimlerini normalize et (büyük/küçük harf, boşluk farkı)
-const normalizeMarketplaceName = (name) => {
-    if (!name) return "";
-    const n = name.trim().toLowerCase();
-    if (n === "trendyol")                          return "Trendyol";
-    if (n === "hepsiburada")                       return "Hepsiburada";
-    if (n === "n11")                               return "N11";
-    if (n === "amazon" || n === "amazon türkiye")  return "Amazon";
-    if (n === "çiçeksepeti" || n === "ciceksepeti") return "ÇiçekSepeti";
-    return name.trim();
+/** @param {object|null} job */
+const jobEtaSeconds = (job) => {
+    if (!job || job.status !== "running") return null;
+    const p = Number(job.progressPercent) || 0;
+    if (p < 3 || p >= 100) return null;
+    const elapsed = (Date.now() - job.startedAt) / 1000;
+    if (elapsed < 0.5) return null;
+    const totalEst = elapsed / (p / 100);
+    return Math.max(0, Math.round(totalEst - elapsed));
 };
 
 /**
@@ -280,13 +293,11 @@ exports.getProducts = async (req, res) => {
         //   Örn: Ürün A (Trendyol, barcode X) + Ürün B (N11, barcode X) → Ürün A'ya N11 badge ekleniyor
         // ✅ YENİ (DOĞRU): Cross-reference KALDIRILDI. Her ürün SADECE kendi marketplaceMappings'ini gösterir.
         //   Bir ürün bir platformda varsa, o platformun mapping'i doğrudan o ürünün kaydında olmalıdır.
-        //   syncStatus: "error" olan mapping'ler filtrelenir (platformdan kaldırılmış ürünler).
+        //   Hepsiburada: MPOP "İncelenecek" (listingReady=false / pending) panelde görünür — mapping'i gizleme.
         for (const p of products) {
             if (p.marketplaceMappings && p.marketplaceMappings.length > 0) {
-                // syncStatus: "error" olan mapping'leri filtrele
-                // Bu ürünler platformdan kaldırılmış veya bulunamıyor
                 p.marketplaceMappings = p.marketplaceMappings.filter(
-                    m => m.syncStatus !== "error"
+                    (m) => m && isHepsiburadaMappingVisibleForProductUi(m)
                 );
             }
         }
@@ -318,22 +329,28 @@ exports.getProductDetail = async (req, res) => {
 
         const { productId } = req.params;
 
-        const product = await ProductMapping.findOne({ _id: productId, userId });
-        if (!product) {
+        const productDoc = await ProductMapping.findOne({ _id: productId, userId }).lean();
+        if (!productDoc) {
             return res.status(404).json({ error: "Ürün bulunamadı" });
+        }
+
+        let categoryFieldOverview = [];
+        try {
+            categoryFieldOverview = await buildProductCategoryFieldOverview(userId, productDoc);
+        } catch (ovErr) {
+            logger.warn(`[PRODUCT DETAIL] Kategori özeti atlandı: ${ovErr.message}`);
         }
 
         // ── PLATFORM DOĞRULAMA ──
         // ⚠️ ESKİ (YANLIŞ): Cross-reference ile başka DB kayıtlarının platform mapping'leri
         //   bu ürüne enjekte ediliyordu → 1 platformda olan ürün 2 platformda görünüyordu
         // ✅ YENİ (DOĞRU): Cross-reference KALDIRILDI. Her ürün SADECE kendi marketplaceMappings'ini gösterir.
-        //   syncStatus: "error" olan mapping'ler filtrelenir (platformdan kaldırılmış ürünler).
-        if (product.marketplaceMappings && product.marketplaceMappings.length > 0) {
-            // syncStatus: "error" olan mapping'leri filtrele
-            product.marketplaceMappings = product.marketplaceMappings.filter(
-                m => m.syncStatus !== "error"
-            );
+        let visibleMappings = productDoc.marketplaceMappings || [];
+        if (visibleMappings.length > 0) {
+            visibleMappings = visibleMappings.filter((m) => m && isHepsiburadaMappingVisibleForProductUi(m));
         }
+
+        const product = { ...productDoc, marketplaceMappings: visibleMappings, categoryFieldOverview };
 
         const activePlatforms = (product.marketplaceMappings || []).map(m => m.marketplaceName).filter(Boolean);
         logger.info(`[PRODUCT DETAIL] "${product.masterProduct?.name}" → platforms: [${activePlatforms.join(", ")}]`);
@@ -616,6 +633,46 @@ exports.deleteProduct = async (req, res) => {
 // ═══════════════════════════════════════════════════════════════
 
 /**
+ * GET /product-management/sync/job/:jobId — uzun senkron işinin durumu (ilerleme + tahmini kalan süre)
+ */
+exports.getSyncJobStatus = async (req, res) => {
+    try {
+        const userId = toObjectId(req.user?._id || req.user?.id);
+        if (!userId) return res.status(401).json({ error: "Yetkilendirme hatası" });
+
+        const { jobId } = req.params;
+        const job = await getJobForStatus(jobId);
+        if (!job || !assertJobForUser(job, userId)) {
+            return res.status(404).json({ error: "İş bulunamadı" });
+        }
+
+        const etaSeconds = jobEtaSeconds(job);
+
+        return res.status(200).json({
+            success: true,
+            job: {
+                id: job.id,
+                type: job.type,
+                status: job.status,
+                phase: job.phase,
+                progressPercent: Math.round(Number(job.progressPercent) * 10) / 10,
+                current: job.current,
+                total: job.total,
+                message: job.message,
+                startedAt: job.startedAt,
+                updatedAt: job.updatedAt,
+                etaSeconds,
+                ...(job.status === "completed" ? { result: job.result } : {}),
+                ...(job.status === "failed" ? { error: job.error } : {})
+            }
+        });
+    } catch (error) {
+        logger.error("[SYNC JOB STATUS] Hata:", error.message);
+        return res.status(500).json({ error: "Durum alınamadı", details: error.message });
+    }
+};
+
+/**
  * Pazaryerinden ürünleri çek ve eşleştir
  */
 exports.syncFromMarketplace = async (req, res) => {
@@ -624,12 +681,23 @@ exports.syncFromMarketplace = async (req, res) => {
         if (!userId) return res.status(401).json({ error: "Yetkilendirme hatası" });
 
         const { marketplaceId, marketplaceName } = req.body;
+        const asyncMode = req.body.async === true || req.body.async === "true";
 
         if (!marketplaceId || !marketplaceName) {
             return res.status(400).json({ error: "Pazaryeri bilgisi eksik" });
         }
 
         logger.info(`[SYNC] ${marketplaceName} senkronizasyonu başlatılıyor...`);
+
+        if (asyncMode) {
+            const jobId = await scheduleMarketplacePull(userId, marketplaceId, marketplaceName);
+            return res.status(202).json({
+                success: true,
+                async: true,
+                jobId,
+                message: `${marketplaceName} senkronizasyonu arka planda başlatıldı`
+            });
+        }
 
         const stats = await syncProductsFromMarketplace(userId, marketplaceId, marketplaceName);
 
@@ -702,12 +770,17 @@ exports.bulkDistribute = async (req, res) => {
             return res.status(400).json({ error: "Kaynak ve hedef pazaryerleri gerekli" });
         }
 
-        logger.info(`[BULK DISTRIBUTE] ${sourceMarketplace} -> ${targetMarketplaces.join(", ")}`);
+        const normSource = normalizeMarketplaceName(sourceMarketplace);
+        logger.info(`[BULK DISTRIBUTE] ${normSource} -> ${targetMarketplaces.join(", ")}`);
 
-        // Kaynak pazaryerindeki ürünleri bul
+        // Kaynak pazaryerindeki ürünleri bul (isim büyük/küçük harf toleranslı)
         const products = await ProductMapping.find({
             userId,
-            "marketplaceMappings.marketplaceName": sourceMarketplace
+            marketplaceMappings: {
+                $elemMatch: {
+                    marketplaceName: new RegExp(`^${normSource.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i")
+                }
+            }
         });
 
         const results = {
@@ -726,11 +799,15 @@ exports.bulkDistribute = async (req, res) => {
             const batchResults = await Promise.all(batch.map(async (product) => {
                 try {
                     // Her hedef pazaryeri için kontrol et
-                    const missingMarketplaces = targetMarketplaces.filter(target => {
-                        const existing = product.marketplaceMappings.find(
-                            m => m.marketplaceName === target && m.marketplaceProductId
+                    const missingMarketplaces = targetMarketplaces.filter((target) => {
+                        const normT = normalizeMarketplaceName(target);
+                        const m = (product.marketplaceMappings || []).find(
+                            (x) => normalizeMarketplaceName(x.marketplaceName) === normT
                         );
-                        return !existing;
+                        if (!m) return true;
+                        if (m.syncStatus === "error") return true;
+                        if (m.syncStatus === "pending") return false;
+                        return !m.marketplaceProductId;
                     });
 
                     if (missingMarketplaces.length === 0) {
@@ -750,14 +827,16 @@ exports.bulkDistribute = async (req, res) => {
                         missingMarketplaces
                     );
 
-                    const successCount = distResults.filter(r => r.status === "success").length;
+                    const okish = distResults.filter(
+                        (r) => r.status === "success" || r.status === "pending" || r.status === "skipped"
+                    ).length;
                     return {
                         barcode: product.masterProduct.barcode,
                         name: product.masterProduct.name,
-                        status: successCount > 0 ? "success" : "error",
+                        status: okish > 0 ? "success" : "error",
                         marketplaces: distResults,
-                        _distributed: successCount > 0,
-                        _hasError: distResults.some(r => r.status === "error")
+                        _distributed: okish > 0,
+                        _hasError: distResults.some((r) => r.status === "error")
                     };
 
                 } catch (error) {
@@ -1008,6 +1087,18 @@ exports.triggerAutoSync = async (req, res) => {
     try {
         const userId = toObjectId(req.user?._id || req.user?.id);
         if (!userId) return res.status(401).json({ error: "Yetkilendirme hatası" });
+
+        const asyncMode = req.body.async === true || req.body.async === "true";
+
+        if (asyncMode) {
+            const jobId = await scheduleAutoStockSync(userId);
+            return res.status(202).json({
+                success: true,
+                async: true,
+                jobId,
+                message: "Otomatik stok senkronu arka planda başlatıldı"
+            });
+        }
 
         const results = await autoStockSync(userId);
 
@@ -2056,6 +2147,19 @@ exports.syncAllMarketplaces = async (req, res) => {
             return res.status(404).json({ error: "Hiç pazaryeri entegrasyonu bulunamadı" });
         }
 
+        const asyncMode = req.body.async === true || req.body.async === "true";
+
+        if (asyncMode) {
+            const jobId = await scheduleSyncAllMarketplaces(userId);
+            logger.info(`[SYNC ALL] ${marketplaces.length} pazaryeri için arka plan senkronizasyonu (job ${jobId})...`);
+            return res.status(202).json({
+                success: true,
+                async: true,
+                jobId,
+                message: `${marketplaces.length} pazaryeri için toplu çekme arka planda başlatıldı`
+            });
+        }
+
         logger.info(`[SYNC ALL] ${marketplaces.length} pazaryeri için PARALEL senkronizasyon başlatılıyor...`);
 
         // ⚡ Tüm pazaryerlerini paralel çek — sıralı yerine Promise.allSettled
@@ -2404,9 +2508,10 @@ exports.bulkDistributeSelected = async (req, res) => {
                 batch.map(async (productId) => {
                     try {
                         const distResults = await distributeProductToMarketplaces(userId, productId, targetMarketplaces);
-                        const ok      = distResults.filter(r => r.status === "success").length;
-                        const skipped = distResults.filter(r => r.status === "skipped").length;
-                        const err     = distResults.filter(r => r.status === "error").length;
+                        const ok =
+                            distResults.filter((r) => r.status === "success" || r.status === "pending").length;
+                        const skipped = distResults.filter((r) => r.status === "skipped").length;
+                        const err = distResults.filter((r) => r.status === "error").length;
                         return { productId, ok, skipped, err, distResults };
                     } catch (err) {
                         return { productId, ok: 0, skipped: 0, err: 1, error: err.message };
@@ -2528,8 +2633,10 @@ exports.distributeUndistributed = async (req, res) => {
                 batch.map(async ({ product, missingPlatforms }) => {
                     try {
                         const distResults = await distributeProductToMarketplaces(userId, product._id, missingPlatforms);
-                        const ok = distResults.filter(r => r.status === "success").length;
-                        const err = distResults.filter(r => r.status === "error").length;
+                        const ok = distResults.filter(
+                            (r) => r.status === "success" || r.status === "pending"
+                        ).length;
+                        const err = distResults.filter((r) => r.status === "error").length;
 
                         return {
                             productId: product._id,
@@ -2554,8 +2661,8 @@ exports.distributeUndistributed = async (req, res) => {
 
             for (const br of batchResults) {
                 if (br.ok > 0) stats.distributed++;
-                else if (br.err > 0) stats.error++;
-                else stats.skipped++;
+                if (br.err > 0) stats.error++;
+                if (br.ok === 0 && br.err === 0) stats.skipped++;
                 stats.details.push({
                     productId: br.productId,
                     name: br.name,
@@ -2595,16 +2702,19 @@ exports.checkPendingTasks = async (req, res) => {
         const userId = toObjectId(req.user?._id || req.user?.id);
         if (!userId) return res.status(401).json({ error: "Yetkilendirme hatası" });
 
-        logger.info(`[CHECK PENDING] Kullanıcı ${userId} — N11 + Trendyol batch kontrolü başlatılıyor`);
+        logger.info(`[CHECK PENDING] Kullanıcı ${userId} — N11 + HB + Trendyol batch kontrolü başlatılıyor`);
         const n11 = await checkPendingN11Tasks(userId);
+        const hepsiburada = await checkPendingHepsiburadaUploads(userId);
         const trendyol = await checkPendingTrendyolBatches(userId);
 
         return res.status(200).json({
             success: true,
             message:
                 `N11: ${n11.checked} kontrol, ${n11.updated} kesinleşen, ${n11.failed} başarısız — ` +
+                `Hepsiburada: ${hepsiburada.checked} kontrol, ${hepsiburada.updated} kesinleşen, ${hepsiburada.failed} başarısız, ${hepsiburada.inProgress || 0} işlemde — ` +
                 `Trendyol batch: ${trendyol.checked} kontrol, ${trendyol.updated} kesinleşen, ${trendyol.failed} başarısız, ${trendyol.inProgress || 0} işlemde`,
             n11,
+            hepsiburada,
             trendyol
         });
     } catch (error) {
@@ -2966,9 +3076,17 @@ exports.exportProducts = async (req, res) => {
 
             const stockLabel = st.isOutOfStock ? "Stok Yok" : st.isLowStock ? "Düşük Stok" : "Normal";
 
-            const mpPresence = mpNames.map(mpName => {
-                const m = (p.marketplaceMappings || []).find(x => x.marketplaceName?.toLowerCase() === mpName.toLowerCase());
-                return m ? (m.syncStatus === "synced" ? "Aktif" : "Bekliyor") : "Yok";
+            const mpPresence = mpNames.map((mpName) => {
+                const m = (p.marketplaceMappings || []).find((x) => x.marketplaceName?.toLowerCase() === mpName.toLowerCase());
+                if (!m) return "Yok";
+                const live = isHepsiburadaMappingListedForUi(m);
+                const visible = isHepsiburadaMappingVisibleForProductUi(m);
+                if (live) return "Aktif";
+                if (visible && /^hepsiburada$/i.test(String(mpName || ""))) {
+                    if (m.syncStatus === "error") return "Hata";
+                    return "Onay bekliyor";
+                }
+                return "Bekliyor";
             });
             const mpStock = mpNames.map(mpName => {
                 const m = (p.marketplaceMappings || []).find(x => x.marketplaceName?.toLowerCase() === mpName.toLowerCase());
@@ -3589,8 +3707,12 @@ exports.createAndDistribute = async (req, res) => {
             name, barcode, sku, description, images,
             price, listPrice, stock, category, brand,
             attributes, targetMarketplaces, platformCategories,
-            vatRate, dimensionalWeight, marketplaceExtras
+            vatRate, dimensionalWeight, marketplaceExtras,
+            n11ShipmentTemplate
         } = req.body;
+
+        const n11ShipTpl =
+            typeof n11ShipmentTemplate === "string" ? n11ShipmentTemplate.trim() : "";
 
         // Zorunlu alan kontrolü
         if (!name || !barcode || !sku || price === undefined || price === null || price === "") {
@@ -3648,6 +3770,10 @@ exports.createAndDistribute = async (req, res) => {
         });
 
         productMapping.updateStockStatus();
+        if (n11ShipTpl) {
+            productMapping.masterProduct.shipmentTemplate = n11ShipTpl;
+            productMapping.markModified("masterProduct");
+        }
         await productMapping.save();
 
         logger.info(`[PRODUCT] Yeni ürün oluşturuldu: ${name} (${barcode})`);

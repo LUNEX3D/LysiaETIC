@@ -55,8 +55,24 @@ const RegisterFormInner = () => {
             return;
         }
 
-        if (formData.password.length < 6) {
+        // Sunucu ile aynı şifre politikası (validateRegister + authController)
+        if (formData.password.length < 8) {
             setMessage({ text: t("auth.passwordTooShort"), type: "error" });
+            setIsLoading(false);
+            return;
+        }
+        if (!/[A-Z]/.test(formData.password)) {
+            setMessage({ text: t("auth.passwordNeedUpper"), type: "error" });
+            setIsLoading(false);
+            return;
+        }
+        if (!/[a-z]/.test(formData.password)) {
+            setMessage({ text: t("auth.passwordNeedLower"), type: "error" });
+            setIsLoading(false);
+            return;
+        }
+        if (!/[0-9]/.test(formData.password)) {
+            setMessage({ text: t("auth.passwordNeedDigit"), type: "error" });
             setIsLoading(false);
             return;
         }
@@ -66,7 +82,12 @@ const RegisterFormInner = () => {
             setMessage({ text: t("auth.registerSuccess"), type: "success" });
             setTimeout(() => { navigate("/login"); }, 2500);
         } catch (error) {
-            setMessage({ text: error.response?.data?.message || "Bir hata oluştu.", type: "error" });
+            const data = error.response?.data;
+            let text = data?.message || "Bir hata oluştu.";
+            if (Array.isArray(data?.errors) && data.errors.length) {
+                text = data.errors.map((e) => e.message).filter(Boolean).join(" ");
+            }
+            setMessage({ text, type: "error" });
         } finally {
             setIsLoading(false);
         }
@@ -218,7 +239,7 @@ const RegisterFormInner = () => {
                                         required
                                         autoComplete="new-password"
                                         disabled={isLoading}
-                                        minLength={6}
+                                        minLength={8}
                                     />
                                     <button
                                         type="button"
@@ -247,7 +268,7 @@ const RegisterFormInner = () => {
                                         required
                                         autoComplete="new-password"
                                         disabled={isLoading}
-                                        minLength={6}
+                                        minLength={8}
                                     />
                                     <button
                                         type="button"

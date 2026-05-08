@@ -9,6 +9,7 @@
  * ═══════════════════════════════════════════════════════════════
  */
 const mongoose = require("mongoose");
+const logger = require("../config/logger");
 
 const AutoOrderConfigSchema = new mongoose.Schema({
     user: {
@@ -74,25 +75,31 @@ AutoOrderConfigSchema.index({ user: 1, marketplaceName: 1 });
 
 const AutoOrderConfig = mongoose.model("AutoOrderConfig", AutoOrderConfigSchema);
 
-// Startup'ta yanlış index'leri temizle
-// MongoDB'de eski "user_1" unique index varsa düşür (compound olmalı)
-(async () => {
+/**
+ * Eski yanlış unique index'i kaldır (yalnızca DB bağlandıktan sonra çağrılmalı).
+ * Model yüklenirken çalıştırılmaz — aksi halde bağlantı öncesi `indexes()` buffer timeout olur.
+ */
+async function cleanupLegacyAutoOrderIndexes() {
     try {
+        if (mongoose.connection.readyState !== 1) {
+            logger.warn("[AutoOrderConfig] Index temizliği atlandı — MongoDB henüz bağlı değil");
+            return;
+        }
         const col = AutoOrderConfig.collection;
         const indexes = await col.indexes();
         for (const idx of indexes) {
-            // "user_1" adlı ve sadece { user: 1 } olan unique index'i düşür
             if (idx.name === "user_1" && idx.unique && !idx.key.marketplace) {
                 await col.dropIndex("user_1");
-                console.log("[AutoOrderConfig] ⚠️ Eski 'user_1' unique index düşürüldü — doğru compound index kullanılacak");
+                logger.info("[AutoOrderConfig] Eski 'user_1' unique index düşürüldü — compound index kullanılacak");
             }
         }
     } catch (e) {
-        // Collection henüz yoksa veya index yoksa sessizce geç
-        if (!e.message?.includes("ns not found") && !e.message?.includes("index not found")) {
-            console.warn("[AutoOrderConfig] Index temizleme hatası:", e.message);
+        const msg = e?.message || String(e);
+        if (!msg.includes("ns not found") && !msg.includes("index not found")) {
+            logger.warn(`[AutoOrderConfig] Index temizleme: ${msg}`);
         }
     }
-})();
+}
 
 module.exports = AutoOrderConfig;
+module.exports.cleanupLegacyAutoOrderIndexes = cleanupLegacyAutoOrderIndexes;

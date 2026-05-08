@@ -7,7 +7,7 @@
  *    session token saklanır (plain text password SAKLANMAZ).
  *
  * ✅ DB'deki auto-invoice config'den bağlı sağlayıcıyı otomatik algılar.
- *    localStorage boşsa bile, kullanıcının DB'de kayıtlıı QNB ayarı varsa
+ *    Kullanıcının DB'de kayıtlı QNB ayarı varsa
  *    sağlayıcı "bağlı" olarak gösterilir.
  */
 import { useState, useCallback, useEffect, useRef } from "react";

@@ -19,7 +19,7 @@ const ProtectedRoute = ({ children, requiredRoles = [] }) => {
     const location = useLocation();
     // ✅ FIX H7: rememberMe — hem localStorage hem sessionStorage'dan token oku
     const token = localStorage.getItem("token") || sessionStorage.getItem("token");
-    const userRole = localStorage.getItem("userRole");
+    const [resolvedRole, setResolvedRole] = useState(localStorage.getItem("userRole") || null);
 
     // ✅ LEGAL: Yasal onay durumu
     const [legalChecked, setLegalChecked] = useState(false);
@@ -36,6 +36,10 @@ const ProtectedRoute = ({ children, requiredRoles = [] }) => {
         // Backend'den kontrol et
         try {
             const res = await axios.get("/auth/profile");
+            if (res.data?.role) {
+                setResolvedRole(res.data.role);
+                localStorage.setItem("userRole", res.data.role);
+            }
             if (res.data?.legalAcceptance?.accepted) {
                 localStorage.setItem("legalAccepted", "true");
                 localStorage.setItem("legalAcceptedAt", res.data.legalAcceptance.acceptedAt);
@@ -66,7 +70,7 @@ const ProtectedRoute = ({ children, requiredRoles = [] }) => {
     }
 
     // Rol kontrolü (requiredRoles belirtilmişse)
-    if (requiredRoles.length > 0 && !requiredRoles.includes(userRole)) {
+    if (requiredRoles.length > 0 && resolvedRole && !requiredRoles.includes(resolvedRole)) {
         // Yetkisiz kullanıcıyı dashboard'a yönlendir
         return <Navigate to="/dashboard" replace />;
     }
@@ -89,6 +93,14 @@ const ProtectedRoute = ({ children, requiredRoles = [] }) => {
                     animation: "spin 0.8s linear infinite"
                 }} />
                 <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+            </div>
+        );
+    }
+
+    if (requiredRoles.length > 0 && !resolvedRole) {
+        return (
+            <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#0f1419", color: "#94a3b8" }}>
+                Yetki kontrol ediliyor...
             </div>
         );
     }

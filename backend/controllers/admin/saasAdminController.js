@@ -606,14 +606,66 @@ exports.banTenant = async (req, res) => {
 
 /* ═══════════════════════════════════════════════════════════
    3. ABONELİK YÖNETİMİ
+   Tek doğru kaynak: User.subscription (middleware & ödeme akışı).
+   Subscription koleksiyonu fatura/limit yan kaydı olarak senkron tutulur.
    ═══════════════════════════════════════════════════════════ */
+
+/** Admin listesi için satır — User + isteğe bağlı Subscription belgesi */
+function buildSubscriptionListRow(userLean, subDoc, now = new Date()) {
+    const us = userLean.subscription || {};
+    const plan = us.plan || subDoc?.plan || "trial";
+    const status = us.status || subDoc?.status || "trial";
+    const startDate = us.startDate || subDoc?.startDate || null;
+    const endDate = us.endDate || us.trialEndDate || subDoc?.endDate || null;
+    let daysLeft = null;
+    let isExpired = false;
+    if (endDate) {
+        const d = new Date(endDate);
+        daysLeft = Math.ceil((d.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+        isExpired = daysLeft <= 0;
+    }
+    return {
+        _id: subDoc?._id || userLean._id,
+        userId: { _id: userLean._id, name: userLean.name, email: userLean.email, role: userLean.role },
+        plan,
+        status,
+        startDate,
+        endDate,
+        limits: subDoc?.limits,
+        price: subDoc?.price ?? 0,
+        billingCycle: subDoc?.billingCycle || "monthly",
+        currency: subDoc?.currency || "TRY",
+        daysLeft: daysLeft != null ? Math.max(0, daysLeft) : null,
+        isExpired,
+        hasSubscriptionDoc: !!subDoc,
+    };
+}
+
 exports.getSubscriptions = async (req, res) => {
     try {
-        const subs = await Subscription.find()
-            .populate("userId", "name email role")
-            .sort({ createdAt: -1 });
-        res.json({ success: true, subscriptions: subs });
+        const now = new Date();
+        const users = await User.find({ role: { $nin: ["admin", "dev", "moderator"] } })
+            .select("name email role subscription updatedAt")
+            .sort({ updatedAt: -1 })
+            .lean();
+
+        const userIds = users.map((u) => u._id);
+        const subDocs = await Subscription.find({ userId: { $in: userIds } })
+            .sort({ createdAt: -1 })
+            .lean();
+        const subByUser = new Map();
+        for (const s of subDocs) {
+            const k = String(s.userId);
+            if (!subByUser.has(k)) subByUser.set(k, s);
+        }
+
+        const subscriptions = users.map((u) =>
+            buildSubscriptionListRow(u, subByUser.get(String(u._id)), now)
+        );
+
+        res.json({ success: true, subscriptions });
     } catch (error) {
+        logger.error(`Abonelik listesi: ${error.message}`);
         res.status(500).json({ success: false, message: "Abonelikler alınamadı" });
     }
 };
@@ -621,32 +673,119 @@ exports.getSubscriptions = async (req, res) => {
 exports.updateSubscription = async (req, res) => {
     try {
         const { id } = req.params;
-        const updates = req.body;
+        const updates = { ...req.body };
+        delete updates._id;
+        delete updates.userId;
 
-        const sub = await Subscription.findByIdAndUpdate(id, updates, { new: true });
-        if (!sub) return res.status(404).json({ success: false, message: "Abonelik bulunamadı" });
+        const VALID_PLANS = new Set(["free", "trial", "basic", "pro", "enterprise"]);
+        const VALID_STATUS = new Set(["active", "trial", "suspended", "cancelled", "expired"]);
+        const VALID_BILLING = new Set(["monthly", "yearly"]);
 
-        // Kullanıcının plan bilgisini de güncelle
-        if (updates.plan) {
-            await User.findByIdAndUpdate(sub.userId, {
-                "subscription.plan": updates.plan,
-                "subscription.status": updates.status || sub.status,
-            });
+        if (!mongoose.Types.ObjectId.isValid(id)) {
+            return res.status(400).json({ success: false, message: "Geçersiz kimlik" });
+        }
+        if (updates.plan != null && !VALID_PLANS.has(String(updates.plan))) {
+            return res.status(400).json({ success: false, message: "Geçersiz plan değeri" });
+        }
+        if (updates.status != null && !VALID_STATUS.has(String(updates.status))) {
+            return res.status(400).json({ success: false, message: "Geçersiz durum değeri" });
+        }
+        if (updates.billingCycle != null && !VALID_BILLING.has(String(updates.billingCycle))) {
+            return res.status(400).json({ success: false, message: "Geçersiz döngü değeri" });
+        }
+        if (updates.price != null && (Number.isNaN(Number(updates.price)) || Number(updates.price) < 0)) {
+            return res.status(400).json({ success: false, message: "Geçersiz fiyat değeri" });
         }
 
+        let userId;
+        const subById = await Subscription.findById(id);
+        if (subById) {
+            userId = subById.userId;
+        } else {
+            const u = await User.findById(id).select("_id");
+            if (!u) return res.status(404).json({ success: false, message: "Abonelik veya kullanıcı bulunamadı" });
+            userId = u._id;
+        }
+
+        const user = await User.findById(userId);
+        if (!user) return res.status(404).json({ success: false, message: "Kullanıcı bulunamadı" });
+
+        const existingSub = user.subscription && typeof user.subscription.toObject === "function"
+            ? user.subscription.toObject()
+            : { ...(user.subscription || {}) };
+
+        const nextPlan = updates.plan != null ? updates.plan : existingSub.plan;
+        const nextStatus = updates.status != null ? updates.status : existingSub.status;
+        const nextStart = updates.startDate != null ? new Date(updates.startDate) : (existingSub.startDate ? new Date(existingSub.startDate) : new Date());
+        const nextEnd = updates.endDate != null ? new Date(updates.endDate) : (existingSub.endDate ? new Date(existingSub.endDate) : null);
+        if (Number.isNaN(nextStart.getTime())) {
+            return res.status(400).json({ success: false, message: "Geçersiz başlangıç tarihi" });
+        }
+        if (nextEnd && Number.isNaN(nextEnd.getTime())) {
+            return res.status(400).json({ success: false, message: "Geçersiz bitiş tarihi" });
+        }
+        if (nextEnd && nextEnd <= nextStart) {
+            return res.status(400).json({ success: false, message: "Bitiş tarihi başlangıçtan sonra olmalıdır" });
+        }
+
+        const nextUserSub = {
+            ...existingSub,
+            plan: nextPlan,
+            status: nextStatus,
+            startDate: nextStart,
+            endDate: nextEnd,
+        };
+
+        if (nextStatus === "trial" || nextPlan === "trial") {
+            nextUserSub.trialStartDate = nextStart;
+            nextUserSub.trialEndDate = nextEnd || nextUserSub.trialEndDate;
+        } else {
+            // Trial dışına geçişte eski trial alanlarını temizle
+            delete nextUserSub.trialStartDate;
+            delete nextUserSub.trialEndDate;
+            nextUserSub.trialUsed = true;
+        }
+
+        user.subscription = nextUserSub;
+        user.markModified("subscription");
+        await user.save();
+
+        const subSet = {
+            userId,
+            plan: nextPlan,
+            status: nextStatus,
+            startDate: nextStart,
+            endDate: nextEnd,
+        };
+        if (updates.price != null) subSet.price = Number(updates.price);
+        if (updates.billingCycle != null) subSet.billingCycle = updates.billingCycle;
+        if (updates.limits != null) subSet.limits = updates.limits;
+        if (updates.currency != null) subSet.currency = updates.currency;
+
+        const subDoc = await Subscription.findOneAndUpdate(
+            { userId },
+            { $set: subSet },
+            { upsert: true, new: true, setDefaultsOnInsert: true }
+        );
+
         await AuditLog.create({
-            userId: sub.userId,
+            userId,
             adminId: req.user._id,
             action: "subscription_updated",
             category: "subscription",
             severity: "info",
-            description: `Abonelik güncellendi: Plan=${updates.plan || sub.plan}, Durum=${updates.status || sub.status}`,
+            description: `Abonelik güncellendi: ${user.email} → plan=${nextPlan}, durum=${nextStatus}`,
             metadata: updates,
             ipAddress: req.ip,
         });
 
-        res.json({ success: true, subscription: sub });
+        const userLean = await User.findById(userId).select("name email role subscription").lean();
+        res.json({
+            success: true,
+            subscription: buildSubscriptionListRow(userLean, subDoc.toObject ? subDoc.toObject() : subDoc),
+        });
     } catch (error) {
+        logger.error(`Abonelik güncelleme: ${error.message}`);
         res.status(500).json({ success: false, message: "Abonelik güncellenemedi" });
     }
 };
@@ -658,34 +797,75 @@ exports.createSubscription = async (req, res) => {
         const user = await User.findById(userId);
         if (!user) return res.status(404).json({ success: false, message: "Kullanıcı bulunamadı" });
 
-        // Mevcut aktif aboneliği iptal et
         await Subscription.updateMany(
             { userId, status: { $in: ["active", "trial"] } },
-            { $set: { status: "cancelled", cancelledAt: new Date() } }
+            { $set: { status: "cancelled", cancelledAt: new Date(), cancelReason: "Yeni abonelik ile değiştirildi" } }
         );
 
-        const defaultLimits = {
+        const fallbackLimits = {
             trial: { maxProducts: 50, maxOrders: 100, maxMarketplaces: 1, maxApiCalls: 5000, maxUsers: 1 },
             basic: { maxProducts: 500, maxOrders: 5000, maxMarketplaces: 3, maxApiCalls: 50000, maxUsers: 3 },
             pro: { maxProducts: 5000, maxOrders: 50000, maxMarketplaces: 10, maxApiCalls: 500000, maxUsers: 10 },
             enterprise: { maxProducts: 999999, maxOrders: 999999, maxMarketplaces: 999, maxApiCalls: 9999999, maxUsers: 999 },
         };
 
-        const sub = await Subscription.create({
-            userId,
-            plan: plan || "trial",
-            status: status || "active",
-            startDate: startDate || new Date(),
-            endDate: endDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-            limits: limits || defaultLimits[plan] || defaultLimits.trial,
-            price: price || 0,
-            billingCycle: billingCycle || "monthly",
-        });
+        const planKey = plan || "trial";
+        let planDefs = {};
+        try {
+            planDefs = await getPlanDefinitions();
+        } catch {
+            planDefs = {};
+        }
+        const limitsResolved =
+            limits ||
+            planDefs[planKey]?.limits ||
+            fallbackLimits[planKey] ||
+            fallbackLimits.trial;
 
-        // Kullanıcı modelini güncelle
-        user.subscription = { plan: sub.plan, status: sub.status, startDate: sub.startDate, endDate: sub.endDate };
+        const start = startDate ? new Date(startDate) : new Date();
+        const end = endDate
+            ? new Date(endDate)
+            : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+        const st = status || "active";
+        const pl = planKey;
+        const effectiveStatus = st === "trial" || pl === "trial" ? "trial" : st;
+
+        const existingSub = user.subscription && typeof user.subscription.toObject === "function"
+            ? user.subscription.toObject()
+            : { ...(user.subscription || {}) };
+
+        user.subscription = {
+            ...existingSub,
+            plan: pl,
+            status: effectiveStatus,
+            startDate: start,
+            endDate: end,
+            grantedBy: req.user._id,
+            grantedAt: new Date(),
+            grantNote: `SaaS admin panel — ${pl} (${effectiveStatus}) aboneliği verildi`,
+        };
+        if (effectiveStatus === "trial" || pl === "trial") {
+            user.subscription.trialStartDate = start;
+            user.subscription.trialEndDate = end;
+        } else {
+            delete user.subscription.trialStartDate;
+            delete user.subscription.trialEndDate;
+            user.subscription.trialUsed = true;
+        }
         user.markModified("subscription");
         await user.save();
+
+        const sub = await Subscription.create({
+            userId,
+            plan: pl,
+            status: effectiveStatus,
+            startDate: start,
+            endDate: end,
+            trialEndDate: effectiveStatus === "trial" ? end : undefined,
+            limits: limitsResolved,
+            price: price != null ? Number(price) : 0,
+            billingCycle: billingCycle || "monthly",
+        });
 
         await AuditLog.create({
             userId,
@@ -693,11 +873,15 @@ exports.createSubscription = async (req, res) => {
             action: "subscription_created",
             category: "subscription",
             severity: "info",
-            description: `Yeni abonelik oluşturuldu: ${user.name} → ${plan}`,
+            description: `Yeni abonelik: ${user.name} → ${pl} (${effectiveStatus})`,
             ipAddress: req.ip,
         });
 
-        res.json({ success: true, subscription: sub });
+        const userLean = await User.findById(userId).select("name email role subscription").lean();
+        res.json({
+            success: true,
+            subscription: buildSubscriptionListRow(userLean, sub.toObject()),
+        });
     } catch (error) {
         logger.error(`Abonelik oluşturma hatası: ${error.message}`);
         res.status(500).json({ success: false, message: "Abonelik oluşturulamadı" });

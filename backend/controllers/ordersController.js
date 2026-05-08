@@ -9,13 +9,73 @@ const amazonService = require("../services/amazon/amazonSpApiService");
 const Marketplace = require("../models/Marketplace");
 const Order = require("../models/Order");
 const Product = require("../models/Product");
+const ProductMapping = require("../models/ProductMapping");
 const logger = require("../config/logger");
 const { decryptCredentials } = require("../utils/encryption");
 const { processAutoInvoice } = require("../services/autoInvoiceService");
+const { parseMarketplaceOrderDateToUtcDate, marketplaceOrderDateToIsoString } = require("../utils/helpers");
 
 const getIstanbulTimestamp = () => {
     return new Date(new Date().toLocaleString("en-US", { timeZone: "Europe/Istanbul" })).getTime();
 };
+
+/** Sipariş listesi / toplu sync: query'de tarih yoksa varsayılan pencere (gün). Env: ORDER_DEFAULT_WINDOW_DAYS */
+const ORDER_DEFAULT_WINDOW_DAYS = Math.min(
+    365,
+    Math.max(1, parseInt(process.env.ORDER_DEFAULT_WINDOW_DAYS || "7", 10) || 7)
+);
+
+/** Pazaryeri satır görseli: //cdn... → https: (tarayıcıda yüklenmezdi) */
+const normalizeOrderItemImageUrl = (url) => {
+    if (url == null || typeof url !== "string") return "";
+    const u = url.trim();
+    if (!u) return "";
+    if (u.startsWith("//")) return `https:${u}`;
+    return u;
+};
+
+/**
+ * Stok görselleri: Product + ProductMapping.masterProduct (Ürün Yönetimi)
+ */
+const fillOrderProductImageMaps = (productImageMap, productNameImageMap, doc) => {
+    const imgRaw = doc.mainImage || (doc.images && doc.images.length > 0 ? doc.images[0] : null);
+    if (!imgRaw) return;
+    const img = normalizeOrderItemImageUrl(imgRaw) || imgRaw;
+    if (doc.barcode) productImageMap.set(String(doc.barcode).trim(), img);
+    if (doc.sku) productImageMap.set(String(doc.sku).trim(), img);
+    if (doc.stockCode) productImageMap.set(String(doc.stockCode).trim(), img);
+    if (doc.name) {
+        const normalizedName = String(doc.name).trim().toLowerCase();
+        if (!productNameImageMap.has(normalizedName)) {
+            productNameImageMap.set(normalizedName, img);
+        }
+    }
+};
+
+/** Sipariş sayfası aynı anda 4 pazaryerine istek atınca Product+Mapping 4 kez taranmasın */
+const orderProductImageCache = new Map();
+const ORDER_PRODUCT_IMAGE_CACHE_MS = 50_000;
+
+async function getCachedProductImageMapsForOrders(userId) {
+    const key = String(userId);
+    const now = Date.now();
+    const hit = orderProductImageCache.get(key);
+    if (hit && now - hit.at < ORDER_PRODUCT_IMAGE_CACHE_MS) {
+        return { productImageMap: hit.productImageMap, productNameImageMap: hit.productNameImageMap };
+    }
+    const [userProducts, userMappings] = await Promise.all([
+        Product.find({ userId }).select("barcode sku stockCode images name mainImage").lean(),
+        ProductMapping.find({ userId }).select("masterProduct").lean()
+    ]);
+    const productImageMap = new Map();
+    const productNameImageMap = new Map();
+    userProducts.forEach((p) => fillOrderProductImageMaps(productImageMap, productNameImageMap, p));
+    userMappings.forEach((m) => {
+        if (m.masterProduct) fillOrderProductImageMaps(productImageMap, productNameImageMap, m.masterProduct);
+    });
+    orderProductImageCache.set(key, { at: now, productImageMap, productNameImageMap });
+    return { productImageMap, productNameImageMap };
+}
 
 // ═══════════════════════════════════════════════════════════════════════
 // ORDER SYNC — Pazaryeri siparislerini MongoDB'ye kaydet
@@ -49,15 +109,30 @@ async function syncOrdersBackground(userId, marketplaceName, rawOrders) {
     const syncedOrderIds = [];
 
     // Urun maliyet bilgilerini onceden cek (kar hesabi icin)
-    const products = await Product.find({ userId }).select("barcode sku images costPrice commissionRate shippingCost packagingCost otherCost category mainImage").lean();
+    const [products, mappingDocs] = await Promise.all([
+        Product.find({ userId }).select("barcode sku stockCode images costPrice commissionRate shippingCost packagingCost otherCost category mainImage name").lean(),
+        ProductMapping.find({ userId }).select("masterProduct").lean()
+    ]);
     const productMap = new Map();
     const skuMap = new Map();
 
     products.forEach(p => {
         const barcode = String(p.barcode || "").trim();
         const sku = String(p.sku || "").trim();
+        const stockCode = String(p.stockCode || "").trim();
         if (barcode) productMap.set(barcode, p);
         if (sku) skuMap.set(sku, p);
+        if (stockCode) skuMap.set(stockCode, p);
+    });
+    mappingDocs.forEach((m) => {
+        const mp = m.masterProduct;
+        if (!mp) return;
+        const barcode = String(mp.barcode || "").trim();
+        const sku = String(mp.sku || "").trim();
+        const stockCode = String(mp.stockCode || "").trim();
+        if (barcode && !productMap.has(barcode)) productMap.set(barcode, mp);
+        if (sku && !skuMap.has(sku)) skuMap.set(sku, mp);
+        if (stockCode && !skuMap.has(stockCode)) skuMap.set(stockCode, mp);
     });
 
     for (const order of rawOrders) {
@@ -76,8 +151,8 @@ async function syncOrdersBackground(userId, marketplaceName, rawOrders) {
                 let needsUpdate = false;
                 const updatedItems = exists.items.map(item => {
                     const barcode = String(item.barcode || "").trim();
-                    const sku = String(item.sku || "").trim();
-                    const name = String(item.name || item.title || "").trim().toLowerCase();
+                    const sku = String(item.sku || item.merchantSku || "").trim();
+                    const name = String(item.productName || item.name || item.title || "").trim().toLowerCase();
 
                     const productInfo = productMap.get(barcode) || skuMap.get(sku) || skuMap.get(barcode) || productMap.get(sku) || Array.from(products).find(p => String(p.name || "").trim().toLowerCase() === name);
                     
@@ -105,9 +180,14 @@ async function syncOrdersBackground(userId, marketplaceName, rawOrders) {
 
             // Siparis kalemlerini normalize et
             const rawItems = order.products || order.items || order.lines || [];
+            const invoiceAmount = parseFloat(order.invoiceAmount || 0) || 0;
+            const grossOrderAmount = parseFloat(order.grossOrderAmount || 0) || 0;
+            const sellerDiscountTotal = parseFloat(order.sellerDiscountTotal || 0) || 0;
+            const tyDiscountTotal = parseFloat(order.tyDiscountTotal || 0) || 0;
             const orderTotalPrice = parseFloat(order.totalPrice || 0);
+            const allocBase = grossOrderAmount > 0 ? grossOrderAmount : orderTotalPrice;
             const totalItemCount = rawItems.length || 1;
-            const items = rawItems.map(function(item, itemIdx) {
+            let items = rawItems.map(function(item, itemIdx) {
                 const barcode = String(item.barcode || item.sku || item.merchantSku || item.productCode || item.productId || "").trim();
                 const sku = String(item.sku || item.merchantSku || item.productCode || "").trim();
                 
@@ -116,10 +196,10 @@ async function syncOrdersBackground(userId, marketplaceName, rawOrders) {
                 const itemName = String(item.productName || item.name || item.title || "").trim().toLowerCase();
                 const productInfo = productMap.get(barcode) || skuMap.get(sku) || skuMap.get(barcode) || productMap.get(sku) || Array.from(products).find(p => String(p.name || "").trim().toLowerCase() === itemName) || {};
                 
-                // Fiyat: item.price > 0 ise onu kullan, yoksa siparis toplamini kalemlere bol
+                // Fiyat: item.price > 0 ise onu kullan, yoksa brüt veya sipariş tutarını kalemlere böl
                 let price = parseFloat(item.price || item.unitPrice || 0);
-                if (price === 0 && orderTotalPrice > 0) {
-                    price = orderTotalPrice / totalItemCount;
+                if (price === 0 && allocBase > 0) {
+                    price = allocBase / totalItemCount;
                 }
                 const quantity = parseInt(item.quantity || 1);
                 const costPrice = productInfo.costPrice || 0;
@@ -154,6 +234,7 @@ async function syncOrdersBackground(userId, marketplaceName, rawOrders) {
                     productName: item.productName || item.name || item.title || "Bilinmeyen",
                     quantity: quantity,
                     barcode: finalBarcode,
+                    sku: sku,
                     imageUrl: imageUrl,
                     price: price,
                     category: item.category || productInfo.category || "Bilinmiyor",
@@ -167,23 +248,42 @@ async function syncOrdersBackground(userId, marketplaceName, rawOrders) {
 
             // Eger items bos ise siparis seviyesinde tek kalem olustur
             if (items.length === 0) {
-                const totalPrice = parseFloat(order.totalPrice || 0);
+                const fallbackAmt = orderTotalPrice || allocBase;
                 items.push({
                     productName: order.productName || "Siparis Urunu",
                     quantity: 1,
                     barcode: "SYNC-" + orderNumber + "-0",
-                    price: totalPrice,
+                    sku: "",
+                    price: fallbackAmt,
                     category: "Bilinmiyor",
                     costPrice: 0,
                     commissionRate: 0,
                     commissionAmount: 0,
                     shippingCost: 0,
-                    netProfit: totalPrice
+                    netProfit: fallbackAmt
+                });
+            }
+
+            // Trendyol: kalem fiyatları brüt ise, faturalanacak nete orantılı ölçekle (kâr özeti ile uyum)
+            const lineSumGross = items.reduce(function(sum, it) { return sum + (it.price * it.quantity); }, 0);
+            if (invoiceAmount > 0 && lineSumGross > 0.001 && Math.abs(lineSumGross - invoiceAmount) > 0.02) {
+                const scale = invoiceAmount / lineSumGross;
+                items = items.map(function(it) {
+                    const newPrice = Math.round(it.price * scale * 10000) / 10000;
+                    const qty = it.quantity;
+                    const scaledComm = Math.round(it.commissionAmount * scale * 10000) / 10000;
+                    const totalCost = (it.costPrice * qty) + scaledComm + it.shippingCost;
+                    const netProfit = (newPrice * qty) - totalCost;
+                    return Object.assign({}, it, {
+                        price: newPrice,
+                        commissionAmount: scaledComm,
+                        netProfit: netProfit
+                    });
                 });
             }
 
             // Siparis seviyesi maliyet ozeti hesapla
-            const totalPrice = parseFloat(order.totalPrice || 0) || items.reduce(function(sum, it) { return sum + (it.price * it.quantity); }, 0);
+            const totalPrice = (invoiceAmount > 0 ? invoiceAmount : parseFloat(order.totalPrice || 0)) || items.reduce(function(sum, it) { return sum + (it.price * it.quantity); }, 0);
             const totalCost = items.reduce(function(sum, it) { return sum + (it.costPrice * it.quantity); }, 0);
             const totalCommission = items.reduce(function(sum, it) { return sum + it.commissionAmount; }, 0);
             const totalShipping = items.reduce(function(sum, it) { return sum + it.shippingCost; }, 0);
@@ -213,32 +313,11 @@ async function syncOrdersBackground(userId, marketplaceName, rawOrders) {
                 || order.shippingCountry
                 || "Turkiye";
 
-            // Siparis tarihini parse et
-            // orderDateRaw: epoch ms (Trendyol) veya ISO string
-            // orderDate: "17.03.2026 05:08:14" (TR locale) veya "14-03-2026 15:19" (N11)
-            let orderDate;
-            try {
-                // Oncelik: raw epoch/ISO deger
-                if (order.orderDateRaw) {
-                    orderDate = new Date(order.orderDateRaw);
-                } else if (order.orderDate) {
-                    // ISO veya standart format dene
-                    orderDate = new Date(order.orderDate);
-                    // Gecersizse TR formatini parse et: "DD.MM.YYYY HH:mm:ss" veya "DD-MM-YYYY HH:mm"
-                    if (isNaN(orderDate.getTime())) {
-                        const parts = order.orderDate.match(/(\d{2})[.\-/](\d{2})[.\-/](\d{4})\s*(\d{2}):(\d{2})(?::(\d{2}))?/);
-                        if (parts) {
-                            orderDate = new Date(
-                                parseInt(parts[3]), parseInt(parts[2]) - 1, parseInt(parts[1]),
-                                parseInt(parts[4]), parseInt(parts[5]), parseInt(parts[6] || 0)
-                            );
-                        }
-                    }
-                }
-                if (!orderDate || isNaN(orderDate.getTime())) orderDate = new Date();
-            } catch (e) {
-                orderDate = new Date();
-            }
+            // Siparis tarihi: tek kaynak parseMarketplaceOrderDateToUtcDate (epoch / ISO / HB / TR / N11)
+            let orderDate =
+                parseMarketplaceOrderDateToUtcDate(order.orderDateRaw != null ? order.orderDateRaw : order.orderDate) ||
+                parseMarketplaceOrderDateToUtcDate(order.orderDate);
+            if (!orderDate || isNaN(orderDate.getTime())) orderDate = new Date();
 
             // ── Müşteri bilgilerini çıkar (fatura için) ──────────────────
             // Öncelik: invoiceAddress > shipmentAddress > shippingAddress > address
@@ -255,6 +334,9 @@ async function syncOrdersBackground(userId, marketplaceName, rawOrders) {
                 marketplace: undefined, // marketplace ObjectId opsiyonel
                 marketplaceName: marketplaceName,
                 totalPrice: totalPrice,
+                grossOrderAmount: grossOrderAmount,
+                sellerDiscountTotal: sellerDiscountTotal,
+                tyDiscountTotal: tyDiscountTotal,
                 orderDate: orderDate,
                 status: status,
                 trackingNumber: String(orderNumber),
@@ -350,7 +432,7 @@ exports.getAllOrders = async (req, res) => {
         let { startDate, endDate, marketplaceId } = req.query;
 
         const now = getIstanbulTimestamp();
-        const defaultStartDate = now - 90 * 24 * 60 * 60 * 1000;
+        const defaultStartDate = now - ORDER_DEFAULT_WINDOW_DAYS * 24 * 60 * 60 * 1000;
         const convertedStartDate = startDate ? convertToGMT3Timestamp(startDate, true) : defaultStartDate;
         const convertedEndDate = endDate ? convertToGMT3Timestamp(endDate, false) : now;
 
@@ -422,7 +504,8 @@ exports.getAllOrders = async (req, res) => {
                 });
                 rawOrders = (amazonResult.orders || []).map(order => ({
                     orderNumber: order.AmazonOrderId,
-                    orderDate: new Date(order.PurchaseDate).toLocaleString("tr-TR"),
+                    orderDate: marketplaceOrderDateToIsoString(order.PurchaseDate) || (order.PurchaseDate ? new Date(order.PurchaseDate).toISOString() : ""),
+                    orderDateRaw: order.PurchaseDate,
                     customerName: order.BuyerInfo?.BuyerName || "Amazon Müşteri",
                     customerEmail: order.BuyerInfo?.BuyerEmail || "",
                     totalPrice: order.OrderTotal?.Amount || "0.00",
@@ -451,46 +534,43 @@ exports.getAllOrders = async (req, res) => {
         }
 
         // ✅ FIX: totalPrice "0.00" veya boş ise ürün fiyatlarından hesapla
-        // Ürün görsel haritası oluştur (barkod/sku/isim -> görsel)
-        const productImageMap = new Map();
-        const productNameImageMap = new Map(); // İsim bazlı eşleşme için
-        
-        // Stoktan ürünleri çek
-        const userProducts = await Product.find({ userId }).select("barcode sku images name mainImage").lean();
-
-        userProducts.forEach(p => {
-            const img = p.mainImage || (p.images && p.images.length > 0 ? p.images[0] : null);
-            if (img) {
-                if (p.barcode) productImageMap.set(String(p.barcode).trim(), img);
-                if (p.sku) productImageMap.set(String(p.sku).trim(), img);
-                if (p.name) {
-                    const normalizedName = String(p.name).trim().toLowerCase();
-                    if (!productNameImageMap.has(normalizedName)) {
-                        productNameImageMap.set(normalizedName, img);
-                    }
-                }
-            }
-        });
+        const { productImageMap, productNameImageMap } = await getCachedProductImageMapsForOrders(userId);
 
         orders = rawOrders.map(order => {
-            let total = parseFloat(order.totalPrice) || 0;
-            const processedProducts = (order.products || []).map(p => {
+            let processedProducts = (order.products || []).map(p => {
                 const barcode = String(p.barcode || "").trim();
-                const sku = String(p.sku || "").trim();
+                const sku = String(p.sku || p.merchantSku || p.stockCode || "").trim();
                 const name = String(p.productName || p.name || p.title || "").trim().toLowerCase();
                 
                 // Öncelik: Barkod/SKU eşleşmesi -> İsim eşleşmesi
                 const stockImg = productImageMap.get(barcode) || productImageMap.get(sku) || productNameImageMap.get(name);
-                
-                // Stoktaki görseli her zaman pazar yeri görseline tercih et
+                const lineImg = normalizeOrderItemImageUrl(p.imageUrl || p.image || "");
+
                 if (stockImg) {
                     p.imageUrl = stockImg;
-                } else if (!p.imageUrl || p.imageUrl.includes("default-product.jpg") || p.imageUrl.includes("placehold.co")) {
+                } else if (lineImg && !lineImg.includes("default-product.jpg") && !lineImg.includes("placehold.co")) {
+                    p.imageUrl = lineImg;
+                } else {
                     p.imageUrl = "https://placehold.co/400x400/1e293b/4ecdc4?text=Urun";
                 }
                 return p;
             });
 
+            const invoiceHint = parseFloat(order.invoiceAmount || order.totalPrice || 0) || 0;
+            const lineSumPre = processedProducts.reduce((sum, p) => {
+                const price = parseFloat(p.price || p.unitPrice || p.amount || 0);
+                const qty = parseInt(p.quantity || 1);
+                return sum + (price * qty);
+            }, 0);
+            if (invoiceHint > 0 && lineSumPre > 0.001 && Math.abs(lineSumPre - invoiceHint) > 0.02) {
+                const sc = invoiceHint / lineSumPre;
+                processedProducts = processedProducts.map(p => {
+                    const pr = parseFloat(p.price || p.unitPrice || p.amount || 0);
+                    return Object.assign({}, p, { price: Math.round(pr * sc * 10000) / 10000 });
+                });
+            }
+
+            let total = parseFloat(order.totalPrice) || 0;
             if (total === 0 && processedProducts.length > 0) {
                 total = processedProducts.reduce((sum, p) => {
                     const price = parseFloat(p.price || p.unitPrice || p.amount || 0);
@@ -501,11 +581,19 @@ exports.getAllOrders = async (req, res) => {
 
             const firstImg = processedProducts[0]?.imageUrl || order.imageUrl;
 
+            const dateIso =
+                marketplaceOrderDateToIsoString(order.orderDateRaw != null ? order.orderDateRaw : order.orderDate) ||
+                marketplaceOrderDateToIsoString(order.orderDate);
+
             return {
                 orderNumber: order.orderNumber,
-                orderDate: order.orderDate,
+                orderDate: dateIso || order.orderDate,
+                orderDateRaw: order.orderDateRaw,
                 customerName: order.customerName,
                 totalPrice: total > 0 ? total.toFixed(2) : (order.totalPrice || "0.00"),
+                grossOrderAmount: order.grossOrderAmount,
+                sellerDiscountTotal: order.sellerDiscountTotal,
+                tyDiscountTotal: order.tyDiscountTotal,
                 status: order.status,
                 trackingNumber: order.trackingNumber || "Yok",
                 cargoCompany: order.cargoCompany || "Bilinmiyor",
@@ -592,7 +680,7 @@ exports.getDbOrders = async (req, res) => {
             filter.orderDate.$lte = new Date(req.query.endDate + "T23:59:59.999Z");
         }
 
-        const [orders, total, userProducts] = await Promise.all([
+        const [orders, total, userProducts, userMappings] = await Promise.all([
             Order.find(filter)
                 .select("trackingNumber marketplaceName customerName totalPrice orderDate status invoiceId invoiceNumber invoiceStatus items isReturned isCancelled")
                 .populate("invoiceId", "invoiceNumber uuid status faturaURL issueDate")
@@ -601,25 +689,17 @@ exports.getDbOrders = async (req, res) => {
                 .limit(limit)
                 .lean(),
             Order.countDocuments(filter),
-            Product.find({ userId }).select("barcode sku images name mainImage").lean()
+            Product.find({ userId }).select("barcode sku stockCode images name mainImage").lean(),
+            ProductMapping.find({ userId }).select("masterProduct").lean()
         ]);
 
         // Ürün görsel haritası oluştur (barkod/sku/isim -> görsel)
         const productImageMap = new Map();
         const productNameImageMap = new Map();
 
-        userProducts.forEach(p => {
-            const img = p.mainImage || (p.images && p.images.length > 0 ? p.images[0] : null);
-            if (img) {
-                if (p.barcode) productImageMap.set(String(p.barcode).trim(), img);
-                if (p.sku) productImageMap.set(String(p.sku).trim(), img);
-                if (p.name) {
-                    const normalizedName = String(p.name).trim().toLowerCase();
-                    if (!productNameImageMap.has(normalizedName)) {
-                        productNameImageMap.set(normalizedName, img);
-                    }
-                }
-            }
+        userProducts.forEach((p) => fillOrderProductImageMaps(productImageMap, productNameImageMap, p));
+        userMappings.forEach((m) => {
+            if (m.masterProduct) fillOrderProductImageMaps(productImageMap, productNameImageMap, m.masterProduct);
         });
 
         // ✅ CANLI API GÖRSEL ZENGİNLEŞTİRME: getAllOrders'dan gelen veriler için de haritayı kullanabiliriz
@@ -654,16 +734,19 @@ exports.getDbOrders = async (req, res) => {
             // Sipariş kalemlerini görsel açısından zenginleştir
             const enrichedItems = (o.items || []).map(item => {
                 const barcode = String(item.barcode || "").trim();
-                const sku = String(item.sku || "").trim();
+                const sku = String(item.sku || item.merchantSku || item.stockCode || "").trim();
                 const name = String(item.productName || item.name || item.title || "").trim().toLowerCase();
                 
                 // Öncelik: Barkod/SKU eşleşmesi -> İsim eşleşmesi
                 const stockImg = productImageMap.get(barcode) || productImageMap.get(sku) || productNameImageMap.get(name);
-                
-                let itemImg = item.imageUrl;
+                const lineImg = normalizeOrderItemImageUrl(item.imageUrl || "");
+
+                let itemImg;
                 if (stockImg) {
                     itemImg = stockImg;
-                } else if (!itemImg || itemImg.includes("default-product.jpg") || itemImg.includes("placehold.co")) {
+                } else if (lineImg && !lineImg.includes("default-product.jpg") && !lineImg.includes("placehold.co")) {
+                    itemImg = lineImg;
+                } else {
                     itemImg = "https://placehold.co/400x400/1e293b/4ecdc4?text=Urun";
                 }
 
@@ -682,7 +765,12 @@ exports.getDbOrders = async (req, res) => {
                 marketplace: o.marketplaceName || "",
                 customerName: o.customerName || "",
                 totalPrice: o.totalPrice || 0,
-                orderDate: o.orderDate,
+                grossOrderAmount: o.grossOrderAmount || 0,
+                sellerDiscountTotal: o.sellerDiscountTotal || 0,
+                tyDiscountTotal: o.tyDiscountTotal || 0,
+                orderDate: o.orderDate
+                    ? marketplaceOrderDateToIsoString(o.orderDate) || new Date(o.orderDate).toISOString()
+                    : o.orderDate,
                 status: o.status || "",
                 invoiceStatus: o.invoiceStatus || (invoiceInfo ? "created" : ""),
                 invoice: invoiceInfo,
@@ -716,7 +804,7 @@ exports.syncAllOrders = async (req, res) => {
     try {
         const userId = req.user._id;
         const now = getIstanbulTimestamp();
-        const defaultStartDate = now - 90 * 24 * 60 * 60 * 1000; // 90 gun
+        const defaultStartDate = now - ORDER_DEFAULT_WINDOW_DAYS * 24 * 60 * 60 * 1000; // env veya 7 gün
         const startDate = req.query.startDate ? convertToGMT3Timestamp(req.query.startDate, true) : defaultStartDate;
         const endDate = req.query.endDate ? convertToGMT3Timestamp(req.query.endDate, false) : now;
 

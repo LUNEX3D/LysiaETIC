@@ -97,22 +97,54 @@ const runAutoOrderCron = async () => {
                         });
 
                         if (!marketplace) {
+                            let orphanReason = "Marketplace bu kullanıcı için bulunamadı veya pasif.";
+                            try {
+                                const mpRef = config.marketplace;
+                                if (mpRef) {
+                                    const mpAny = await Marketplace.findById(mpRef).select("userId isActive marketplaceName").lean();
+                                    if (!mpAny) {
+                                        orphanReason =
+                                            "config.marketplace ObjectId artık yok (pazaryeri silinmiş); otomatik sipariş kaydını kapatın veya entegrasyonu yeniden ekleyin.";
+                                    } else if (String(mpAny.userId) !== String(ownerOid)) {
+                                        orphanReason =
+                                            "config yanlış kullanıcıya işaret ediyor (userId uyuşmuyor). Veri tutarsızlığı olabilir.";
+                                    } else if (mpAny.isActive === false) {
+                                        orphanReason =
+                                            "pazaryeri pasif (isActive=false); ayarlardan yeniden aktifleştirin veya otomatik siparişi kapatın.";
+                                    }
+                                } else {
+                                    orphanReason = "config.marketplace boş — AutoOrderConfig kaydı bozuk.";
+                                }
+                            } catch (diagErr) {
+                                orphanReason += " Tanılama: " + diagErr.message;
+                            }
+
                             const cid = String(config._id);
+                            const removed = await AutoOrderConfig.findByIdAndDelete(config._id).catch(() => null);
+                            if (!removed) {
+                                await AutoOrderConfig.findByIdAndUpdate(config._id, {
+                                    $set: {
+                                        enabled: false,
+                                        "stats.lastError":
+                                            "Pazaryeri geçersiz — entegrasyonu yeniden ekleyip otomatik siparişi kaydedin."
+                                    }
+                                }).catch(() => {});
+                            }
+
                             const now = Date.now();
                             const last = _orphanConfigLoggedAt.get(cid) || 0;
                             if (now - last >= ORPHAN_LOG_COOLDOWN_MS) {
                                 logger.warn(
-                                    "[AUTO-ORDER CRON] Marketplace bulunamadı veya deaktif — configId=" + cid +
+                                    "[AUTO-ORDER CRON] Geçersiz otomatik sipariş kaydı — configId=" + cid +
                                     " marketplace=" + String(config.marketplaceName || "?") +
+                                    " marketplaceRef=" + String(config.marketplace || "?") +
                                     " userId=" + userId +
-                                    " (Pazaryeri silinmiş veya pasif olabilir; otomatik siparişte bu kaydı kapatın veya entegrasyonu yeniden bağlayın.)"
+                                    " — " + orphanReason +
+                                    (removed
+                                        ? " → kayıt silindi (Otomatik Sipariş’te pazaryeri için yeniden kayıt oluşturun)."
+                                        : " → enabled=false (silinemedi; DB kontrol edin).")
                                 );
                                 _orphanConfigLoggedAt.set(cid, now);
-                                await AutoOrderConfig.findByIdAndUpdate(config._id, {
-                                    $set: {
-                                        "stats.lastError": "Pazaryeri bulunamadı veya pasif — otomatik işlem atlandı.",
-                                    }
-                                }).catch(() => {});
                             }
                             continue;
                         }

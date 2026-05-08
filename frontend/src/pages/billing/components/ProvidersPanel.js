@@ -12,7 +12,7 @@ import { Pill } from "./SharedUI";
 import { PROVIDERS } from "../constants";
 import ProviderConnectModal from "./ProviderConnectModal";
 
-const ProvidersPanel = ({ connectedProviders, connecting, connectionError, onConnect, onDisconnect, onClearError }) => {
+const ProvidersPanel = ({ connectedProviders, connecting, connectionError, onConnect, onDisconnect, onClearError, onOpenProviderSettings }) => {
     const [selectedProvider, setSelectedProvider] = useState(null);
     const [showModal, setShowModal] = useState(false);
 
@@ -159,8 +159,10 @@ const ProvidersPanel = ({ connectedProviders, connecting, connectionError, onCon
                             ) : isProviderConnected ? (
                                 <div style={{ display: "flex", gap: "0.5rem" }}>
                                     <motion.button
+                                        type="button"
                                         whileHover={{ scale: 1.02 }}
                                         whileTap={{ scale: 0.98 }}
+                                        onClick={() => onOpenProviderSettings && onOpenProviderSettings(provider)}
                                         style={{
                                             flex: 1,
                                             background: colors.green + "15",

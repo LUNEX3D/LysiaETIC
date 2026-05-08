@@ -29,6 +29,7 @@ router.delete("/products/:productId", controller.deleteProduct);
 // ═══════════════════════════════════════════════════════════════
 // 🔄 SENKRONİZASYON & DAĞITIM
 // ═══════════════════════════════════════════════════════════════
+router.get("/sync/job/:jobId", controller.getSyncJobStatus);
 router.post("/sync/from-marketplace", controller.syncFromMarketplace);
 router.post("/sync/distribute", controller.distributeProduct);
 router.post("/sync/bulk-distribute", controller.bulkDistribute);

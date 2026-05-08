@@ -59,6 +59,58 @@ const renderContent = (text) => {
         .replace(/\n/g, "<br/>");
 };
 
+/** Ajan boru hattı adımları (backend agentTrace) */
+const AgentTraceBlock = ({ trace, agentModel, agentNote }) => {
+    const [open, setOpen] = useState(false);
+    if (!trace || !trace.length) return null;
+    return (
+        <Box sx={{ mb: 0.75 }}>
+            <Typography
+                component="button"
+                type="button"
+                onClick={() => setOpen((o) => !o)}
+                variant="caption"
+                sx={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 0.5,
+                    cursor: "pointer",
+                    border: "none",
+                    background: "transparent",
+                    color: "#5c6bc0",
+                    fontWeight: 700,
+                    fontSize: "0.68rem",
+                    p: 0,
+                    textAlign: "left",
+                }}
+            >
+                {open ? "▼" : "▶"} Ajan akışı{agentModel ? ` · ${agentModel}` : ""}
+            </Typography>
+            {open && (
+                <Box sx={{
+                    mt: 0.5,
+                    pl: 1,
+                    borderLeft: "2px solid #c5cae9",
+                    color: "text.secondary",
+                    fontSize: "0.65rem",
+                    lineHeight: 1.45,
+                }}>
+                    {trace.map((step) => (
+                        <div key={step.id}>
+                            <strong style={{ color: "#3949ab" }}>{step.label}:</strong> {step.detail}
+                        </div>
+                    ))}
+                    {agentNote ? (
+                        <Typography variant="caption" sx={{ display: "block", mt: 0.5, opacity: 0.85, fontStyle: "italic" }}>
+                            {agentNote}
+                        </Typography>
+                    ) : null}
+                </Box>
+            )}
+        </Box>
+    );
+};
+
 //  Main Component 
 const AIChatWidget = () => {
     const [isOpen, setIsOpen] = useState(false);
@@ -167,6 +219,9 @@ const AIChatWidget = () => {
                     metadata: {
                         intent: res.data.response.intent,
                         suggestions: res.data.response.suggestions || [],
+                        agentTrace: res.data.response.agentTrace,
+                        agentModel: res.data.response.agentModel,
+                        agentNote: res.data.response.agentNote,
                     },
                 };
                 setMessages(prev => [...prev, aiMsg]);
@@ -181,7 +236,7 @@ const AIChatWidget = () => {
         } catch (err) {
             setMessages(prev => [...prev, {
                 role: "ai",
-                content: "Bağlantı hatası. Sunucu eriilebilir olduundan emin olun. ",
+                content: "Bağlantı hatası. Sunucunun erişilebilir olduğundan emin olun.",
                 timestamp: new Date().toISOString(),
                 metadata: { suggestions: ["Tekrar dene"] },
             }]);
@@ -235,7 +290,7 @@ const AIChatWidget = () => {
                             zIndex: 9999,
                         }}
                     >
-                        <Tooltip title="AI Operatör ile konu" placement="left">
+                        <Tooltip title="Lysia Agent ile konuş" placement="left">
                             <Badge
                                 badgeContent={alertCount}
                                 color="error"
@@ -309,18 +364,18 @@ const AIChatWidget = () => {
                                     <BotIcon />
                                     <Box>
                                         <Typography variant="subtitle1" fontWeight={700} lineHeight={1.2}>
-                                            AI Operatör
+                                            Lysia Agent
                                         </Typography>
                                         <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
                                             <DotIcon sx={{ fontSize: 8, color: getHealthColor() }} />
                                             <Typography variant="caption" sx={{ opacity: 0.9 }}>
-                                                {quickStats ? `Salık: ${quickStats.healthScore}/100` : "Balanıyor..."}
+                                                {quickStats ? `Sağlık skoru: ${quickStats.healthScore}/100` : "Bağlanıyor..."}
                                             </Typography>
                                         </Box>
                                     </Box>
                                 </Box>
                                 <Box>
-                                    <Tooltip title="Yeni konuma">
+                                    <Tooltip title="Yeni konuşma">
                                         <IconButton size="small" sx={{ color: "#fff" }} onClick={startNewConversation}>
                                             <RefreshIcon fontSize="small" />
                                         </IconButton>
@@ -350,11 +405,11 @@ const AIChatWidget = () => {
                                     <Box sx={{ textAlign: "center", py: 4 }}>
                                         <BotIcon sx={{ fontSize: 48, color: "#667eea", mb: 1 }} />
                                         <Typography variant="body1" fontWeight={600} color="text.primary">
-                                            Merhaba! 
+                                            Lysia Agent
                                         </Typography>
                                         <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 2 }}>
-                                            Ben Pazaryönetim AI Operatör.<br />
-                                            İletmenizi yönetmek için buradayım.
+                                            Mağazanız için çalışan işletme ajanıyım: mesajınızı <strong>niyet → veri → yanıt</strong> hattından geçiririm.
+                                            Yanıtlar hesabınızdaki gerçek verilere dayanır.
                                         </Typography>
                                         <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, justifyContent: "center" }}>
                                             {["Nasıl gidiyor?", "Stok durumu", "Ne yapmalıyım?", "Yardım"].map(s => (
@@ -395,6 +450,13 @@ const AIChatWidget = () => {
                                                 borderBottomRightRadius: msg.role === "user" ? 4 : 16,
                                                 borderBottomLeftRadius: msg.role === "user" ? 16 : 4,
                                             }}>
+                                                {msg.role === "ai" ? (
+                                                    <AgentTraceBlock
+                                                        trace={msg.metadata?.agentTrace}
+                                                        agentModel={msg.metadata?.agentModel}
+                                                        agentNote={msg.metadata?.agentNote}
+                                                    />
+                                                ) : null}
                                                 <Typography
                                                     variant="body2"
                                                     sx={{
@@ -427,7 +489,7 @@ const AIChatWidget = () => {
                                     <Box sx={{ display: "flex", alignItems: "center", gap: 1, pl: 1 }}>
                                         <CircularProgress size={16} sx={{ color: "#667eea" }} />
                                         <Typography variant="caption" color="text.secondary">
-                                            AI düünüyor...
+                                            Ajan düşünüyor (niyet · veri · yanıt)…
                                         </Typography>
                                     </Box>
                                 )}
@@ -480,7 +542,7 @@ const AIChatWidget = () => {
                                     multiline
                                     maxRows={3}
                                     size="small"
-                                    placeholder="Mesajınızı yazın..."
+                                    placeholder="Lysia Agent'a yazın…"
                                     value={input}
                                     onChange={(e) => setInput(e.target.value)}
                                     onKeyDown={handleKeyPress}

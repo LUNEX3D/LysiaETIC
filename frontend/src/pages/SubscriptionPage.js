@@ -32,8 +32,10 @@ const SubscriptionPage = () => {
     const [paymentLoading, setPaymentLoading] = useState(false);
     const [error, setError] = useState("");
     const [successMessage, setSuccessMessage] = useState("");
+    const [expandedFeaturesByPlan, setExpandedFeaturesByPlan] = useState({});
     const pollIntervalRef = useRef(null);
     const formRef = useRef(null);
+    const paymentFlowStartedRef = useRef(false);
 
     // Kart bilgileri state
     const [cardForm, setCardForm] = useState({
@@ -160,6 +162,82 @@ const SubscriptionPage = () => {
     };
 
     const PLAN_RANK = { trial: 0, free: 0, basic: 1, pro: 2, enterprise: 3 };
+    const orderedPlanKeys = Object.keys(plans)
+        .filter((k) => k !== "trial")
+        .sort((a, b) => {
+            const ra = PLAN_RANK[a] ?? 999;
+            const rb = PLAN_RANK[b] ?? 999;
+            if (ra !== rb) return ra - rb;
+            return String(plans[a]?.name || a).localeCompare(String(plans[b]?.name || b), "tr");
+        });
+
+    const fmtPrice = (n) => {
+        const val = Number(n || 0);
+        return new Intl.NumberFormat("tr-TR").format(val);
+    };
+
+    const FEATURE_LABELS = {
+        dashboard: "Dashboard erişimi",
+        orders: "Sipariş yönetimi",
+        products: "Ürün yönetimi",
+        analytics: "Analitik",
+        cargo: "Kargo takibi",
+        ai: "AI özellikleri",
+        radar: "Radar içgörüleri",
+        autoorder: "Otomatik sipariş",
+        einvoice: "E-fatura",
+        all: "Tüm özellikler",
+    };
+
+    const normalizeFeatureText = (feature) => {
+        const raw = String(feature || "").trim();
+        if (!raw) return "";
+        const lower = raw.toLowerCase().replace(/\s+/g, "");
+        if (FEATURE_LABELS[lower]) return FEATURE_LABELS[lower];
+        // camelCase / snake-case / slug metinleri okunaklı hale getir
+        return raw
+            .replace(/[_-]+/g, " ")
+            .replace(/([a-z])([A-Z])/g, "$1 $2")
+            .replace(/\s+/g, " ")
+            .trim();
+    };
+
+    const normalizePlanFeatures = (plan) => {
+        if (Array.isArray(plan?.features) && plan.features.length > 0) {
+            const mapped = plan.features
+                .map(normalizeFeatureText)
+                .filter(Boolean);
+            return [...new Set(mapped)];
+        }
+        const lim = plan?.limits || {};
+        return [
+            `${lim.maxProducts === -1 ? "Sınırsız" : (lim.maxProducts || 0)} ürün`,
+            `${lim.maxOrders === -1 ? "Sınırsız" : (lim.maxOrders || 0)} sipariş/ay`,
+            `${lim.maxMarketplaces === -1 ? "Sınırsız" : (lim.maxMarketplaces || 0)} pazaryeri`,
+            `${lim.maxUsers === -1 ? "Sınırsız" : (lim.maxUsers || 0)} kullanıcı`,
+        ];
+    };
+
+    const categorizeFeature = (feature) => {
+        const l = feature.toLowerCase();
+        if (l.includes("dashboard") || l.includes("rapor") || l.includes("analitik")) return "Raporlama & Analitik";
+        if (l.includes("sipariş") || l.includes("kargo")) return "Sipariş & Lojistik";
+        if (l.includes("ürün") || l.includes("pazaryeri") || l.includes("stok")) return "Ürün & Pazaryeri";
+        if (l.includes("ai") || l.includes("radar") || l.includes("otomatik")) return "AI & Otomasyon";
+        if (l.includes("fatura")) return "Finans & Faturalama";
+        if (l.includes("api") || l.includes("kullanıcı") || l.includes("sınırsız")) return "Altyapı & Limitler";
+        return "Genel Özellikler";
+    };
+
+    const buildFeatureGroups = (features) => {
+        const groups = {};
+        features.forEach((f) => {
+            const key = categorizeFeature(f);
+            if (!groups[key]) groups[key] = [];
+            groups[key].push(f);
+        });
+        return groups;
+    };
 
     // ── Plan seçildiğinde backend'den form verilerini al ─────────────────────
     const handleSelectPlan = async (planId) => {
@@ -178,6 +256,7 @@ const SubscriptionPage = () => {
                 // Direkt API — form verilerini kaydet ve kart formu modal'ını aç
                 setPaytrFormData(res.data.formData);
                 setPaytrPaymentUrl(res.data.paymentUrl);
+                paymentFlowStartedRef.current = false;
                 setCardForm({ cc_owner: "", card_number: "", expiry_month: "", expiry_year: "", cvv: "" });
                 setShowPaymentModal(true);
             } else if (res.data.success && res.data.message) {
@@ -214,6 +293,7 @@ const SubscriptionPage = () => {
             if (cardInput) {
                 cardInput.value = cleanCardNumber;
             }
+            paymentFlowStartedRef.current = true;
             // Kart bilgileri ASLA bizim sunucumuzdan geçmez — doğrudan PayTR'a gider
             formRef.current.submit();
         }
@@ -226,7 +306,10 @@ const SubscriptionPage = () => {
         setSelectedPlan(null);
         setCardForm({ cc_owner: "", card_number: "", expiry_month: "", expiry_year: "", cvv: "" });
         setLegalChecks({ distanceSales: false, preliminaryInfo: false, paymentConsent: false });
-        startPollingSubscription();
+        if (paymentFlowStartedRef.current) {
+            startPollingSubscription();
+        }
+        paymentFlowStartedRef.current = false;
     };
 
     // Kart numarası formatlama (4'lü gruplar)
@@ -252,7 +335,9 @@ const SubscriptionPage = () => {
     const sub = subscription || {};
     const isActive = sub.isActive || false;
     const isTrial = sub.plan === "trial" || sub.status === "trial";
-    const daysLeft = sub.daysLeft || sub.trialDaysLeft || 0;
+    const daysLeft = sub.daysLeft ?? sub.trialDaysLeft ?? 0;
+    const hasPaidActivation = Boolean(sub.lastPaymentId) && sub.plan !== "trial";
+    const showAdminGrantNote = Boolean(sub.grantedBy) && isTrial && !hasPaidActivation;
 
     // Yıl seçenekleri (şu anki yıl + 15 yıl)
     const currentYear = new Date().getFullYear();
@@ -264,15 +349,18 @@ const SubscriptionPage = () => {
 
     return (
         <div style={S.page}>
+            <div style={S.container}>
             {/* Header */}
-            <div style={S.header}>
-                <div>
-                    <h1 style={S.title}>Abonelik & Paketler</h1>
-                    <p style={S.subtitle}>Planınızı yönetin ve ödemelerinizi görüntüleyin</p>
+            <div style={S.headerCard}>
+                <div style={S.header}>
+                    <div>
+                        <h1 style={S.title}>Abonelik & Paketler</h1>
+                        <p style={S.subtitle}>Planınızı yönetin ve ödemelerinizi güvenle görüntüleyin</p>
+                    </div>
+                    <button style={S.backBtn} onClick={() => navigate("/dashboard")}>
+                        ← Panele Dön
+                    </button>
                 </div>
-                <button style={S.backBtn} onClick={() => navigate("/dashboard")}>
-                    ← Panele Dön
-                </button>
             </div>
 
             {error && (
@@ -311,7 +399,7 @@ const SubscriptionPage = () => {
                             ? `${daysLeft} gün kaldı`
                             : "Aboneliğiniz sona ermiş"}
                     </div>
-                    {sub.grantedBy && (
+                    {showAdminGrantNote && (
                         <div style={S.grantNote}>
                             <FaInfoCircle /> {sub.grantNote || "Admin tarafından verildi"}
                         </div>
@@ -325,6 +413,7 @@ const SubscriptionPage = () => {
             {/* Plans */}
             <div style={S.section}>
                 <h2 style={S.sectionTitle}>Paket Seçin</h2>
+                <p style={S.sectionSub}>İhtiyacınıza göre plan seçin, detayları açıp karşılaştırın.</p>
                 <div style={S.billingToggle}>
                     <button
                         style={S.toggleBtn(billingCycle === "monthly")}
@@ -345,9 +434,14 @@ const SubscriptionPage = () => {
                         <div style={{ gridColumn: "1 / -1", textAlign: "center", padding: "40px 20px", color: "#64748b" }}>
                             Paketler yükleniyor...
                         </div>
-                    ) : Object.entries(plans).map(([key, plan]) => {
-                        const lim = plan.limits || {};
-                        const price = billingCycle === "yearly" ? plan.yearlyPrice : plan.monthlyPrice;
+                    ) : orderedPlanKeys.map((key) => {
+                        const plan = plans[key];
+                        const monthlyPrice = Number(plan.monthlyPrice ?? plan.price ?? 0);
+                        const yearlyPrice = Number(plan.yearlyPrice ?? Math.round(monthlyPrice * 10));
+                        const price = billingCycle === "yearly" ? yearlyPrice : monthlyPrice;
+                        const features = normalizePlanFeatures(plan);
+                        const featureGroups = buildFeatureGroups(features);
+                        const isExpanded = !!expandedFeaturesByPlan[key];
                         const isCurrentPlan = sub.plan === key && isActive;
                         const isPopular = key === "pro" || (plan.badge || "").includes("POPÜLER");
 
@@ -375,26 +469,35 @@ const SubscriptionPage = () => {
                                     </div>
                                 )}
                                 <div style={S.planPrice}>
-                                    ₺{price}
+                                    ₺{fmtPrice(price)}
                                     <span style={S.planPeriod}>/{billingCycle === "yearly" ? "yıl" : "ay"}</span>
                                 </div>
-                                {Array.isArray(plan.features) && plan.features.length > 0 ? (
-                                    <div style={{ ...S.planFeatures, listStyle: "none", padding: 0 }}>
-                                        {plan.features.map((f, i) => (
-                                            <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 13, color: "#e2e8f0", padding: "3px 0", lineHeight: 1.4 }}>
-                                                <FaCheckCircle style={{ color: "#34d399", fontSize: 12, flexShrink: 0, marginTop: 3 }} />
-                                                <span>{f}</span>
-                                            </div>
-                                        ))}
-                                    </div>
-                                ) : (
-                                    <ul style={S.planFeatures}>
-                                        <li>✓ {lim.maxProducts === -1 ? "Sınırsız" : (lim.maxProducts || 0)} ürün</li>
-                                        <li>✓ {lim.maxOrders === -1 ? "Sınırsız" : (lim.maxOrders || 0)} sipariş/ay</li>
-                                        <li>✓ {lim.maxMarketplaces === -1 ? "Sınırsız" : (lim.maxMarketplaces || 0)} pazaryeri</li>
-                                        <li>✓ {lim.maxUsers === -1 ? "Sınırsız" : (lim.maxUsers || 0)} kullanıcı</li>
-                                    </ul>
-                                )}
+                                <div style={{ ...S.planFeatures, listStyle: "none", padding: 0 }}>
+                                    <button
+                                        type="button"
+                                        style={S.featureToggleBtn}
+                                        onClick={() => setExpandedFeaturesByPlan((prev) => ({ ...prev, [key]: !prev[key] }))}
+                                    >
+                                        <span style={{ fontWeight: 700 }}>Paket Özellikleri ({features.length})</span>
+                                        <span style={{ color: "#818cf8" }}>{isExpanded ? "Gizle ▲" : "Detayları Göster ▼"}</span>
+                                    </button>
+
+                                    {isExpanded && (
+                                        <div style={S.featureGroupsWrap}>
+                                            {Object.entries(featureGroups).map(([groupName, items]) => (
+                                                <div key={groupName} style={S.featureGroupCard}>
+                                                    <div style={S.featureGroupTitle}>{groupName}</div>
+                                                    {items.map((f, i) => (
+                                                        <div key={`${groupName}-${i}`} style={{ display: "flex", alignItems: "flex-start", gap: 8, fontSize: 13, color: "#e2e8f0", padding: "3px 0", lineHeight: 1.4 }}>
+                                                            <FaCheckCircle style={{ color: "#34d399", fontSize: 12, flexShrink: 0, marginTop: 3 }} />
+                                                            <span>{f}</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
                                 <button
                                     style={{...S.planBtn(isPopular, isCurrentPlan), ...(isDisabled && !isCurrentPlan ? { opacity: 0.4, cursor: "not-allowed" } : {})}}
                                     onClick={() => !isDisabled && handleSelectPlan(key)}
@@ -630,6 +733,7 @@ const SubscriptionPage = () => {
                     </div>
                 </div>
             )}
+            </div>
         </div>
     );
 };
@@ -640,10 +744,22 @@ const SubscriptionPage = () => {
 const S = {
     page: {
         minHeight: "100vh",
-        background: "#06080f",
+        background: "radial-gradient(1200px 500px at 20% -10%, rgba(99,102,241,0.12), transparent), radial-gradient(900px 400px at 100% 10%, rgba(16,185,129,0.08), transparent), #06080f",
         color: "#f1f5f9",
-        padding: "40px 24px",
+        padding: "32px 20px 48px",
         fontFamily: "'Inter', sans-serif",
+    },
+    container: {
+        maxWidth: "1200px",
+        margin: "0 auto",
+    },
+    headerCard: {
+        background: "rgba(15,23,42,0.55)",
+        border: "1px solid rgba(99,102,241,0.14)",
+        borderRadius: "18px",
+        padding: "20px 22px",
+        marginBottom: "18px",
+        backdropFilter: "blur(8px)",
     },
     loading: {
         textAlign: "center",
@@ -655,19 +771,19 @@ const S = {
         display: "flex",
         justifyContent: "space-between",
         alignItems: "center",
-        marginBottom: "32px",
         flexWrap: "wrap",
         gap: "16px",
     },
     title: {
-        fontSize: "32px",
+        fontSize: "34px",
         fontWeight: 800,
         margin: 0,
         color: "#fff",
+        letterSpacing: "-0.02em",
     },
     subtitle: {
         fontSize: "15px",
-        color: "#64748b",
+        color: "#94a3b8",
         margin: "8px 0 0",
     },
     backBtn: {
@@ -697,7 +813,7 @@ const S = {
             ? "linear-gradient(135deg, rgba(52,211,153,0.08), rgba(34,197,94,0.05))"
             : "linear-gradient(135deg, rgba(248,113,113,0.08), rgba(239,68,68,0.05))",
         border: `1px solid ${isActive ? "rgba(52,211,153,0.2)" : "rgba(248,113,113,0.2)"}`,
-        borderRadius: "16px",
+        borderRadius: "18px",
         padding: "28px",
         marginBottom: "32px",
         display: "flex",
@@ -750,16 +866,28 @@ const S = {
         fontSize: "22px",
         fontWeight: 700,
         color: "#fff",
-        marginBottom: "24px",
+        marginBottom: "8px",
         display: "flex",
         alignItems: "center",
         gap: "10px",
     },
+    sectionSub: {
+        fontSize: "13px",
+        color: "#94a3b8",
+        margin: "0 0 22px",
+    },
     billingToggle: {
         display: "flex",
-        gap: "12px",
+        gap: "8px",
         marginBottom: "32px",
         justifyContent: "center",
+        background: "rgba(15,23,42,0.62)",
+        border: "1px solid rgba(99,102,241,0.16)",
+        borderRadius: "14px",
+        padding: "6px",
+        width: "fit-content",
+        marginLeft: "auto",
+        marginRight: "auto",
     },
     toggleBtn: (active) => ({
         padding: "12px 24px",
@@ -784,9 +912,9 @@ const S = {
     },
     plansGrid: {
         display: "grid",
-        gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+        gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
         gap: "20px",
-        maxWidth: "1100px",
+        maxWidth: "1150px",
         margin: "0 auto",
     },
     planCard: (isPopular, isCurrent) => ({
@@ -798,11 +926,12 @@ const S = {
             : isCurrent
                 ? "1.5px solid rgba(52,211,153,0.35)"
                 : "1px solid rgba(99,102,241,0.08)",
-        borderRadius: "18px",
+        borderRadius: "20px",
         padding: "32px 24px",
         position: "relative",
         display: "flex",
         flexDirection: "column",
+        backdropFilter: "blur(6px)",
     }),
     popularBadge: {
         position: "absolute",
@@ -830,16 +959,17 @@ const S = {
         borderRadius: "20px",
     },
     planName: {
-        fontSize: "18px",
+        fontSize: "20px",
         fontWeight: 700,
         color: "#fff",
         marginBottom: "12px",
     },
     planPrice: {
-        fontSize: "36px",
+        fontSize: "40px",
         fontWeight: 800,
         color: "#fff",
         marginBottom: "24px",
+        letterSpacing: "-0.02em",
     },
     planPeriod: {
         fontSize: "16px",
@@ -852,9 +982,44 @@ const S = {
         margin: "0 0 24px",
         flex: 1,
     },
+    featureToggleBtn: {
+        width: "100%",
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        gap: "10px",
+        border: "1px solid rgba(99,102,241,0.2)",
+        background: "rgba(99,102,241,0.08)",
+        borderRadius: "10px",
+        color: "#c7d2fe",
+        padding: "10px 12px",
+        fontSize: "13px",
+        cursor: "pointer",
+        marginBottom: "10px",
+        fontFamily: "inherit",
+    },
+    featureGroupsWrap: {
+        display: "flex",
+        flexDirection: "column",
+        gap: "10px",
+    },
+    featureGroupCard: {
+        border: "1px solid rgba(99,102,241,0.12)",
+        background: "rgba(15,23,42,0.55)",
+        borderRadius: "10px",
+        padding: "10px 12px",
+    },
+    featureGroupTitle: {
+        fontSize: "12px",
+        fontWeight: 700,
+        color: "#a5b4fc",
+        marginBottom: "6px",
+        textTransform: "uppercase",
+        letterSpacing: "0.04em",
+    },
     planBtn: (isPopular, isCurrent) => ({
         width: "100%",
-        padding: "14px",
+        padding: "14px 16px",
         borderRadius: "12px",
         border: isPopular || isCurrent ? "none" : "1px solid rgba(99,102,241,0.3)",
         background: isPopular || isCurrent
@@ -866,6 +1031,7 @@ const S = {
         cursor: isCurrent ? "not-allowed" : "pointer",
         fontFamily: "inherit",
         opacity: isCurrent ? 0.6 : 1,
+        transition: "all 0.2s",
     }),
     table: {
         background: "rgba(17,22,49,0.7)",

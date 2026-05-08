@@ -331,6 +331,7 @@ const translations = {
         // Orders Page
         "orders.pageTitle": "Sipariş Yönetimi",
         "orders.pageSubtitle": "Tüm pazaryerlerinden gelen siparişlerİşinizi tek ekrandan yönetin",
+        "orders.scopedSubtitle": "Yalnızca bu pazaryeri — varsayılan son 7 gün (tarih aralığını aşağıdan değiştirebilirsiniz)",
         "orders.all": "Tm",
         "orders.new": "Yeni",
         "orders.processing": "lemde",
@@ -342,6 +343,9 @@ const translations = {
         "orders.allMarketplaces": "Tüm Pazaryerleri",
         "orders.loading": "Ykleniyor...",
         "orders.refresh": "Yenile",
+        "orders.datePreset7": "Son 7 gün",
+        "orders.datePreset30": "Son 30 gün",
+        "orders.datePreset90": "Son 90 gün",
         "orders.clear": "Temizle",
         "orders.loadingOrders": "Siparişler ykleniyor...",
         "orders.fetchingOrders": "siparişleri ekiliyor...",
@@ -352,10 +356,17 @@ const translations = {
         "orders.customer": "Mteri",
         "orders.products": "ürünler",
         "orders.amount": "Tutar",
+        "orders.toInvoice": "Faturalanacak",
+        "orders.grossSales": "Satış tutarı",
+        "orders.sellerDiscount": "Satıcı indirimi",
+        "orders.tyDiscount": "TY indirimi",
+        "orders.priceBreakdown": "Tutar dökümü",
         "orders.date": "Tarih",
         "orders.status": "Durum",
         "orders.notFound": "Sipariş bulunamad",
         "orders.noOrdersYet": "Henüz hi sipariş yok veya pazaryeri entegrasyonlarnz kontrol edin",
+        "orders.allMarketplacesFailed": "Hiçbir pazaryerinden sipariş alınamadı. Ağ bağlantınızı ve API / entegrasyon ayarlarını kontrol edin.",
+        "orders.partialMarketplaceFailure": "Bazı pazaryerleri yüklenemedi:",
         "orders.noFilterMatch": "Filtre kriterlerinize uygun sipariş bulunamad",
         "orders.orderDetail": "Sipariş Detay",
         "orders.trackingNo": "Takip No",
@@ -533,47 +544,47 @@ const translations = {
 
         // Category Center
         "categoryCenter.title": "Kategori Merkezi",
-        "categoryCenter.subtitle": "Master kategori eletirme tablosu  tüm pazaryerleri tek sayfada",
-        "categoryCenter.loadError": "Eletirmeler yklenirken hata oluştu",
-        "categoryCenter.treeError": "Kategori aac yüklenemedi",
-        "categoryCenter.connected": "Bal",
-        "categoryCenter.notConnected": "Bal Deil",
-        "categoryCenter.notIntegrated": "Henüz entegre edilmemi",
-        "categoryCenter.integrateFirst": "Entegrasyonlar sayfasndan bu pazaryerini başlayın.",
+        "categoryCenter.subtitle": "Master kategori eşleştirme tablosu — tüm pazaryerleri tek sayfada",
+        "categoryCenter.loadError": "Eşleştirmeler yüklenirken hata oluştu",
+        "categoryCenter.treeError": "Kategori ağacı yüklenemedi",
+        "categoryCenter.connected": "Bağlı",
+        "categoryCenter.notConnected": "Bağlı değil",
+        "categoryCenter.notIntegrated": "Henüz entegre edilmemiş",
+        "categoryCenter.integrateFirst": "Entegrasyonlar sayfasından bu pazaryerini ekleyin.",
         "categoryCenter.searchPlaceholder": "Kategori ara...",
-        "categoryCenter.topCategories": "st kategori",
-        "categoryCenter.loadingCategories": "kategorileri ykleniyor...",
-        "categoryCenter.noCategories": "Kategori bulunamad",
-        "categoryCenter.resultsFound": "sonu bulundu",
-        "categoryCenter.noResults": "iin sonu bulunamad",
-        "categoryCenter.selections": "Seim",
-        "categoryCenter.pickCategory": "Kategori Se",
-        "categoryCenter.searchHint": "Kategori ad yazarak arayn (en az 2 karakter)",
-        "categoryCenter.clickToMap": "Eletirmek iin tklayn",
-        "categoryCenter.noData": "Eletirme verisi bulunamad",
-        "categoryCenter.importHint": "nce import scriptini altrarak Excel verilerini ykleyin.",
-        "categoryCenter.totalRecords": "kayt",
-        "categoryCenter.statTotal": "Toplam Satr",
-        "categoryCenter.statUnique": "Benzersiz Kategori",
-        "categoryCenter.exportExcel": "Excel ndir",
+        "categoryCenter.topCategories": "üst kategori",
+        "categoryCenter.loadingCategories": "kategoriler yükleniyor...",
+        "categoryCenter.noCategories": "Kategori bulunamadı",
+        "categoryCenter.resultsFound": "sonuç bulundu",
+        "categoryCenter.noResults": "için sonuç bulunamadı",
+        "categoryCenter.selections": "Seçim",
+        "categoryCenter.pickCategory": "Kategori seç",
+        "categoryCenter.searchHint": "Kategori adı yazarak arayın (en az 2 karakter)",
+        "categoryCenter.clickToMap": "Eşleştirmek için tıklayın",
+        "categoryCenter.noData": "Eşleştirme verisi bulunamadı",
+        "categoryCenter.importHint": "Önce import scriptini çalıştırarak Excel verilerini yükleyin.",
+        "categoryCenter.totalRecords": "kayıt",
+        "categoryCenter.statTotal": "Toplam satır",
+        "categoryCenter.statUnique": "Benzersiz kategori",
+        "categoryCenter.exportExcel": "Excel indir",
 
         // HB Categories
-        "categoryCenter.hbCategories": "HB Kategorileri",
-        "categoryCenter.hbCategoriesDesc": "Hepsiburada kategori aac  dal eklinde görüntleme ve Excel'e aktarma",
-        "categoryCenter.loadingTree": "Kategori aac ykleniyor...",
-        "categoryCenter.expandAll": "Tmn A",
-        "categoryCenter.collapseAll": "Tmn Kapat",
-        "categoryCenter.totalCategories": "Toplam Kategori",
-        "categoryCenter.rootCategories": "Kk Kategori",
-        "categoryCenter.leafCategories": "Yaprak Kategori",
+        "categoryCenter.hbCategories": "HB kategorileri",
+        "categoryCenter.hbCategoriesDesc": "Hepsiburada kategori ağacı — dal yapısında görüntüleme ve Excel'e aktarma",
+        "categoryCenter.loadingTree": "Kategori ağacı yükleniyor...",
+        "categoryCenter.expandAll": "Tümünü aç",
+        "categoryCenter.collapseAll": "Tümünü kapat",
+        "categoryCenter.totalCategories": "Toplam kategori",
+        "categoryCenter.rootCategories": "Kök kategori",
+        "categoryCenter.leafCategories": "Yaprak kategori",
         "categoryCenter.categoryId": "Kategori ID",
-        "categoryCenter.categoryName": "Kategori Ad",
+        "categoryCenter.categoryName": "Kategori adı",
         "categoryCenter.isLeaf": "Yaprak",
-        "categoryCenter.isAvailable": "Kullanlabilir",
-        "categoryCenter.hasChildren": "Alt Kategori",
-        "categoryCenter.noHbIntegration": "Hepsiburada entegrasyonu bulunamad",
-        "categoryCenter.addHbFirst": "nce Entegrasyonlar sayfasndan Hepsiburada'y ekleyin",
-        "categoryCenter.exportHbExcel": "HB Kategorileri Excel ndir",
+        "categoryCenter.isAvailable": "Kullanılabilir",
+        "categoryCenter.hasChildren": "Alt kategori",
+        "categoryCenter.noHbIntegration": "Hepsiburada entegrasyonu bulunamadı",
+        "categoryCenter.addHbFirst": "Önce Entegrasyonlar sayfasından Hepsiburada'yı ekleyin",
+        "categoryCenter.exportHbExcel": "HB kategorileri Excel indir",
 
         // Billing Page
         "billing.pageTitle": "Faturalandırma",
@@ -657,7 +668,10 @@ const translations = {
         "auth.registerSuccess": "Kayıt başarılı! Doğrulama e-postası gönderildi. Giriş sayfasına yönlendiriliyorsunuz...",
         "auth.googleRegisterSuccess": "Google ile kayıt başarılı!",
         "auth.passwordMismatch": "Şifreler eşleşmiyor!",
-        "auth.passwordTooShort": "Şifre en az 6 karakter olmalıdır!",
+        "auth.passwordTooShort": "Şifre en az 8 karakter olmalıdır!",
+        "auth.passwordNeedUpper": "Şifre en az bir büyük harf içermelidir.",
+        "auth.passwordNeedLower": "Şifre en az bir küçük harf içermelidir.",
+        "auth.passwordNeedDigit": "Şifre en az bir rakam içermelidir.",
         "auth.resetCodeSent": "Şifre sıfırlama kodu e-posta adresinize gönderildi.",
         "auth.codeVerified": "Kod doğrulandı! Yeni şifrenizi belirleyin.",
         "auth.passwordChanged": "Şifreniz başarıyla değiştirildi! Giriş yapabilirsiniz.",
@@ -995,6 +1009,7 @@ const translations = {
         // Orders Page
         "orders.pageTitle": "Order Management",
         "orders.pageSubtitle": "Manage all your marketplace orders from a single screen",
+        "orders.scopedSubtitle": "This marketplace only — default last 7 days (change the range below)",
         "orders.all": "All",
         "orders.new": "New",
         "orders.processing": "Processing",
@@ -1006,6 +1021,9 @@ const translations = {
         "orders.allMarketplaces": "All Marketplaces",
         "orders.loading": "Loading...",
         "orders.refresh": "Refresh",
+        "orders.datePreset7": "Last 7 days",
+        "orders.datePreset30": "Last 30 days",
+        "orders.datePreset90": "Last 90 days",
         "orders.clear": "Clear",
         "orders.loadingOrders": "Loading orders...",
         "orders.fetchingOrders": "fetching orders...",
@@ -1016,10 +1034,17 @@ const translations = {
         "orders.customer": "Customer",
         "orders.products": "Products",
         "orders.amount": "Amount",
+        "orders.toInvoice": "Net (invoice)",
+        "orders.grossSales": "Gross sales",
+        "orders.sellerDiscount": "Seller discount",
+        "orders.tyDiscount": "Marketplace discount",
+        "orders.priceBreakdown": "Amount breakdown",
         "orders.date": "Date",
         "orders.status": "Status",
         "orders.notFound": "No orders found",
         "orders.noOrdersYet": "No orders yet or check your marketplace integrations",
+        "orders.allMarketplacesFailed": "Could not load orders from any marketplace. Check your network and API / integration settings.",
+        "orders.partialMarketplaceFailure": "Some marketplaces failed to load:",
         "orders.noFilterMatch": "No orders match your filter criteria",
         "orders.orderDetail": "Order Detail",
         "orders.trackingNo": "Tracking No",
@@ -1321,7 +1346,10 @@ const translations = {
         "auth.registerSuccess": "Registration successful! Verification email sent. Redirecting to login...",
         "auth.googleRegisterSuccess": "Google registration successful!",
         "auth.passwordMismatch": "Passwords do not match!",
-        "auth.passwordTooShort": "Password must be at least 6 characters!",
+        "auth.passwordTooShort": "Password must be at least 8 characters!",
+        "auth.passwordNeedUpper": "Password must contain at least one uppercase letter.",
+        "auth.passwordNeedLower": "Password must contain at least one lowercase letter.",
+        "auth.passwordNeedDigit": "Password must contain at least one digit.",
         "auth.resetCodeSent": "Password reset code sent to your email.",
         "auth.codeVerified": "Code verified! Set your new password.",
         "auth.passwordChanged": "Password changed successfully! You can now sign in.",
@@ -1389,6 +1417,24 @@ const themes = {
     */
 const AppContext = createContext();
 
+const validateTranslations = () => {
+    try {
+        const trKeys = new Set(Object.keys(translations.tr || {}));
+        const enKeys = new Set(Object.keys(translations.en || {}));
+        const missingInEn = [...trKeys].filter((k) => !enKeys.has(k));
+        const missingInTr = [...enKeys].filter((k) => !trKeys.has(k));
+
+        if (missingInEn.length > 0) {
+            console.warn(`[i18n] EN eksik anahtar sayısı: ${missingInEn.length}`);
+        }
+        if (missingInTr.length > 0) {
+            console.warn(`[i18n] TR eksik anahtar sayısı: ${missingInTr.length}`);
+        }
+    } catch (e) {
+        console.warn("[i18n] doğrulama çalıştırılamadı:", e.message);
+    }
+};
+
 export const AppProvider = ({ children }) => {
     // Tema
     const [themeMode, setThemeMode] = useState(() => localStorage.getItem("themeMode") || "dark");
@@ -1425,8 +1471,14 @@ export const AppProvider = ({ children }) => {
 
     // eviri fonksiyonu
     const t = useCallback((key) => {
-        return translations[language]?.[key] || translations.tr[key] || key;
+        return translations[language]?.[key] || translations.tr[key] || translations.en[key] || key;
     }, [language]);
+
+    useEffect(() => {
+        if (process.env.NODE_ENV === "development") {
+            validateTranslations();
+        }
+    }, []);
 
     // CSS deikenlerini uygula
     useEffect(() => {

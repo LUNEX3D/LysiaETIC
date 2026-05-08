@@ -32,8 +32,12 @@ const handleValidation = (req, res, next) => {
 const validateRegister = [
     body("name")
         .trim()
-        .notEmpty().withMessage("Ad soyad zorunludur")
-        .isLength({ min: 2, max: 100 }).withMessage("Ad soyad 2-100 karakter olmalıdır"),
+        .notEmpty().withMessage("Ad zorunludur")
+        .isLength({ min: 2, max: 100 }).withMessage("Ad 2-100 karakter olmalıdır"),
+    body("surname")
+        .trim()
+        .notEmpty().withMessage("Soyad zorunludur")
+        .isLength({ min: 1, max: 100 }).withMessage("Soyad 1-100 karakter olmalıdır"),
     body("email")
         .trim()
         .notEmpty().withMessage("E-posta zorunludur")

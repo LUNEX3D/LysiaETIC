@@ -4,7 +4,7 @@
  *
  * Otomatik fatura ayarları, QNB fatura listesi, toplu faturalama.
  */
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { motion } from "framer-motion";
 import {
     FaSyncAlt, FaCog, FaCheckCircle, FaTimesCircle, FaExclamationTriangle,
@@ -17,7 +17,7 @@ import { GlassCard, EmptyState, LoadingState, AlertBox, SpinnerButton } from "./
 import { ALL_MARKETPLACES, ALL_TRIGGER_STATUSES } from "../constants";
 import { fmtCurrency, fmtDate } from "../utils";
 
-const AutoInvoicePanel = ({ autoInvoice }) => {
+const AutoInvoicePanel = ({ autoInvoice, settingsRequestTick = 0 }) => {
     const {
         config, stats, loading, saving, error,
         fetchData, saveConfig, toggleEnabled, resetErrors, buildConfigForm,
@@ -37,13 +37,13 @@ const AutoInvoicePanel = ({ autoInvoice }) => {
         return { start: ago.toISOString().split("T")[0], end: now.toISOString().split("T")[0] };
     });
     const [pdfLoading, setPdfLoading] = useState(null);
-    const [qnbAutoLoİaded, setQnbAutoLoİaded] = useState(false);
+    const [qnbAutoLoaded, setQnbAutoLoaded] = useState(false);
 
     const cfg = config || {};
     const st = stats || {};
     const isEnabled = cfg.enabled || false;
     const hasConfig = !!(cfg.supplier && cfg.supplier.vkn);
-    const conseçutiveErrors = cfg.stats?.conseçutiveErrors || 0;
+    const consecutiveErrors = cfg.stats?.consecutiveErrors || 0;
 
     // İlk yüklemede verileri çek
     useEffect(() => {
@@ -52,11 +52,19 @@ const AutoInvoicePanel = ({ autoInvoice }) => {
 
     // Config yüklenince QNB faturalarını otomatik yükle (tek seferlik)
     useEffect(() => {
-        if (hasConfig && !qnbAutoLoİaded && qnbInvoices.length === 0 && !qnbLoading) {
-            setQnbAutoLoİaded(true);
+        if (hasConfig && !qnbAutoLoaded && qnbInvoices.length === 0 && !qnbLoading) {
+            setQnbAutoLoaded(true);
             fetchQnbInvoices("", qnbDateRange.start, qnbDateRange.end, 1);
         }
-    }, [hasConfig, qnbAutoLoİaded, qnbInvoices.length, qnbLoading, fetchQnbInvoices, qnbDateRange]);
+    }, [hasConfig, qnbAutoLoaded, qnbInvoices.length, qnbLoading, fetchQnbInvoices, qnbDateRange]);
+
+    const settingsTickHandledRef = useRef(0);
+    useEffect(() => {
+        if (!settingsRequestTick || settingsRequestTick <= settingsTickHandledRef.current) return;
+        settingsTickHandledRef.current = settingsRequestTick;
+        setConfigForm(buildConfigForm());
+        setShowConfigForm(true);
+    }, [settingsRequestTick, buildConfigForm]);
 
     const initConfigForm = useCallback(() => {
         setConfigForm(buildConfigForm());
@@ -216,13 +224,13 @@ const AutoInvoicePanel = ({ autoInvoice }) => {
                     <h4 style={{ ...sectionTitleStyle, marginTop: "1.5rem" }}><FaCalendarAlt style={{ color: colors.yellow }} /> Fatura Başlangıç Tarihi</h4>
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.75rem" }}>
                         <div>
-                            <label style={labelStyle}>Bu tarihten öÖnceki siparişler faturalanmaz</label>
+                            <label style={labelStyle}>Bu tarihten önceki siparişler faturalanmaz</label>
                             <input style={inputStyle} type="date" value={fd.autoInvoiceStartDate} onChange={(e) => updateField("autoInvoiceStartDate", e.target.value)} />
                         </div>
                     </div>
                     <p style={{ fontSize: "0.72rem", color: colors.textMuted, marginTop: "0.4rem", lineHeight: 1.5 }}>
                         ⚠️ <strong>Mükerrer fatura koruması:</strong> Sistemi aktif etmeden önce manuel kestiğiniz faturaların tekârar kesilmesini engeller.
-                        Bu tarihten öÖnceki siparişler otomatik faturalama ve "Tümünü Faturala" işlemlerinde atlanır.
+                        Bu tarihten önceki siparişler otomatik faturalama ve "Tümünü Faturala" işlemlerinde atlanır.
                         İlk kurulumda otomatik olarak bugünün tarihi atanır. Gerekirse değiştirebilirsiniz.
                     </p>
 
@@ -256,6 +264,48 @@ const AutoInvoicePanel = ({ autoInvoice }) => {
                                     </motion.button>
                                 );
                             })}
+                        </div>
+                    </div>
+
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.75rem", marginTop: "1rem" }}>
+                        <div>
+                            <label style={labelStyle}>Otomatik kesim gecikmesi (gün)</label>
+                            <input
+                                style={inputStyle}
+                                type="number"
+                                min={0}
+                                max={90}
+                                value={fd.invoiceDelayDays}
+                                onChange={(e) => updateField("invoiceDelayDays", Math.max(0, Math.min(90, Number(e.target.value) || 0)))}
+                            />
+                            <p style={{ fontSize: "0.72rem", color: colors.textMuted, marginTop: "0.35rem", lineHeight: 1.5 }}>
+                                Sipariş tarihinden sonra bu kadar tam gün geçmeden otomatik kesilmez (0 = bekleme yok). Çok kullanıcı, &quot;Seçili / Tümünü faturala&quot; ve senkron sonrası manuel işlemlerde gecikme uygulanmaz.
+                            </p>
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", justifyContent: "flex-start" }}>
+                            <label style={labelStyle}>Pazaryeri fatura yüklemesi</label>
+                            <motion.button
+                                type="button"
+                                whileHover={{ scale: 1.03 }}
+                                whileTap={{ scale: 0.97 }}
+                                onClick={() => updateField("autoUploadInvoiceToMarketplace", !fd.autoUploadInvoiceToMarketplace)}
+                                style={{
+                                    background: fd.autoUploadInvoiceToMarketplace ? colors.accent + "20" : colors.glass,
+                                    border: "1px solid " + (fd.autoUploadInvoiceToMarketplace ? colors.accent + "50" : colors.glassBr),
+                                    borderRadius: 8,
+                                    padding: "0.55rem 0.85rem",
+                                    cursor: "pointer",
+                                    color: fd.autoUploadInvoiceToMarketplace ? colors.accent : colors.dim,
+                                    fontSize: "0.78rem",
+                                    fontWeight: 600,
+                                    textAlign: "left",
+                                }}
+                            >
+                                {fd.autoUploadInvoiceToMarketplace ? "✓ Açık (hazırlık)" : "✗ Kapalı"}
+                            </motion.button>
+                            <p style={{ fontSize: "0.72rem", color: colors.textMuted, marginTop: "0.35rem", lineHeight: 1.5 }}>
+                                Pazaryeri API entegrasyonu tamamlandığında faturalar otomatik yüklenecek; şu an yalnızca tercih kaydı tutulur.
+                            </p>
                         </div>
                     </div>
 
@@ -316,14 +366,25 @@ const AutoInvoicePanel = ({ autoInvoice }) => {
                 </div>
             </div>
 
+            {hasConfig && (
+                <GlassCard style={{ marginBottom: "1.25rem", padding: "0.85rem 1rem" }}>
+                    <p style={{ margin: 0, color: colors.muted, fontSize: "0.8rem", lineHeight: 1.55, display: "flex", gap: "0.5rem", alignItems: "flex-start" }}>
+                        <FaInfoCircle style={{ color: colors.accent, marginTop: "0.15rem", flexShrink: 0 }} />
+                        <span>
+                            <strong>Geciktirmeli otomatik kesim:</strong> Üstteki <strong>Ayarlar</strong> düğmesiyle formu açın; &quot;Tetikleme Ayarları&quot; bölümünde <strong>Otomatik kesim gecikmesi (gün)</strong> ve isteğe bağlı pazaryeri yükleme seçenekleri yer alır. Bu gecikme yalnızca senkron ve zamanlanmış otomatik kesimde uygulanır; seçili siparişleri veya &quot;Tümünü faturala&quot;yı etkilemez.
+                        </span>
+                    </p>
+                </GlassCard>
+            )}
+
             {/* Hata */}
             {error && <AlertBox type="error" message={error} onClose={clearError} />}
 
             {/* Ardışık hata uyarısı */}
-            {conseçutiveErrors >= 3 && (
+            {consecutiveErrors >= 3 && (
                 <AlertBox
                     type="warning"
-                    message={`${conseçutiveErrors} ardışık hata oluştu. ${conseçutiveErrors >= 5 ? "Otomatik fatura devre dışı bırakıldı." : "5 hatada otomatik devre dışı kalır."}${cfg.stats?.lastError ? " Son hata: " + cfg.stats.lastError : ""}`}
+                    message={`${consecutiveErrors} ardışık hata oluştu. ${consecutiveErrors >= 5 ? "Otomatik fatura devre dışı bırakıldı." : "5 hatada otomatik devre dışı kalır."}${cfg.stats?.lastError ? " Son hata: " + cfg.stats.lastError : ""}`}
                     onAction={resetErrors}
                     actionLabel="Sıfırla"
                 />

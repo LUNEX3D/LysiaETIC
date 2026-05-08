@@ -6,7 +6,7 @@ import {
     FaArrowRight, FaBolt, FaServer, FaChartLine, FaBoxOpen,
     FaClipboardList, FaExclamationTriangle, FaCheckCircle,
     FaTimesCircle, FaClock, FaArrowUp, FaArrowDown, FaSync,
-    FaDatabase, FaMemory, FaMicrochip
+    FaDatabase, FaMemory, FaMicrochip, FaBug
 } from "react-icons/fa";
 import AdminLayout from "../components/AdminLayout";
 import { getDashboardMetrics } from "../services/saasAdminApi";
@@ -160,6 +160,7 @@ const AdminDashboard = () => {
                                 { to: "/admin/usage", icon: <FaChartLine />, color: "yellow", title: "Kullanım & Limitler", sub: "Limit aşımı kontrolü" },
                                 { to: "/admin/reports", icon: <FaChartBar />, color: "purple", title: "Global Raporlar", sub: "Gelir, churn, trendler" },
                                 { to: "/admin/audit-logs", icon: <FaHistory />, color: "red", title: "İşlem Logları", sub: "Audit trail & izleme" },
+                                { to: "/admin/client-errors", icon: <FaBug />, color: "orange", title: "İstemci Hataları", sub: "Frontend hata kayıtları" },
                             ].map((item, i) => (
                                 <Link key={i} to={item.to} className="ap-quick">
                                     <div className={`ap-quick-icon ap-quick-icon--${item.color}`}>{item.icon}</div>

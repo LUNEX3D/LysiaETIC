@@ -18,7 +18,7 @@ const TAG_LENGTH = 16;
 
 /**
  * Encryption key'i .env'den al.
- * Yoksa fallback olarak JWT_SECRET'tan türet (geçici çözüm).
+ * Güvenlik gereği ENCRYPTION_KEY zorunludur.
  */
 function getEncryptionKey() {
     if (process.env.ENCRYPTION_KEY) {
@@ -29,12 +29,7 @@ function getEncryptionKey() {
         return key;
     }
 
-    // Fallback: JWT_SECRET'tan 32 byte key türet
-    if (process.env.JWT_SECRET) {
-        return crypto.createHash("sha256").update(process.env.JWT_SECRET).digest();
-    }
-
-    throw new Error("ENCRYPTION_KEY veya JWT_SECRET tanımlı değil!");
+    throw new Error("ENCRYPTION_KEY tanımlı değil! Güvenlik için .env dosyanıza 64 hex karakterlik anahtar ekleyin.");
 }
 
 /**

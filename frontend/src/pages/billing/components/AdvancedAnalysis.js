@@ -20,23 +20,41 @@ const TC = { "e-arsiv": colors.accent, "e-fatura": colors.orange, "e-fatura-gele
 const TL = { "e-arsiv": "e-Arşiv", "e-fatura": "e-Fatura", "e-fatura-gelen": "Gelen e-Fatura", "e-irsaliye": "e-İrsaliye" };
 
 const AdvancedAnalysis = React.memo(({ invoices, onInvoiceClick }) => {
-    const [openSections, setOpenSections] = useState({ score: true, type: true, status: true });
+    const [openSections, setOpenSections] = useState({
+        score: true,
+        type: true,
+        status: true,
+        month: true,
+        customer: true,
+        tax: true,
+        day: true,
+        range: true,
+        provider: true,
+        extremes: true,
+    });
     const toggleSection = (id) => setOpenSections((prev) => ({ ...prev, [id]: !prev[id] }));
 
     const data = useMemo(() => {
         if (!invoices || invoices.length === 0) return null;
 
-        const amounts = invoices.map((i) => i.total || 0).filter((a) => a > 0);
-        const totalAmount = invoices.reduce((s, i) => s + (i.total || 0), 0);
-        const totalTax = invoices.reduce((s, i) => s + (i.tax || 0), 0);
-        const avgAmount = amounts.length > 0 ? totalAmount / amounts.length : 0;
-        const maxAmount = amounts.length > 0 ? Math.max(...amounts) : 0;
-        const minAmount = amounts.length > 0 ? Math.min(...amounts) : 0;
-        const sortedAmounts = [...amounts].sort((a, b) => a - b);
-        const medianAmount = sortedAmounts.length > 0 ? sortedAmounts[Math.floor(sortedAmounts.length / 2)] : 0;
+        const totalAmount = invoices.reduce((s, i) => s + (Number(i.total) || 0), 0);
+        const totalTax = invoices.reduce((s, i) => s + (Number(i.tax) || 0), 0);
+        const n = invoices.length;
+        const allTotals = invoices.map((i) => Number(i.total) || 0);
+        const avgAmount = n > 0 ? totalAmount / n : 0;
+        const maxAmount = allTotals.length > 0 ? Math.max(...allTotals) : 0;
+        const minAmount = allTotals.length > 0 ? Math.min(...allTotals) : 0;
+        const sortedTotals = [...allTotals].sort((a, b) => a - b);
+        const medianAmount =
+            sortedTotals.length > 0
+                ? sortedTotals.length % 2 === 1
+                    ? sortedTotals[Math.floor(sortedTotals.length / 2)]
+                    : (sortedTotals[sortedTotals.length / 2 - 1] + sortedTotals[sortedTotals.length / 2]) / 2
+                : 0;
         const netAmount = totalAmount - totalTax;
         const taxRate = netAmount > 0 ? (totalTax / netAmount) * 100 : 0;
-        const variance = amounts.length > 1 ? amounts.reduce((s, a) => s + Math.pow(a - avgAmount, 2), 0) / amounts.length : 0;
+        const variance =
+            n > 1 ? allTotals.reduce((s, a) => s + Math.pow(a - avgAmount, 2), 0) / n : 0;
         const stdDev = Math.sqrt(variance);
 
         // Tip kırılımı
@@ -180,7 +198,7 @@ const AdvancedAnalysis = React.memo(({ invoices, onInvoiceClick }) => {
             <div style={{ textAlign: "center", padding: "3rem 1.5rem", color: colors.dim }}>
                 <div style={{ fontSize: "3rem", marginBottom: "0.75rem" }}>📊</div>
                 <p style={{ color: colors.muted, fontSize: "1rem", fontWeight: 600 }}>Analiz için veri yok</p>
-                <p style={{ fontSize: "0.82rem" }}>Gelişmiş analiz görüntülemek için önce belgelerİşinizin yüklenmesi gerekiyor.</p>
+                <p style={{ fontSize: "0.82rem" }}>Gelişmiş analiz görüntülemek için önce belgelerinizin yüklenmesi gerekiyor.</p>
             </div>
         );
     }
@@ -409,6 +427,142 @@ const AdvancedAnalysis = React.memo(({ invoices, onInvoiceClick }) => {
                                     <Bar value={cust.total} max={maxCustTotal} color={i < 3 ? colors.orange : colors.dim} height={5} />
                                 </div>
                             ))}
+                        </div>
+                    </div>
+                )}
+            </ACard>
+
+            {/* Haftanın günü */}
+            <ACard>
+                <SectionHead id="day" icon={<FaCalendarAlt />} title="Haftanın Günü Dağılımı" color={colors.yellow} subtitle="Fatura kesim / belge tarihi" />
+                {openSections["day"] && (
+                    <div style={{ padding: "1.15rem 1.25rem" }}>
+                        <p style={{ color: colors.dim, fontSize: "0.75rem", margin: "0 0 0.75rem" }}>
+                            En yoğun gün: <strong style={{ color: colors.muted }}>{data.busiestDay.name}</strong> ({data.busiestDay.count} belge)
+                        </p>
+                        <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                            {data.dayData.map((d) => {
+                                const maxC = Math.max(...data.dayData.map((x) => x.count), 1);
+                                return (
+                                    <div key={d.name}>
+                                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                                            <span style={{ color: colors.muted, fontSize: "0.78rem" }}>{d.name}</span>
+                                            <span style={{ color: "#fff", fontSize: "0.78rem", fontWeight: 600 }}>{d.count} • {fmtCurrency(d.total)}</span>
+                                        </div>
+                                        <Bar value={d.count} max={maxC} color={colors.yellow} height={6} />
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                )}
+            </ACard>
+
+            {/* Tutar dilimleri */}
+            <ACard>
+                <SectionHead id="range" icon={<FaCoins />} title="Tutar Dilimleri" color={colors.accent} />
+                {openSections["range"] && (
+                    <div style={{ padding: "1.15rem 1.25rem" }}>
+                        <div style={{ display: "flex", flexDirection: "column", gap: "0.65rem" }}>
+                            {data.ranges.map((r) => {
+                                const maxRc = Math.max(...data.ranges.map((x) => x.count), 1);
+                                return (
+                                    <div key={r.label}>
+                                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                                            <span style={{ color: r.color, fontSize: "0.78rem", fontWeight: 600 }}>{r.label}</span>
+                                            <span style={{ color: colors.dim, fontSize: "0.72rem" }}>{r.count} belge • {fmtCurrency(r.total)}</span>
+                                        </div>
+                                        <Bar value={r.count} max={maxRc} color={r.color} height={6} />
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                )}
+            </ACard>
+
+            {/* Sağlayıcı */}
+            <ACard>
+                <SectionHead id="provider" icon={<FaBuilding />} title="Sağlayıcı Dağılımı" color={colors.purple} badge={Object.keys(data.byProvider).length + " kaynak"} />
+                {openSections["provider"] && (
+                    <div style={{ padding: "1.15rem 1.25rem" }}>
+                        <div style={{ display: "flex", flexDirection: "column", gap: "0.55rem" }}>
+                            {Object.entries(data.byProvider).map(([pid, d]) => {
+                                const maxP = Math.max(...Object.values(data.byProvider).map((x) => x.total), 1);
+                                const label = pid === "qnb-esolutions" ? "QNB eSolutions" : pid === "trendyol-efaturam" ? "Trendyol E-Faturam" : pid === "sovos" ? "Sovos" : pid === "parasut" ? "Paraşüt" : pid === "odeal" ? "Ödeal" : pid;
+                                return (
+                                    <div key={pid}>
+                                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                                            <span style={{ color: colors.muted, fontSize: "0.8rem", fontWeight: 600 }}>{label}</span>
+                                            <span style={{ color: colors.dim, fontSize: "0.72rem" }}>{d.count} belge • {fmtCurrency(d.total)}</span>
+                                        </div>
+                                        <Bar value={d.total} max={maxP} color={colors.purple} height={6} />
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                )}
+            </ACard>
+
+            {/* Uç değerler */}
+            <ACard>
+                <SectionHead id="extremes" icon={<FaChartBar />} title="En Yüksek / En Düşük Belgeler" color={colors.green} subtitle={onInvoiceClick ? "Satıra tıklayarak detay açın" : undefined} />
+                {openSections["extremes"] && (
+                    <div style={{ padding: "1.15rem 1.25rem", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: "1rem" }}>
+                            <div>
+                            <p style={{ color: colors.green, fontSize: "0.72rem", fontWeight: 700, margin: "0 0 0.5rem", textTransform: "uppercase" }}>En yüksek tutarlar</p>
+                            <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}>
+                                {data.top5.length === 0 && <p style={{ color: colors.dim, fontSize: "0.75rem" }}>Tutarı sıfırdan büyük belge yok.</p>}
+                                {data.top5.map((inv) => (
+                                    <div
+                                        key={inv.id}
+                                        role={onInvoiceClick ? "button" : undefined}
+                                        onClick={() => onInvoiceClick?.(inv)}
+                                        onKeyDown={(e) => e.key === "Enter" && onInvoiceClick?.(inv)}
+                                        tabIndex={onInvoiceClick ? 0 : undefined}
+                                        style={{
+                                            background: colors.glass,
+                                            border: "1px solid " + colors.glassBr,
+                                            borderRadius: 8,
+                                            padding: "0.5rem 0.65rem",
+                                            cursor: onInvoiceClick ? "pointer" : "default",
+                                        }}
+                                    >
+                                        <div style={{ display: "flex", justifyContent: "space-between", gap: "0.5rem" }}>
+                                            <span style={{ color: colors.muted, fontSize: "0.72rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{inv.number || inv.id}</span>
+                                            <span style={{ color: "#fff", fontSize: "0.78rem", fontWeight: 700 }}>{fmtCurrency(inv.total || 0)}</span>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                        <div>
+                            <p style={{ color: colors.yellow, fontSize: "0.72rem", fontWeight: 700, margin: "0 0 0.5rem", textTransform: "uppercase" }}>En düşük tutarlar (sıfırdan büyük)</p>
+                            <div style={{ display: "flex", flexDirection: "column", gap: "0.35rem" }}>
+                                {data.bottom5.length === 0 && <p style={{ color: colors.dim, fontSize: "0.75rem" }}>Gösterilecek belge yok.</p>}
+                                {data.bottom5.map((inv) => (
+                                    <div
+                                        key={inv.id}
+                                        role={onInvoiceClick ? "button" : undefined}
+                                        onClick={() => onInvoiceClick?.(inv)}
+                                        onKeyDown={(e) => e.key === "Enter" && onInvoiceClick?.(inv)}
+                                        tabIndex={onInvoiceClick ? 0 : undefined}
+                                        style={{
+                                            background: colors.glass,
+                                            border: "1px solid " + colors.glassBr,
+                                            borderRadius: 8,
+                                            padding: "0.5rem 0.65rem",
+                                            cursor: onInvoiceClick ? "pointer" : "default",
+                                        }}
+                                    >
+                                        <div style={{ display: "flex", justifyContent: "space-between", gap: "0.5rem" }}>
+                                            <span style={{ color: colors.muted, fontSize: "0.72rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{inv.number || inv.id}</span>
+                                            <span style={{ color: "#fff", fontSize: "0.78rem", fontWeight: 700 }}>{fmtCurrency(inv.total || 0)}</span>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
                         </div>
                     </div>
                 )}

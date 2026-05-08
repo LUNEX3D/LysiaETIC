@@ -3,6 +3,7 @@ import axios from "../services/api";
 import { motion, AnimatePresence } from "framer-motion";
 import { FaTruck, FaSearch, FaSync, FaExternalLinkAlt, FaChevronDown, FaChevronLeft, FaChevronRight, FaFilter, FaBoxOpen, FaCheckCircle, FaUndoAlt, FaTimesCircle, FaSortAmountDown, FaSortAmountUp } from "react-icons/fa";
 import { useApp } from "../context/AppContext";
+import { classifyOrderStatus, getOrderStatusLabelTr } from "../utils/orderStatus";
 import "../styles/CargoTrackingPage.css";
 
 const fmtDate = (d) => {
@@ -61,12 +62,12 @@ const CargoTrackingPage = ({ userId, marketplaceId, marketplace }) => {
 
     // Status helpers
     const getStatusInfo = (status) => {
-        const s = (status || "").toLowerCase();
-        if (s.includes("shipped") || s.includes("kargoda") || s.includes("transit")) return { label: t("cargo.shipped"), color: C.yellow, icon: <FaTruck /> };
-        if (s.includes("delivered") || s.includes("teslim")) return { label: t("cargo.delivered"), color: C.green, icon: <FaCheckCircle /> };
-        if (s.includes("returned") || s.includes("iİade")) return { label: t("cargo.returned"), color: C.red, icon: <FaUndoAlt /> };
-        if (s.includes("undelivered") || s.includes("teslim edilemedi")) return { label: t("cargo.undelivered"), color: C.pink, icon: <FaTimesCircle /> };
-        return { label: status || t("cargo.unknown"), color: C.muted, icon: <FaBoxOpen /> };
+        const cls = classifyOrderStatus(status);
+        if (cls === "shipping") return { label: getOrderStatusLabelTr(status) || t("cargo.shipped"), color: C.yellow, icon: <FaTruck /> };
+        if (cls === "delivered") return { label: getOrderStatusLabelTr(status) || t("cargo.delivered"), color: C.green, icon: <FaCheckCircle /> };
+        if (cls === "returned") return { label: getOrderStatusLabelTr(status) || t("cargo.returned"), color: C.red, icon: <FaUndoAlt /> };
+        if (String(status || "").toLowerCase().includes("undelivered")) return { label: t("cargo.undelivered"), color: C.pink, icon: <FaTimesCircle /> };
+        return { label: getOrderStatusLabelTr(status) || t("cargo.unknown"), color: C.muted, icon: <FaBoxOpen /> };
     };
 
     // Status counts
@@ -74,9 +75,10 @@ const CargoTrackingPage = ({ userId, marketplaceId, marketplace }) => {
         const counts = { all: orders.length, Shipped: 0, Delivered: 0, Returned: 0, UnDelivered: 0 };
         orders.forEach(o => {
             const s = (o.status || "").toLowerCase();
-            if (s.includes("shipped") || s.includes("kargoda") || s.includes("transit")) counts.Shipped++;
-            else if (s.includes("delivered") || s.includes("teslim")) counts.Delivered++;
-            else if (s.includes("returned") || s.includes("iİade")) counts.Returned++;
+            const cls = classifyOrderStatus(o.status);
+            if (cls === "shipping") counts.Shipped++;
+            else if (cls === "delivered") counts.Delivered++;
+            else if (cls === "returned") counts.Returned++;
             else if (s.includes("undelivered")) counts.UnDelivered++;
         });
         return counts;
@@ -91,9 +93,10 @@ const CargoTrackingPage = ({ userId, marketplaceId, marketplace }) => {
                 (order.trackingNumber || "").toLowerCase().includes(searchQuery.toLowerCase());
             const matchesStatus = statusFilter === "all" || (() => {
                 const s = (order.status || "").toLowerCase();
-                if (statusFilter === "Shipped") return s.includes("shipped") || s.includes("kargoda") || s.includes("transit");
-                if (statusFilter === "Delivered") return s.includes("delivered") || s.includes("teslim");
-                if (statusFilter === "Returned") return s.includes("returned") || s.includes("iİade");
+                const cls = classifyOrderStatus(order.status);
+                if (statusFilter === "Shipped") return cls === "shipping";
+                if (statusFilter === "Delivered") return cls === "delivered";
+                if (statusFilter === "Returned") return cls === "returned";
                 if (statusFilter === "UnDelivered") return s.includes("undelivered");
                 return true;
             })();

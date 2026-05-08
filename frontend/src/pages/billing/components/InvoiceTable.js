@@ -300,7 +300,7 @@ const InvoiceTable = ({
                     description={
                         loading
                             ? "Belgeler yükleniyor..."
-                            : "Bu kategoride sağlayıcınızda kayıtlıı belge bulunamadı. Yeni belge oluşturmak için 'Yeni Belge' butonunu kullanabilirsiniz."
+                            : "Bu kategoride sağlayıcınızda kayıtlı belge bulunamadı. Yeni belge oluşturmak için 'Yeni Belge' butonunu kullanabilirsiniz."
                     }
                 />
             )}

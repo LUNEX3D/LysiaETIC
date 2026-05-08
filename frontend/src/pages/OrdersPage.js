@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import axios from "../services/api";
 import { motion, AnimatePresence } from "framer-motion";
 import { FaBox, FaImage } from "react-icons/fa";
 import { useApp } from "../context/AppContext";
+import { classifyOrderStatus, getOrderStatusLabelTr } from "../utils/orderStatus";
 
 const fmtCurrency = (v) => {
     try {
@@ -15,24 +16,72 @@ const fmtDate = (d) => {
     try {
         const date = new Date(d);
         if (isNaN(date.getTime())) return String(d);
-        return date.toLocaleDateString("tr-TR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+        return new Intl.DateTimeFormat("tr-TR", {
+            timeZone: "Europe/Istanbul",
+            day: "2-digit",
+            month: "2-digit",
+            year: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+            hour12: false,
+        }).format(date);
     } catch { return String(d); }
+};
+
+/** Tablo için: tarih ve saat ayrı satır (birbirine yapışmayı önler) */
+const fmtOrderDateParts = (d) => {
+    if (!d) return { date: "—", time: "" };
+    try {
+        const date = new Date(d);
+        if (isNaN(date.getTime())) return { date: String(d), time: "" };
+        const dateStr = new Intl.DateTimeFormat("tr-TR", {
+            timeZone: "Europe/Istanbul",
+            day: "2-digit",
+            month: "2-digit",
+            year: "numeric",
+        }).format(date);
+        const timeStr = new Intl.DateTimeFormat("tr-TR", {
+            timeZone: "Europe/Istanbul",
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+            hour12: false,
+        }).format(date);
+        return { date: dateStr, time: timeStr };
+    } catch {
+        return { date: String(d), time: "" };
+    }
+};
+
+/** <input type="date"> için yerel takvim günü (YYYY-MM-DD) */
+const toDateInputValueLocal = (d) => {
+    const x = d instanceof Date ? d : new Date(d);
+    if (isNaN(x.getTime())) return "";
+    const y = x.getFullYear();
+    const m = String(x.getMonth() + 1).padStart(2, "0");
+    const day = String(x.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+};
+
+const rangeFromDaysAgo = (days) => {
+    const end = new Date();
+    const start = new Date();
+    start.setDate(start.getDate() - days);
+    return { start: toDateInputValueLocal(start), end: toDateInputValueLocal(end) };
+};
+
+/** Trendyol vb.: brüt ile net (faturalanacak) farklıysa tabloda döküm göster */
+const hasOrderDiscountBreakdown = (o) => {
+    const g = parseFloat(o?.grossOrderAmount || 0) || 0;
+    const n = parseFloat(o?.totalPrice || 0) || 0;
+    return g > 0 && Math.abs(g - n) > 0.02;
 };
 
 /* ═══════════════════════════════════════════════════════════
    DURUM SINIFLANDIRMA
    ═══════════════════════════════════════════════════════════ */
-const classifyStatus = (s) => {
-    const l = String(s || "").toLowerCase();
-    // ✅ FIX: HB durumları eklendi — Open, Unpacked, Packaged, Shipped, Delivered, Cancelled
-    if (l.includes("created") || l.includes("yeni") || l.includes("new") || l.includes("waiting") || l === "open") return "new";
-    if (l.includes("processing") || l.includes("işlem") || l.includes("hazırlan") || l.includes("picking") || l.includes("approved") || l === "unpacked" || l === "packaged" || l.includes("paket")) return "processing";
-    if (l.includes("shipping") || l.includes("shipped") || l.includes("kargo") || l.includes("transit") || l.includes("invoiced")) return "shipping";
-    if (l.includes("delivered") || l.includes("teslim") || l.includes("completed") || l.includes("tamamlan")) return "delivered";
-    if (l.includes("cancel") || l.includes("iptal")) return "cancelled";
-    if (l.includes("return") || l.includes("iİade") || l.includes("refund")) return "returned";
-    return "processing";
-};
+const classifyStatus = (s) => classifyOrderStatus(s);
 
 /* ═══════════════════════════════════════════════════════════
    MARKETPLACE LOGO
@@ -54,11 +103,21 @@ const ProductImage = ({ src, size = 38, radius = 8, onClick, C }) => {
     const [imgSrc, setImgSrc] = useState(src);
 
     useEffect(() => {
-        setImgSrc(src);
+        let s = src;
+        if (typeof s === "string") {
+            const t = s.trim();
+            if (t.startsWith("//")) s = `https:${t}`;
+        }
+        setImgSrc(s);
         setError(false);
     }, [src]);
 
-    const isInvalid = (url) => !url || url.includes("default-product.jpg");
+    const isInvalid = (url) =>
+        !url ||
+        typeof url !== "string" ||
+        url.includes("default-product.jpg") ||
+        url.includes("placehold.co") ||
+        url.includes("via.placeholder");
     const hasImage = !isInvalid(imgSrc) && !error;
 
     return (
@@ -98,12 +157,45 @@ const ProductImage = ({ src, size = 38, radius = 8, onClick, C }) => {
 /* ═══════════════════════════════════════════════════════════
    ANA COMPONENT
    ═══════════════════════════════════════════════════════════ */
-const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
+const OrdersPage = ({ marketplaces = [], userId: propUserId, marketplaceId: scopeMarketplaceId, marketplace: scopeMarketplace }) => {
     const { theme: C, t } = useApp();
     const userId = propUserId || localStorage.getItem("userId");
     const token = localStorage.getItem("token");
 
-    // ── Veri kaynağı: her zaman pazaryeri API ──
+    /** Yan menüden "Siparişler → Trendyol" gibi: yalnızca bu pazaryeri (7 gün + tarih seçimi aynı) */
+    const scopedMarketplaces = useMemo(() => {
+        const list = marketplaces || [];
+        if (!scopeMarketplaceId) return list;
+        const sid = String(scopeMarketplaceId);
+        const hit = list.find((m) => String(m?._id ?? m?.id ?? "") === sid);
+        if (hit) return [hit];
+        if (scopeMarketplace && String(scopeMarketplace._id ?? scopeMarketplace.id ?? "") === sid) {
+            return [scopeMarketplace];
+        }
+        return [];
+    }, [scopeMarketplaceId, scopeMarketplace, marketplaces]);
+
+    /** Üst bileşen sık render olunca (dashboard polling vb.) yeni [] referansı gelmesin diye */
+    const marketplacesRef = useRef(scopedMarketplaces);
+    marketplacesRef.current = scopedMarketplaces;
+    const marketplaceIdsKey = useMemo(
+        () =>
+            (scopedMarketplaces || [])
+                .map((m) => String(m?._id ?? m?.id ?? ""))
+                .filter(Boolean)
+                .sort()
+                .join("|"),
+        [scopedMarketplaces]
+    );
+
+    const isSingleMarketplaceScope = Boolean(scopeMarketplaceId);
+    const scopeTitleName =
+        scopedMarketplaces[0]?.marketplaceName ||
+        scopedMarketplaces[0]?.name ||
+        scopeMarketplace?.marketplaceName ||
+        scopeMarketplace?.name ||
+        "";
+
     const viewMode = "api";
 
     // ── API modu state ──
@@ -122,8 +214,9 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
     const [statusFilter, setStatusFilter] = useState("all");
     const [mpFilter, setMpFilter] = useState("all");
 
-    const [startDate, setStartDate] = useState("");
-    const [endDate, setEndDate] = useState("");
+    const [datePreset, setDatePreset] = useState("7");
+    const [startDate, setStartDate] = useState(() => rangeFromDaysAgo(7).start);
+    const [endDate, setEndDate] = useState(() => rangeFromDaysAgo(7).end);
     const [sortField, setSortField] = useState("orderDate");
     const [sortDir, setSortDir] = useState("desc");
 
@@ -236,35 +329,75 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
         );
     }, [getMpColor, t]);
 
-    /* ── API SİPARİŞLERİ ÇEK (pazaryeri API) ── */
+    const applyOrderDatePreset = useCallback((days, presetKey) => {
+        const r = rangeFromDaysAgo(days);
+        setStartDate(r.start);
+        setEndDate(r.end);
+        setDatePreset(presetKey);
+        setCurrentPage(1);
+    }, []);
+
+    useEffect(() => {
+        setMpFilter("all");
+        setSearchQuery("");
+        setStatusFilter("all");
+    }, [marketplaceIdsKey]);
+
+    /* ── API SİPARİŞLERİ ÇEK (pazaryeri API) — pazaryerleri paralel ── */
     const fetchApiOrders = useCallback(async () => {
-        if (!marketplaces.length) return;
+        const mps = marketplacesRef.current || [];
+        if (!mps.length) return;
         setLoadingApi(true);
         setError("");
         const collected = [];
+        const failedLabels = [];
 
-        for (const mp of marketplaces) {
-            try {
-                setLoadingMp(mp.marketplaceName || mp.name || "...");
+        const settled = await Promise.allSettled(
+            mps.map(async (mp) => {
+                const label = mp.marketplaceName || mp.name || "…";
+                setLoadingMp(`${label}…`);
                 const params = new URLSearchParams({
                     marketplaceId: mp._id,
                     ...(startDate && { startDate }),
                     ...(endDate && { endDate }),
                 });
-
                 const response = await axios.get(`/orders/all?${params.toString()}`, {
                     headers: { Authorization: `Bearer ${token}` },
                 });
-
-                const orders = (response.data?.orders || []).map(o => ({
+                const mpName = response.data?.marketplace || label;
+                return (response.data?.orders || []).map((o) => ({
                     ...o,
-                    marketplace: response.data?.marketplace || mp.marketplaceName || mp.name || t("orders.unknown"),
+                    marketplace: mpName,
                     marketplaceId: mp._id,
                 }));
-                collected.push(...orders);
-            } catch (err) {
-                // silently skip failed marketplace
+            })
+        );
+
+        settled.forEach((result, idx) => {
+            const label = mps[idx]?.marketplaceName || mps[idx]?.name || `#${idx}`;
+            if (result.status === "fulfilled") {
+                collected.push(...result.value);
+            } else {
+                const msg =
+                    result.reason?.response?.data?.error ||
+                    result.reason?.response?.data?.details ||
+                    result.reason?.message ||
+                    "İstek başarısız";
+                failedLabels.push(`${label}: ${msg}`);
             }
+        });
+
+        if (failedLabels.length === mps.length) {
+            setError(
+                t("orders.allMarketplacesFailed") ||
+                    "Hiçbir pazaryerinden sipariş alınamadı. Bağlantı veya API anahtarlarını kontrol edin."
+            );
+        } else if (failedLabels.length > 0) {
+            setError(
+                (t("orders.partialMarketplaceFailure") || "Bazı pazaryerleri yüklenemedi:") +
+                    " " +
+                    failedLabels.join(" · ")
+            );
         }
 
         collected.sort((a, b) => {
@@ -318,8 +451,13 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
                                 order.products = dbInfo.items;
                             } else {
                                 // Mevcut ürünlerin görsellerini de DB'den gelen zenginleştirilmiş verilerle güncelle
+                                const norm = (s) => String(s || "").trim().toLowerCase();
                                 order.products = order.products.map(p => {
-                                    const dbItem = dbInfo.items.find(di => di.barcode === p.barcode);
+                                    const dbItem = dbInfo.items.find(di =>
+                                        (di.barcode && p.barcode && String(di.barcode) === String(p.barcode)) ||
+                                        (di.sku && (String(di.sku) === String(p.sku || p.merchantSku || ""))) ||
+                                        (di.productName && p.productName && norm(di.productName) === norm(p.productName))
+                                    );
                                     if (dbItem && !isInvalidImg(dbItem.imageUrl)) {
                                         return { ...p, imageUrl: dbItem.imageUrl };
                                     }
@@ -336,18 +474,15 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
         }
 
         setApiOrders(collected);
-        setCurrentPage(1);
         setLoadingApi(false);
         setLoadingMp("");
-    }, [marketplaces, token, startDate, endDate, t]);
+    }, [token, startDate, endDate, t]);
 
-    /* ── İlk yükleme + marketplaces değiştiğinde otomatik çek ── */
-    // ✅ FIX: marketplaces async yüklenince siparişler otomatik çekilsin
+    /* ── Pazaryeri listesi veya tarih gerçekten değişince çek (parent re-render’da tekrarlama yok) ── */
     useEffect(() => {
-        if (marketplaces && marketplaces.length > 0) {
-            fetchApiOrders();
-        }
-    }, [marketplaces]); // eslint-disable-line react-hooks/exhaustive-deps
+        if (!marketplaceIdsKey) return;
+        fetchApiOrders();
+    }, [marketplaceIdsKey, startDate, endDate, fetchApiOrders]);
 
     const handleRefresh = () => {
         fetchApiOrders();
@@ -445,8 +580,8 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
             { field: "marketplace", label: t("orders.marketplace"), width: "10%" },
             { field: "customerName", label: t("orders.customer"), width: "14%" },
             { field: "products", label: t("orders.products"), width: "21%", noSort: true },
-            { field: "totalPrice", label: t("orders.amount"), width: "9%" },
-            { field: "orderDate", label: t("orders.date"), width: "11%" },
+            { field: "totalPrice", label: t("orders.toInvoice"), width: "11%" },
+            { field: "orderDate", label: t("orders.date"), width: "14%" },
             { field: "status", label: t("orders.status"), width: "9%", noSort: true },
             { field: "invoiceStatus", label: t("orders.invoice"), width: "12%", noSort: true },
             { field: "actions", label: "", width: "2%", noSort: true },
@@ -518,7 +653,9 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
                         📦 {t("orders.pageTitle")}
                     </h1>
                     <p style={{ color: C.muted, fontSize: "0.82rem", margin: "0.3rem 0 0 0" }}>
-                        {t("orders.pageSubtitle")}
+                        {isSingleMarketplaceScope && scopeTitleName
+                            ? `${scopeTitleName} — ${t("orders.scopedSubtitle")}`
+                            : t("orders.pageSubtitle")}
                     </p>
                 </div>
 
@@ -596,6 +733,7 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
                     />
                 </div>
 
+                {!isSingleMarketplaceScope && (
                 <select
                     value={mpFilter}
                     onChange={e => { setMpFilter(e.target.value); setCurrentPage(1); }}
@@ -610,15 +748,42 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
                         <option key={mp} value={mp} style={{ background: C.card }}>{mp}</option>
                     ))}
                 </select>
+                )}
 
-                <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)}
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+                    {[
+                        { key: "7", days: 7, label: t("orders.datePreset7") },
+                        { key: "30", days: 30, label: t("orders.datePreset30") },
+                        { key: "90", days: 90, label: t("orders.datePreset90") },
+                    ].map(({ key, days, label }) => (
+                        <button
+                            key={key}
+                            type="button"
+                            onClick={() => applyOrderDatePreset(days, key)}
+                            style={{
+                                padding: "0.45rem 0.65rem",
+                                borderRadius: 8,
+                                border: `1px solid ${datePreset === key ? C.accent : C.glassBr}`,
+                                background: datePreset === key ? `${C.accent}22` : "rgba(255,255,255,0.05)",
+                                color: datePreset === key ? C.accent : C.text,
+                                fontSize: "0.75rem",
+                                fontWeight: 700,
+                                cursor: "pointer",
+                            }}
+                        >
+                            {label}
+                        </button>
+                    ))}
+                </div>
+
+                <input type="date" value={startDate} onChange={e => { setStartDate(e.target.value); setDatePreset("custom"); setCurrentPage(1); }}
                     style={{
                         padding: "0.6rem 0.75rem", background: "rgba(255,255,255,0.05)",
                         border: `1px solid ${C.glassBr}`, borderRadius: 10, color: C.text,
                         fontSize: "0.82rem", outline: "none", cursor: "pointer",
                     }}
                 />
-                <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)}
+                <input type="date" value={endDate} onChange={e => { setEndDate(e.target.value); setDatePreset("custom"); setCurrentPage(1); }}
                     style={{
                         padding: "0.6rem 0.75rem", background: "rgba(255,255,255,0.05)",
                         border: `1px solid ${C.glassBr}`, borderRadius: 10, color: C.text,
@@ -639,9 +804,15 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
                     {loading ? `⏳ ${t("orders.loading")}` : `🔄 ${t("orders.refresh")}`}
                 </motion.button>
 
-                {(searchQuery || mpFilter !== "all" || statusFilter !== "all" || startDate || endDate) && (
+                {(searchQuery || mpFilter !== "all" || statusFilter !== "all" || datePreset !== "7") && (
                     <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
-                        onClick={() => { setSearchQuery(""); setMpFilter("all"); setStatusFilter("all"); setStartDate(""); setEndDate(""); setCurrentPage(1); }}
+                        onClick={() => {
+                            setSearchQuery("");
+                            setMpFilter("all");
+                            setStatusFilter("all");
+                            applyOrderDatePreset(7, "7");
+                            setCurrentPage(1);
+                        }}
                         style={{
                             padding: "0.6rem 1rem", background: `${C.red}15`, border: `1px solid ${C.red}30`,
                             borderRadius: 10, color: C.red, fontSize: "0.82rem", fontWeight: 700,
@@ -706,7 +877,7 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
                     </div>
 
                     <div style={{ overflowX: "auto" }}>
-                        <table style={{ width: "100%", minWidth: 1050, borderCollapse: "collapse" }}>
+                        <table style={{ width: "100%", minWidth: 1120, borderCollapse: "collapse" }}>
                             <thead>
                                 <tr style={{ borderBottom: `1px solid ${C.glassBr}` }}>
                                     {tableColumns.map(col => (
@@ -763,7 +934,11 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
                                         <td style={{ padding: "0.75rem 1rem" }}>
                                             <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                                                 <ProductImage 
-                                                    src={order.imageUrl || (order.items?.[0]?.imageUrl) || (order.products?.[0]?.imageUrl)}
+                                                    src={(() => {
+                                                        const lines = order.products || order.items || [];
+                                                        const firstReal = lines.find((x) => x?.imageUrl && !String(x.imageUrl).includes("placehold.co"));
+                                                        return order.imageUrl || firstReal?.imageUrl || order.items?.[0]?.imageUrl || order.products?.[0]?.imageUrl;
+                                                    })()}
                                                     onClick={(src) => setZoomedImage(src)}
                                                     C={C}
                                                 />
@@ -783,15 +958,46 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
                                                 )}
                                             </div>
                                         </td>
-                                        <td style={{ padding: "0.75rem 1rem" }}>
+                                        <td style={{ padding: "0.75rem 1rem", verticalAlign: "top" }}>
                                             <span style={{ color: C.green, fontSize: "0.85rem", fontWeight: 800 }}>
                                                 {fmtCurrency(order.totalPrice)}
                                             </span>
+                                            {hasOrderDiscountBreakdown(order) ? (
+                                                <div style={{
+                                                    marginTop: "0.28rem",
+                                                    fontSize: "0.64rem",
+                                                    color: C.dim,
+                                                    lineHeight: 1.4,
+                                                    fontWeight: 600,
+                                                    maxWidth: 140,
+                                                }}>
+                                                    <div>{t("orders.grossSales")}: {fmtCurrency(order.grossOrderAmount)}</div>
+                                                    {(parseFloat(order.sellerDiscountTotal || 0) || 0) > 0 ? (
+                                                        <div>− {t("orders.sellerDiscount")}: {fmtCurrency(order.sellerDiscountTotal)}</div>
+                                                    ) : null}
+                                                    {(parseFloat(order.tyDiscountTotal || 0) || 0) > 0 ? (
+                                                        <div>− {t("orders.tyDiscount")}: {fmtCurrency(order.tyDiscountTotal)}</div>
+                                                    ) : null}
+                                                </div>
+                                            ) : null}
                                         </td>
-                                        <td style={{ padding: "0.75rem 1rem" }}>
-                                            <span style={{ color: C.muted, fontSize: "0.78rem", fontWeight: 600 }}>
-                                                {order.orderDate || "N/A"}
-                                            </span>
+                                        <td style={{ padding: "0.75rem 1rem", verticalAlign: "middle" }}>
+                                            {(() => {
+                                                const { date, time } = fmtOrderDateParts(order.orderDate);
+                                                return (
+                                                    <div style={{ display: "flex", flexDirection: "column", gap: "0.2rem", minWidth: 118, lineHeight: 1.35 }}>
+                                                        <span style={{ color: C.text, fontSize: "0.78rem", fontWeight: 700 }}>{date}</span>
+                                                        {time ? (
+                                                            <span style={{
+                                                                color: C.muted,
+                                                                fontSize: "0.72rem",
+                                                                fontWeight: 600,
+                                                                fontVariantNumeric: "tabular-nums",
+                                                            }}>{time}</span>
+                                                        ) : null}
+                                                    </div>
+                                                );
+                                            })()}
                                         </td>
                                         <td style={{ padding: "0.75rem 0.5rem" }}>
                                             {getStatusBadge(order.status)}
@@ -952,8 +1158,12 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
                                     { label: t("orders.marketplace"), value: selectedOrder.marketplace, icon: "🏪" },
                                     { label: t("orders.customer"), value: selectedOrder.customerName || t("orders.unknown"), icon: "👤" },
                                     { label: t("orders.amount"), value: fmtCurrency(selectedOrder.totalPrice), icon: "💰", color: C.green },
-                                    { label: t("orders.date"), value: selectedOrder.orderDate || "N/A", icon: "📅" },
-                                    { label: t("orders.status"), value: selectedOrder.status || t("orders.unknown"), icon: "📦" },
+                                    { label: t("orders.date"), value: fmtDate(selectedOrder.orderDate), icon: "📅" },
+                                    {
+                                        label: t("orders.status"),
+                                        value: getOrderStatusLabelTr(selectedOrder.status || t("orders.unknown")),
+                                        icon: "📦",
+                                    },
                                     { label: t("orders.trackingNo"), value: selectedOrder.trackingNumber || selectedOrder.orderNumber || t("orders.none"), icon: "🚚" },
                                     ...(selectedOrder.cargoCompany ? [{ label: t("orders.cargoCompany"), value: selectedOrder.cargoCompany, icon: "📮" }] : []),
                                 ].map((item, i) => (
@@ -970,6 +1180,48 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId }) => {
                                     </div>
                                 ))}
                             </div>
+
+                            {hasOrderDiscountBreakdown(selectedOrder) ? (
+                                <div style={{
+                                    background: C.glass,
+                                    border: `1px solid ${C.glassBr}`,
+                                    borderRadius: 14,
+                                    padding: "1rem 1.25rem",
+                                    marginBottom: "1.5rem",
+                                }}>
+                                    <h3 style={{ color: C.text, fontSize: "0.9rem", fontWeight: 700, margin: "0 0 0.6rem 0" }}>
+                                        📊 {t("orders.priceBreakdown")}
+                                    </h3>
+                                    <div style={{ display: "grid", gap: "0.35rem", fontSize: "0.82rem", color: C.text }}>
+                                        <div style={{ display: "flex", justifyContent: "space-between" }}>
+                                            <span style={{ color: C.muted }}>{t("orders.grossSales")}</span>
+                                            <span style={{ fontWeight: 700 }}>{fmtCurrency(selectedOrder.grossOrderAmount)}</span>
+                                        </div>
+                                        {(parseFloat(selectedOrder.sellerDiscountTotal || 0) || 0) > 0 ? (
+                                            <div style={{ display: "flex", justifyContent: "space-between" }}>
+                                                <span style={{ color: C.muted }}>{t("orders.sellerDiscount")}</span>
+                                                <span style={{ fontWeight: 700, color: C.red }}>−{fmtCurrency(selectedOrder.sellerDiscountTotal)}</span>
+                                            </div>
+                                        ) : null}
+                                        {(parseFloat(selectedOrder.tyDiscountTotal || 0) || 0) > 0 ? (
+                                            <div style={{ display: "flex", justifyContent: "space-between" }}>
+                                                <span style={{ color: C.muted }}>{t("orders.tyDiscount")}</span>
+                                                <span style={{ fontWeight: 700, color: C.red }}>−{fmtCurrency(selectedOrder.tyDiscountTotal)}</span>
+                                            </div>
+                                        ) : null}
+                                        <div style={{
+                                            display: "flex",
+                                            justifyContent: "space-between",
+                                            marginTop: "0.25rem",
+                                            paddingTop: "0.5rem",
+                                            borderTop: `1px solid ${C.glassBr}`,
+                                        }}>
+                                            <span style={{ color: C.muted, fontWeight: 700 }}>{t("orders.toInvoice")}</span>
+                                            <span style={{ fontWeight: 800, color: C.green }}>{fmtCurrency(selectedOrder.totalPrice)}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            ) : null}
 
                             {/* ── FATURA BİLGİSİ ── */}
                             <div style={{

@@ -25,21 +25,20 @@ const ProductMappingSchema = new mongoose.Schema({
         listPrice: { type: Number },
         stock: { type: Number, required: true, default: 0 },
         vatRate: { type: Number, default: 20 },
+        /** Ay cinsinden; 0 = garantisiz; üst sınır HB/katalog ile uyumlu (masterProductAdapter sıkıştırır) */
+        garantiSuresi: { type: Number, min: 0, max: 120 },
         category: { type: String },
         brand: { type: String },
+        /** N11: paneldeki kargo şablonunun adı (ürün bazlı; boşsa entegrasyon credential kullanılır) */
+        shipmentTemplate: { type: String },
         // Maliyet bilgileri (AI Brain tarafından kullanılır)
         costPrice: { type: Number, default: 0 },
         shippingCost: { type: Number, default: 0 },
         packagingCost: { type: Number, default: 0 },
+        // Pazaryerinden gelen tüm özellikler (Trendyol satır listesi vb.) kaybolmasın diye Mixed
         attributes: {
-            color: String,
-            size: String,
-            weight: Number,
-            dimensions: {
-                width: Number,
-                height: Number,
-                depth: Number
-            }
+            type: mongoose.Schema.Types.Mixed,
+            default: () => ({})
         }
     },
 
@@ -88,6 +87,12 @@ const ProductMappingSchema = new mongoose.Schema({
         // Trendyol ürün yükleme batch takibi (batchRequestId — kuyruk sonucu ayrı sorgulanır)
         trendyolBatchRequestId: { type: String },
         trendyolBatchStatus: { type: String }, // IN_PROGRESS / COMPLETED / API'den gelen ham status
+
+        // Hepsiburada ürün yükleme tracking takibi (import/listing kuyruğu sonucu)
+        hepsiburadaTrackingId: { type: String },
+        hepsiburadaTrackingStatus: { type: String }, // QUEUED / PROCESSING / COMPLETED / FAILED / API ham status
+        /** true = vitrinde satışa hazır (MATCHED / Satışa Hazır); MPOP "İncelenecek" vb. için false veya alan yok */
+        hepsiburadaListingReady: { type: Boolean },
 
         // Pazaryerinden çekilme tarihi
         pulledFromMarketplace: { type: Boolean, default: false },
@@ -152,6 +157,50 @@ ProductMappingSchema.index({ userId: 1, "masterProduct.barcode": 1 }, { unique: 
 ProductMappingSchema.index({ userId: 1, "masterProduct.sku": 1 });
 ProductMappingSchema.index({ "marketplaceMappings.marketplaceName": 1, "marketplaceMappings.marketplaceProductId": 1 });
 
+/** Pazaryeri adını kategori kuralı için normalize et (Türkçe karakter / büyük-küçük) */
+const normMp = (name) =>
+    String(name || "")
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/\p{M}/gu, "")
+        .replace(/ı/g, "i");
+
+/** Listelenmiş veya senkronlanmış kanallarda yaprak kategori ID zorunlu platformlar */
+const MARKETPLACES_REQUIRING_CATEGORY_ID = ["trendyol", "hepsiburada", "n11"];
+
+ProductMappingSchema.pre("validate", function(next) {
+    try {
+        if (!/^(1|true|yes)$/i.test(String(process.env.PRODUCT_MAPPING_REQUIRE_CATEGORY_ID || ""))) {
+            return next();
+        }
+        const maps = this.marketplaceMappings || [];
+        for (let i = 0; i < maps.length; i++) {
+            const m = maps[i];
+            if (m == null) continue;
+            const inactive = m.isActive === false;
+            const cid = m.categoryId != null ? String(m.categoryId).trim() : "";
+            const listed =
+                (m.marketplaceProductId && String(m.marketplaceProductId).trim() !== "") ||
+                m.isSynced === true ||
+                m.syncStatus === "synced" ||
+                m.syncStatus === "syncing";
+            if (inactive || !listed) continue;
+
+            const key = normMp(m.marketplaceName);
+            const needsCat = MARKETPLACES_REQUIRING_CATEGORY_ID.some((p) => key.includes(p));
+            if (needsCat && !cid) {
+                return next(
+                    new Error(
+                        `Pazaryeri "${m.marketplaceName}" için yaprak kategori ID (categoryId) zorunludur (ürün listelenmiş veya senkron durumunda).`
+                    )
+                );
+            }
+        }
+        next();
+    } catch (e) {
+        next(e);
+    }
+});
 
 // Stok durumunu güncelle
 ProductMappingSchema.methods.updateStockStatus = function() {

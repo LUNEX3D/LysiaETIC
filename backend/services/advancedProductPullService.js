@@ -5,6 +5,7 @@ const Marketplace = require("../models/Marketplace");
 const AsyncJob = require("../models/AsyncJob");
 const logger = require("../config/logger");
 const n11Service = require("./n11Service");
+const masterProductAdapter = require("./masterProductAdapter");
 // ✅ FIX: Credential'ları decrypt ederek kullan
 const { decryptCredentials } = require("../utils/encryption");
 
@@ -93,7 +94,7 @@ const fetchHepsiburadaCategories = async (credentials) => {
     }
 
     const { merchantId, secretKey, userAgent } = hbCreds;
-    return hbFetchCats(merchantId, secretKey, userAgent, { onlyLeaf: false });
+    return hbFetchCats(merchantId, secretKey, userAgent, { onlyLeaf: false, useSit: hbCreds.useSit });
 };
 
 // Pazaryerinden kategorileri çek ve kaydet
@@ -289,7 +290,9 @@ const fetchHepsiburadaProductsAdvanced = async (credentials, jobId) => {
         getHeaders,
         getEndpoints,
         validateCredentials,
-        buildHepsiburadaCategoryNameMap
+        buildHepsiburadaCategoryNameMap,
+        isHepsiburadaListingUnavailableError,
+        buildHepsiburadaAdvancedPullRowsFromMpopMap
     } = require("./hepsiburadaService");
     const hbCreds = normalizeCredentials(credentials);
 
@@ -305,7 +308,10 @@ const fetchHepsiburadaProductsAdvanced = async (credentials, jobId) => {
     // ── Adım 0: Kategori map — HB+HX+HC (type birleşik)
     let categoryMap = new Map();
     try {
-        categoryMap = await buildHepsiburadaCategoryNameMap(merchantId, secretKey, userAgent, { onlyLeaf: true });
+        categoryMap = await buildHepsiburadaCategoryNameMap(merchantId, secretKey, userAgent, {
+            onlyLeaf: true,
+            useSit: hbCreds.useSit
+        });
         logger.info(`[Hepsiburada CAT] ${categoryMap.size} kategori çekildi`);
     } catch (catErr) {
         logger.warn(`[Hepsiburada CAT] Kategori çekme hatası: ${catErr.message}`);
@@ -388,11 +394,30 @@ const fetchHepsiburadaProductsAdvanced = async (credentials, jobId) => {
             }
         } catch (error) {
             logger.error("Hepsiburada ürün çekme hatası:", error.response?.data || error.message);
+            if (
+                offset === 0 &&
+                products.length === 0 &&
+                mpopDetailMap.size > 0 &&
+                isHepsiburadaListingUnavailableError(error)
+            ) {
+                logger.warn(
+                    `[Hepsiburada] Listing API hata/404 — MPOP’tan ${mpopDetailMap.size} kayıt ile çekim ` +
+                    `(fiyat/stok listing sonrası dolacak).`
+                );
+                return buildHepsiburadaAdvancedPullRowsFromMpopMap(mpopDetailMap, categoryMap);
+            }
             if (offset === 0 && products.length === 0) {
                 throw error;
             }
             hasMore = false;
         }
+    }
+
+    if (products.length === 0 && mpopDetailMap.size > 0) {
+        logger.warn(
+            `[Hepsiburada] Listing’de satır yok — MPOP’tan ${mpopDetailMap.size} kayıt ile çekim.`
+        );
+        return buildHepsiburadaAdvancedPullRowsFromMpopMap(mpopDetailMap, categoryMap);
     }
 
     return products;
@@ -557,32 +582,43 @@ const normalizeProduct = (rawProduct, marketplaceName) => {
     };
 
     switch (marketplaceName) {
-        case "Trendyol":
-            normalized.marketplaceProductId = rawProduct.productCode || rawProduct.id;
-            normalized.barcode = rawProduct.barcode || "";
-            normalized.sku = rawProduct.stockCode || "";
-            normalized.name = rawProduct.title || "";
-            normalized.description = rawProduct.description || "";
-            normalized.price = rawProduct.salePrice || 0;
-            normalized.listPrice = rawProduct.listPrice || 0;
-            normalized.stock = rawProduct.quantity || 0;
+        case "Trendyol": {
+            const master = masterProductAdapter.fromTrendyol(rawProduct);
+            normalized.marketplaceProductId = String(master.marketplaceProductId || rawProduct.productCode || rawProduct.id || "");
+            normalized.barcode = master.barcode || "";
+            normalized.sku = master.sku || "";
+            normalized.name = master.title || "";
+            normalized.description = master.description || "";
+            normalized.price = master.price || 0;
+            normalized.listPrice = master.listPrice || 0;
+            normalized.stock = master.stock ?? 0;
             normalized.category = {
                 id: rawProduct.categoryId || "",
-                name: rawProduct.categoryName || "",
+                name: master.category || rawProduct.categoryName || "",
                 path: rawProduct.categoryPath || []
             };
             normalized.images = (rawProduct.images || []).map(img => ({
-                url: img.url || img,
+                url: typeof img === "string" ? img : (img.url || ""),
                 order: img.order || 0
             }));
             normalized.attributes = {
-                color: rawProduct.attributes?.find(a => a.attributeName === "Renk")?.attributeValue || "",
-                size: rawProduct.attributes?.find(a => a.attributeName === "Beden")?.attributeValue || "",
-                weight: rawProduct.weight || 0,
-                brand: rawProduct.brand || "",
+                color: master.attributes?.color || "",
+                size: master.attributes?.size || "",
+                weight: rawProduct.weight || rawProduct.dimensionalWeight || 0,
+                brand: master.brand || "",
                 custom: new Map()
             };
+            const skip = new Set(["color", "size", "gender", "material", "model"]);
+            for (const [k, v] of Object.entries(master.attributes || {})) {
+                if (skip.has(k) || v == null || v === "") continue;
+                if (k === "trendyolAttributeRows" && Array.isArray(v)) {
+                    normalized.marketplaceData.set("trendyolAttributeRows", v);
+                    continue;
+                }
+                normalized.attributes.custom.set(k, v);
+            }
             break;
+        }
 
         case "N11":
         case "n11":

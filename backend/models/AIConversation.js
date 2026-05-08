@@ -33,6 +33,10 @@ const MessageSchema = new mongoose.Schema({
         dataSnapshot: { type: mongoose.Schema.Types.Mixed }, // relevant data at time of message
         emotionalTone: { type: String },     // positive, neutral, urgent, etc.
         suggestions: [{ type: String }],     // quick reply suggestions
+        agentTrace: [{ type: mongoose.Schema.Types.Mixed }], // ajan adımları (id, label, detail, status)
+        agentModel: { type: String },
+        agentNote: { type: String },
+        llmModel: { type: String },
     },
 
     timestamp: { type: Date, default: Date.now },

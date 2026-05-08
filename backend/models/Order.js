@@ -10,6 +10,10 @@ const OrderSchema = new mongoose.Schema({
     marketplace: { type: mongoose.Schema.Types.ObjectId, ref: "Marketplace" },
     marketplaceName: { type: String, default: "Diğer" },
     totalPrice: { type: Number, required: true },
+    /** Pazaryeri brüt satış (Trendyol: Satış tutarı) — totalPrice genelde faturalanacak net */
+    grossOrderAmount: { type: Number, default: 0 },
+    sellerDiscountTotal: { type: Number, default: 0 },
+    tyDiscountTotal: { type: Number, default: 0 },
     orderDate: { type: Date, default: Date.now },
     status: { type: String, required: true, default: "Created" },
     trackingNumber: { type: String, default: "" },
@@ -51,6 +55,8 @@ const OrderSchema = new mongoose.Schema({
             productName: { type: String, required: true },
             quantity: { type: Number, required: true },
             barcode: { type: String, required: true },
+            /** Pazaryeri satıcı SKU (Trendyol merchantSku vb.) — stok görseli eşlemesi için */
+            sku: { type: String, default: "" },
             imageUrl: { type: String, default: "https://via.placeholder.com/150" },
             price: { type: Number, required: true },
             category: { type: String, default: "Bilinmiyor" },

@@ -66,6 +66,7 @@ const SaasReports            = lazy(() => import("./pages/SaasReports"));
 const SaasAnnouncements      = lazy(() => import("./pages/SaasAnnouncements"));
 const SaasTickets            = lazy(() => import("./pages/SaasTickets"));
 const SaasAuditLogs          = lazy(() => import("./pages/SaasAuditLogs"));
+const AdminClientErrors      = lazy(() => import("./pages/AdminClientErrors"));
 const SaasSystemConfig       = lazy(() => import("./pages/SaasSystemConfig"));
 const SaasPlanManager        = lazy(() => import("./pages/SaasPlanManager"));
 
@@ -78,6 +79,7 @@ const PriceSyncPage          = lazy(() => import("./pages/PriceSyncPage"));
 const FinancePage            = lazy(() => import("./pages/FinancePage"));
 const BillingPage            = lazy(() => import("./pages/BillingPage"));
 const SubscriptionPage       = lazy(() => import("./pages/SubscriptionPage"));
+const ErrorCenterPage        = lazy(() => import("./pages/ErrorCenterPage"));
 const PaymentResult          = lazy(() => import("./pages/PaymentResult"));
 // AdminSubscriptionManager kaldırıldı — /admin/subscription-manager → /admin/subscriptions redirect ile yönetiliyor
 
@@ -306,6 +308,7 @@ const AppContent = () => {
             {/* Sistem & Güvenlik */}
             <Route path="/admin/servers" element={<ProtectedRoute requiredRoles={["admin","dev"]}><AdminServers /></ProtectedRoute>} />
             <Route path="/admin/audit-logs" element={<ProtectedRoute requiredRoles={["admin","dev"]}><SaasAuditLogs /></ProtectedRoute>} />
+            <Route path="/admin/client-errors" element={<ProtectedRoute requiredRoles={["admin","dev"]}><AdminClientErrors /></ProtectedRoute>} />
             <Route path="/admin/system-config" element={<ProtectedRoute requiredRoles={["admin","dev"]}><SaasSystemConfig /></ProtectedRoute>} />
 
             {/* Pazaryeri Entegrasyonu — Giriş gerekli */}
@@ -328,6 +331,7 @@ const AppContent = () => {
 
             {/* Abonelik & Ödeme */}
             <Route path="/subscription" element={<ProtectedRoute><SubscriptionPage /></ProtectedRoute>} />
+            <Route path="/errors" element={<ProtectedRoute><ErrorCenterPage /></ProtectedRoute>} />
             <Route path="/payment/success" element={<PaymentResult />} />
             <Route path="/payment/failed" element={<PaymentResult />} />
 

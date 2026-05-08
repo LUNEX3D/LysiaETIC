@@ -24,6 +24,7 @@ import {
 } from "../services/productManagementApi";
 import { getUserMarketplaces } from "../services/marketplaceApi";
 import { getCategoryTree, searchCategories } from "../services/categoryCenterApi";
+import { logUiClientError, logUserActivity } from "../services/errorCenterLog";
 import "../styles/ProductUploadWizard.css";
 
 /* ═══════════════════════════════════════════════════════════════
@@ -292,7 +293,8 @@ const ProductUploadWizard = ({ userId }) => {
         vatRate: "20",
         dimensionalWeight: "1",
         trendyolBrandId: "",
-        trendyolCargoCompanyId: "10"
+        trendyolCargoCompanyId: "10",
+        n11ShipmentTemplate: ""
     });
 
     /** Trendyol getCategoryAttributes satırları + seçimler */
@@ -427,8 +429,11 @@ const ProductUploadWizard = ({ userId }) => {
     const n11ShipmentBlocked = useMemo(() => {
         if (!uf.targetMarketplaces.includes("N11")) return false;
         const h = n11MarketplaceRecord?.integrationHints;
-        return h?.requiresShipmentTemplate === true && h?.shipmentTemplateConfigured === false;
-    }, [uf.targetMarketplaces, n11MarketplaceRecord]);
+        if (h?.requiresShipmentTemplate !== true) return false;
+        const fromIntegration = h?.shipmentTemplateConfigured === true;
+        const fromWizard = Boolean(String(uf.n11ShipmentTemplate || "").trim());
+        return !fromIntegration && !fromWizard;
+    }, [uf.targetMarketplaces, n11MarketplaceRecord, uf.n11ShipmentTemplate]);
 
     /** Trendyol kategori özellikleri: önce zorunlu, sonra ada göre (panelde taranabilir) */
     const trendyolAttrRowsSorted = useMemo(() => {
@@ -540,10 +545,13 @@ const ProductUploadWizard = ({ userId }) => {
                 showToast(`${uploİadedUrls.length} gorsel yuklendi`);
             }
             if (uploİadedUrls.length < toUpload.length) {
+                logUiClientError("product_upload", "Bazı görseller yüklenemedi", { path: "/product-upload/image" });
                 showToast("Bazi gorseller yuklenemedi", "error");
             }
         } catch (err) {
-            showToast(err?.response?.data?.error || "Gorsel yukleme hatasi", "error");
+            const imgErr = err?.response?.data?.error || "Gorsel yukleme hatasi";
+            logUiClientError("product_upload", imgErr, { path: "/product-upload/image" });
+            showToast(imgErr, "error");
         } finally {
             setImgUploading(false);
         }
@@ -775,36 +783,57 @@ const ProductUploadWizard = ({ userId }) => {
        ÜRÜN OLUŞTUR & DAĞIT
        ═══════════════════════════════════════════════════════════ */
     const handleCreate = async () => {
-        if (!uf.name || !uf.barcode || !uf.sku || !uf.price) return showToast("Ad, barkod, SKU ve fiyat zorunlu", "error");
-        if (!pricePositive) return showToast("Satış fiyatı 0'dan büyük olmalıdır.", "error");
+        const toastErr = (msg) => {
+            logUiClientError("product_upload", String(msg), { path: "/product-upload" });
+            showToast(msg, "error");
+        };
+        if (!uf.name || !uf.barcode || !uf.sku || !uf.price) {
+            toastErr("Ad, barkod, SKU ve fiyat zorunlu");
+            return;
+        }
+        if (!pricePositive) {
+            toastErr("Satış fiyatı 0'dan büyük olmalıdır.");
+            return;
+        }
         if (uf.targetMarketplaces.includes("Trendyol")) {
             const t = uf.name.trim();
-            if (t.length > 100) return showToast("Trendyol ürün adı en fazla 100 karakter olabilir", "error");
+            if (t.length > 100) {
+                toastErr("Trendyol ürün adı en fazla 100 karakter olabilir");
+                return;
+            }
         }
         if (uf.targetMarketplaces.includes("N11") && uf.name.trim().length < 15) {
-            return showToast("N11: Ürün adı en az 15 karakter olmalıdır.", "error");
+            toastErr("N11: Ürün adı en az 15 karakter olmalıdır.");
+            return;
         }
         if (n11ShipmentBlocked) {
-            return showToast(
-                "N11: Entegrasyon ayarlarına paneldeki kargo şablonu adını (shipmentTemplate) kaydedin; ardından tekrar deneyin.",
-                "error"
+            toastErr(
+                "N11: Kargo şablon adı gerekli. Bu adımdaki N11 alanına yazın veya pazaryeri entegrasyonunda tanımlayın."
             );
+            return;
         }
         if (uf.targetMarketplaces.includes("Trendyol")) {
             if (!trendyolAttrGateOk) {
-                if (tyAttrState.loading) return showToast("Trendyol kategori özellikleri yükleniyor; lütfen bekleyin.", "error");
-                if (tyAttrState.error) return showToast(`Trendyol özellik listesi: ${tyAttrState.error}`, "error");
-                if (!catState.Trendyol?.selected?.id) return showToast("Trendyol için yaprak kategori seçin.", "error");
-                return showToast(
-                    "Trendyol: Bu kategoride özellik listesi yok veya eksik — yaprak kategori seçin.",
-                    "error"
-                );
+                if (tyAttrState.loading) {
+                    toastErr("Trendyol kategori özellikleri yükleniyor; lütfen bekleyin.");
+                    return;
+                }
+                if (tyAttrState.error) {
+                    toastErr(`Trendyol özellik listesi: ${tyAttrState.error}`);
+                    return;
+                }
+                if (!catState.Trendyol?.selected?.id) {
+                    toastErr("Trendyol için yaprak kategori seçin.");
+                    return;
+                }
+                toastErr("Trendyol: Bu kategoride özellik listesi yok veya eksik — yaprak kategori seçin.");
+                return;
             }
             if (!trendyolManualAttrsOk) {
-                return showToast(
-                    "Trendyol: Zorunlu özelliklerde \"Listeden seç\" veya \"Özel metin\" seçtiyseniz değerleri doldurun.",
-                    "error"
+                toastErr(
+                    "Trendyol: Zorunlu özelliklerde \"Listeden seç\" veya \"Özel metin\" seçtiyseniz değerleri doldurun."
                 );
+                return;
             }
         }
         setUploadLoading(true);
@@ -816,27 +845,25 @@ const ProductUploadWizard = ({ userId }) => {
             remoteUrls = normalizePublicImageUrls(remoteUrls, uf.targetMarketplaces);
             const hasOnlyLocalFiles = remoteUrls.length === 0 && imgFiles.length > 0;
             if (hasOnlyLocalFiles && uf.targetMarketplaces.length > 0) {
-                return showToast(
-                    "Yerel dosya görselleri pazaryerine gönderilemez. Lütfen Adım 2'de en az 1 adet https:// görsel URL ekleyin.",
-                    "error"
+                toastErr(
+                    "Yerel dosya görselleri pazaryerine gönderilemez. Lütfen Adım 2'de en az 1 adet https:// görsel URL ekleyin."
                 );
+                return;
             }
             const platformsNeedingImages = uf.targetMarketplaces.filter((p) =>
                 PLATFORMS_NEED_IMAGE_URL.has(p)
             );
             if (platformsNeedingImages.length > 0 && remoteUrls.length === 0) {
-                return showToast(
-                    `${platformsNeedingImages.join(", ")} için Adım 2'de en az bir görsel URL (http veya https) ekleyin.`,
-                    "error"
+                toastErr(
+                    `${platformsNeedingImages.join(", ")} için Adım 2'de en az bir görsel URL (http veya https) ekleyin.`
                 );
+                return;
             }
             if (uf.targetMarketplaces.includes("N11")) {
                 const hasHttpsImage = remoteUrls.some((u) => /^https:\/\//i.test(u));
                 if (!hasHttpsImage) {
-                    return showToast(
-                        "N11 en az bir https:// ile başlayan görsel URL zorunlu kılar.",
-                        "error"
-                    );
+                    toastErr("N11 en az bir https:// ile başlayan görsel URL zorunlu kılar.");
+                    return;
                 }
             }
             const imgs = remoteUrls;
@@ -849,10 +876,10 @@ const ProductUploadWizard = ({ userId }) => {
                     const selectedId = String(cs.selected.id || "").trim();
                     const validCategoryId = /^\d+$/.test(selectedId) && Number(selectedId) > 0;
                     if (!validCategoryId) {
-                        return showToast(
-                            `${pName} için seçilen kategori geçersiz (categoryId yok). Lütfen ağaçtan başka bir kategori seçin.`,
-                            "error"
+                        toastErr(
+                            `${pName} için seçilen kategori geçersiz (categoryId yok). Lütfen ağaçtan başka bir kategori seçin.`
                         );
+                        return;
                     }
                     platformCategories[pName] = {
                         categoryId: selectedId,
@@ -889,7 +916,10 @@ const ProductUploadWizard = ({ userId }) => {
                 platformCategories,
                 vatRate: uf.vatRate !== "" ? Number(uf.vatRate) : 20,
                 dimensionalWeight: uf.dimensionalWeight !== "" ? Number(uf.dimensionalWeight) : undefined,
-                marketplaceExtras
+                marketplaceExtras,
+                n11ShipmentTemplate: uf.targetMarketplaces.includes("N11")
+                    ? String(uf.n11ShipmentTemplate || "").trim()
+                    : ""
             });
 
             const dist = r.distributeResults || [];
@@ -903,15 +933,47 @@ const ProductUploadWizard = ({ userId }) => {
             if (allMarketplacesFailed) {
                 setUploadResult({ success: false, message: msg });
                 showToast(msg, "error");
+                for (const row of distFailed) {
+                    const mp = row.marketplaceName || row.platform || row.marketplace || "pazaryeri";
+                    const detail = row.message || row.error || row.reason || row.detail || "Dağıtım başarısız";
+                    logUiClientError("marketplace", `${mp}: ${detail}`, { path: `/dagitim/${mp}`, meta: row });
+                }
             } else if (partialFail) {
                 setUploadResult({ success: true, message: msg, distributeWarning: true });
                 showToast(msg, "error");
+                for (const row of distFailed) {
+                    const mp = row.marketplaceName || row.platform || row.marketplace || "pazaryeri";
+                    const detail = row.message || row.error || row.reason || row.detail || "Dağıtım başarısız";
+                    logUiClientError("marketplace", `${mp}: ${detail}`, { path: `/dagitim/${mp}`, meta: row });
+                }
+                logUserActivity(
+                    "product_upload",
+                    "Ürün kaydedildi — kısmi pazaryeri hatası",
+                    msg,
+                    "warning",
+                    { sku: uf.sku.trim(), barcode: uf.barcode.trim(), targets: [...uf.targetMarketplaces] }
+                );
             } else {
                 setUploadResult({ success: true, message: msg });
                 showToast(msg);
+                logUserActivity(
+                    "product_upload",
+                    "Ürün oluşturuldu / dağıtıldı",
+                    msg,
+                    "success",
+                    { sku: uf.sku.trim(), barcode: uf.barcode.trim(), targets: [...uf.targetMarketplaces] }
+                );
             }
         } catch (e) {
             const errData = e.response?.data;
+            const errMsg =
+                e.response?.status === 409 && errData?.error
+                    ? String(errData.error)
+                    : String(errData?.error || e.message || "Kayıt hatası");
+            logUiClientError("product_upload", errMsg, {
+                path: "/product-upload/create",
+                meta: { status: e.response?.status, type: errData?.type, conflicts: errData?.conflicts },
+            });
             if (e.response?.status === 409 && errData?.type) {
                 const conflict = errData.conflicts?.[errData.type];
                 const conflictInfo = conflict ? ` → Mevcut: "${conflict.name}"` : "";
@@ -932,7 +994,8 @@ const ProductUploadWizard = ({ userId }) => {
         setUf({
             name: "", barcode: "", sku: "", description: "", price: "", listPrice: "", stock: "0",
             brand: "", imageUrls: [], targetMarketplaces: defaultTargets,
-            vatRate: "20", dimensionalWeight: "1", trendyolBrandId: "", trendyolCargoCompanyId: "10"
+            vatRate: "20", dimensionalWeight: "1", trendyolBrandId: "", trendyolCargoCompanyId: "10",
+            n11ShipmentTemplate: ""
         });
         setImgFiles([]); setCodeSugg(null); setCatState({}); setStep(1); setUploadResult(null);
         setTyAttrState({ loading: false, error: null, rows: [] }); setTySelections({});
@@ -1462,11 +1525,32 @@ const ProductUploadWizard = ({ userId }) => {
                                             <div style={{ color: "var(--puw-red)", fontSize: 11, display: "flex", alignItems: "flex-start", gap: 8, padding: "10px 14px", marginBottom: 14, borderRadius: 8, border: "1px solid rgba(239,68,68,0.25)", background: "rgba(239,68,68,0.06)" }}>
                                                 <FaExclamationTriangle style={{ flexShrink: 0, marginTop: 2 }} />
                                                 <span>
-                                                    N11 ürün yüklemek için entegrasyon kaydınızda <strong>shipmentTemplate</strong> (paneldeki kargo şablonu adı, birebir) tanımlı olmalıdır. Pazaryeri ayarlarını güncelleyin.
+                                                    N11 için <strong>kargo şablon adı</strong> gerekir. Aşağıdaki alana N11 panelindeki şablon adını yazın veya pazaryeri entegrasyonunda <strong>Kargo Şablon Adı</strong> alanını doldurun (birebir aynı metin).
                                                 </span>
                                             </div>
                                         )}
-                                        {uf.targetMarketplaces.includes("Hepsiburada") && (
+                                        {uf.targetMarketplaces.includes("N11") && (
+                                            <div style={{ marginBottom: 14, padding: "12px 14px", borderRadius: 8, border: "1px solid rgba(139,92,246,0.25)", background: "rgba(139,92,246,0.06)" }}>
+                                                <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--puw-text)", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+                                                    <FaStore style={{ color: "#8b5cf6" }} /> N11 kargo şablonu
+                                                </div>
+                                                <label className="puw-field" style={{ display: "block", marginBottom: 6 }}>
+                                                    <span style={{ fontSize: 11, color: "var(--puw-text-dim)", display: "block", marginBottom: 4 }}>Şablon adı (panel ile aynı)</span>
+                                                    <input
+                                                        className="puw-input"
+                                                        type="text"
+                                                        value={uf.n11ShipmentTemplate}
+                                                        onChange={(e) => ufSet("n11ShipmentTemplate", e.target.value)}
+                                                        placeholder="Örn: STANDART"
+                                                        autoComplete="off"
+                                                        disabled={uploadLoading}
+                                                    />
+                                                </label>
+                                                <div style={{ fontSize: 10, color: "var(--puw-text-dim)", lineHeight: 1.45 }}>
+                                                    Boş bırakırsanız entegrasyonda kayıtlı şablon kullanılır. Bu ürün için farklı bir şablon kullanacaksanız buraya yazın; ürün kaydına da işlenir.
+                                                </div>
+                                            </div>
+                                        )}
                                             <div style={{ color: "var(--puw-text-dim)", fontSize: 11, display: "flex", alignItems: "flex-start", gap: 8, padding: "10px 14px", marginBottom: 14, borderRadius: 8, border: "1px solid rgba(255,96,0,0.2)", background: "rgba(255,96,0,0.05)" }}>
                                                 <FaInfoCircle style={{ flexShrink: 0, marginTop: 2 }} />
                                                 <span>

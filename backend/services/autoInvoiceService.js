@@ -39,6 +39,32 @@ const qnbService = require("./qnbEInvoiceService");
 // Ardışık hata limiti — bu kadar hatadan sonra otomatik fatura devre dışı kalır
 const MAX_CONSECUTIVE_ERRORS = 5;
 
+/**
+ * Tetikleme listesi boşken kullanılacak dar varsayılan (erken sipariş durumlarında otomatik kesim yok)
+ */
+const SAFE_DEFAULT_TRIGGER_STATUSES = [
+    "Shipped", "SHIPPED", "Delivered", "DELIVERED", "Complete", "Completed", "COMPLETED",
+    "InTransit", "IN_TRANSIT", "Kargoda", "Kargoya Verildi", "Teslim Edildi", "Teslim",
+    "Tamamlandı", "Packed", "PACKED", "ReadyToShip", "READY_TO_SHIP",
+    "PartiallyShipped", "Gönderildi",
+];
+
+/**
+ * Sipariş tarihinin üzerinden en az `delayDays` tam takvim günü geçti mi (yerel tarih)
+ * @param {Date|string} orderDate
+ * @param {number} delayDays
+ */
+const isOrderPastInvoiceDelay = (orderDate, delayDays, now = new Date()) => {
+    if (delayDays == null || delayDays <= 0) return true;
+    const od = orderDate instanceof Date ? orderDate : new Date(orderDate);
+    if (isNaN(od.getTime())) return true;
+    const startOd = new Date(od.getFullYear(), od.getMonth(), od.getDate());
+    const deadline = new Date(startOd);
+    deadline.setDate(deadline.getDate() + Math.min(90, Math.floor(Number(delayDays) || 0)));
+    const startNow = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    return startNow >= deadline;
+};
+
 // ═══════════════════════════════════════════════════════════════════════════════
 //  PAZARYERI BAZLI DURUM HARİTALARI
 //  Her pazaryerinin sipariş durumu farklı terminoloji kullanır.
@@ -143,31 +169,14 @@ const normalizeMarketplaceName = (name) => {
 
 /**
  * Verilen pazaryeri ve config için geçerli tetikleme durumlarını döndür
- * Öncelik: config.triggerStatuses > MARKETPLACE_STATUS_MAP > geniş varsayılan
+ * Öncelik: config.triggerStatuses (doluysa) > güvenli varsayılan (Shipped benzeri)
  */
 const getEffectiveTriggerStatuses = (config, marketplaceName) => {
-    // Kullanıcı özel durum listesi tanımladıysa onu kullan
     if (config.triggerStatuses && config.triggerStatuses.length > 0) {
         return config.triggerStatuses;
     }
-
-    const normalized = normalizeMarketplaceName(marketplaceName);
-
-    // Pazaryerine özel durum haritası
-    if (MARKETPLACE_STATUS_MAP[normalized]) {
-        return MARKETPLACE_STATUS_MAP[normalized];
-    }
-
-    // Geniş varsayılan — tüm bilinen durumları kapsar
-    return [
-        "Created", "New", "Yeni", "Approved", "Onaylandı",
-        "Processing", "İşlemde", "Picking", "Hazırlanıyor",
-        "Shipped", "Kargoda", "Kargoya Verildi", "InTransit",
-        "Delivered", "Teslim Edildi", "Teslim", "Complete", "Completed",
-        "Tamamlandı", "Packed", "ReadyToShip", "Unshipped",
-        "PartiallyShipped", "Open", "OPEN", "Paid",
-        "Invoiced", "Gönderildi", "Hazırlandı", "Sipariş Alındı",
-    ];
+    void marketplaceName;
+    return SAFE_DEFAULT_TRIGGER_STATUSES;
 };
 
 /**
@@ -185,7 +194,21 @@ const getMarketplaceSpecificSettings = (config, marketplaceName) => {
         note: mpSettings?.note || config.defaultNote || "",
         pricesIncludeVat: mpSettings?.pricesIncludeVat ?? (config.pricesIncludeVat !== false),
         invoiceSeriesCode: mpSettings?.invoiceSeriesCode || config.invoiceSeriesCode || "LYS",
+        invoiceDelayDays: mpSettings?.invoiceDelayDays,
     };
+};
+
+/**
+ * Genel veya pazaryeri özel fatura gecikmesi (tam gün, 0–90)
+ */
+const getEffectiveInvoiceDelayDays = (config, marketplaceName) => {
+    const mp = getMarketplaceSpecificSettings(config, marketplaceName);
+    if (typeof mp.invoiceDelayDays === "number" && mp.invoiceDelayDays >= 0) {
+        return Math.min(90, Math.floor(mp.invoiceDelayDays));
+    }
+    const g = config.invoiceDelayDays;
+    if (typeof g === "number" && g >= 0) return Math.min(90, Math.floor(g));
+    return 0;
 };
 
 /**
@@ -194,9 +217,17 @@ const getMarketplaceSpecificSettings = (config, marketplaceName) => {
  * @param {string} userId - Kullanıcı ID
  * @param {string} marketplaceName - Pazaryeri adı (Trendyol, Hepsiburada...)
  * @param {Array} newOrderIds - Yeni kaydedilen sipariş MongoDB _id'leri
+ * @param {object} [options]
+ * @param {boolean} [options.skipDelayCheck] - Manuel tetikte gecikme filtresini atla
+ * @param {boolean} [options.bypassStatusFilter] - Durum filtresini atla (ör. seçili siparişleri faturala)
+ * @param {boolean} [options.ignoreEnabled] - Otomatik kapalı olsa da çalış (manuel tetik)
  * @returns {Object} { processed, invoiced, skipped, errors }
  */
-const processAutoInvoice = async (userId, marketplaceName, newOrderIds) => {
+const processAutoInvoice = async (userId, marketplaceName, newOrderIds, options = {}) => {
+    const skipDelayCheck = !!options.skipDelayCheck;
+    const bypassStatusFilter = !!options.bypassStatusFilter;
+    const ignoreEnabled = !!options.ignoreEnabled;
+
     const stats = { processed: 0, invoiced: 0, skipped: 0, errors: 0 };
 
     if (!newOrderIds || newOrderIds.length === 0) {
@@ -206,13 +237,17 @@ const processAutoInvoice = async (userId, marketplaceName, newOrderIds) => {
     try {
         // ── 1. Config kontrol ─────────────────────────────────────────────
         const config = await AutoInvoiceConfig.findOne({ userId });
-        if (!config || !config.enabled) {
+        if (!config) {
+            logger.info("[AutoInvoice] Ayar bulunamadı — userId=" + userId);
+            return stats;
+        }
+        if (!ignoreEnabled && !config.enabled) {
             logger.info("[AutoInvoice] Devre dışı — userId=" + userId);
             return stats;
         }
 
-        // Ardışık hata limiti aşıldıysa otomatik devre dışı
-        if (config.stats.consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+        // Ardışık hata limiti aşıldıysa otomatik devre dışı — manuel tetikle bypass etme
+        if (!ignoreEnabled && config.stats.consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
             logger.warn("[AutoInvoice] Ardışık hata limiti aşıldı (" + MAX_CONSECUTIVE_ERRORS + "), devre dışı — userId=" + userId);
             config.enabled = false;
             config.stats.lastError = "Ardışık hata limiti aşıldı, otomatik fatura devre dışı bırakıldı.";
@@ -234,6 +269,12 @@ const processAutoInvoice = async (userId, marketplaceName, newOrderIds) => {
         // Satıcı bilgisi zorunlu
         if (!config.supplier || !config.supplier.vkn) {
             logger.warn("[AutoInvoice] Satıcı VKN bilgisi eksik — userId=" + userId);
+            return stats;
+        }
+
+        // Otomatik yol: yalnızca QNB (diğer provider enum'da olsa da entegrasyon yok)
+        if (config.provider && config.provider !== "qnb") {
+            logger.warn("[AutoInvoice] Otomatik kesim şu an yalnızca QNB ile destekleniyor — provider=" + config.provider + " userId=" + userId);
             return stats;
         }
 
@@ -263,16 +304,23 @@ const processAutoInvoice = async (userId, marketplaceName, newOrderIds) => {
             return stats;
         }
 
-        // Durum filtresi — pazaryerine özel durum haritası kullanılır
         const triggerStatuses = getEffectiveTriggerStatuses(config, normalizedMp);
 
-        const eligibleOrders = orders.filter(order => {
-            const status = (order.status || "").toLowerCase();
-            return triggerStatuses.some(ts => status.includes(ts.toLowerCase()));
-        });
+        let eligibleOrders = orders;
+        if (!bypassStatusFilter) {
+            eligibleOrders = eligibleOrders.filter(order => {
+                const status = (order.status || "").toLowerCase();
+                return triggerStatuses.some(ts => status.includes(ts.toLowerCase()));
+            });
+        }
+
+        if (!skipDelayCheck) {
+            const delayDays = getEffectiveInvoiceDelayDays(config, normalizedMp);
+            eligibleOrders = eligibleOrders.filter(order => isOrderPastInvoiceDelay(order.orderDate, delayDays));
+        }
 
         if (eligibleOrders.length === 0) {
-            logger.info("[AutoInvoice] Durum filtresi sonrası fatura kesilecek sipariş yok — userId=" + userId);
+            logger.info("[AutoInvoice] Durum/gecikme filtresi sonrası fatura kesilecek sipariş yok — userId=" + userId);
             stats.skipped = orders.length;
             return stats;
         }
@@ -287,7 +335,7 @@ const processAutoInvoice = async (userId, marketplaceName, newOrderIds) => {
         let efaturaSessionId = null;
         const env = config.qnbCredentials.env || "test";
 
-        if (config.provider === "qnb") {
+        if (!config.provider || config.provider === "qnb") {
             // ⚠️ e-Arşiv ve e-Fatura FARKLI ortamlar — FARKLI credentials!
             //   Her kullanıcı QNB'den aldığı kullanıcı adı/şifreyi olduğu gibi girer.
             //   Öncelik: AutoInvoiceConfig.qnbCredentials > User.companyInfo.qnb
@@ -652,6 +700,11 @@ const processAutoInvoice = async (userId, marketplaceName, newOrderIds) => {
 
                     logger.info("[AutoInvoice] ✅ Fatura kesildi — Sipariş: " + order.trackingNumber +
                         " FaturaNo: " + result.invoiceNumber + " UUID: " + result.uuid);
+
+                    if (config.autoUploadInvoiceToMarketplace) {
+                        logger.info("[AutoInvoice] Pazaryeri fatura otomatik yükleme işaretlendi (API entegrasyonu sonrası) — mp=" +
+                            marketplaceName + " order=" + order.trackingNumber);
+                    }
                 } else {
                     // Hata
                     await Order.updateOne({ _id: order._id }, {
@@ -682,7 +735,11 @@ const processAutoInvoice = async (userId, marketplaceName, newOrderIds) => {
                 config.stats.lastError = orderErr.message;
                 config.stats.lastErrorDate = new Date();
 
-                await Order.updateOne({ _id: order._id }, { invoiceStatus: "error" }).catch(() => {});
+                try {
+                    await Order.updateOne({ _id: order._id }, { invoiceStatus: "error" });
+                } catch (updateErr) {
+                    logger.warn("[AutoInvoice] invoiceStatus güncellenemedi — " + order.trackingNumber + ": " + updateErr.message);
+                }
 
                 logger.error("[AutoInvoice] ❌ Sipariş işleme hatası — " + order.trackingNumber + ": " + orderErr.message);
             }
@@ -983,28 +1040,17 @@ const processManualBatchInvoice = async (userId, orderIds) => {
         byMarketplace[mp].push(o._id);
     });
 
-    // Her marketplace grubu için processAutoInvoice çağır
-    // (config.enabled kontrolünü atla — manuel tetikleme)
-    const origEnabled = config.enabled;
-    config.enabled = true;
-    // triggerStatuses'ı geçici olarak genişlet
-    const origStatuses = config.triggerStatuses;
-    config.triggerStatuses = [];
-    await config.save();
-
-    try {
-        for (const [mp, ids] of Object.entries(byMarketplace)) {
-            const result = await processAutoInvoice(userId, mp, ids);
-            stats.processed += result.processed;
-            stats.invoiced += result.invoiced;
-            stats.skipped += result.skipped;
-            stats.errors += result.errors;
-        }
-    } finally {
-        // Orijinal ayarları geri yükle
-        config.enabled = origEnabled;
-        config.triggerStatuses = origStatuses;
-        await config.save();
+    // Her marketplace grubu için processAutoInvoice çağır (otomatik kapalı / gecikme / durum: manuel bypass)
+    for (const [mp, ids] of Object.entries(byMarketplace)) {
+        const result = await processAutoInvoice(userId, mp, ids, {
+            skipDelayCheck: true,
+            bypassStatusFilter: true,
+            ignoreEnabled: true,
+        });
+        stats.processed += result.processed;
+        stats.invoiced += result.invoiced;
+        stats.skipped += result.skipped;
+        stats.errors += result.errors;
     }
 
     return stats;
@@ -1081,5 +1127,7 @@ module.exports = {
     normalizeMarketplaceName,
     getEffectiveTriggerStatuses,
     getMarketplaceSpecificSettings,
+    getEffectiveInvoiceDelayDays,
+    isOrderPastInvoiceDelay,
     MARKETPLACE_STATUS_MAP,
 };

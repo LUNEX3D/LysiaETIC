@@ -29,7 +29,7 @@ const CreateInvoiceModal = ({ isConnected, activeProvider, onCreateInvoice, onCl
         newLines[idx] = { ...newLines[idx], [key]: val };
         setF("lines", newLines);
     };
-    const addLine = () => setF("lines", [...form.lines, { name: "", quantity: 1, unit: "İadet", unitPrice: 0, vatRate: 20, discountAmount: 0 }]);
+    const addLine = () => setF("lines", [...form.lines, { name: "", quantity: 1, unit: "Adet", unitPrice: 0, vatRate: 20, discountAmount: 0 }]);
     const removeLine = (idx) => { if (form.lines.length > 1) setF("lines", form.lines.filter((_, i) => i !== idx)); };
 
     const { calculated, subTotal, totalVat, grandTotal } = useMemo(() => calcInvoiceLines(form.lines), [form.lines]);
@@ -83,7 +83,7 @@ const CreateInvoiceModal = ({ isConnected, activeProvider, onCreateInvoice, onCl
                 lines: form.lines.map((l) => ({
                     name: l.name,
                     quantity: Number(l.quantity || 1),
-                    unit: l.unit || "İadet",
+                    unit: l.unit || "Adet",
                     unitPrice: Number(l.unitPrice || 0),
                     vatRate: Number(l.vatRate != null ? l.vatRate : 20),
                     discountAmount: Number(l.discountAmount || 0),

@@ -12,7 +12,7 @@ export const PROVIDERS = [
         name: "QNB eSolutions",
         logo: "🏦",
         color: "#7c3aed",
-        description: "QNB eSolutions ile e-Fatura, e-Arşiv, e-İrsaliye ve e-Defter işlemlerİşinizi yönetin. Türkiye'nin en büyük e-belge pazarında lider.",
+        description: "QNB eSolutions ile e-Fatura, e-Arşiv, e-İrsaliye ve e-Defter işlemlerinizi yönetin. Türkiye'nin en büyük e-belge pazarında lider. Bağlantı uçları: connectortest / connector.qnbesolutions.com.tr (backend ile uyumlu).",
         features: ["e-Fatura", "e-Arşiv", "e-İrsaliye", "Fatura Oluşturma", "Mükellef Sorgulama"],
         authType: "qnb",
         fields: [
@@ -38,7 +38,7 @@ export const PROVIDERS = [
         name: "Trendyol E-Faturam",
         logo: "🛍️",
         color: "#f27a1a",
-        description: "Trendyol E-Faturam ile e-Fatura, e-Arşiv ve e-İrsaliye işlemlerİşinizi yönetin.",
+        description: "Trendyol E-Faturam ile e-Fatura, e-Arşiv ve e-İrsaliye işlemlerinizi yönetin. Ortam adresleri backend (eInvoiceService) ile aynı: stage-apigateway.trendyolefaturam.com / apigateway.trendyolecozum.com.",
         features: ["e-Fatura", "e-Arşiv", "e-İrsaliye", "Mükellef Sorgulama"],
         authType: "trendyol",
         fields: [
@@ -66,7 +66,7 @@ export const PROVIDERS = [
         name: "Sovos (Foriba)",
         logo: "🌐",
         color: "#10b981",
-        description: "Sovos (eski Foriba) ile global e-Fatura, e-Arşiv ve e-İrsaliye entegrasyonu. OAuth 2.0 tabanlı güvenli API.",
+        description: "Sovos Indirect Tax API (eski Foriba COAPI) — OAuth 2.0 client_credentials. Bu arayüzde gösterilen uçlar: api-test.sovos.com / api.sovos.com (backend sovosEInvoiceService ile uyumlu). Türkiye Fitbulut uçları için ayrı konfigürasyon gerekebilir.",
         features: ["e-Fatura", "e-Arşiv", "e-İrsaliye", "e-Defter", "Global Uyum"],
         authType: "sovos",
         fields: [
@@ -92,7 +92,7 @@ export const PROVIDERS = [
         name: "Paraşüt",
         logo: "🪂",
         color: "#6366f1",
-        description: "Paraşüt ile muhasebe, e-Fatura, e-Arşiv ve e-SMM entegrasyonu. OAuth 2.0 tabanlı güvenli API.",
+        description: "Paraşüt API v4 — OAuth 2.0 şifre akışı (apidocs.parasut.com). Base URL: https://api.parasut.com (backend parasutEInvoiceService ile uyumlu).",
         features: ["e-Fatura", "e-Arşiv", "e-SMM", "Muhasebe", "Stok Yönetimi"],
         authType: "parasut",
         fields: [
@@ -108,7 +108,7 @@ export const PROVIDERS = [
         capabilities: {
             createInvoice: true,
             createEArchive: true,
-            createDespatch: false,
+            createDespatch: true,
             taxpayerQuery: true,
             downloadPdf: true,
             cancelInvoice: false,
@@ -119,7 +119,7 @@ export const PROVIDERS = [
         name: "Ödeal E-FaturaPos",
         logo: "💳",
         color: "#e11d48",
-        description: "Ödeal E-FaturaPos ile VUK 507 uyumlu e-Fatura, e-Arşiv ve ödeme entegrasyonu.",
+        description: "Ödeal E-FaturaPos — docs.odeal.com. Kimlik: X-Service-Key. Test/Canlı kök adresleri backend odealEInvoiceService ile uyumlu (…/api/v1). Belge listesi işlem raporundan türetilir; sepet ve rapor API’leri ayrı uçlardadır.",
         features: ["e-Fatura", "e-Arşiv", "Sepet Yönetimi", "Raporlama", "Webhook"],
         authType: "odeal",
         fields: [
@@ -149,7 +149,7 @@ export const TABS = [
     { id: "overview", label: "Genel Bakış", icon: "FaFileInvoiceDollar" },
     { id: "invoices", label: "Tüm Belgeler", icon: "FaFileInvoice" },
     { id: "e-archive", label: "e-Arşiv", icon: "FaClipboardList" },
-    { id: "e-invoice", label: "e-Fatura", icon: "FaFileInvoiceDollar" },
+    { id: "e-invoice", label: "e-Fatura", icon: "FaFileInvoice" },
     { id: "e-despatch", label: "e-İrsaliye", icon: "FaTruck" },
     { id: "auto-invoice", label: "Otomatik Fatura", icon: "FaSyncAlt" },
     { id: "analysis", label: "Gelişmiş Analiz", icon: "FaChartBar" },
@@ -229,13 +229,13 @@ export const DEFAULT_INVOICE_FORM = {
     customerTaxOffice: "",
     customerEmail: "",
     customerPhone: "",
-    lines: [{ name: "", quantity: 1, unit: "İadet", unitPrice: 0, vatRate: 20, discountAmount: 0 }],
+    lines: [{ name: "", quantity: 1, unit: "Adet", unitPrice: 0, vatRate: 20, discountAmount: 0 }],
     note: "",
     currency: "TRY",
     sendingType: "ELEKTRONIK",
 };
 
-export const UNIT_OPTIONS = ["İadet", "kg", "lt", "m", "m2", "paket", "kutu", "saat", "gun", "ay"];
+export const UNIT_OPTIONS = ["Adet", "kg", "lt", "m", "m2", "paket", "kutu", "saat", "gun", "ay"];
 export const VAT_RATES = [0, 1, 10, 20];
 
 /* ═══════════════════════════════════════════════════════════
