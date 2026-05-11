@@ -10,6 +10,7 @@ const Marketplace = require("../models/Marketplace");
 const Order = require("../models/Order");
 const Product = require("../models/Product");
 const ProductMapping = require("../models/ProductMapping");
+const AuditLog = require("../models/AuditLog");
 const logger = require("../config/logger");
 const { decryptCredentials } = require("../utils/encryption");
 const { processAutoInvoice } = require("../services/autoInvoiceService");
@@ -229,9 +230,33 @@ async function syncOrdersBackground(userId, marketplaceName, rawOrders) {
                         }
                     }
                     if (invoiceChanged) {
+                        const wasUninvoiced = !exists.marketplaceInvoiced && newMarketplaceInvoiced;
                         exists.invoiceCheckedAt = new Date();
                         await exists.save();
                         logger.info(`[OrderSync] ${marketplaceName}: ${orderNumber} fatura bilgisi güncellendi (source=${exists.invoiceSource}, link=${exists.invoiceUrl ? "var" : "yok"})`);
+                        // Operasyon Defteri'ne yansıt: faturasızdan faturalıya geçiş kullanıcı için önemli
+                        if (wasUninvoiced) {
+                            try {
+                                await AuditLog.create({
+                                    userId,
+                                    action: "marketplace_invoice_detected",
+                                    category: "marketplace",
+                                    severity: "info",
+                                    description: `${marketplaceName} sipariş ${orderNumber} için pazaryerinden fatura tespit edildi (${exists.invoiceSource === "marketplace_api" ? "PDF link mevcut" : "Faturalandı durumu"}).`,
+                                    metadata: {
+                                        marketplace: marketplaceName,
+                                        orderNumber: String(orderNumber),
+                                        orderId: exists._id,
+                                        invoiceSource: exists.invoiceSource,
+                                        hasInvoiceUrl: !!exists.invoiceUrl,
+                                        invoiceUrl: exists.invoiceUrl || "",
+                                    },
+                                    success: true,
+                                });
+                            } catch (auditErr) {
+                                logger.warn(`[OrderSync] AuditLog yazılamadı: ${auditErr.message}`);
+                            }
+                        }
                     }
                 } catch (invSyncErr) {
                     logger.warn(`[OrderSync] ${marketplaceName}: ${orderNumber} fatura sync hatası: ${invSyncErr.message}`);
@@ -906,6 +931,8 @@ exports.getDbOrders = async (req, res) => {
             invoiceStats: {
                 total: totalOrders,
                 invoiced: invoicedCount,
+                // Sadece pazaryerinde faturalı (LysiaETIC kesmedi, ama Trendyol panelinde var)
+                marketplaceOnlyInvoiced: marketplaceOnlyInvoicedCount,
                 uninvoiced: uninvoicedCount,
                 error: errorCount,
             }

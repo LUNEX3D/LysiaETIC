@@ -67,6 +67,7 @@ const SaasAnnouncements      = lazy(() => import("./pages/SaasAnnouncements"));
 const SaasTickets            = lazy(() => import("./pages/SaasTickets"));
 const SaasAuditLogs          = lazy(() => import("./pages/SaasAuditLogs"));
 const AdminClientErrors      = lazy(() => import("./pages/AdminClientErrors"));
+const AdminAccessControl     = lazy(() => import("./pages/AdminAccessControl"));
 const SaasSystemConfig       = lazy(() => import("./pages/SaasSystemConfig"));
 const SaasPlanManager        = lazy(() => import("./pages/SaasPlanManager"));
 
@@ -309,6 +310,7 @@ const AppContent = () => {
             <Route path="/admin/servers" element={<ProtectedRoute requiredRoles={["admin","dev"]}><AdminServers /></ProtectedRoute>} />
             <Route path="/admin/audit-logs" element={<ProtectedRoute requiredRoles={["admin","dev"]}><SaasAuditLogs /></ProtectedRoute>} />
             <Route path="/admin/client-errors" element={<ProtectedRoute requiredRoles={["admin","dev"]}><AdminClientErrors /></ProtectedRoute>} />
+            <Route path="/admin/access-control" element={<ProtectedRoute requiredRoles={["admin","dev"]}><AdminAccessControl /></ProtectedRoute>} />
             <Route path="/admin/system-config" element={<ProtectedRoute requiredRoles={["admin","dev"]}><SaasSystemConfig /></ProtectedRoute>} />
 
             {/* Pazaryeri Entegrasyonu — Giriş gerekli */}

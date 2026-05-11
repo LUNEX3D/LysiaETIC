@@ -139,6 +139,41 @@ const UserSchema = new mongoose.Schema({
         }]
     },
 
+    // ── Erişim Durumu / Access Control ────────────────────────────────────────
+    // "Hesabım aktif ama erişim engellendi" senaryosu burada izlenir.
+    // Sistem otomatik (rate-limit aşımı, şüpheli aktivite) veya admin manuel olarak
+    // bu alanı doldurur. authMiddleware her istekte burayı kontrol eder.
+    accessStatus: {
+        isBlocked: { type: Boolean, default: false, index: true },
+        blockReason: {
+            type: String,
+            enum: [
+                "",
+                "rate_limit_abuse",      // çok fazla 429 — sistem otomatik
+                "suspicious_activity",   // şüpheli erişim — sistem otomatik
+                "admin_manual",          // admin elle blokladı
+                "payment_overdue",       // ödeme gecikmesi
+                "tos_violation",         // kural ihlali
+                "security_concern",      // güvenlik şüphesi
+            ],
+            default: "",
+        },
+        blockedAt: { type: Date },
+        blockedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" }, // null = sistem
+        blockExpiresAt: { type: Date },   // null = süresiz; aksi halde authMiddleware otomatik açar
+        blockNote: { type: String, default: "" },
+
+        // Sistemin otomatik karar vermesi için sinyaller
+        consecutiveRateLimitHits: { type: Number, default: 0 },
+        lastRateLimitAt: { type: Date },
+        totalIncidents: { type: Number, default: 0 },
+
+        // Son görülen istemci bilgileri (admin için hızlı görünürlük)
+        lastIp: { type: String, default: "" },
+        lastUserAgent: { type: String, default: "" },
+        lastSeenAt: { type: Date },
+    },
+
     // API Keys
     apiKeys: [{
         name: String,

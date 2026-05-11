@@ -235,32 +235,42 @@ exports.resendVerification = async (req, res) => {
 
 // ─── LOGIN ─────────────────────────────────────────────────────────────────────
 exports.login = async (req, res) => {
+    // 🩺 TANI: her login isteği için detaylı log — 403 sorunu için izlenebilirlik
+    const _diagOrigin = req.headers.origin || "-";
+    const _diagRef = req.headers.referer || "-";
+    const _diagIp = (req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "?")
+        .toString().split(",")[0].trim();
+    const _diagUa = (req.headers["user-agent"] || "").slice(0, 80);
+    logger.info(`[LOGIN-IN] email="${req.body?.email || "?"}" origin="${_diagOrigin}" ip="${_diagIp}" ref="${_diagRef.slice(0, 80)}" ua="${_diagUa}"`);
+
     try {
         const { email, password } = req.body;
 
         if (!email || !password) {
+            logger.warn(`[LOGIN-OUT] 400 — eksik alan (email="${email}" passwordSet=${!!password})`);
             return badRequest(res, "E-posta ve şifre zorunludur.");
         }
 
         const user = await User.findOne({ email: email.toLowerCase().trim() });
 
         if (!user) {
+            logger.warn(`[LOGIN-OUT] 401 — kullanıcı bulunamadı: ${email}`);
             return unauthorized(res, "Geçersiz kimlik bilgileri.");
         }
 
-        // Google ile kayıt olmuş kullanıcı şifre ile giriş yapamaz
         if (user.authProvider === "google" && !user.password) {
+            logger.warn(`[LOGIN-OUT] 400 — Google hesabı şifre ile giriş denemesi: ${email}`);
             return badRequest(res, "Bu hesap Google ile oluşturulmuş. Lütfen Google ile giriş yapın.");
         }
 
         const isMatch = await bcrypt.compare(password, user.password);
         if (!isMatch) {
-            logger.warn(`Başarısız giriş denemesi: ${email}`);
+            logger.warn(`[LOGIN-OUT] 401 — yanlış şifre: ${email}`);
             return unauthorized(res, "Geçersiz kimlik bilgileri.");
         }
 
-        // E-posta doğrulama kontrolü (admin ve dev kullanıcılar muaf)
         if (!user.emailVerified && !["admin", "dev"].includes(user.role)) {
+            logger.warn(`[LOGIN-OUT] 403 — e-posta doğrulanmamış: ${email} (emailVerified=${user.emailVerified})`);
             return forbidden(res, "E-posta adresiniz henüz doğrulanmamış. Lütfen gelen kutunuzu kontrol edin.");
         }
 

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { getUserMarketplaces, fetchDashboardData } from "../services/marketplaceApi";
 import { getProductManagementDashboard } from "../services/productManagementApi";
 import { getNotifications, markNotificationAsRead, dismissNotification as apiDismissNotif, createBulkOrderNotifications } from "../services/notificationApi";
-import { logoutUser } from "../services/api";
+import API, { logoutUser } from "../services/api";
 import { useApp } from "../context/AppContext";
 import MarketplaceIntegration from "../pages/MarketplaceIntegration";
 import OrdersPage from "../pages/OrdersPage";
@@ -130,6 +130,11 @@ const UserDashboard = () => {
     const [dashboardError, setDashboardError] = useState("");
     const [subscriptionExpired, setSubscriptionExpired] = useState(false);
     const [subscriptionMessage, setSubscriptionMessage] = useState("");
+    const [subscriptionDetail, setSubscriptionDetail] = useState(null);
+    // Erişim engellendi (rate-limit aşımı, admin blok, vs.) — banner + yardım butonu
+    const [accessBlocked, setAccessBlocked] = useState(null);
+    const [helpSending, setHelpSending] = useState(false);
+    const [helpSent, setHelpSent] = useState(false);
     const [pmDashboard, setPmDashboard] = useState(null);
 
     // Tek bir state ile tüm submenu'leri yönet — aynı anda sadece 1 submenu açık
@@ -151,13 +156,33 @@ const UserDashboard = () => {
     const isImpersonating = localStorage.getItem("isImpersonating") === "true";
 
     // ── Abonelik süresi dolmuş global event dinleyicisi ──
+    // Code'a göre farklı mesaj göster:
+    //   TRIAL_ENDED        → Demo bitti, paket al
+    //   SUBSCRIPTION_EXPIRED → Aboneliği yenile
+    //   SUBSCRIPTION_SUSPENDED → Hesap askıya alındı, destek
+    //   NO_SUBSCRIPTION    → Aktif aboneliğin yok
     useEffect(() => {
         const handler = (e) => {
             setSubscriptionExpired(true);
-            setSubscriptionMessage(e.detail?.message || "Abonelik süreniz dolmuştur.");
+            const detail = e.detail || {};
+            setSubscriptionDetail(detail);
+            // Code yoksa default mesajı kullan
+            setSubscriptionMessage(detail.message || "Abonelik süreniz dolmuştur.");
         };
         window.addEventListener("api:subscription-expired", handler);
         return () => window.removeEventListener("api:subscription-expired", handler);
+    }, []);
+
+    // ── Erişim engellendi (ACCESS_BLOCKED) dinleyicisi ──
+    // 403 + code=ACCESS_BLOCKED gelirse api.js global event tetikler.
+    // Kullanıcıya banner göster, "Yardım talep et" butonuyla admin'e bildirim attır.
+    useEffect(() => {
+        const handler = (e) => {
+            setAccessBlocked(e.detail || { message: "Erişiminiz engellendi." });
+            setHelpSent(false);
+        };
+        window.addEventListener("api:access-blocked", handler);
+        return () => window.removeEventListener("api:access-blocked", handler);
     }, []);
 
     // ── Responsive ──
@@ -639,45 +664,145 @@ const UserDashboard = () => {
                     <div style={{ position: "fixed", inset: 0, zIndex: 99 }} onClick={() => setShowNotifPanel(false)} />
                 )}
 
-                {/* ✅ Abonelik süresi dolmuş uyarısı */}
-                {subscriptionExpired && (
+                {/* ✅ Abonelik / Trial / Suspended uyarısı — code'a göre farklılaşır */}
+                {subscriptionExpired && (() => {
+                    const code = subscriptionDetail?.code || "SUBSCRIPTION_EXPIRED";
+                    const presets = {
+                        TRIAL_ENDED: {
+                            icon: "⏳", title: "Demo Süreniz Doldu",
+                            desc: subscriptionMessage || "Demo sürenizin sonuna geldiniz. LysiaBrain'i kullanmaya devam etmek için bir paket seçin.",
+                            cta: "🚀 Paketleri İncele", border: C.yellow,
+                        },
+                        SUBSCRIPTION_EXPIRED: {
+                            icon: "⏰", title: "Abonelik Süreniz Doldu",
+                            desc: subscriptionMessage || "Aboneliğinizin süresi doldu. Yenileyerek hizmete devam edebilirsiniz.",
+                            cta: "🔄 Aboneliği Yenile", border: C.yellow,
+                        },
+                        SUBSCRIPTION_SUSPENDED: {
+                            icon: "⛔", title: "Hesabınız Askıya Alındı",
+                            desc: subscriptionMessage || "Hesabınız geçici olarak askıya alındı. Destek ekibimizle iletişime geçin.",
+                            cta: "💬 Destek ile İletişim", border: C.red,
+                        },
+                        NO_SUBSCRIPTION: {
+                            icon: "📭", title: "Aktif Aboneliğiniz Yok",
+                            desc: subscriptionMessage || "Hesabınızda aktif bir abonelik bulunmuyor. Bir paket seçerek başlayın.",
+                            cta: "🚀 Paket Seç", border: C.yellow,
+                        },
+                    };
+                    const p = presets[code] || presets.SUBSCRIPTION_EXPIRED;
+                    const isSuspended = code === "SUBSCRIPTION_SUSPENDED";
+                    return (
+                        <div style={{
+                            background: `linear-gradient(135deg, ${p.border}15, ${C.orange || "#f97316"}15)`,
+                            border: `1px solid ${p.border}50`,
+                            padding: isMobile ? "1rem" : "1.25rem 2rem",
+                            display: "flex", flexDirection: isMobile ? "column" : "row",
+                            alignItems: isMobile ? "flex-start" : "center",
+                            gap: "1rem", justifyContent: "space-between"
+                        }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+                                <span style={{ fontSize: "1.5rem" }}>{p.icon}</span>
+                                <div>
+                                    <div style={{ color: C.text, fontWeight: 700, fontSize: "0.9rem", marginBottom: "0.2rem" }}>
+                                        {p.title}
+                                    </div>
+                                    <div style={{ color: C.muted, fontSize: "0.8rem" }}>
+                                        {p.desc}
+                                    </div>
+                                    {subscriptionDetail?.plan && (
+                                        <div style={{ color: C.muted, fontSize: "0.7rem", marginTop: 4, opacity: 0.8 }}>
+                                            Plan: <strong style={{ color: C.text }}>{subscriptionDetail.plan}</strong>
+                                            {subscriptionDetail.endDate && <> · Bitiş: <strong style={{ color: C.text }}>{new Date(subscriptionDetail.endDate).toLocaleDateString("tr-TR")}</strong></>}
+                                            {subscriptionDetail.trialEndDate && !subscriptionDetail.endDate && <> · Trial bitiş: <strong style={{ color: C.text }}>{new Date(subscriptionDetail.trialEndDate).toLocaleDateString("tr-TR")}</strong></>}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => handlePanelChange(isSuspended ? "support" : "subscription")}
+                                style={{
+                                    background: `linear-gradient(135deg, ${isSuspended ? C.red : C.accent}, ${C.purple})`,
+                                    color: "#fff", border: "none", borderRadius: 10,
+                                    padding: "0.6rem 1.5rem", fontWeight: 700, fontSize: "0.85rem",
+                                    cursor: "pointer", whiteSpace: "nowrap",
+                                    boxShadow: `0 4px 12px ${(isSuspended ? C.red : C.accent)}40`
+                                }}
+                            >
+                                {p.cta}
+                            </button>
+                        </div>
+                    );
+                })()}
+
+                {dashboardError && !subscriptionExpired && (
+                    <div style={{ background: `${C.red}15`, border: `1px solid ${C.red}40`, padding: "0.6rem 2rem", color: C.red, fontSize: "0.8rem" }}>
+                        ⚠️ {dashboardError}
+                    </div>
+                )}
+
+                {/* ── Erişim Engellendi Bannerı ── */}
+                {accessBlocked && (
                     <div style={{
-                        background: `linear-gradient(135deg, ${C.yellow}15, ${C.orange || "#f97316"}15)`,
-                        border: `1px solid ${C.yellow}50`,
+                        background: `linear-gradient(135deg, ${C.red}15, ${C.purple}15)`,
+                        border: `1px solid ${C.red}55`,
                         padding: isMobile ? "1rem" : "1.25rem 2rem",
                         display: "flex", flexDirection: isMobile ? "column" : "row",
                         alignItems: isMobile ? "flex-start" : "center",
                         gap: "1rem", justifyContent: "space-between"
                     }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-                            <span style={{ fontSize: "1.5rem" }}>⏰</span>
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flex: 1 }}>
+                            <span style={{ fontSize: "1.6rem" }}>🚫</span>
                             <div>
-                                <div style={{ color: C.text, fontWeight: 700, fontSize: "0.9rem", marginBottom: "0.2rem" }}>
-                                    Abonelik Süreniz Dolmuş
+                                <div style={{ color: C.text, fontWeight: 700, fontSize: "0.95rem", marginBottom: "0.25rem" }}>
+                                    Hesabınıza Erişim Geçici Olarak Engellendi
                                 </div>
-                                <div style={{ color: C.muted, fontSize: "0.8rem" }}>
-                                    {subscriptionMessage || "Devam etmek için lütfen bir paket satın alın."}
+                                <div style={{ color: C.muted, fontSize: "0.8rem", marginBottom: 4 }}>
+                                    {accessBlocked.message || "Detay bilgi için aşağıdaki 'Yardım Talep Et' butonuna basarak yönetici ile iletişime geçebilirsiniz."}
                                 </div>
+                                {accessBlocked.expiresAt && (
+                                    <div style={{ color: C.muted, fontSize: "0.75rem" }}>
+                                        Otomatik bitiş: {new Date(accessBlocked.expiresAt).toLocaleString("tr-TR")}
+                                    </div>
+                                )}
+                                {accessBlocked.note && (
+                                    <div style={{ color: C.muted, fontSize: "0.75rem", fontStyle: "italic", marginTop: 2 }}>
+                                        Not: {accessBlocked.note}
+                                    </div>
+                                )}
                             </div>
                         </div>
-                        <button
-                            onClick={() => handlePanelChange("subscription")}
-                            style={{
-                                background: `linear-gradient(135deg, ${C.accent}, ${C.purple})`,
-                                color: "#fff", border: "none", borderRadius: 10,
-                                padding: "0.6rem 1.5rem", fontWeight: 700, fontSize: "0.85rem",
-                                cursor: "pointer", whiteSpace: "nowrap",
-                                boxShadow: `0 4px 12px ${C.accent}40`
-                            }}
-                        >
-                            🚀 Paketleri İncele
-                        </button>
-                    </div>
-                )}
-
-                {dashboardError && !subscriptionExpired && (
-                    <div style={{ background: `${C.red}15`, border: `1px solid ${C.red}40`, padding: "0.6rem 2rem", color: C.red, fontSize: "0.8rem" }}>
-                        ⚠️ {dashboardError}
+                        {accessBlocked.canRequestHelp !== false && (
+                            <button
+                                onClick={async () => {
+                                    if (helpSending || helpSent) return;
+                                    setHelpSending(true);
+                                    try {
+                                        await API.post("/access/help", {
+                                            message: "Hesap erişim engelinin açılması için yardım talebi.",
+                                        });
+                                        setHelpSent(true);
+                                    } catch (err) {
+                                        alert("Talep gönderilemedi: " + (err.response?.data?.message || err.message));
+                                    } finally {
+                                        setHelpSending(false);
+                                    }
+                                }}
+                                disabled={helpSending || helpSent}
+                                style={{
+                                    background: helpSent
+                                        ? `linear-gradient(135deg, ${C.green || "#34d399"}, ${C.accent})`
+                                        : `linear-gradient(135deg, ${C.accent}, ${C.purple})`,
+                                    color: "#fff", border: "none", borderRadius: 10,
+                                    padding: "0.6rem 1.5rem", fontWeight: 700, fontSize: "0.85rem",
+                                    cursor: helpSending || helpSent ? "default" : "pointer",
+                                    opacity: helpSending ? 0.7 : 1,
+                                    whiteSpace: "nowrap",
+                                    boxShadow: `0 4px 12px ${C.accent}40`
+                                }}
+                            >
+                                {helpSent ? "✅ Talep İletildi" : (helpSending ? "Gönderiliyor…" : "🆘 Yardım Talep Et")}
+                            </button>
+                        )}
                     </div>
                 )}
 

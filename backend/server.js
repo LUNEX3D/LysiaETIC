@@ -66,6 +66,7 @@ const autoOrderRoutes         = require("./routes/autoOrderRoutes");
 const webhookRoutes           = require("./routes/webhookRoutes");
 const ticketRoutes            = require("./routes/ticketRoutes");
 const clientErrorRoutes       = require("./routes/clientErrorRoutes");
+const accessControlRoutes     = require("./routes/accessControlRoutes");
 
 // ─── 3. DNS & App ─────────────────────────────────────────────────────────────
 dns.setServers(["1.1.1.1", "8.8.8.8"]);
@@ -144,16 +145,29 @@ const corsAllowLan =
     process.env.CORS_ALLOW_LAN === "true" ||
     process.env.NODE_ENV !== "production";
 
+// ✅ TANI MODU: CORS_ALLOW_ALL=true ise tüm origin'ler kabul edilir (production'da geçici tanı için)
+//    Bu env'yi sadece tanı/test için açıp sonra kapatın. Domain alıp doğru whitelist kurulana kadar.
+const corsAllowAll =
+    process.env.CORS_ALLOW_ALL === "1" ||
+    process.env.CORS_ALLOW_ALL === "true";
+
+if (corsAllowAll) {
+    logger.warn("⚠️ CORS_ALLOW_ALL aktif — TÜM origin'lere izin veriliyor (sadece test için)");
+}
+
 app.use(cors({
     origin: function (origin, callback) {
         // Server-to-server istekler (origin yok) veya whitelist'teki origin'ler
         if (!origin || allowedOrigins.includes(origin)) {
             callback(null, true);
+        } else if (corsAllowAll) {
+            callback(null, true);
         } else if (corsAllowLan && isPrivateLanOrigin(origin)) {
             callback(null, true);
         } else {
-            logger.warn(`CORS engellendi: ${origin}`);
-            callback(new Error("CORS policy: Bu origin'e izin verilmiyor."));
+            // ✅ Tanı için: hangi origin reddedildi, hangi IP'den, hangi endpoint'e detaylı logla
+            logger.warn(`🚫 CORS ENGELLENDİ → origin="${origin}" — whitelist'te yok. (CORS_EXTRA_ORIGINS veya CORS_ALLOW_ALL ile açın)`);
+            callback(new Error(`CORS policy: '${origin}' origin'ine izin verilmiyor.`));
         }
     },
     credentials: true,
@@ -308,6 +322,7 @@ app.use("/api/radar",          radarRoutes);
 app.use("/api/auto-order",    autoOrderRoutes);
 app.use("/api/tickets",       ticketRoutes);
 app.use("/api/client-errors", clientErrorRoutes);
+app.use("/api/access",         accessControlRoutes);
 // ✅ FIX #3: Webhook endpoint'leri — auth gerektirmez, pazaryerlerinden gelir
 app.use("/api/webhooks",       webhookRoutes);
 
@@ -321,6 +336,71 @@ app.use("/api/brands",         brandRoutes);
 app.use("/api/variants",       variantRoutes);
 app.use("/api/upload",         uploadRoutes);
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+
+// ─── 9.5 TANI ENDPOINT'LERİ — 403/CORS sorunlarını izole etmek için ─────────
+// GET /api/diagnostic/whoami → kullanıcının PC'sinden çağrıldığında
+//   sunucu onu nasıl gördüğünü (origin, IP, headers, CORS state) döner.
+// Bu endpoint kimlik doğrulama gerektirmez ama rate limit'e tabidir.
+app.get("/api/diagnostic/whoami", (req, res) => {
+    const origin = req.headers.origin || null;
+    const referer = req.headers.referer || null;
+    const ua = req.headers["user-agent"] || "";
+    const xff = req.headers["x-forwarded-for"] || "";
+    const realIp = req.headers["x-real-ip"] || "";
+    const ip = (xff.toString().split(",")[0].trim()) || realIp || req.socket?.remoteAddress || "";
+
+    const originAllowed = !origin || allowedOrigins.includes(origin) ||
+                          (corsAllowAll) ||
+                          (corsAllowLan && isPrivateLanOrigin(origin));
+
+    res.json({
+        success: true,
+        timestamp: new Date().toISOString(),
+        message: "Sunucu sizi şöyle görüyor:",
+        you: {
+            origin,
+            referer,
+            ip,
+            xForwardedFor: xff || null,
+            xRealIp: realIp || null,
+            remoteAddress: req.socket?.remoteAddress || null,
+            userAgent: ua.slice(0, 200),
+            isSecure: req.secure,
+            protocol: req.protocol,
+            host: req.headers.host,
+        },
+        cors: {
+            yourOriginAllowed: originAllowed,
+            allowedOriginsCount: allowedOrigins.length,
+            allowedOrigins: process.env.NODE_ENV === "production" ? "[hidden]" : allowedOrigins,
+            corsAllowAll,
+            corsAllowLan,
+        },
+        server: {
+            env: process.env.NODE_ENV || "development",
+            uptimeSec: Math.floor((Date.now() - SERVER_START) / 1000),
+            dbConnected: mongoose.connection.readyState === 1,
+        },
+    });
+});
+
+// POST /api/diagnostic/echo → request body ve headers'ı geri yansıtır.
+// Login isteğinde 403 alıyorsanız aynı endpoint'e POST atın, ne gönderdiğinizi görün.
+app.post("/api/diagnostic/echo", (req, res) => {
+    res.json({
+        success: true,
+        timestamp: new Date().toISOString(),
+        message: "Echo OK — sunucu isteğinizi normal şekilde alıyor demektir.",
+        received: {
+            method: req.method,
+            url: req.originalUrl,
+            origin: req.headers.origin || null,
+            contentType: req.headers["content-type"] || null,
+            bodyKeys: Object.keys(req.body || {}),
+            bodySize: JSON.stringify(req.body || {}).length,
+        },
+    });
+});
 
 // ─── 10. SUNUCU DURUM ENDPOINTİ (/api/status) ────────────────────────────────
 // ✅ SEC: Public endpoint — sadece temel durum bilgisi döner
@@ -382,8 +462,41 @@ app.use((req, res) => {
 app.use((err, req, res, next) => {
     // CORS hatası özel mesaj
     if (err.message && err.message.includes("CORS")) {
-        logger.warn(`CORS hatası: ${req.headers.origin} → ${req.originalUrl}`);
-        return res.status(403).json({ success: false, message: "Erişim engellendi." });
+        const origin = req.headers.origin || "?";
+        const referer = req.headers.referer || "?";
+        const ip = (req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "?").toString().split(",")[0].trim();
+        logger.warn(`🚫 CORS HATA → ${req.method} ${req.originalUrl} | origin="${origin}" | ip="${ip}" | ref="${referer.slice(0, 80)}"`);
+
+        // ✅ AccessIncident'a logla — admin "kullanıcılar 403 alıyor neden?" sorusuna cevap bulsun
+        // fire-and-forget; response'u bekletme
+        try {
+            const AccessIncident = require("./models/AccessIncident");
+            const { extractClientInfo } = require("./utils/deviceInfo");
+            const ci = extractClientInfo(req);
+            AccessIncident.create({
+                userId: null,
+                email: req.body?.email || "",
+                type: "suspicious_activity",
+                severity: "warning",
+                description: `CORS engellendi: ${origin} izinli origin listesinde yok. Backend .env'de CORS_EXTRA_ORIGINS'e ekleyin veya domain'i kullanın.`,
+                ip: ci.ip,
+                userAgent: ci.userAgent,
+                device: ci.device,
+                endpoint: req.originalUrl || req.url || "",
+                method: req.method || "",
+                statusCode: 403,
+                metadata: { reason: "cors_blocked", origin, allowedOrigins: allowedOrigins.length },
+            }).catch(() => {});
+        } catch (_) { /* CORS check is best-effort */ }
+
+        return res.status(403).json({
+            success: false,
+            code: "CORS_BLOCKED",
+            message: process.env.NODE_ENV === "production"
+                ? "Erişim engellendi (CORS). Lütfen doğru domain üzerinden bağlandığınızdan emin olun."
+                : `CORS engellendi: ${origin} izinli origin listesinde yok. backend/.env'de CORS_EXTRA_ORIGINS'e ekleyin.`,
+            origin,
+        });
     }
 
     logger.error(`Global hata: ${err.message}`, { stack: err.stack, url: req.originalUrl });

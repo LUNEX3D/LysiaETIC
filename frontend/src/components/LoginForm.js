@@ -153,9 +153,49 @@ const LoginFormInner = () => {
             }, 1500);
         } catch (error) {
             const data = error.response?.data;
+            const status = error.response?.status;
+            const code = data?.code;
+
             if (data?.needsVerification) {
                 setNeedsVerification(true);
                 setMessage({ text: data.message, type: "warning" });
+            } else if (code === "CORS_BLOCKED") {
+                setMessage({
+                    text: "Sunucuya erişim engellendi (CORS). Doğru web adresinden bağlandığınızdan emin olun. Sorun devam ediyorsa yöneticinize bildirin.",
+                    type: "error"
+                });
+            } else if (status === 403 && data?.message?.includes("doğrulan")) {
+                // E-posta doğrulanmamış — needsVerification flag yoksa da yakala
+                setNeedsVerification(true);
+                setMessage({ text: data.message, type: "warning" });
+            } else if (status === 403) {
+                // ✅ TANI: 403 alındığında otomatik /api/diagnostic/whoami çağır,
+                //   kullanıcıya ne döndüğünü göster — gizemli 403'ün gerçek sebebini ifşa eder.
+                let diagText = "";
+                try {
+                    // base URL'yi axios'un baseURL'inden al, ya da boş string ile aynı origin'i kullan
+                    const base = (axios.defaults && axios.defaults.baseURL) || "";
+                    const diagResp = await fetch(base + "/diagnostic/whoami", { credentials: "include" });
+                    if (diagResp.ok) {
+                        const diag = await diagResp.json();
+                        const allowedTxt = diag.cors?.yourOriginAllowed ? "EVET" : "HAYIR";
+                        diagText = ` [Tanı → Origin: ${diag.you?.origin || "yok"} | CORS izinli: ${allowedTxt} | IP: ${diag.you?.ip || "?"}]`;
+                    } else {
+                        diagText = ` [Tanı: /diagnostic/whoami → ${diagResp.status}]`;
+                    }
+                } catch (e2) {
+                    diagText = ` [Tanı başarısız: ${e2.message || "network"}]`;
+                }
+                setMessage({
+                    text: (data?.message || "Erişim engellendi.") + diagText,
+                    type: "error"
+                });
+            } else if (!error.response && (error.message?.includes("Network") || error.code === "ERR_NETWORK")) {
+                // Sunucuya hiç ulaşılamadı (SSL/CORS/down)
+                setMessage({
+                    text: "Sunucuya bağlanılamadı. SSL sertifikası geçersiz olabilir veya sunucu kapalı. Adres çubuğundaki uyarıyı kontrol edin.",
+                    type: "error"
+                });
             } else {
                 setMessage({ text: data?.message || "Bir hata oluştu.", type: "error" });
             }

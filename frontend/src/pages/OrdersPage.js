@@ -256,11 +256,24 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId, marketplaceId: scop
         );
     }, [statusMeta]);
 
-    /* ── Fatura durumu badge ── */
+    /* ── Fatura durumu badge ──
+       Öncelik sırası:
+       1) LysiaETIC kesmiş fatura (invoiceStatus="created" veya invoice obj) → "Faturalandı" (yeşil)
+       2) Pazaryerinde faturalı (marketplaceInvoiced=true) — X kullanıcı senaryosu
+          - invoiceUrl varsa → tıklanabilir "Pazaryeri Faturası" (yeşil + link)
+          - sadece status="Invoiced" ise → "Pazaryerinden Faturalı" (yeşil-mavi)
+       3) Bizden bekleniyor (pending) → sarı
+       4) Hata → kırmızı
+       5) Hiçbiri yoksa → "Faturasız" (gri)
+    */
     const getInvoiceBadge = useCallback((order) => {
         const invStatus = order.invoiceStatus || "";
         const hasInvoice = !!order.invoice;
+        const mpInvoiced = !!order.marketplaceInvoiced;
+        const mpUrl = String(order.invoiceUrl || "").trim();
+        const mpSource = order.invoiceSource || "";
 
+        // 1) LysiaETIC'in kestiği fatura
         if (invStatus === "created" || hasInvoice) {
             return (
                 <span style={{
@@ -273,6 +286,37 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId, marketplaceId: scop
                 </span>
             );
         }
+
+        // 2) Pazaryerinde zaten faturalı (LysiaETIC kesmedi, ama X kullanıcı panelden yüklemiş)
+        if (mpInvoiced) {
+            const hasLink = mpUrl.length > 0 && (mpUrl.startsWith("http://") || mpUrl.startsWith("https://"));
+            const title = mpSource === "marketplace_api"
+                ? "Pazaryerinde fatura yüklü (Trendyol invoiceLink)"
+                : "Pazaryerinde sipariş 'Faturalandı' durumunda";
+            const Inner = (
+                <span style={{
+                    display: "inline-flex", alignItems: "center", gap: "0.25rem",
+                    background: `${C.accent}15`, border: `1px solid ${C.accent}40`,
+                    color: C.accent, padding: "0.22rem 0.55rem", borderRadius: 8,
+                    fontSize: "0.7rem", fontWeight: 700, whiteSpace: "nowrap",
+                    cursor: hasLink ? "pointer" : "default",
+                }} title={title}>
+                    🏪 Pazaryerinden Faturalı{hasLink ? " ↗" : ""}
+                </span>
+            );
+            if (hasLink) {
+                return (
+                    <a href={mpUrl} target="_blank" rel="noopener noreferrer"
+                       style={{ textDecoration: "none" }}
+                       onClick={(e) => e.stopPropagation()}>
+                        {Inner}
+                    </a>
+                );
+            }
+            return Inner;
+        }
+
+        // 3) Bizden fatura bekleniyor
         if (invStatus === "pending") {
             return (
                 <span style={{
@@ -285,6 +329,7 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId, marketplaceId: scop
                 </span>
             );
         }
+        // 4) Hata
         if (invStatus === "error") {
             return (
                 <span style={{
@@ -297,7 +342,7 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId, marketplaceId: scop
                 </span>
             );
         }
-        // Faturasız
+        // 5) Faturasız
         return (
             <span style={{
                 display: "inline-flex", alignItems: "center", gap: "0.25rem",
@@ -424,6 +469,13 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId, marketplaceId: scop
                     invoiceMap.set(dbOrder.orderNumber, {
                         invoiceStatus: dbOrder.invoiceStatus,
                         invoice: dbOrder.invoice,
+                        // Pazaryeri fatura bilgileri (X kullanıcı senaryosu)
+                        marketplaceInvoiced: dbOrder.marketplaceInvoiced,
+                        invoiceUrl: dbOrder.invoiceUrl,
+                        invoiceSource: dbOrder.invoiceSource,
+                        invoiceCheckedAt: dbOrder.invoiceCheckedAt,
+                        commercialInvoice: dbOrder.commercialInvoice,
+                        etgbNo: dbOrder.etgbNo,
                         imageUrl: dbOrder.imageUrl,
                         items: dbOrder.items
                     });
@@ -435,6 +487,12 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId, marketplaceId: scop
                     if (dbInfo) {
                         order.invoiceStatus = dbInfo.invoiceStatus;
                         order.invoice = dbInfo.invoice;
+                        order.marketplaceInvoiced = !!dbInfo.marketplaceInvoiced;
+                        order.invoiceUrl = dbInfo.invoiceUrl || "";
+                        order.invoiceSource = dbInfo.invoiceSource || "";
+                        order.invoiceCheckedAt = dbInfo.invoiceCheckedAt || null;
+                        order.commercialInvoice = !!dbInfo.commercialInvoice;
+                        order.etgbNo = dbInfo.etgbNo || "";
                         
                         // ✅ GÖRSEL GÜNCELLEME: Eğer API'den gelen görsel yoksa veya hatalıysa, 
                         // backend'in Product modelinden (Stok Yönetimi) eşleştirdiği görseli kullan.

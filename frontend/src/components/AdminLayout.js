@@ -72,6 +72,7 @@ const AdminLayout = ({ title, subtitle, actions, children }) => {
             items: [
                 { to: "/admin/servers", label: "Sunucu İzleme", icon: <FaServer /> },
                 { to: "/admin/audit-logs", label: "İşlem Logları", icon: <FaHistory /> },
+                { to: "/admin/access-control", label: "Erişim Kontrolü", icon: <FaShieldAlt /> },
                 { to: "/admin/client-errors", label: "İstemci Hataları", icon: <FaBug /> },
                 { to: "/admin/system-config", label: "Sistem Ayarları", icon: <FaCog /> },
             ]

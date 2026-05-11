@@ -166,13 +166,52 @@ API.interceptors.response.use(
             return Promise.reject(friendlyError);
         }
 
-        // ─── 403 Subscription Expired — Abonelik süresi dolmuş ─────────────
-        if (error.response?.status === 403 && error.response?.data?.subscriptionExpired) {
-            // subscriptionExpired flag'ini error'a ekle — UI bunu yakalayıp özel mesaj gösterir
+        // ─── 403 Access Blocked — Hesap aktif ama erişim engellendi ─────────
+        // Sistem otomatik (rate-limit aşımı vb.) veya admin manuel olarak bloklamış olabilir.
+        if (error.response?.status === 403 && error.response?.data?.code === "ACCESS_BLOCKED") {
+            error.accessBlocked = true;
+            const detail = error.response.data?.blocked || {};
+            window.dispatchEvent(new CustomEvent("api:access-blocked", {
+                detail: {
+                    code: "ACCESS_BLOCKED",
+                    message: error.response.data.message,
+                    reason: detail.reason || "",
+                    blockedAt: detail.blockedAt || null,
+                    expiresAt: detail.expiresAt || null,
+                    note: detail.note || "",
+                    canRequestHelp: !!detail.canRequestHelp,
+                    timestamp: Date.now(),
+                },
+            }));
+            return Promise.reject(error);
+        }
+
+        // ─── 403 Subscription/Trial — Abonelik veya trial süresi bitmiş ─────
+        // Code'a göre kullanıcıya farklı mesaj + farklı CTA göster.
+        const subCodes = ["SUBSCRIPTION_EXPIRED", "TRIAL_ENDED", "SUBSCRIPTION_SUSPENDED", "NO_SUBSCRIPTION"];
+        if (error.response?.status === 403 && subCodes.includes(error.response?.data?.code)) {
             error.subscriptionExpired = true;
-            // Global event fırlat — herhangi bir component dinleyebilir
+            error.subscriptionCode = error.response.data.code;
             window.dispatchEvent(new CustomEvent("api:subscription-expired", {
                 detail: {
+                    code: error.response.data.code,
+                    message: error.response.data.message,
+                    plan: error.response.data.plan,
+                    status: error.response.data.status,
+                    trialEndDate: error.response.data.trialEndDate,
+                    endDate: error.response.data.endDate,
+                    timestamp: Date.now(),
+                }
+            }));
+            return Promise.reject(error);
+        }
+
+        // ─── Legacy 403 subscriptionExpired flag (code yoksa) ─────────────
+        if (error.response?.status === 403 && error.response?.data?.subscriptionExpired) {
+            error.subscriptionExpired = true;
+            window.dispatchEvent(new CustomEvent("api:subscription-expired", {
+                detail: {
+                    code: "SUBSCRIPTION_EXPIRED",
                     message: error.response.data.message,
                     plan: error.response.data.plan,
                     timestamp: Date.now()
