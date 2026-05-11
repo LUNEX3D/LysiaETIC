@@ -34,9 +34,9 @@ git push Etic main --force
 Write-Host "[2/5] Git push tamamlandı!" -ForegroundColor Green
 
 ## 3. AWS Git Pull + npm install + Backend Restart
-Write-Host "[3/5] AWS sunucusu güncelleniyor..." -ForegroundColor Yellow
-ssh -i $KEY -o StrictHostKeyChecking=no $SERVER "cd ~/LysiaETIC && git pull origin main && cd backend && npm install --omit=dev && pm2 restart backend"
-Write-Host "[3/5] Backend güncellendi!" -ForegroundColor Green
+Write-Host "[3/5] AWS sunucusu gÃ¼ncelleniyor..." -ForegroundColor Yellow
+ssh -i $KEY -o StrictHostKeyChecking=no $SERVER "cd ~/LysiaETIC && git fetch --all && git reset --hard origin/main && cd backend && npm install --omit=dev && pm2 restart backend"
+Write-Host "[3/5] Backend gÃ¼ncellendi!" -ForegroundColor Green
 
 ## 4. Build dosyalarını SCP ile yükle
 Write-Host "[4/5] Build dosyaları yükleniyor..." -ForegroundColor Yellow
