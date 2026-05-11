@@ -17,13 +17,17 @@ const {
     verifyResetCode,
     resetPassword,
     refreshToken,
-    acceptLegal
+    acceptLegal,
+    whoami
 } = require("../controllers/authController");
 const { authMiddleware } = require("../middlewares/authMiddleware");
 const { authLimiter } = require("../middlewares/rateLimiter");
 const { validateRegister, validateLogin, validateForgotPassword, validateResetPassword } = require("../middlewares/validate");
 
 const router = express.Router();
+
+// 🩺 TANI: /api/auth/diagnostic/whoami — auth gerektirmez, CORS/IP/WhoAmI testi için
+router.get("/diagnostic/whoami", whoami);
 
 // Auth endpoint'lerine rate limiter uygulandı
 router.post("/register", authLimiter, validateRegister, register);

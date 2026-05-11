@@ -100,6 +100,8 @@ const allowedOrigins = [
     // ✅ Production sunucu IP'si (domain alınana kadar buradan erişim için)
     "https://13.51.158.124",
     "http://13.51.158.124",
+    "http://13.51.158.124/",
+    "https://13.51.158.124/",
     // Production origins — ek domain / geçici IP için CORS_EXTRA_ORIGINS kullanın
     // Yeni domain — pazaryonetim.com (IDN + punycode güvenli ekleme)
     "https://pazaryönetim.com",

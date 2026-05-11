@@ -234,6 +234,39 @@ exports.resendVerification = async (req, res) => {
 };
 
 // ─── LOGIN ─────────────────────────────────────────────────────────────────────
+/**
+ * 🩺 TANI: /api/auth/diagnostic/whoami
+ * Frontend'in 403/CORS/Bağlantı sorunlarını anlaması için detaylı bilgi döner.
+ */
+exports.whoami = async (req, res) => {
+    const origin = req.headers.origin || "-";
+    const referer = req.headers.referer || "-";
+    const ip = (req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "?")
+        .toString().split(",")[0].trim();
+    const ua = req.headers["user-agent"] || "-";
+
+    // server.js'deki allowedOrigins listesini burada da simüle edelim veya server.js'den export alabiliriz.
+    // Şimdilik manuel kontrol:
+    const allowed = [
+        "http://localhost:3000", "http://127.0.0.1:3000",
+        "https://13.51.158.124", "http://13.51.158.124",
+        "https://pazaryonetim.com", "http://pazaryonetim.com"
+    ];
+
+    res.status(200).json({
+        success: true,
+        you: { ip, origin, referer, ua },
+        cors: {
+            yourOriginAllowed: origin === "-" || allowed.includes(origin),
+            softMode: true
+        },
+        server: {
+            time: new Date().toISOString(),
+            env: process.env.NODE_ENV || "development"
+        }
+    });
+};
+
 exports.login = async (req, res) => {
     // 🩺 TANI: her login isteği için detaylı log — 403 sorunu için izlenebilirlik
     const _diagOrigin = req.headers.origin || "-";
