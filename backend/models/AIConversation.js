@@ -105,4 +105,25 @@ AIConversationSchema.index({ userId: 1, sessionId: 1 }, { unique: true });
 // TTL: 30 gün sonra eski konuşmaları sil
 AIConversationSchema.index({ updatedAt: 1 }, { expireAfterSeconds: 30 * 24 * 60 * 60 });
 
+// ── Mesaj cap: BSON 16MB sınırına yaklaşmamak için son 200 mesajı tut ──
+const MESSAGE_HARD_CAP = 200;
+const MESSAGE_SOFT_CAP = 180; // cap'a ulaşınca soft cap'e kırp (en yeni 180)
+
+AIConversationSchema.pre("save", function (next) {
+    try {
+        if (Array.isArray(this.messages) && this.messages.length > MESSAGE_HARD_CAP) {
+            const trimmed = this.messages.slice(-MESSAGE_SOFT_CAP);
+            this.messages = trimmed;
+            // Stats'ı tutarlı tut
+            this.stats = this.stats || {};
+            this.stats.messageCount = trimmed.length;
+            this.stats.userMessageCount = trimmed.filter(m => m.role === "user").length;
+            this.stats.aiMessageCount = trimmed.filter(m => m.role === "ai").length;
+        }
+        next();
+    } catch (err) {
+        next(err);
+    }
+});
+
 module.exports = mongoose.model("AIConversation", AIConversationSchema);

@@ -39,7 +39,9 @@ function analyzeProduct(product, allProducts, observation) {
         profitMargin: product.profitMargin || 0,
         totalSold: product.totalSold || 0,
         avgDailySales: product.avgDailySales || 0,
-        daysSinceLastSale: product.daysSinceLastSale || 999,
+        daysSinceLastSale: (product.daysSinceLastSale === null || product.daysSinceLastSale === undefined) ? null : product.daysSinceLastSale,
+        isNewProduct: !!product.isNewProduct,
+        hasSalesHistory: !!product.hasSalesHistory,
         daysOfStock: product.daysOfStock || 0,
 
         // Durum sınıflandırması

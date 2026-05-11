@@ -331,7 +331,9 @@ const AppContent = () => {
 
             {/* Abonelik & Ödeme */}
             <Route path="/subscription" element={<ProtectedRoute><SubscriptionPage /></ProtectedRoute>} />
-            <Route path="/errors" element={<ProtectedRoute><ErrorCenterPage /></ProtectedRoute>} />
+            {/* Operasyon Defteri — kullanıcı + AI + sistem birleşik akışı (eski URL /errors geri uyumlu) */}
+            <Route path="/journal" element={<ProtectedRoute><ErrorCenterPage /></ProtectedRoute>} />
+            <Route path="/errors" element={<Navigate to="/journal" replace />} />
             <Route path="/payment/success" element={<PaymentResult />} />
             <Route path="/payment/failed" element={<PaymentResult />} />
 

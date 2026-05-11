@@ -39,16 +39,29 @@ const uid = (req) => req.user?._id || req.user?.id;
 exports.sendMessage = async (req, res) => {
     try {
         const userId = uid(req);
-        const { message, sessionId } = req.body;
+        const { message, sessionId } = req.body || {};
 
-        if (!message || !message.trim()) {
+        // Tip kontrolü — number/boolean/object gelirse trim çalışmaz
+        if (typeof message !== "string") {
+            return res.status(400).json({ success: false, message: "Mesaj geçersiz tipte (string olmalı)" });
+        }
+        const trimmed = message.trim();
+        if (!trimmed) {
             return res.status(400).json({ success: false, message: "Mesaj boş olamaz" });
         }
+        if (trimmed.length > 4000) {
+            return res.status(400).json({ success: false, message: "Mesaj çok uzun (max 4000 karakter)" });
+        }
 
-        // Session ID yoksa oluştur
-        const sid = sessionId || `session_${crypto.randomBytes(8).toString("hex")}`;
+        // Session ID yoksa oluştur; gelen ID'yi de doğrula
+        let sid;
+        if (typeof sessionId === "string" && /^[A-Za-z0-9_-]{6,80}$/.test(sessionId)) {
+            sid = sessionId;
+        } else {
+            sid = `session_${crypto.randomBytes(8).toString("hex")}`;
+        }
 
-        const result = await AIChatService.processMessage(userId, sid, message.trim());
+        const result = await AIChatService.processMessage(userId, sid, trimmed);
 
         res.json({
             success: result.success,
@@ -141,6 +154,27 @@ exports.getQuickStats = async (req, res) => {
     } catch (err) {
         logger.error(`[AI Chat] getQuickStats error: ${err.message}`);
         res.status(500).json({ success: false, message: "İstatistikler yüklenemedi", error: err.message });
+    }
+};
+
+// ═════════════════════════════════════════════════════════════════════════════
+// GET /llm-status — LLM provider durumu (UI rozetli için)
+// ═════════════════════════════════════════════════════════════════════════════
+exports.getLlmStatus = async (req, res) => {
+    try {
+        const { getLlmConfig, isLlmEnabled, getLlmKindLabel } = require("../services/llmChatRouter");
+        const cfg = getLlmConfig();
+        res.json({
+            success: true,
+            enabled: isLlmEnabled(),
+            type: cfg.type, // "ollama" | "openai" | "none"
+            model: cfg.model || null,
+            label: getLlmKindLabel(),
+            mode: cfg.type === "none" ? "rules" : "hybrid",
+        });
+    } catch (err) {
+        logger.error(`[AI Chat] getLlmStatus error: ${err.message}`);
+        res.status(500).json({ success: false, message: "LLM durumu alınamadı", error: err.message });
     }
 };
 

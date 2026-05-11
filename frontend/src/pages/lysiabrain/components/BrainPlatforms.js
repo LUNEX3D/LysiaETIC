@@ -8,7 +8,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import API from "../../../services/api";
 import { T, fmt, fmtN, useResponsive } from "../styles";
-import { Card, CardHeader, Badge, ScoreRing, StatCard, EmptyState, LoadingState, ErrorState } from "./shared/SharedUI";
+import { Card, CardHeader, Badge, ScoreRing, StatCard, EmptyState, LoadingState, ErrorState, PageHeader } from "./shared/SharedUI";
 
 const BrainPlatforms = ({ t, onError }) => {
     const { isMobile, isTablet } = useResponsive();
@@ -34,15 +34,31 @@ const BrainPlatforms = ({ t, onError }) => {
 
     const maxRev = Math.max(...data.platforms.map(p => p.revenue), 1);
 
+    const top = data.platforms.slice().sort((a, b) => b.revenue - a.revenue)[0];
+    const concentration = top && data.totalRevenue > 0 ? Math.round((top.revenue / data.totalRevenue) * 100) : 0;
+    const tldrPlats = (() => {
+        if (!data.platforms?.length) return "Aktif pazaryeri yok.";
+        if (concentration > 70) return `⚠️ Cironun %${concentration}'i tek bir pazaryerinden (${top.name}) geliyor — yüksek bağımlılık. Bir kanal genişletmesi düşün.`;
+        return `${data.platformCount} aktif pazaryeri, toplam ${fmt(data.totalRevenue)} ciro. En büyük kanal: ${top?.name} (%${concentration}).`;
+    })();
+    const headerStatus = concentration > 70 ? "warning" : "good";
+
     return (
         <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-            {/* KPI Strip */}
-            <div style={{ display: "flex", gap: isMobile ? "0.5rem" : "0.85rem", flexWrap: "wrap" }}>
-                <StatCard icon="▣" label={t("plat.active")} value={data.platformCount} color={T.accent} />
-                <StatCard icon="🛒" label={t("plat.total_orders")} value={fmtN(data.totalOrders)} color={T.blue} />
-                <StatCard icon="💰" label={t("plat.total_revenue")} value={fmt(data.totalRevenue)} color={T.green} />
-                {!isMobile && <StatCard icon="⚠️" label={t("plat.issues_found")} value={data.issues?.length || 0} color={T.yellow} />}
-            </div>
+            <PageHeader
+                icon="▣"
+                title={t("plat.title") || "Pazaryeri Karşılaştırma"}
+                subtitle={t("plat.subtitle") || "Hangi pazaryeri kazandırıyor, hangisi sürtüyor?"}
+                tldr={tldrPlats}
+                status={headerStatus}
+                kpis={[
+                    { label: "Aktif Kanal", value: data.platformCount, color: T.accent },
+                    { label: "Toplam Sipariş", value: fmtN(data.totalOrders), color: T.blue },
+                    { label: "Toplam Ciro", value: fmt(data.totalRevenue), color: T.green },
+                    { label: "Yoğunluk", value: `%${concentration}`, color: concentration > 70 ? T.red : T.purple, hint: `En büyük kanalın payı (${top?.name || "—"})` },
+                    { label: "Sorun", value: data.issues?.length || 0, color: T.yellow },
+                ]}
+            />
 
             {/* Platform Cards */}
             <div style={{ display: "grid", gridTemplateColumns: isTablet ? "1fr" : "repeat(auto-fit, minmax(320px, 1fr))", gap: "1.25rem" }}>

@@ -9,7 +9,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import API from "../../../services/api";
 import { T, fmt, fmtN, useResponsive } from "../styles";
-import { Card, CardHeader, Badge, StatCard, EmptyState, LoadingState, ErrorState } from "./shared/SharedUI";
+import { Card, CardHeader, Badge, StatCard, EmptyState, LoadingState, ErrorState, PageHeader } from "./shared/SharedUI";
 
 const BrainRetro = ({ t, onError }) => {
     const { isMobile } = useResponsive();
@@ -32,15 +32,34 @@ const BrainRetro = ({ t, onError }) => {
 
     const rs = data.recStats || {};
 
+    const totalLost = data.totalLostProfit || 0;
+    const mistakesCount = (data.mistakes || []).length;
+    const acceptRate = rs.total > 0 ? Math.round((rs.approved / rs.total) * 100) : 0;
+    const tldrRetro = (() => {
+        if (rs.total === 0) return "Henüz AI önerisi geçmişi yok — analiz için zaman gerekiyor.";
+        const parts = [`AI ${rs.total} öneri ürettiğin, %${acceptRate}'i onaylanmış.`];
+        if (mistakesCount > 0) parts.push(`${mistakesCount} geçmiş hata tespit edildi`);
+        if (totalLost > 0) parts.push(`tahmini kayıp: ${fmt(totalLost)}`);
+        return parts.join(" · ") + ".";
+    })();
+    const headerStatus = mistakesCount > 5 ? "warning" : "info";
+
     return (
         <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-            {/* Summary */}
-            <div style={{ display: "flex", gap: isMobile ? "0.5rem" : "0.85rem", flexWrap: "wrap" }}>
-                <StatCard icon="💸" label={t("retro.total_loss")} value={fmt(data.totalLostProfit || 0)} color={T.red} />
-                <StatCard icon="📋" label={t("retro.total_recs")} value={fmtN(rs.total || 0)} color={T.blue} />
-                <StatCard icon="✅" label={t("retro.approved")} value={fmtN(rs.approved || 0)} color={T.green} />
-                {!isMobile && <StatCard icon="❌" label={t("retro.rejected")} value={fmtN(rs.rejected || 0)} color={T.red} />}
-            </div>
+            <PageHeader
+                icon="🔄"
+                title={t("retro.title") || "Retro Analiz"}
+                subtitle={t("retro.subtitle") || "Geçmiş AI önerileri ve karar performansı"}
+                tldr={tldrRetro}
+                status={headerStatus}
+                kpis={[
+                    { label: "Toplam Öneri", value: fmtN(rs.total || 0), color: T.blue },
+                    { label: "Onaylanan", value: fmtN(rs.approved || 0), color: T.green },
+                    { label: "Reddedilen", value: fmtN(rs.rejected || 0), color: T.red },
+                    { label: "Kabul Oranı", value: `%${acceptRate}`, color: acceptRate > 60 ? T.green : T.yellow },
+                    { label: "Tahmini Kayıp", value: fmt(totalLost), color: T.red, hint: "Reddedilen veya geç kalan aksiyonlardan" },
+                ]}
+            />
 
             {/* Summary Card */}
             <Card glow>

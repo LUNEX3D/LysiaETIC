@@ -9,7 +9,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import API from "../../../services/api";
 import { T, fmtN, fmtP, useResponsive } from "../styles";
-import { Card, CardHeader, Badge, StatCard, ScoreRing, EmptyState, LoadingState, ErrorState } from "./shared/SharedUI";
+import { Card, CardHeader, Badge, StatCard, ScoreRing, EmptyState, LoadingState, ErrorState, PageHeader } from "./shared/SharedUI";
 
 const SEG_CFG = {
     critical: { color: T.red, icon: "🔴", label: "Kritik" },
@@ -48,16 +48,39 @@ const BrainHealth = ({ t, onError }) => {
 
     const getSegColor = (score) => score < 30 ? T.red : score < 50 ? T.yellow : score < 75 ? T.accent : T.green;
 
+    const avg = data.avgHealthScore || 0;
+    const tldrHealth = (() => {
+        const crit = segs.critical || 0;
+        if (products.length === 0) return "Henüz analiz edilecek ürün yok.";
+        if (crit > 0) return `Ortalama sağlık puanı ${avg}/100. ${crit} üründe acil ilgi gerekiyor — kritik segmente bak.`;
+        if (avg >= 75) return `Ortalama sağlık puanı ${avg}/100 — portföyün sağlıklı. ${segs.excellent || 0} mükemmel ürün.`;
+        return `Ortalama sağlık puanı ${avg}/100. ${segs.warning || 0} ürün dikkat çekici, ${segs.healthy || 0} ürün stabil.`;
+    })();
+    const headerStatus = (segs.critical || 0) > 0 ? "danger" : avg >= 75 ? "good" : avg >= 50 ? "info" : "warning";
+    const filterDefs = [
+        { id: "all", label: "Tümü", count: products.length, color: T.accent },
+        { id: "critical", label: "🔴 Kritik", count: segs.critical || 0, color: T.red },
+        { id: "warning", label: "🟡 Uyarı", count: segs.warning || 0, color: T.yellow },
+        { id: "healthy", label: "🟢 Sağlıklı", count: segs.healthy || 0, color: T.accent },
+        { id: "excellent", label: "🌟 Mükemmel", count: segs.excellent || 0, color: T.green },
+    ];
+
     return (
         <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-            {/* KPI + Score */}
-            <div style={{ display: "flex", gap: isMobile ? "0.5rem" : "0.85rem", flexWrap: "wrap" }}>
-                <StatCard icon="🏥" label={t("health.avg_score")} value={data.avgHealthScore || 0} color={T.accent} suffix="/100" />
-                <StatCard icon="🔴" label={SEG_CFG.critical.label} value={fmtN(segs.critical || 0)} color={T.red} />
-                <StatCard icon="🟡" label={SEG_CFG.warning.label} value={fmtN(segs.warning || 0)} color={T.yellow} />
-                {!isMobile && <StatCard icon="🟢" label={SEG_CFG.healthy.label} value={fmtN(segs.healthy || 0)} color={T.accent} />}
-                {!isMobile && <StatCard icon="🌟" label={SEG_CFG.excellent.label} value={fmtN(segs.excellent || 0)} color={T.green} />}
-            </div>
+            <PageHeader
+                icon="🏥"
+                title={t("health.title") || "Ürün Sağlık Haritası"}
+                subtitle={t("health.subtitle") || "Her ürün için 0-100 sağlık puanı ve segmenti"}
+                tldr={tldrHealth}
+                status={headerStatus}
+                kpis={[
+                    { label: "Ortalama Puan", value: `${avg}/100`, color: T.accent },
+                    { label: "Toplam Ürün", value: products.length, color: T.blue },
+                    { label: "Kritik", value: segs.critical || 0, color: T.red },
+                    { label: "Mükemmel", value: segs.excellent || 0, color: T.green },
+                ]}
+                filters={filterDefs.map(f => ({ ...f, active: filter === f.id, onClick: () => setFilter(f.id) }))}
+            />
 
             {/* Segment Distribution */}
             <Card glow>

@@ -9,7 +9,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import API from "../../../services/api";
 import { T, fmt, fmtN, useResponsive } from "../styles";
-import { Card, Badge, StatCard, ScoreRing, EmptyState, LoadingState, ErrorState } from "./shared/SharedUI";
+import { Card, Badge, StatCard, ScoreRing, EmptyState, LoadingState, ErrorState, PageHeader } from "./shared/SharedUI";
 
 const LEVEL_CFG = {
     high: { color: T.red, bg: T.redDim, icon: "🔴" },
@@ -39,21 +39,29 @@ const BrainRisks = ({ t, onError }) => {
     const risks = data.risks || [];
     const rc = data.riskCount || {};
 
+    const score = data.riskScore || 0;
+    const tldrRisks = (() => {
+        if (risks.length === 0) return `Güvenlik puanın ${score}/100. Şu an aktif risk yok — temiz iş yapıyorsun.`;
+        if ((rc.high || 0) > 0) return `${rc.high} YÜKSEK risk var (aylık etki: ${fmt(data.totalMonthlyRiskImpact || 0)}). Hemen müdahale etmelisin.`;
+        return `${risks.length} aktif risk takipte. Güvenlik puanı ${score}/100. Aylık etki: ${fmt(data.totalMonthlyRiskImpact || 0)}.`;
+    })();
+    const headerStatus = (rc.high || 0) > 0 ? "danger" : (rc.medium || 0) > 2 ? "warning" : "good";
+
     return (
         <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-            {/* KPI */}
-            <div style={{ display: "flex", gap: isMobile ? "0.5rem" : "0.85rem", flexWrap: "wrap", alignItems: "center" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "1rem", padding: "1rem 1.25rem", borderRadius: T.r, background: T.bgCard, border: `1px solid ${T.borderGlow}`, flex: "1 1 200px" }}>
-                    <ScoreRing score={data.riskScore || 0} size={64} thickness={3.5} label={t("risks.safety")} />
-                    <div>
-                        <div style={{ fontSize: "0.72rem", color: T.textDim, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>{t("risks.risk_score")}</div>
-                        <div style={{ fontSize: "1.3rem", fontWeight: 800, color: (data.riskScore || 0) >= 70 ? T.green : (data.riskScore || 0) >= 40 ? T.yellow : T.red, fontFamily: T.fontMono }}>{data.riskScore || 0}/100</div>
-                    </div>
-                </div>
-                <StatCard icon="🔴" label={t("risks.high")} value={fmtN(rc.high || 0)} color={T.red} />
-                <StatCard icon="🟡" label={t("risks.medium")} value={fmtN(rc.medium || 0)} color={T.yellow} />
-                {!isMobile && <StatCard icon="💰" label={t("risks.monthly_impact")} value={fmt(data.totalMonthlyRiskImpact || 0)} color={T.red} />}
-            </div>
+            <PageHeader
+                icon="⚠️"
+                title={t("risks.title") || "Risk Radarı"}
+                subtitle={t("risks.subtitle") || "İşletmenin maruz kaldığı operasyonel ve finansal riskler"}
+                tldr={tldrRisks}
+                status={headerStatus}
+                kpis={[
+                    { label: "Güvenlik Puanı", value: `${score}/100`, color: score >= 70 ? T.green : score >= 40 ? T.yellow : T.red },
+                    { label: "Yüksek Risk", value: fmtN(rc.high || 0), color: T.red },
+                    { label: "Orta Risk", value: fmtN(rc.medium || 0), color: T.yellow },
+                    { label: "Aylık Etki", value: fmt(data.totalMonthlyRiskImpact || 0), color: T.red, hint: "Risk gerçekleşirse kayıp" },
+                ]}
+            />
 
             {/* Risk Items */}
             {risks.length === 0 ? (

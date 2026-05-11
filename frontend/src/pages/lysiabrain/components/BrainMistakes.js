@@ -8,7 +8,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import API from "../../../services/api";
 import { T, fmt, useResponsive } from "../styles";
-import { Card, CardHeader, Badge, LoadingState, ErrorState, GlowLine, IconBox } from "./shared/SharedUI";
+import { Card, CardHeader, Badge, LoadingState, ErrorState, GlowLine, IconBox, PageHeader } from "./shared/SharedUI";
 
 const BrainMistakes = ({ t, onError }) => {
     const { isMobile } = useResponsive();
@@ -70,8 +70,34 @@ const BrainMistakes = ({ t, onError }) => {
         );
     };
 
+    const totalImpact = data.summary?.totalImpact || 0;
+    const tldrMistakes = (() => {
+        const crit = data.summary?.criticalCount || 0;
+        const grade = overallLetter || "—";
+        if (crit > 0) return `Genel notun: ${grade}. ${crit} KRİTİK hata tespit edildi (tahmini etki: ${fmt(totalImpact)}). Aşağıdaki listede 'kritik' bölümünden başla.`;
+        if (grade === "A") return `Genel notun: A 🏆 — operasyonun son derece sağlıklı. Sadece minor iyileştirme alanları kaldı.`;
+        return `Genel notun: ${grade}. Tahmini etki: ${fmt(totalImpact)}. İyileştirme alanları aşağıda detaylı listede.`;
+    })();
+    const headerStatus = (data.summary?.criticalCount || 0) > 0 ? "danger" : overallLetter === "A" ? "good" : "warning";
+
     return (
         <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+            <PageHeader
+                icon="△"
+                title={t("mis.title") || "Hata Tespiti"}
+                subtitle={t("mis.subtitle") || "AI'nın bulduğu operasyonel hatalar ve iyileştirme önerileri"}
+                tldr={tldrMistakes}
+                status={headerStatus}
+                kpis={[
+                    { label: "Genel Not", value: overallLetter || "—", color: gradeBand.color },
+                    { label: "Kritik", value: data.summary?.criticalCount || 0, color: T.red },
+                    { label: "Uyarı", value: data.summary?.warningCount || 0, color: T.yellow },
+                    { label: "İyileştirme", value: data.summary?.improvementCount || 0, color: T.blue },
+                    { label: "Olumlu", value: data.summary?.positiveCount || 0, color: T.green },
+                    { label: "Tahmini Etki", value: fmt(totalImpact), color: T.red, hint: "Düzeltilmezse toplam kayıp" },
+                ]}
+            />
+
             {/* Grade hero */}
             <Card glow style={{ background: gradeBand.dim, borderColor: `${gradeBand.color}30` }}>
                 <div style={{ display: "flex", alignItems: "center", gap: isMobile ? "1rem" : "1.5rem", flexWrap: "wrap" }}>

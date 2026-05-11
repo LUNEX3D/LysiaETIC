@@ -9,7 +9,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import API from "../../../services/api";
 import { T, fmt, fmtN, useResponsive } from "../styles";
-import { Card, CardHeader, Badge, StatCard, EmptyState, LoadingState, ErrorState } from "./shared/SharedUI";
+import { Card, CardHeader, Badge, StatCard, EmptyState, LoadingState, ErrorState, PageHeader } from "./shared/SharedUI";
 
 const SEV_CFG = {
     critical: { color: T.red, icon: "🚨" },
@@ -41,15 +41,31 @@ const BrainPredictions = ({ t, onError }) => {
     const summary = data.summary || {};
     const trend = data.trendData || {};
 
+    const tldrPrediction = (() => {
+        const crit = summary.criticalCount || 0;
+        const total = summary.totalPredictions || 0;
+        const impact = summary.totalFinancialImpact || 0;
+        if (total === 0) return "Henüz tahmin üretilecek yeterli veri yok. Sipariş hareketlendikçe LysiaBrain seni 14 gün önceden uyarmaya başlayacak.";
+        if (crit > 0) return `${crit} kritik öngörü var (toplam ${total} öngörü). Tahmini etki: ${fmt(impact)}. Önce kritik olanlara bak.`;
+        return `${total} öngörü üretildi. Genel beklenen etki ${fmt(impact)}. Trend ${summary.revenueDirection === "up" ? "yukarı 📈" : "aşağı 📉"} yönlü.`;
+    })();
+    const headerStatus = summary.criticalCount > 0 ? "danger" : summary.totalPredictions > 5 ? "warning" : "good";
+
     return (
         <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-            {/* KPI */}
-            <div style={{ display: "flex", gap: isMobile ? "0.5rem" : "0.85rem", flexWrap: "wrap" }}>
-                <StatCard icon="🔮" label={t("pred.total")} value={fmtN(summary.totalPredictions || 0)} color={T.purple} />
-                <StatCard icon="🚨" label={t("pred.critical")} value={fmtN(summary.criticalCount || 0)} color={T.red} />
-                <StatCard icon="💰" label={t("pred.financial_impact")} value={fmt(summary.totalFinancialImpact || 0)} color={summary.totalFinancialImpact >= 0 ? T.green : T.red} />
-                {!isMobile && <StatCard icon={summary.revenueDirection === "up" ? "📈" : "📉"} label={t("pred.trend")} value={`${summary.revenueTrend >= 0 ? "+" : ""}%${summary.revenueTrend || 0}`} color={summary.revenueTrend >= 0 ? T.green : T.red} />}
-            </div>
+            <PageHeader
+                icon="🔮"
+                title={t("pred.title") || "Tahmin Motoru"}
+                subtitle={t("pred.subtitle") || "AI'nın 7-30 günlük geleceğe dair öngörüleri"}
+                tldr={tldrPrediction}
+                status={headerStatus}
+                kpis={[
+                    { label: "Toplam Tahmin", value: fmtN(summary.totalPredictions || 0), color: T.purple },
+                    { label: "Kritik", value: fmtN(summary.criticalCount || 0), color: T.red, hint: "Hemen aksiyon gerektiren" },
+                    { label: "Finansal Etki", value: fmt(summary.totalFinancialImpact || 0), color: summary.totalFinancialImpact >= 0 ? T.green : T.red },
+                    { label: "Gelir Trendi", value: `${summary.revenueTrend >= 0 ? "+" : ""}%${summary.revenueTrend || 0}`, color: summary.revenueTrend >= 0 ? T.green : T.red, trend: summary.revenueTrend },
+                ]}
+            />
 
             {/* Revenue Trend Mini Chart */}
             {(trend.dailyRevenues || []).length > 0 && (

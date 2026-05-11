@@ -276,7 +276,12 @@ app.use("/api/orders",             orderRoutes);
 app.use("/api/products",           productRoutes);
 app.use("/api/auth",               authRoutes);
 app.use("/api/marketplace",        marketplaceRoutes);
-app.use("/api/ai",                 aiRoutes);
+// ⚠️ LEGACY: /api/ai/* — eski intelligentEngine. Aktif UI artık /api/ai-engine + /api/ai-chat kullanıyor.
+//    Sadece AI_LEGACY_ENABLED=true ise mount edilir. Default: kapalı.
+if (process.env.AI_LEGACY_ENABLED === "true" || process.env.AI_LEGACY_ENABLED === "1") {
+    app.use("/api/ai",             aiRoutes);
+    logger.info("⚠️ Legacy /api/ai/* route'u AÇIK (AI_LEGACY_ENABLED=true)");
+}
 app.use("/api/categories",         categoryRoutes);
 // ✅ FIX: /hepsiburada → /api/hepsiburada (tutarlı prefix)
 app.use("/api/hepsiburada",        hepsiburadaRoutes);

@@ -9,7 +9,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import API from "../../../services/api";
 import { T, fmt, fmtN, useResponsive } from "../styles";
-import { Card, CardHeader, Badge, Btn, HealthBar, EmptyState, LoadingState, ErrorState, Input } from "./shared/SharedUI";
+import { Card, CardHeader, Badge, Btn, HealthBar, EmptyState, LoadingState, ErrorState, Input, PageHeader } from "./shared/SharedUI";
 
 const GOAL_TYPES = [
     { id: "revenue", icon: "💰", color: T.green },
@@ -80,50 +80,72 @@ const BrainGoals = ({ t, onError }) => {
 
     const activeGoals = goals.filter(g => g.status === "active" || !g.status);
     const completedGoals = goals.filter(g => g.status === "completed" || g.status === "failed");
+    const completedCount = goals.filter(g => g.status === "completed").length;
+    const failedCount = goals.filter(g => g.status === "failed").length;
+    const tldrGoals = (() => {
+        if (goals.length === 0) return "Henüz hedef tanımlamadın. AI'nın seni neye odaklayacağını söyleyebilmesi için en az 1 hedef (örn. 'Bu ay 100.000₺ gelir') oluşturalım.";
+        if (activeGoals.length === 0) return `Tüm hedefler kapandı (${completedCount} başarılı, ${failedCount} başarısız). Yeni hedef ekleyerek AI'ı yönlendirebilirsin.`;
+        const closest = activeGoals.slice().sort((a, b) => {
+            const pa = (a.currentValue || 0) / (a.targetValue || 1);
+            const pb = (b.currentValue || 0) / (b.targetValue || 1);
+            return pb - pa;
+        })[0];
+        const pct = Math.round(((closest.currentValue || 0) / (closest.targetValue || 1)) * 100);
+        return `${activeGoals.length} aktif hedef takip ediliyor. En yakın olanı: "${closest.title}" (%${pct}).`;
+    })();
 
     return (
         <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-            {/* ═══ Header + Create Button ═══ */}
-            <Card glow>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.75rem" }}>
-                    <CardHeader icon="🎯" title={t("goal.title")} subtitle={t("goal.subtitle")} color={T.accent} />
-                    <Btn color={T.accent} variant="solid" onClick={() => setShowCreate(p => !p)}>
-                        {showCreate ? "✕" : "+"} {t("goal.create")}
+            <PageHeader
+                icon="🎯"
+                title={t("goal.title") || "Hedeflerim"}
+                subtitle={t("goal.subtitle") || "AI'a yön ver: gelir, satış, kâr hedefleri"}
+                tldr={tldrGoals}
+                status={activeGoals.length > 0 ? "good" : "info"}
+                kpis={[
+                    { label: "Aktif", value: activeGoals.length, color: T.accent },
+                    { label: "Tamamlanan", value: completedCount, color: T.green },
+                    { label: "Başarısız", value: failedCount, color: T.red },
+                ]}
+                actions={
+                    <Btn color={T.accent} onClick={() => setShowCreate(p => !p)}>
+                        {showCreate ? "✕" : "+"} {t("goal.create") || "Hedef Ekle"}
                     </Btn>
-                </div>
+                }
+            />
 
-                {/* Create Form */}
-                {showCreate && (
-                    <div style={{ marginTop: "1rem", padding: "1.25rem", borderRadius: T.rSm, background: T.bgGlass, border: `1px solid ${T.border}` }}>
-                        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: "0.75rem", marginBottom: "0.75rem" }}>
-                            <Input value={form.title} onChange={e => setForm(p => ({ ...p, title: e.target.value }))} placeholder={t("goal.name")} />
-                            <Input value={form.targetValue} onChange={e => setForm(p => ({ ...p, targetValue: e.target.value }))} placeholder={t("goal.target")} type="number" />
-                            <div style={{ display: "flex", gap: "0.5rem" }}>
-                                {GOAL_TYPES.map(gt => (
-                                    <button key={gt.id} onClick={() => setForm(p => ({ ...p, goalType: gt.id }))}
-                                        style={{
-                                            flex: 1, padding: "8px", borderRadius: T.rSm, cursor: "pointer",
-                                            background: form.goalType === gt.id ? `${gt.color}15` : T.bgGlass,
-                                            border: `1px solid ${form.goalType === gt.id ? gt.color + "35" : T.border}`,
-                                            color: form.goalType === gt.id ? gt.color : T.textDim,
-                                            fontSize: "0.78rem", fontWeight: 600, fontFamily: "inherit",
-                                            display: "flex", alignItems: "center", justifyContent: "center", gap: 4,
-                                        }}>
-                                        {gt.icon} {t(`goal.type.${gt.id}`)}
-                                    </button>
-                                ))}
-                            </div>
-                            <Input value={form.endDate} onChange={e => setForm(p => ({ ...p, endDate: e.target.value }))} placeholder={t("goal.end_date")} type="date" />
-                        </div>
+            {/* Create Form — sadece açıkken render */}
+            {showCreate && (
+                <Card>
+                    <CardHeader icon="➕" title={t("goal.create") || "Yeni Hedef"} subtitle={t("goal.create_sub") || "AI'ya odaklanacağı yönü göster"} color={T.accent} />
+                    <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: "0.75rem", marginBottom: "0.75rem" }}>
+                        <Input value={form.title} onChange={e => setForm(p => ({ ...p, title: e.target.value }))} placeholder={t("goal.name")} />
+                        <Input value={form.targetValue} onChange={e => setForm(p => ({ ...p, targetValue: e.target.value }))} placeholder={t("goal.target")} type="number" />
                         <div style={{ display: "flex", gap: "0.5rem" }}>
-                            <Btn color={T.accent} variant="solid" onClick={handleCreate} disabled={creating || !form.title.trim() || !form.targetValue || !form.endDate}>
-                                {creating ? "⏳" : "✓"} {t("goal.save")}
-                            </Btn>
-                            <Btn color={T.textDim} variant="ghost" onClick={() => setShowCreate(false)}>{t("goal.cancel")}</Btn>
+                            {GOAL_TYPES.map(gt => (
+                                <button key={gt.id} onClick={() => setForm(p => ({ ...p, goalType: gt.id }))}
+                                    style={{
+                                        flex: 1, padding: "8px", borderRadius: T.rSm, cursor: "pointer",
+                                        background: form.goalType === gt.id ? `${gt.color}15` : T.bgGlass,
+                                        border: `1px solid ${form.goalType === gt.id ? gt.color + "35" : T.border}`,
+                                        color: form.goalType === gt.id ? gt.color : T.textDim,
+                                        fontSize: "0.78rem", fontWeight: 600, fontFamily: "inherit",
+                                        display: "flex", alignItems: "center", justifyContent: "center", gap: 4,
+                                    }}>
+                                    {gt.icon} {t(`goal.type.${gt.id}`)}
+                                </button>
+                            ))}
                         </div>
+                        <Input value={form.endDate} onChange={e => setForm(p => ({ ...p, endDate: e.target.value }))} placeholder={t("goal.end_date")} type="date" />
                     </div>
-                )}
-            </Card>
+                    <div style={{ display: "flex", gap: "0.5rem" }}>
+                        <Btn color={T.accent} variant="solid" onClick={handleCreate} disabled={creating || !form.title.trim() || !form.targetValue || !form.endDate}>
+                            {creating ? "⏳" : "✓"} {t("goal.save")}
+                        </Btn>
+                        <Btn color={T.textDim} variant="ghost" onClick={() => setShowCreate(false)}>{t("goal.cancel")}</Btn>
+                    </div>
+                </Card>
+            )}
 
             {/* ═══ Active Goals ═══ */}
             {activeGoals.length === 0 && completedGoals.length === 0 && (

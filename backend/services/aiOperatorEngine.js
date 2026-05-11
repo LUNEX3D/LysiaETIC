@@ -45,11 +45,13 @@ const AIMemory = require("../models/AIMemory");
 const AIConversation = require("../models/AIConversation");
 const AIAnalysisCache = require("../models/AIAnalysisCache");
 const AICycleResult = require("../models/AICycleResult");
+const AICycleCounter = require("../models/AICycleCounter");
 const Order = require("../models/Order");
 const Product = require("../models/Product");
 const ProductMapping = require("../models/ProductMapping");
 const Marketplace = require("../models/Marketplace");
 const Recommendation = require("../models/Recommendation");
+const AutonomyConfig = require("../models/AutonomyConfig");
 const logger = require("../config/logger");
 const { getTurkeyTodayStart, getTurkeyTomorrowStart } = require("../utils/turkeyTime");
 
@@ -60,16 +62,96 @@ function round2(v) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// GUARDRAILS — Güvenlik Limitleri
+// GUARDRAILS — Default Güvenlik Limitleri (kullanıcı AutonomyConfig'i bunları override eder)
 // ═════════════════════════════════════════════════════════════════════════════
 const GUARDRAILS = {
-    maxPriceChangePercent: 20,      // Tek seferde max %20 fiyat değişimi
-    maxStockOrderQuantity: 500,     // Tek seferde max 500 adet stok siparişi
-    minProfitMarginPercent: 5,      // Minimum kâr marjı hedefi
-    maxActionsPerHour: 50,          // Saatte max 50 aksiyon
-    requireApprovalForCritical: true, // Kritik aksiyonlar onay gerektirir
-    cooldownMinutes: 5,             // Aynı ürüne tekrar aksiyon arası min 5dk
+    maxPriceChangePercent: 20,
+    maxPriceIncreasePercent: 15,
+    maxDiscountPercent: 30,
+    minDiscountPercent: 3,
+    maxStockOrderQuantity: 500,
+    minProfitMarginPercent: 5,
+    targetProfitMarginPercent: 15,
+    maxActionsPerHour: 50,
+    maxActionsPerHourGlobal: 2000,
+    requireApprovalForCritical: true,
+    cooldownMinutes: 5,
+    autoApproveBelowImpactTRY: 100,
+    autoApproveOnlyIfConfidence: 75,
+    mode: "supervised",
 };
+
+/**
+ * loadUserGuardrails — Kullanıcının AutonomyConfig'inden GUARDRAILS objesini oluştur.
+ * Kullanıcı config'i yoksa veya alan eksikse default değerlerle fill eder.
+ * Tüm decision pipeline bu objeyi kullanmalı.
+ */
+async function loadUserGuardrails(userId) {
+    try {
+        const cfg = await AutonomyConfig.getOrCreate(userId);
+        return {
+            // Genel
+            mode: cfg.mode || GUARDRAILS.mode,
+            // Marj
+            targetProfitMarginPercent: cfg.targetProfitMarginPercent ?? GUARDRAILS.targetProfitMarginPercent,
+            minProfitMarginPercent: cfg.minProfitMarginPercent ?? GUARDRAILS.minProfitMarginPercent,
+            // Fiyat
+            maxPriceChangePercent: cfg.maxPriceChangePercent ?? GUARDRAILS.maxPriceChangePercent,
+            maxPriceIncreasePercent: cfg.maxPriceIncreasePercent ?? GUARDRAILS.maxPriceIncreasePercent,
+            maxDiscountPercent: cfg.maxDiscountPercent ?? GUARDRAILS.maxDiscountPercent,
+            minDiscountPercent: cfg.minDiscountPercent ?? GUARDRAILS.minDiscountPercent,
+            // Stok
+            maxStockOrderQuantity: cfg.maxStockOrderQuantity ?? GUARDRAILS.maxStockOrderQuantity,
+            enableAutoRestock: !!cfg.enableAutoRestock,
+            // Hız
+            maxActionsPerHour: cfg.maxActionsPerHour ?? GUARDRAILS.maxActionsPerHour,
+            maxActionsPerHourGlobal: GUARDRAILS.maxActionsPerHourGlobal,
+            cooldownMinutes: cfg.cooldownMinutes ?? GUARDRAILS.cooldownMinutes,
+            // Onay
+            requireApprovalForCritical: cfg.requireApprovalForCritical ?? GUARDRAILS.requireApprovalForCritical,
+            autoApproveBelowImpactTRY: cfg.autoApproveBelowImpactTRY ?? GUARDRAILS.autoApproveBelowImpactTRY,
+            autoApproveOnlyIfConfidence: cfg.autoApproveOnlyIfConfidence ?? GUARDRAILS.autoApproveOnlyIfConfidence,
+            // İzinler
+            allowedActions: Array.isArray(cfg.allowedActions) ? cfg.allowedActions : GUARDRAILS.allowedActions,
+            productWhitelist: cfg.productWhitelist || [],
+            productBlacklist: cfg.productBlacklist || [],
+            categoryRules: cfg.categoryRules || [],
+            marketplaceBlacklist: cfg.marketplaceBlacklist || [],
+            requireSyncedMarketplace: cfg.requireSyncedMarketplace !== false,
+            // Çalışma saatleri
+            workHours: cfg.workHours || { enabled: false },
+            withinWorkHours: AutonomyConfig.isWithinWorkHours(cfg),
+            // Raw config (bazı yerlerde detay lazım olabilir)
+            _rawConfig: cfg,
+        };
+    } catch (err) {
+        logger.warn(`[AIOperator] loadUserGuardrails fallback to defaults: ${err.message}`);
+        return { ...GUARDRAILS, withinWorkHours: true, productWhitelist: [], productBlacklist: [], categoryRules: [], marketplaceBlacklist: [], _rawConfig: null };
+    }
+}
+
+/**
+ * filterProductByConfig — Bu ürün kullanıcı config'ine göre AI'ya açık mı?
+ */
+function filterProductByConfig(product, userGuardrails) {
+    if (!product || !userGuardrails) return true;
+    const barcode = product.barcode;
+    if (userGuardrails.productBlacklist?.includes(barcode)) return false;
+    if (userGuardrails.productWhitelist?.length > 0 && !userGuardrails.productWhitelist.includes(barcode)) return false;
+    return true;
+}
+
+/**
+ * categoryEffectiveLimits — Kategori için efektif eşikleri döndür (kategori > genel)
+ */
+function categoryEffectiveLimits(category, userGuardrails) {
+    const rule = userGuardrails.categoryRules?.find(r => r.category === category);
+    return {
+        maxDiscountPercent: rule?.maxDiscountPercent ?? userGuardrails.maxDiscountPercent,
+        minProfitMarginPercent: rule?.minProfitMarginPercent ?? userGuardrails.minProfitMarginPercent,
+        targetProfitMarginPercent: rule?.targetProfitMarginPercent ?? userGuardrails.targetProfitMarginPercent,
+    };
+}
 
 // ═════════════════════════════════════════════════════════════════════════════
 // 1. OBSERVE — Veri Toplama Katmanı
@@ -212,21 +294,35 @@ async function decide(userId, observation, analysis, operationMode = "assisted")
     const { analyzedProducts, memories } = observation;
     const { businessHealth, lossHunter, risks } = analysis;
 
+    // Kullanıcı kurallarını yükle — bundan sonraki her şey config'e göre çalışır
+    const userGuardrails = await loadUserGuardrails(userId);
+    // Kullanıcı mode'u operasyon modunu override eder
+    const effectiveMode = userGuardrails.mode || operationMode;
+
     // Mevcut auto-decide motorunu kullan
     const autoDecisions = await AIBrain.autoDecide(userId, analyzedProducts, observation, businessHealth, lossHunter);
 
     // Hafızadan öğrenilmiş kuralları uygula
     const memoryAdjustedDecisions = applyMemoryToDecisions(autoDecisions.decisions, memories);
 
-    // Güvenlik kontrolü
-    const safeDecisions = applySafetyGuardrails(memoryAdjustedDecisions, operationMode);
+    // Güvenlik kontrolü (kullanıcı config'i ile)
+    const safeDecisions = applySafetyGuardrails(memoryAdjustedDecisions, effectiveMode, userGuardrails, analyzedProducts);
 
     return {
         decisions: safeDecisions,
         totalPotentialImpact: safeDecisions.reduce((s, d) => s + (d.impact || 0), 0),
         criticalCount: safeDecisions.filter(d => d.urgency === "critical").length,
-        operationMode,
+        operationMode: effectiveMode,
         guardrailsApplied: safeDecisions.filter(d => d._guardrailApplied).length,
+        blockedCount: safeDecisions.filter(d => d._blocked).length,
+        userGuardrails: {
+            mode: userGuardrails.mode,
+            targetMargin: userGuardrails.targetProfitMarginPercent,
+            minMargin: userGuardrails.minProfitMarginPercent,
+            maxDiscount: userGuardrails.maxDiscountPercent,
+            maxPriceChange: userGuardrails.maxPriceChangePercent,
+            withinWorkHours: userGuardrails.withinWorkHours,
+        },
     };
 }
 
@@ -267,48 +363,177 @@ function applyMemoryToDecisions(decisions, memories) {
 
 /**
  * Güvenlik guardrail'lerini uygula
+ *
+ * Her aksiyon tipi için ayrı sınırlama:
+ *  - price_update / price_fix / margin_optimize: fiyat değişim %'si maxPriceChangePercent (20%) ile sınırlanır
+ *  - apply_discount / discount: discountPercent [minDiscountPercent, maxDiscountPercent] (3%-30%) arasına clamp edilir
+ *  - restock: restockQty maxStockOrderQuantity (500) ile sınırlanır
+ *  - liquidate (çoklu ürün): autoExecutable=false zorlanır → daima manuel onay gerektirir
+ *  - expand / marketing: tek başına manuel inceleme, asla autoExecutable değil
  */
-function applySafetyGuardrails(decisions, operationMode) {
-    return decisions.map(d => {
-        const modified = { ...d, _guardrailApplied: false };
+function applySafetyGuardrails(decisions, operationMode, userGuardrails = GUARDRAILS, analyzedProducts = []) {
+    const g = userGuardrails;
+    // Hızlı ürün lookup için map (kategori kuralları için)
+    const productByBarcode = new Map();
+    for (const p of (analyzedProducts || [])) {
+        if (p?.barcode) productByBarcode.set(p.barcode, p);
+    }
 
-        // Fiyat değişimi limiti
-        if (d.action === "price_update" && d.params) {
-            const oldPrice = d.params.oldPrice || 0;
-            const newPrice = d.params.newPrice || 0;
-            if (oldPrice > 0) {
-                const changePct = Math.abs((newPrice - oldPrice) / oldPrice) * 100;
-                if (changePct > GUARDRAILS.maxPriceChangePercent) {
-                    // Limitle
-                    const direction = newPrice > oldPrice ? 1 : -1;
-                    modified.params = {
-                        ...d.params,
-                        newPrice: Math.round(oldPrice * (1 + direction * GUARDRAILS.maxPriceChangePercent / 100)),
-                    };
+    return decisions.map(d => {
+        const modified = { ...d, _guardrailApplied: false, _blockReasons: [] };
+        const product = d.barcode ? productByBarcode.get(d.barcode) : null;
+        const catLimits = product ? categoryEffectiveLimits(product.category, g) : null;
+
+        // ── 0. ÜRÜN WHITELIST / BLACKLIST ───────────────────────────────────
+        if (d.barcode) {
+            if (g.productBlacklist?.includes(d.barcode)) {
+                modified.autoExecutable = false;
+                modified._requiresApproval = true;
+                modified._blocked = true;
+                modified._blockReasons.push("Ürün kullanıcı tarafından kara listede");
+                return modified;
+            }
+            if (g.productWhitelist?.length > 0 && !g.productWhitelist.includes(d.barcode)) {
+                modified.autoExecutable = false;
+                modified._requiresApproval = true;
+                modified._blocked = true;
+                modified._blockReasons.push("Ürün whitelist dışında");
+                return modified;
+            }
+        }
+
+        // ── 1. AKSIYON TİPİ İZNİ ────────────────────────────────────────────
+        const actionType = mapActionToExecutionType(d.action);
+        if (g.allowedActions?.length > 0 && actionType && !g.allowedActions.includes(actionType)) {
+            modified.autoExecutable = false;
+            modified._requiresApproval = true;
+            modified._blocked = true;
+            modified._blockReasons.push(`Aksiyon tipi izinsiz: ${actionType}`);
+            return modified;
+        }
+
+        // ── 2. ÇALIŞMA SAATLERİ ─────────────────────────────────────────────
+        if (g.withinWorkHours === false) {
+            modified.autoExecutable = false;
+            modified._requiresApproval = true;
+            modified._blockReasons.push("Çalışma saatleri dışında — manuel onay gerekli");
+        }
+
+        // ── 3. FİYAT AKSİYONLARI ────────────────────────────────────────────
+        if (["price_update", "price_fix", "margin_optimize"].includes(d.action) && d.params) {
+            const oldPrice = Number(d.params.oldPrice) || 0;
+            const newPrice = Number(d.params.newPrice) || 0;
+            if (oldPrice > 0 && newPrice > 0) {
+                const changePct = ((newPrice - oldPrice) / oldPrice) * 100;
+                const absChange = Math.abs(changePct);
+                // Artış mı düşüş mü — ayrı limit
+                const isIncrease = newPrice > oldPrice;
+                const limit = isIncrease ? g.maxPriceIncreasePercent : g.maxPriceChangePercent;
+                if (absChange > limit) {
+                    const direction = isIncrease ? 1 : -1;
+                    modified.params = { ...d.params, newPrice: Math.round(oldPrice * (1 + direction * limit / 100)) };
                     modified._guardrailApplied = true;
-                    modified._guardrailNote = `Fiyat değişimi %${changePct.toFixed(0)} → %${GUARDRAILS.maxPriceChangePercent} ile sınırlandı`;
+                    modified._guardrailNote = `${isIncrease ? "Artış" : "Düşüş"} %${absChange.toFixed(0)} → %${limit} ile sınırlandı`;
+                }
+                // Min marj koruması
+                if (product && product.costPrice > 0) {
+                    const minMargin = catLimits?.minProfitMarginPercent ?? g.minProfitMarginPercent;
+                    const projectedMargin = ((modified.params.newPrice - product.costPrice) / modified.params.newPrice) * 100;
+                    if (projectedMargin < minMargin) {
+                        // Min marj koruması: fiyatı min marja yükselt
+                        const minSafePrice = Math.ceil(product.costPrice / (1 - minMargin / 100));
+                        if (minSafePrice > modified.params.newPrice) {
+                            modified.params.newPrice = minSafePrice;
+                            modified._guardrailApplied = true;
+                            modified._guardrailNote = (modified._guardrailNote ? modified._guardrailNote + " · " : "") + `Min %${minMargin} kâr marjı için fiyat ${minSafePrice}₺'ye çekildi`;
+                        }
+                    }
+                }
+            } else {
+                modified.autoExecutable = false;
+                modified._requiresApproval = true;
+                modified._guardrailApplied = true;
+                modified._guardrailNote = "Geçersiz fiyat parametreleri — manuel inceleme";
+            }
+        }
+
+        // ── 4. İNDİRİM AKSİYONLARI ──────────────────────────────────────────
+        if (["apply_discount", "discount"].includes(d.action)) {
+            const rawPct = Number(d.params?.discountPercent);
+            const safePct = Number.isFinite(rawPct) ? rawPct : 10;
+            const maxDisc = catLimits?.maxDiscountPercent ?? g.maxDiscountPercent;
+            const clamped = Math.min(maxDisc, Math.max(0, safePct));
+            if (clamped !== safePct) {
+                modified._guardrailApplied = true;
+                modified._guardrailNote = `İndirim %${safePct} → %${clamped} (${catLimits ? "kategori kuralı" : "genel kural"})`;
+            }
+            modified.params = { ...(d.params || {}), discountPercent: clamped };
+            if (clamped < g.minDiscountPercent) {
+                modified.autoExecutable = false;
+                modified._requiresApproval = true;
+            }
+            if (!d.barcode) {
+                modified.autoExecutable = false;
+                modified._requiresApproval = true;
+            }
+            // Min marj sonrası kontrol
+            if (product && product.costPrice > 0) {
+                const newPriceAfterDisc = (product.price || 0) * (1 - clamped / 100);
+                const minMargin = catLimits?.minProfitMarginPercent ?? g.minProfitMarginPercent;
+                const projMargin = newPriceAfterDisc > 0 ? ((newPriceAfterDisc - product.costPrice) / newPriceAfterDisc) * 100 : -100;
+                if (projMargin < minMargin) {
+                    modified.autoExecutable = false;
+                    modified._requiresApproval = true;
+                    modified._guardrailApplied = true;
+                    modified._guardrailNote = (modified._guardrailNote ? modified._guardrailNote + " · " : "") + `İndirim sonrası marj %${projMargin.toFixed(1)} < min %${minMargin} → onaya alındı`;
                 }
             }
         }
 
-        // Passive modda hiçbir aksiyon otomatik uygulanmaz
-        if (operationMode === "passive") {
-            modified.autoExecutable = false;
-            modified._requiresApproval = true;
-        }
-
-        // Assisted modda kritik aksiyonlar onay gerektirir
-        if (operationMode === "assisted") {
-            if (d.urgency === "critical" && GUARDRAILS.requireApprovalForCritical) {
+        // ── 5. STOK SİPARİŞİ ────────────────────────────────────────────────
+        if (d.action === "restock" && d.params) {
+            const qty = Number(d.params.restockQty) || 0;
+            if (qty > g.maxStockOrderQuantity) {
+                modified.params = { ...d.params, restockQty: g.maxStockOrderQuantity };
+                modified._guardrailApplied = true;
+                modified._guardrailNote = `Stok ${qty} → ${g.maxStockOrderQuantity} ile sınırlandı`;
+            }
+            // Auto restock kapalıysa daima onay gerekir
+            if (!g.enableAutoRestock) {
+                modified.autoExecutable = false;
                 modified._requiresApproval = true;
             }
         }
 
-        // Autonomous modda bile bazı limitler var
-        if (operationMode === "autonomous") {
-            // Fiyat %20'den fazla değişemez
+        // ── 6. NO-OP / DANIŞMA AKSİYONLARI ──────────────────────────────────
+        if (["marketing", "expand", "review_strategy", "investigate", "liquidate"].includes(d.action)) {
+            modified.autoExecutable = false;
+            modified._requiresApproval = true;
+        }
+
+        // ── 7. OPERASYON MODU ───────────────────────────────────────────────
+        const effectiveMode = g.mode || operationMode || "supervised";
+        if (effectiveMode === "manual" || effectiveMode === "passive") {
+            modified.autoExecutable = false;
+            modified._requiresApproval = true;
+        }
+        if (effectiveMode === "supervised" || effectiveMode === "assisted") {
+            if (d.urgency === "critical" && g.requireApprovalForCritical) {
+                modified._requiresApproval = true;
+            }
+            // Etki büyükse onay zorunlu
+            const impact = Math.abs(d.expectedImpact || d.impact?.profitChange || 0);
+            if (impact > g.autoApproveBelowImpactTRY) {
+                modified._requiresApproval = true;
+            }
+            // Güven düşükse onay zorunlu
+            if ((d.confidence || 50) < g.autoApproveOnlyIfConfidence) {
+                modified._requiresApproval = true;
+            }
+        }
+        if (effectiveMode === "autonomous") {
             if (modified._guardrailApplied) {
-                modified._requiresApproval = true; // Guardrail tetiklendiyse onay iste
+                modified._requiresApproval = true;
             }
         }
 
@@ -321,48 +546,75 @@ function applySafetyGuardrails(decisions, operationMode) {
 // ═════════════════════════════════════════════════════════════════════════════
 
 async function act(userId, decision) {
-    // Cooldown kontrolü
+    // ── Çoklu ürün veya hedefsiz aksiyonlar burada çalıştırılmamalı ──
+    if (!decision.barcode && ["price_update", "price_fix", "margin_optimize", "apply_discount", "discount", "restock"].includes(decision.action)) {
+        return {
+            success: false,
+            message: "Hedef ürün (barcode) belirtilmemiş — otomatik uygulama güvenli değil",
+            invalidTarget: true,
+        };
+    }
+
+    // ── Kullanıcı kurallarını yükle (rate limit + cooldown için) ──
+    const userG = await loadUserGuardrails(userId);
+
+    // ── Çalışma saatleri kontrolü ──
+    if (userG.withinWorkHours === false) {
+        return {
+            success: false,
+            message: "Çalışma saatleri dışında — aksiyon ertelendi",
+            outsideWorkHours: true,
+        };
+    }
+
+    // ── Saatlik aksiyon limiti (kullanıcı bazlı) ──
+    const hourlyActions = await Recommendation.countDocuments({
+        userId,
+        status: "executed",
+        executedAt: { $gte: new Date(Date.now() - 60 * 60 * 1000) },
+    });
+    if (hourlyActions >= userG.maxActionsPerHour) {
+        return {
+            success: false,
+            message: `Saatlik aksiyon limiti (${userG.maxActionsPerHour}) aşıldı. Lütfen bekleyin.`,
+            rateLimited: true,
+        };
+    }
+
+    // ── Idempotency + cooldown: atomic upsert ile race koruması ──
+    const executionType = mapActionToExecutionType(decision.action);
+    const cooldownSince = new Date(Date.now() - userG.cooldownMinutes * 60 * 1000);
+
     if (decision.barcode) {
-        const recentAction = await Recommendation.findOne({
+        const recentAny = await Recommendation.findOne({
             userId,
             "actionPayload.targetId": decision.barcode,
-            status: "executed",
-            executedAt: { $gte: new Date(Date.now() - GUARDRAILS.cooldownMinutes * 60 * 1000) }
-        });
-        if (recentAction) {
+            "actionPayload.actionType": executionType,
+            $or: [
+                { status: "executed", executedAt: { $gte: cooldownSince } },
+                { status: "approved", updatedAt: { $gte: cooldownSince } }, // eş zamanlı çalışan execute
+            ],
+        }).lean();
+        if (recentAny) {
             return {
                 success: false,
-                message: `Bu ürüne son ${GUARDRAILS.cooldownMinutes} dakika içinde aksiyon uygulandı. Cooldown bekleniyor.`,
+                message: `Bu ürüne son ${userG.cooldownMinutes} dakika içinde aynı aksiyon uygulandı/uygulanıyor. Cooldown.`,
                 cooldown: true,
             };
         }
     }
 
-    // Saatlik aksiyon limiti kontrolü
-    const hourlyActions = await Recommendation.countDocuments({
-        userId,
-        status: "executed",
-        executedAt: { $gte: new Date(Date.now() - 60 * 60 * 1000) }
-    });
-    if (hourlyActions >= GUARDRAILS.maxActionsPerHour) {
-        return {
-            success: false,
-            message: `Saatlik aksiyon limiti (${GUARDRAILS.maxActionsPerHour}) aşıldı. Lütfen bekleyin.`,
-            rateLimited: true,
-        };
-    }
-
-    // Mevcut executeRecommendation motorunu kullan
-    // Önce recommendation oluştur, sonra execute et
     try {
-        const executionType = mapActionToExecutionType(decision.action);
+        // executionKey önceden oluşur → executeRecommendation içindeki idempotency kontrolü çalışsın
+        const ts = Date.now();
+        const executionKey = `op_${decision.action}_${decision.barcode || "nb"}_${userId}_${ts}`;
 
         const rec = await Recommendation.create({
             userId,
             type: mapActionToRecType(decision.action),
             title: decision.title || "AI Operatör Aksiyonu",
             description: decision.description || "",
-            category: ["price_update", "price_fix", "margin_optimize"].includes(decision.action) ? "pricing" : "stock",
+            category: ["price_update", "price_fix", "margin_optimize", "apply_discount", "discount"].includes(decision.action) ? "pricing" : "stock",
             priority: decision.urgency || "medium",
             confidenceScore: decision.confidence || 70,
             impact: {
@@ -377,21 +629,44 @@ async function act(userId, decision) {
                 targetName: decision.title,
                 params: decision.params || {},
             },
-            status: "approved", // AI Operatör tarafından otomatik onaylandı
+            status: "approved",
             strategyMode: "balanced",
+            executionKey,
+            // Guardrail görünürlüğü
+            guardrailNote: decision._guardrailNote || "",
+            blocked: !!decision._blocked,
+            blockReasons: Array.isArray(decision._blockReasons) ? decision._blockReasons : [],
+            ruleTrace: decision._ruleTrace ? {
+                source: decision._ruleTrace.source || "global",
+                categoryRule: decision._ruleTrace.categoryRule || undefined,
+                targetMargin: decision._ruleTrace.targetMargin,
+                minMargin: decision._ruleTrace.minMargin,
+                maxDiscount: decision._ruleTrace.maxDiscount,
+                clampApplied: !!decision._guardrailApplied,
+                clampDetail: decision._guardrailNote || undefined,
+            } : (decision._guardrailApplied ? {
+                source: "global",
+                clampApplied: true,
+                clampDetail: decision._guardrailNote,
+            } : undefined),
         });
 
         const result = await AIEngine.executeRecommendation(rec._id, userId);
 
-        logger.info(`🤖 [AI Operatör] ACT: ${decision.action} — ${result.result.success ? "✅" : "❌"} ${result.result.message}`);
+        logger.info(`🤖 [AI Operatör] ACT: ${decision.action} → ${result.result.success ? "✅" : "❌"} ${result.result.message}`);
 
         return {
             success: result.result.success,
             message: result.result.message,
             recommendationId: rec._id,
             data: result.result.data,
+            requiresManualAction: result.result.data?.requiresManualAction || false,
         };
     } catch (err) {
+        // Duplicate executionKey → concurrent act() patladı, sessizce skip
+        if (err.code === 11000) {
+            return { success: false, message: "Eş zamanlı aksiyon tespit edildi, atlandı", duplicate: true };
+        }
         logger.error(`🤖 [AI Operatör] ACT ERROR: ${err.message}`);
         return { success: false, message: err.message };
     }
@@ -433,19 +708,52 @@ function mapActionToExecutionType(action) {
 // 5. VERIFY — Sonuç Doğrulama Katmanı
 // ═════════════════════════════════════════════════════════════════════════════
 
+/**
+ * Aksiyon öncesi/sonrası satışları karşılaştırır.
+ * Aksiyon anlık olduğu için bu fonksiyon yalnızca ÖN baseline ölçer ve
+ * gerçek improvement değeri 24 saat sonra `revisitPendingMemories()` tarafından doldurulur.
+ */
 async function verify(userId, actionResult, decision) {
     if (!actionResult.success) {
-        return { verified: false, reason: "Aksiyon başarısız oldu", improvement: 0 };
+        return { verified: false, reason: "Aksiyon başarısız oldu", improvement: 0, baseline: null, needsFollowUp: false };
     }
 
-    // Şimdilik basit doğrulama — gelecekte gerçek metrik karşılaştırması yapılacak
-    // (Aksiyon sonrası satış/kâr değişimini ölçmek için 24-48 saat beklemek gerekir)
+    let baseline = null;
+    if (decision.barcode) {
+        try {
+            const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+            const rows = await Order.aggregate([
+                { $match: { user: userId, orderDate: { $gte: since }, isCancelled: { $ne: true } } },
+                { $unwind: "$items" },
+                { $match: { "items.barcode": decision.barcode } },
+                { $group: {
+                    _id: null,
+                    qty: { $sum: { $ifNull: ["$items.quantity", 1] } },
+                    revenue: { $sum: { $multiply: [
+                        { $ifNull: ["$items.price", 0] },
+                        { $cond: [{ $gt: [{ $ifNull: ["$items.quantity", 1] }, 0] }, "$items.quantity", 1] },
+                    ] } },
+                } },
+            ]);
+            const r = rows[0] || { qty: 0, revenue: 0 };
+            baseline = {
+                last7DaysQty: Number(r.qty) || 0,
+                last7DaysRevenue: Number(r.revenue) || 0,
+                avgDailyQty: (Number(r.qty) || 0) / 7,
+                capturedAt: new Date(),
+            };
+        } catch (e) {
+            logger.warn(`[AI Operatör] verify baseline failed: ${e.message}`);
+        }
+    }
+
     return {
         verified: true,
-        reason: "Aksiyon başarıyla uygulandı",
-        improvement: 0, // Gerçek ölçüm sonraki cycle'da yapılacak
+        reason: "Aksiyon uygulandı; gerçek etki 24 saat sonra ölçülecek",
+        improvement: 0,
+        baseline,
         needsFollowUp: true,
-        followUpAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 saat sonra kontrol
+        followUpAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
     };
 }
 
@@ -453,28 +761,35 @@ async function verify(userId, actionResult, decision) {
 // 6. LEARN — Öğrenme Katmanı
 // ═════════════════════════════════════════════════════════════════════════════
 
+/**
+ * AIMemory deduplication: anahtar `${action}_${barcode}` (Date.now KULLANILMAZ),
+ * her tekrarda occurrenceCount artar.
+ */
 async function learn(userId, decision, actionResult, verification) {
     try {
-        const memoryKey = `${decision.action}_${decision.barcode || "general"}_${Date.now()}`;
+        const targetKey = decision.barcode || "general";
+        const memoryKey = `${decision.action}_${targetKey}`;
 
         await AIMemory.findOneAndUpdate(
             { userId, memoryType: "action_result", key: memoryKey },
             {
                 $set: {
                     value: {
-                        decision: {
+                        lastDecision: {
                             action: decision.action,
                             title: decision.title,
                             params: decision.params,
                             confidence: decision.confidence,
                         },
-                        result: {
+                        lastResult: {
                             success: actionResult.success,
                             message: actionResult.message,
                         },
-                        verification: {
+                        lastVerification: {
                             verified: verification.verified,
                             improvement: verification.improvement,
+                            baseline: verification.baseline || null,
+                            followUpAt: verification.followUpAt || null,
                         },
                     },
                     action: {
@@ -487,21 +802,107 @@ async function learn(userId, decision, actionResult, verification) {
                     result: {
                         success: actionResult.success,
                         measuredAt: new Date(),
+                        // gerçek improvement 24s sonra revisitPendingMemories() ile dolacak
                         improvement: verification.improvement,
-                        verdict: actionResult.success ? "positive" : "negative",
+                        // başarısızsa "negative"; başarılıysa henüz ölçüm yok → "pending"
+                        verdict: actionResult.success ? "pending" : "negative",
+                        baseline: verification.baseline || null,
+                        followUpAt: verification.followUpAt || null,
                     },
-                    confidence: actionResult.success ? 70 : 30,
+                    confidence: actionResult.success ? 60 : 25,
                     lastUsedAt: new Date(),
                     tags: [decision.action, decision.urgency || "medium"],
                 },
                 $inc: { occurrenceCount: 1 },
             },
-            { upsert: true }
+            { upsert: true, new: true, setDefaultsOnInsert: true }
         );
 
-        logger.info(`🧠 [AI Operatör] LEARN: ${memoryKey} — ${actionResult.success ? "positive" : "negative"}`);
+        logger.info(`🧠 [AI Operatör] LEARN: ${memoryKey} — verdict=${actionResult.success ? "pending" : "negative"}`);
     } catch (err) {
         logger.error(`🧠 [AI Operatör] LEARN ERROR: ${err.message}`);
+    }
+}
+
+/**
+ * 24 saat önce uygulanmış ve hâlâ "pending" verdict'li hafıza kayıtlarını gez,
+ * o günden bugüne gerçek satış değişimini ölç ve verdict'i "positive/negative" olarak güncelle.
+ * aiBackgroundWorker tarafından her döngüde çağrılır.
+ */
+async function revisitPendingMemories(userId) {
+    try {
+        const now = Date.now();
+        const pending = await AIMemory.find({
+            userId,
+            memoryType: "action_result",
+            "result.verdict": "pending",
+            "result.followUpAt": { $lte: new Date(now) },
+        }).limit(50).lean();
+
+        if (pending.length === 0) return { revisited: 0 };
+
+        let updated = 0;
+        for (const mem of pending) {
+            const barcode = mem.action?.targetBarcode;
+            const executedAt = mem.action?.executedAt;
+            const baseline = mem.result?.baseline;
+            if (!barcode || !executedAt) {
+                await AIMemory.updateOne({ _id: mem._id }, {
+                    $set: { "result.verdict": "neutral", confidence: 40 },
+                });
+                continue;
+            }
+            try {
+                const since = new Date(executedAt);
+                const rows = await Order.aggregate([
+                    { $match: { user: userId, orderDate: { $gte: since }, isCancelled: { $ne: true } } },
+                    { $unwind: "$items" },
+                    { $match: { "items.barcode": barcode } },
+                    { $group: {
+                        _id: null,
+                        qty: { $sum: { $ifNull: ["$items.quantity", 1] } },
+                        revenue: { $sum: { $multiply: [
+                            { $ifNull: ["$items.price", 0] },
+                            { $cond: [{ $gt: [{ $ifNull: ["$items.quantity", 1] }, 0] }, "$items.quantity", 1] },
+                        ] } },
+                    } },
+                ]);
+                const elapsedDays = Math.max(1, (now - new Date(executedAt).getTime()) / (24 * 60 * 60 * 1000));
+                const r = rows[0] || { qty: 0, revenue: 0 };
+                const afterDailyQty = (Number(r.qty) || 0) / elapsedDays;
+                const beforeDailyQty = baseline?.avgDailyQty || 0;
+                let improvement = 0;
+                if (beforeDailyQty > 0) {
+                    improvement = ((afterDailyQty - beforeDailyQty) / beforeDailyQty) * 100;
+                } else if (afterDailyQty > 0) {
+                    improvement = 100; // hiç satış yokken satış başlamış
+                }
+                const verdict = improvement > 5 ? "positive" : improvement < -5 ? "negative" : "neutral";
+                const newConfidence = verdict === "positive" ? Math.min(95, 60 + Math.min(20, Math.abs(improvement) / 5))
+                    : verdict === "negative" ? Math.max(15, 30 - Math.min(15, Math.abs(improvement) / 10))
+                    : 50;
+                await AIMemory.updateOne({ _id: mem._id }, {
+                    $set: {
+                        "result.verdict": verdict,
+                        "result.improvement": Math.round(improvement * 100) / 100,
+                        "result.measuredAt": new Date(),
+                        "result.afterMetrics": { dailyQty: afterDailyQty, totalQty: r.qty, revenue: r.revenue },
+                        confidence: Math.round(newConfidence),
+                        lastUsedAt: new Date(),
+                    },
+                });
+                updated++;
+            } catch (e) {
+                logger.warn(`[AI Operatör] revisit memory ${mem._id} failed: ${e.message}`);
+            }
+        }
+        if (updated > 0) {
+            logger.info(`🧠 [AI Operatör] revisitPendingMemories: ${updated}/${pending.length} güncellendi`);
+        }
+        return { revisited: updated, total: pending.length };
+    } catch (err) {
+        logger.error(`🧠 [AI Operatör] revisitPendingMemories ERROR: ${err.message}`);
+        return { revisited: 0, error: err.message };
     }
 }
 
@@ -637,11 +1038,7 @@ async function runFullCycle(userId, operationMode = "assisted") {
 async function persistManualOperatorCycle(userId, operationMode, payload) {
     const { observation, analysis, decisions, actionResults, phaseTimings, alerts, durationMs } = payload;
     try {
-        const lastCycle = await AICycleResult.findOne({ userId })
-            .sort({ cycleNumber: -1 })
-            .select("cycleNumber")
-            .lean();
-        const cycleNumber = (lastCycle?.cycleNumber || 0) + 1;
+        const cycleNumber = await AICycleCounter.nextNumber(userId);
 
         await AICycleResult.create({
             userId,
@@ -902,8 +1299,13 @@ module.exports = {
     act,
     verify,
     learn,
+    revisitPendingMemories,
     runFullCycle,
     generateProactiveAlerts,
     getQuickStats,
     GUARDRAILS,
+    loadUserGuardrails,
+    applySafetyGuardrails,
+    categoryEffectiveLimits,
+    filterProductByConfig,
 };

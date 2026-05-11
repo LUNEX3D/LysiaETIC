@@ -9,7 +9,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import API from "../../../services/api";
 import { T, fmt, useResponsive } from "../styles";
-import { Card, CardHeader, Badge, StatCard, EmptyState, LoadingState, ErrorState } from "./shared/SharedUI";
+import { Card, CardHeader, Badge, StatCard, EmptyState, LoadingState, ErrorState, PageHeader } from "./shared/SharedUI";
 
 const TYPE_CFG = {
     negative_profit: { color: T.red, icon: "🔴", label: "Zararda Satış" },
@@ -41,43 +41,47 @@ const BrainLosses = ({ t, onError }) => {
     const counts = data.counts || {};
     const filtered = filter === "all" ? losses : losses.filter(l => l.type === filter);
 
+    // Sayfa tepesinde gösterilecek TLDR mesajını üret
+    const totalImpact = Number(data.totalImpact) || 0;
+    const lossCount = losses.length;
+    const tldrText = lossCount === 0
+        ? "Şu anda zararda ürün yok ve büyük kayıp tespit edilmedi. Marjlarını koruyabiliyorsun."
+        : `${lossCount} üründe toplam ${fmt(totalImpact)} potansiyel kayıp tespit ettim. ${counts.negativeProfitProducts > 0 ? `${counts.negativeProfitProducts} ürün ZARARDA satılıyor — önceliğin bunlar.` : "Marj ve kaçırılan satış fırsatlarına bak."}`;
+
+    const headerStatus = totalImpact > 5000 ? "danger" : totalImpact > 1000 ? "warning" : "good";
+
+    const headerFilters = [
+        { id: "all", label: `Tümü`, count: losses.length, active: filter === "all", onClick: () => setFilter("all"), color: T.accent },
+        ...Object.entries(TYPE_CFG).map(([key, cfg]) => ({
+            id: key, label: `${cfg.icon} ${cfg.label}`,
+            count: key === "negative_profit" ? counts.negativeProfitProducts : key === "missed_sales" ? counts.missedSalesProducts : counts.lowMarginProducts,
+            active: filter === key, onClick: () => setFilter(key), color: cfg.color,
+        })),
+    ];
+
     return (
         <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-            {/* KPI */}
-            <div style={{ display: "flex", gap: isMobile ? "0.5rem" : "0.85rem", flexWrap: "wrap" }}>
-                <StatCard icon="💸" label={t("losses.total_impact")} value={fmt(data.totalImpact || 0)} color={T.red} />
-                <StatCard icon="🔴" label={t("losses.lost_profit")} value={fmt(data.totalLostProfit || 0)} color={T.red} />
-                <StatCard icon="📦" label={t("losses.missed_revenue")} value={fmt(data.totalMissedRevenue || 0)} color={T.yellow} />
-            </div>
+            <PageHeader
+                icon="💸"
+                title={t("losses.title") || "Kayıp Avcısı"}
+                subtitle={t("losses.subtitle") || "AI'nın tespit ettiği kâr ve satış kayıpları"}
+                tldr={tldrText}
+                status={headerStatus}
+                kpis={[
+                    { label: "Toplam Etki", value: fmt(totalImpact), color: T.red, hint: "Tüm kayıpların TRY karşılığı" },
+                    { label: "Zararda Ürün", value: counts.negativeProfitProducts || 0, color: T.red, hint: "Maliyet > satış" },
+                    { label: "Kaçırılan Satış", value: counts.missedSalesProducts || 0, color: T.yellow, hint: "Stok yokken talep edilen" },
+                    { label: "Düşük Marj", value: counts.lowMarginProducts || 0, color: T.blue, hint: "Hedef marjın altında" },
+                ]}
+                filters={headerFilters}
+            />
 
-            {/* Summary */}
-            <Card glow>
-                <CardHeader icon="🎯" title={t("losses.title")} subtitle={t("losses.subtitle")} color={T.red} />
-                <p style={{ fontSize: "0.88rem", color: T.textSec, lineHeight: 1.65, margin: 0 }}>{data.summary}</p>
-
-                {/* Filters */}
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: "1rem" }}>
-                    <button onClick={() => setFilter("all")} style={{
-                        padding: "5px 12px", borderRadius: T.rFull, cursor: "pointer",
-                        background: filter === "all" ? T.accentDim : "transparent",
-                        border: `1px solid ${filter === "all" ? T.accent + "35" : T.border}`,
-                        color: filter === "all" ? T.accent : T.textDim,
-                        fontSize: "0.73rem", fontWeight: 600, fontFamily: "inherit",
-                    }}>{t("losses.all")} ({losses.length})</button>
-                    {Object.entries(TYPE_CFG).map(([key, cfg]) => {
-                        const count = key === "negative_profit" ? counts.negativeProfitProducts : key === "missed_sales" ? counts.missedSalesProducts : counts.lowMarginProducts;
-                        return (
-                            <button key={key} onClick={() => setFilter(key)} style={{
-                                padding: "5px 12px", borderRadius: T.rFull, cursor: "pointer",
-                                background: filter === key ? `${cfg.color}15` : "transparent",
-                                border: `1px solid ${filter === key ? cfg.color + "35" : T.border}`,
-                                color: filter === key ? cfg.color : T.textDim,
-                                fontSize: "0.73rem", fontWeight: 600, fontFamily: "inherit",
-                            }}>{cfg.icon} {cfg.label} ({count || 0})</button>
-                        );
-                    })}
-                </div>
-            </Card>
+            {/* Açıklama Card */}
+            {data.summary && (
+                <Card>
+                    <p style={{ fontSize: T.fz.base, color: T.textSec, lineHeight: 1.65, margin: 0 }}>{data.summary}</p>
+                </Card>
+            )}
 
             {/* Loss Items */}
             {filtered.length === 0 ? (

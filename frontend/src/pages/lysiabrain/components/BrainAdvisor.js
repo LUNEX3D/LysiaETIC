@@ -8,7 +8,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import API from "../../../services/api";
 import { T, fmt, fmtP, useResponsive } from "../styles";
-import { Card, Badge, Btn, ScoreRing, StatCard, EmptyState, LoadingState, ErrorState, IconBox, Input } from "./shared/SharedUI";
+import { Card, Badge, Btn, ScoreRing, StatCard, EmptyState, LoadingState, ErrorState, IconBox, Input, PageHeader } from "./shared/SharedUI";
 
 const SEV_COLOR = { critical: T.red, high: T.yellow, medium: T.blue, low: T.textDim };
 const SEV_DIM = { critical: T.redDim, high: T.yellowDim, medium: T.blueDim, low: T.bgGlass };
@@ -92,41 +92,38 @@ const BrainAdvisor = ({ t, onError }) => {
         { id: "star", label: `⭐ ${t("adv.status.star")}`, count: summary?.star || 0, color: T.green },
     ];
 
+    const tldrAdvisor = (() => {
+        if (!summary) return "Ürün bazlı analiz hazırlanıyor...";
+        const crit = summary.critical || 0;
+        const star = summary.star || 0;
+        const total = summary.total || 0;
+        if (crit > 0) return `${total} üründen ${crit}'i kritik durumda — hemen incelemen gereken ürünler bunlar. ${star} yıldız ürün ise satışları taşıyor.`;
+        if (total === 0) return "Henüz analiz edilecek ürün yok. Önce ürünlerini sisteme ekleyin.";
+        return `${total} ürün izleniyor. ${star} yıldız, ${summary.healthy || 0} sağlıklı, ${summary.warning || 0} uyarı durumunda. Kritik problem yok.`;
+    })();
+    const headerStatus = (summary?.critical || 0) > 0 ? "danger" : (summary?.warning || 0) > 5 ? "warning" : "good";
+
     return (
         <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-            {summary && (
-                <div style={{ display: "flex", gap: isMobile ? "0.5rem" : "0.85rem", flexWrap: "wrap" }}>
-                    <StatCard icon="📦" label={t("adv.total")} value={summary.total} color={T.accent} />
-                    <StatCard icon="🚨" label={t("adv.critical")} value={summary.totalRootCauses} color={T.red} />
-                    <StatCard icon="💡" label={t("adv.solutions")} value={summary.totalSolutions} color={T.green} />
-                    {!isMobile && <StatCard icon="⚡" label={t("adv.actionable")} value={summary.actionableCount} color={T.purple} />}
-                    {!isMobile && <StatCard icon="❌" label={t("adv.mistakes")} value={summary.totalMistakes} color={T.yellow} />}
-                </div>
-            )}
+            <PageHeader
+                icon="🧠"
+                title="Akıllı Ürün Danışmanı"
+                subtitle="Her ürünün sağlık durumu, kök nedenler ve önerilen çözümler"
+                tldr={tldrAdvisor}
+                status={headerStatus}
+                kpis={summary ? [
+                    { label: "Toplam Ürün", value: summary.total || 0, color: T.accent },
+                    { label: "Kritik", value: summary.critical || 0, color: T.red },
+                    { label: "Yıldız", value: summary.star || 0, color: T.green, hint: "En çok kazandıran ürünler" },
+                    { label: "Çözüm Üret.", value: summary.totalSolutions || 0, color: T.purple, hint: "AI'nın önerdiği çözüm sayısı" },
+                    { label: "Aksiyona Hazır", value: summary.actionableCount || 0, color: T.cyan },
+                ] : []}
+                filters={filters.map(f => ({ ...f, label: f.label, active: filter === f.id, onClick: () => setFilter(f.id) }))}
+            />
 
-            <Card style={{ padding: "1rem 1.25rem" }}>
-                <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center" }}>
-                    {filters.map(f => (
-                        <button key={f.id} onClick={() => setFilter(f.id)} aria-pressed={filter === f.id} style={{
-                            background: filter === f.id ? `${f.color}15` : T.bgGlass,
-                            border: `1px solid ${filter === f.id ? f.color + "35" : T.border}`,
-                            borderRadius: T.rSm, padding: isMobile ? "6px 10px" : "8px 14px", cursor: "pointer",
-                            fontSize: isMobile ? "0.72rem" : "0.8rem", fontWeight: filter === f.id ? 700 : 500,
-                            color: filter === f.id ? f.color : T.textDim,
-                            display: "flex", alignItems: "center", gap: 6,
-                            transition: "all 0.2s", fontFamily: "inherit",
-                        }}>
-                            {f.label}
-                            <span style={{
-                                padding: "2px 7px", borderRadius: T.rFull,
-                                fontSize: "0.68rem", fontWeight: 800,
-                                background: filter === f.id ? `${f.color}20` : T.borderLight,
-                                color: filter === f.id ? f.color : T.textMuted,
-                            }}>{f.count}</span>
-                        </button>
-                    ))}
-                    <div style={{ flex: 1 }} />
-                    <Input value={search} onChange={e => handleSearch(e.target.value)} placeholder={t("adv.search")} icon="⌕" style={{ minWidth: isMobile ? "100%" : 200, flex: isMobile ? "1 1 100%" : 1 }} />
+            <Card style={{ padding: "0.85rem 1.25rem" }}>
+                <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                    <Input value={search} onChange={e => handleSearch(e.target.value)} placeholder={t("adv.search") || "Ürün ara..."} icon="⌕" style={{ flex: 1 }} />
                 </div>
             </Card>
 

@@ -9,7 +9,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import API from "../../../services/api";
 import { T, fmtN, useResponsive } from "../styles";
-import { Card, CardHeader, Badge, StatCard, HealthBar, EmptyState, LoadingState, ErrorState } from "./shared/SharedUI";
+import { Card, CardHeader, Badge, StatCard, HealthBar, EmptyState, LoadingState, ErrorState, PageHeader } from "./shared/SharedUI";
 
 const BrainLearning = ({ t, onError }) => {
     const { isMobile } = useResponsive();
@@ -32,14 +32,30 @@ const BrainLearning = ({ t, onError }) => {
 
     const prefs = data.preferences || [];
 
+    const accept = data.overallAcceptanceRate || 0;
+    const tldrLearn = (() => {
+        const tot = (data.totalApproved || 0) + (data.totalRejected || 0);
+        if (tot === 0) return "AI henüz senin tercihlerini öğrenecek yeterli veri toplamadı. Önerileri onayla/reddet — zamanla AI senin gibi düşünmeye başlayacak.";
+        if (accept >= 70) return `AI senin tarzına %${accept} uyum sağladı — önerileri büyük oranda onaylıyorsun. Otonom moda geçmek için uygun zaman.`;
+        if (accept >= 40) return `AI tercihlerine %${accept} oranında uyuyor — bazı öneri tipleri seninle iyi anlaşmıyor. Aşağıdaki kabul/red dağılımına bak.`;
+        return `Kabul oranın %${accept}. AI henüz seni iyi tanıyamadı — önerilere geri bildirim ver veya Otonom Kurallar'da kuralları sıkılaştır.`;
+    })();
+    const status = accept >= 70 ? "good" : accept >= 40 ? "warning" : "danger";
+
     return (
         <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-            {/* KPI */}
-            <div style={{ display: "flex", gap: isMobile ? "0.5rem" : "0.85rem", flexWrap: "wrap" }}>
-                <StatCard icon="✅" label={t("learn.approved")} value={fmtN(data.totalApproved || 0)} color={T.green} />
-                <StatCard icon="❌" label={t("learn.rejected")} value={fmtN(data.totalRejected || 0)} color={T.red} />
-                <StatCard icon="📊" label={t("learn.acceptance")} value={`%${data.overallAcceptanceRate || 0}`} color={T.accent} />
-            </div>
+            <PageHeader
+                icon="📚"
+                title={t("learn.title") || "AI Öğrenme Geçmişi"}
+                subtitle={t("learn.subtitle") || "AI seni ne kadar iyi tanıyor?"}
+                tldr={tldrLearn}
+                status={status}
+                kpis={[
+                    { label: "Onaylanan", value: fmtN(data.totalApproved || 0), color: T.green },
+                    { label: "Reddedilen", value: fmtN(data.totalRejected || 0), color: T.red },
+                    { label: "Kabul Oranı", value: `%${accept}`, color: status === "good" ? T.green : status === "warning" ? T.yellow : T.red },
+                ]}
+            />
 
             {/* Overall */}
             <Card glow>

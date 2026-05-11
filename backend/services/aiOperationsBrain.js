@@ -274,25 +274,33 @@ function huntLosses(analyzedProducts, data) {
 function generateFocusItems(analyzedProducts, data, businessHealth, lossHunter) {
     const items = [];
     const { hasOrderData, ordersToday, orders30 } = data;
+    const totalProducts = analyzedProducts.length;
 
-    // Critical stock issues
+    // ── 1. Stok tükenmiş ürünler ───────────────────────────────────────────
     const outOfStock = analyzedProducts.filter(p => p.stock === 0 && p.avgDailySales > 0.3);
     if (outOfStock.length > 0) {
+        const sorted = [...outOfStock].sort((a, b) => (b.price * b.avgDailySales) - (a.price * a.avgDailySales));
         items.push({
             priority: 1,
             icon: "🚨",
-            title: `${outOfStock.length} ürün stok tükendi`,
-            description: `Günlük ${outOfStock.reduce((s, p) => s + p.avgDailySales, 0).toFixed(0)} adet satış kaçırılıyor`,
-            impact: `−${outOfStock.reduce((s, p) => s + p.profit * p.avgDailySales, 0).toFixed(0)}₺/gün`,
-            action: "Acil tedarik başlatın",
+            title: `${outOfStock.length} ürünün stoğu TÜKENDİ`,
+            description: `${fmtMarketplaces(sorted[0]?.marketplaces, 1)} dahil, günde toplam ${outOfStock.reduce((s, p) => s + p.avgDailySales, 0).toFixed(1)} adet satış kaçırılıyor`,
+            impact: `−${outOfStock.reduce((s, p) => s + p.price * p.avgDailySales, 0).toFixed(0)}₺/gün`,
+            action: "Tedarikçiye sipariş ver",
             category: "stock",
             urgency: "critical",
+            cta: { tab: "advisor", filter: { outOfStock: true }, label: "Stoksuz Ürünleri Aç" },
+            topProducts: sorted.slice(0, 5).map(p => detailProduct(p, {
+                suggestion: `${Math.ceil(p.avgDailySales * 30)} adet sipariş`,
+                dailyImpact: round2(p.price * p.avgDailySales),
+            })),
         });
     }
 
-    // Loss products
+    // ── 2. Zararda satılan ürünler ─────────────────────────────────────────
     const lossProducts = analyzedProducts.filter(p => (p.profit < 0 || p.avgSnapshotProfit < 0) && p.totalSold > 0 && p.costPrice > 0);
     if (lossProducts.length > 0) {
+        const sorted = [...lossProducts].sort((a, b) => (Math.abs(b.profit) * b.avgDailySales) - (Math.abs(a.profit) * a.avgDailySales));
         const totalDailyLoss = lossProducts.reduce((s, p) => {
             const unitLoss = p.avgSnapshotProfit < 0 ? Math.abs(p.avgSnapshotProfit) : Math.abs(p.profit);
             return s + (unitLoss * p.avgDailySales);
@@ -300,87 +308,131 @@ function generateFocusItems(analyzedProducts, data, businessHealth, lossHunter) 
         items.push({
             priority: 2,
             icon: "🔴",
-            title: `${lossProducts.length} ürün zararda satılıyor`,
-            description: `Her gün ${totalDailyLoss.toFixed(0)}₺ kaybediyorsunuz`,
+            title: `${lossProducts.length} ürün ZARARDA satılıyor`,
+            description: `En çok kaybettiren: ${(sorted[0]?.name || "?").slice(0, 35)} — birim zarar ${Math.abs(sorted[0]?.profit || 0).toFixed(0)}₺`,
             impact: `−${totalDailyLoss.toFixed(0)}₺/gün`,
-            action: "Fiyatları hemen güncelleyin",
+            action: "Min fiyatları %15 kar marjıyla güncelle",
             category: "pricing",
             urgency: "critical",
+            cta: { tab: "recommendations", filter: { type: "loss_detection,price_optimization" }, label: "Fiyat Önerileri" },
+            topProducts: sorted.slice(0, 5).map(p => detailProduct(p, {
+                unitLoss: round2(Math.abs(p.profit)),
+                minSafePrice: Math.ceil((p.costPrice || 0) * 1.15),
+                suggestion: `Min ${Math.ceil((p.costPrice || 0) * 1.15)}₺ — %15 kar marjı için`,
+            })),
         });
     }
 
-    // Low stock with high sales
+    // ── 3. Düşük stok, hızlı satan ─────────────────────────────────────────
     const criticalLowStock = analyzedProducts.filter(p => p.stock > 0 && p.daysOfStock < 3 && p.avgDailySales > 0.5);
     if (criticalLowStock.length > 0) {
+        const sorted = [...criticalLowStock].sort((a, b) => a.daysOfStock - b.daysOfStock);
         items.push({
             priority: 3,
             icon: "⚠️",
-            title: `${criticalLowStock.length} ürün 3 gün içinde tükenecek`,
-            description: `Toplam ${criticalLowStock.reduce((s, p) => s + p.stock, 0)} adet kaldı`,
+            title: `${criticalLowStock.length} ürün 3 gün içinde TÜKENECEK`,
+            description: `En kritik: ${(sorted[0]?.name || "?").slice(0, 30)} — ${sorted[0]?.daysOfStock} gün kaldı (${sorted[0]?.stock} adet)`,
             impact: `${criticalLowStock.reduce((s, p) => s + p.price * p.avgDailySales * 30, 0).toFixed(0)}₺ risk`,
-            action: "Stok siparişi verin",
+            action: "Stok siparişi ver",
             category: "stock",
             urgency: "high",
+            cta: { tab: "advisor", filter: { lowStock: true }, label: "Düşük Stok Ürünleri" },
+            topProducts: sorted.slice(0, 5).map(p => detailProduct(p, {
+                suggestion: `${Math.max(Math.ceil(p.avgDailySales * 30) - p.stock, 1)} adet ek sipariş`,
+                projectedLoss: round2(p.price * p.avgDailySales * 30),
+            })),
         });
     }
 
-    // Sales trend
+    // ── 4. Satış trendi ────────────────────────────────────────────────────
     if (hasOrderData) {
         const todayRev = ordersToday.reduce((s, o) => s + (o.totalPrice || 0), 0);
         const avgDaily = orders30.reduce((s, o) => s + (o.totalPrice || 0), 0) / 30;
+        const hourTR = (new Date().getUTCHours() + 3) % 24;
         if (todayRev > avgDaily * 1.5 && todayRev > 0) {
+            const todayBest = [...ordersToday]
+                .sort((a, b) => (b.totalPrice || 0) - (a.totalPrice || 0))
+                .slice(0, 3)
+                .map(o => ({ orderId: o.trackingNumber, marketplace: o.marketplaceName, amount: round2(o.totalPrice || 0) }));
             items.push({
                 priority: 4,
                 icon: "🎉",
-                title: "Satışlar bugün ortalamanın üstünde!",
-                description: `Bugün: ${todayRev.toFixed(0)}₺ vs Ortalama: ${avgDaily.toFixed(0)}₺`,
+                title: "Satışlar bugün ortalamanın ÜSTÜNDE!",
+                description: `Bugün: ${todayRev.toFixed(0)}₺ vs günlük ortalama: ${avgDaily.toFixed(0)}₺ (+%${Math.round((todayRev / avgDaily - 1) * 100)})`,
                 impact: `+${(todayRev - avgDaily).toFixed(0)}₺`,
-                action: "Stok durumunu kontrol edin",
+                action: "Hızlı satanların stoklarını koru",
                 category: "opportunity",
                 urgency: "info",
+                cta: { tab: "advisor", label: "Hızlı Satanları Aç" },
+                topProducts: [],
+                kpis: todayBest,
             });
-        } else if (avgDaily > 0 && todayRev < avgDaily * 0.5) {
+        } else if (avgDaily > 50 && hourTR >= 14 && todayRev < avgDaily * 0.5) {
             items.push({
                 priority: 4,
                 icon: "📉",
-                title: "Satışlar bugün düşük",
-                description: `Bugün: ${todayRev.toFixed(0)}₺ vs Ortalama: ${avgDaily.toFixed(0)}₺`,
+                title: "Satışlar bugün DÜŞÜK",
+                description: `Bugün ${todayRev.toFixed(0)}₺ — günlük ortalama ${avgDaily.toFixed(0)}₺ (%${Math.round((1 - todayRev / avgDaily) * 100)} düşüş)`,
                 impact: `−${(avgDaily - todayRev).toFixed(0)}₺`,
-                action: "Kampanya veya fiyat indirimi düşünün",
+                action: "Kanal performansını incele veya kampanya başlat",
                 category: "sales",
                 urgency: "high",
+                cta: { tab: "platforms", label: "Pazaryeri Karşılaştırma" },
             });
         }
     }
 
-    // Dead products
-    const deadProducts = analyzedProducts.filter(p => p.daysSinceLastSale > 60 && p.stock > 10);
+    // ── 5. Ölü ürünler ─────────────────────────────────────────────────────
+    // Yeni eklenmiş ve henüz satılmamış ürünleri "ölü" sayma
+    const deadProducts = analyzedProducts.filter(p =>
+        p.daysSinceLastSale !== null &&
+        p.daysSinceLastSale !== undefined &&
+        p.daysSinceLastSale > 60 &&
+        p.stock > 10 &&
+        !p.isNewProduct
+    );
     if (deadProducts.length > 5) {
+        const sorted = [...deadProducts].sort((a, b) => (b.price * b.stock) - (a.price * a.stock));
         const deadValue = deadProducts.reduce((s, p) => s + p.price * p.stock, 0);
         items.push({
             priority: 5,
             icon: "💀",
-            title: `${deadProducts.length} ürün 60+ gündür satılmıyor — satış stratejisi uygulayın`,
-            description: `Toplam ${deadValue.toFixed(0)}₺ değerinde stok bağlı`,
+            title: `${deadProducts.length} ürün 60+ GÜNDÜR satılmıyor`,
+            description: `Top ürün: ${(sorted[0]?.name || "?").slice(0, 30)} — ${sorted[0]?.daysSinceLastSale} gün önce satıldı, ${sorted[0]?.stock} adet stokta`,
             impact: `${deadValue.toFixed(0)}₺ bağlı sermaye`,
-            action: "Agresif indirim + kampanya sayfasına ekleme + sosyal medya tanıtımı yapın",
+            action: "Her ürüne ayrı indirim önerisi hazır",
             category: "performance",
             urgency: "medium",
+            cta: { tab: "recommendations", filter: { type: "dead_product,dynamic_pricing" }, label: "İndirim Önerileri" },
+            topProducts: sorted.slice(0, 5).map(p => detailProduct(p, {
+                capitalLocked: round2(p.price * p.stock),
+                suggestion: `%20 indirim → ${Math.round(p.price * 0.8)}₺`,
+                daysIdle: p.daysSinceLastSale,
+            })),
         });
     }
 
-    // Cost data missing
-    const noCost = analyzedProducts.filter(p => p.costPrice === 0).length;
-    if (noCost > analyzedProducts.length * 0.5 && analyzedProducts.length > 0) {
+    // ── 6. Maliyet eksik ───────────────────────────────────────────────────
+    const noCost = analyzedProducts.filter(p => (p.costPrice || 0) === 0);
+    const noCostSelling = noCost.filter(p => p.totalSold > 0);
+    if (noCost.length > Math.max(5, totalProducts * 0.5)) {
+        const sorted = [...(noCostSelling.length > 0 ? noCostSelling : noCost)].sort((a, b) => b.totalRevenue - a.totalRevenue);
         items.push({
             priority: 6,
             icon: "📝",
-            title: `${noCost} üründe maliyet bilgisi eksik`,
-            description: "AI kâr analizi yapamıyor — doğru öneriler için maliyet girin",
+            title: `${noCost.length} üründe MALİYET EKSİK${noCostSelling.length > 0 ? ` (${noCostSelling.length}'i satıyor!)` : ""}`,
+            description: noCostSelling.length > 0
+                ? `Bu ürünlerin son 90 günlük cirosu ${noCostSelling.reduce((s, p) => s + p.totalRevenue, 0).toFixed(0)}₺ — kâr/zarar bilemiyoruz`
+                : "AI kâr analizi yapamıyor — doğru öneriler için maliyet girin",
             impact: "AI doğruluğu düşük",
-            action: "Ürün maliyetlerini girin",
+            action: "Önce satan ürünlerin maliyetini gir",
             category: "data",
-            urgency: "medium",
+            urgency: noCostSelling.length > 0 ? "high" : "medium",
+            cta: { tab: "costs", label: "Maliyet Sayfasını Aç" },
+            topProducts: sorted.slice(0, 5).map(p => detailProduct(p, {
+                suggestion: "Maliyet gir → AI öneri açar",
+                priority: p.totalSold > 0 ? "Yüksek (satıyor)" : "Düşük",
+            })),
         });
     }
 
@@ -642,7 +694,7 @@ function segmentProducts(analyzedProducts) {
         const goodMargin = p.profitMargin > 15;
         const hasData = p.costPrice > 0;
 
-        if (!hasSales && p.daysSinceLastSale > 900) {
+        if (!hasSales && p.isNewProduct) {
             segments.newProducts.push(p);
         } else if (highSales && goodMargin) {
             segments.stars.push(p);
@@ -1472,16 +1524,55 @@ async function autoDecide(userId, analyzedProducts, data, businessHealth, lossHu
     const decisions = [];
     const { hasOrderData } = data;
 
+    // ── Kullanıcı otonomi kurallarını yükle (autoDecide içinde önerileri kurala göre üretmek için) ──
+    let userG = null;
+    try {
+        const AutonomyConfig = require("../models/AutonomyConfig");
+        const cfg = await AutonomyConfig.getOrCreate(userId);
+        userG = {
+            targetMargin: cfg.targetProfitMarginPercent ?? 15,
+            minMargin: cfg.minProfitMarginPercent ?? 5,
+            maxDiscount: cfg.maxDiscountPercent ?? 30,
+            categoryRules: cfg.categoryRules || [],
+            whitelist: cfg.productWhitelist || [],
+            blacklist: cfg.productBlacklist || [],
+        };
+    } catch (e) {
+        userG = { targetMargin: 15, minMargin: 5, maxDiscount: 30, categoryRules: [], whitelist: [], blacklist: [] };
+    }
+
+    // Yardımcı: ürün AI'ya açık mı?
+    const isAllowed = (p) => {
+        if (!p?.barcode) return true;
+        if (userG.blacklist.includes(p.barcode)) return false;
+        if (userG.whitelist.length > 0 && !userG.whitelist.includes(p.barcode)) return false;
+        return true;
+    };
+    // Yardımcı: kategori bazlı efektif marj/indirim
+    const effectiveLimits = (category) => {
+        const rule = userG.categoryRules.find(r => r.category === category);
+        return {
+            minMargin: rule?.minProfitMarginPercent ?? userG.minMargin,
+            targetMargin: rule?.targetProfitMarginPercent ?? userG.targetMargin,
+            maxDiscount: rule?.maxDiscountPercent ?? userG.maxDiscount,
+        };
+    };
+
+    // ── Whitelist/blacklist'i en başta uygula ──
+    const allowedProducts = analyzedProducts.filter(isAllowed);
+
     // 1. Fix loss products — price increase
-    const lossProducts = analyzedProducts.filter(p => p.profit < 0 && p.totalSold > 0 && p.costPrice > 0);
+    const lossProducts = allowedProducts.filter(p => p.profit < 0 && p.totalSold > 0 && p.costPrice > 0);
     for (const p of lossProducts.slice(0, 5)) {
-        const minPrice = Math.ceil(p.costPrice * 1.15);
+        const lim = effectiveLimits(p.category);
+        // Kategori kuralına göre min marj hedefli yeni fiyat (default: maliyet * (1 + min%/100))
+        const minPrice = Math.ceil(p.costPrice / (1 - lim.targetMargin / 100));
         decisions.push({
             priority: 1,
             type: "price_fix",
             icon: "🔴",
             title: `${p.name.slice(0, 35)} — Fiyat Düzelt`,
-            description: `Zararda satılıyor. Fiyat ${p.price.toFixed(0)}₺ → ${minPrice}₺ yapılmalı`,
+            description: `Zararda satılıyor. Fiyat ${p.price.toFixed(0)}₺ → ${minPrice}₺ (kategori hedef marjı %${lim.targetMargin})`,
             impact: round2((minPrice - p.price) * p.avgDailySales * 30),
             impactLabel: `+${((minPrice - p.price) * p.avgDailySales * 30).toFixed(0)}₺/ay`,
             urgency: "critical",
@@ -1490,11 +1581,12 @@ async function autoDecide(userId, analyzedProducts, data, businessHealth, lossHu
             params: { oldPrice: p.price, newPrice: minPrice },
             confidence: 92,
             autoExecutable: true,
+            _ruleTrace: { source: lim.minMargin !== userG.minMargin ? "category" : "global", targetMargin: lim.targetMargin },
         });
     }
 
     // 2. Restock critical products
-    const criticalStock = analyzedProducts.filter(p => p.stock > 0 && p.daysOfStock < 3 && p.avgDailySales > 0.5 && p.profit > 0);
+    const criticalStock = allowedProducts.filter(p => p.stock > 0 && p.daysOfStock < 3 && p.avgDailySales > 0.5 && p.profit > 0);
     for (const p of criticalStock.slice(0, 5)) {
         const restockQty = Math.ceil(p.avgDailySales * 30);
         decisions.push({
@@ -1515,7 +1607,7 @@ async function autoDecide(userId, analyzedProducts, data, businessHealth, lossHu
     }
 
     // 3. Push high-margin products
-    const highMarginLowSales = analyzedProducts.filter(p => p.profitMargin > 20 && p.avgDailySales < 1 && p.stock > 10 && p.costPrice > 0);
+    const highMarginLowSales = allowedProducts.filter(p => p.profitMargin > 20 && p.avgDailySales < 1 && p.stock > 10 && p.costPrice > 0);
     for (const p of highMarginLowSales.slice(0, 3)) {
         decisions.push({
             priority: 3,
@@ -1534,36 +1626,65 @@ async function autoDecide(userId, analyzedProducts, data, businessHealth, lossHu
         });
     }
 
-    // 4. Kill dead products
-    const deadProducts = analyzedProducts.filter(p => p.daysSinceLastSale > 60 && p.stock > 10);
+    // 4. Kill dead products — TEKİL ürün başına ayrı karar üret (her birinde barcode + güvenli %20 indirim önerisi)
+    const deadProducts = allowedProducts.filter(p => p.daysSinceLastSale > 60 && p.stock > 10 && !p.isNewProduct);
     if (deadProducts.length > 3) {
         const deadValue = deadProducts.reduce((s, p) => s + p.price * p.stock, 0);
+        // Özet "öneri" — bilgi amaçlı, otomatik uygulanmaz
         decisions.push({
             priority: 4,
-            type: "liquidate",
+            type: "liquidate_summary",
             icon: "💀",
-            title: `${deadProducts.length} Satış Bekleyen Ürün — Satış Stratejisi Uygula`,
-            description: `60+ gündür satılmayan ${deadProducts.length} ürün ${deadValue.toFixed(0)}₺ sermaye bağlıyor. %30-50 indirim + kampanya sayfası + set/kombin + reklam ile satışa dönüştürün`,
-            impact: round2(deadValue * 0.5),
-            impactLabel: `${(deadValue * 0.5).toFixed(0)}₺ sermaye kurtarılır`,
+            title: `${deadProducts.length} Satış Bekleyen Ürün — Satış Stratejisi`,
+            description: `60+ gündür satılmayan ${deadProducts.length} ürün ${deadValue.toFixed(0)}₺ sermaye bağlıyor. Aşağıdaki ürün başına önerileri inceleyin.`,
+            impact: round2(deadValue * 0.3),
+            impactLabel: `${(deadValue * 0.3).toFixed(0)}₺ sermaye kurtarılabilir`,
             urgency: "medium",
-            action: "discount",
+            action: "review_strategy",
             params: { productCount: deadProducts.length, totalValue: deadValue },
             confidence: 80,
             autoExecutable: false,
         });
+        // İlk 5 ölü ürün için tekil indirim kararı (her biri ayrı barcode + safe %20)
+        const top5Dead = [...deadProducts]
+            .sort((a, b) => (b.price * b.stock) - (a.price * a.stock))
+            .slice(0, 5);
+        for (const p of top5Dead) {
+            const lim = effectiveLimits(p.category);
+            // Kullanıcı maks indirim kuralı ile clamp (default %20 öneri)
+            const proposedDisc = Math.min(20, lim.maxDiscount);
+            decisions.push({
+                priority: 4,
+                type: "dead_product_discount",
+                icon: "🏷️",
+                title: `${p.name.slice(0, 35)} — %${proposedDisc} İndirim Öner`,
+                description: `${p.daysSinceLastSale} gündür satışı yok, ${p.stock} adet stok bağlı. Kuralına göre güvenli %${proposedDisc} indirim.`,
+                impact: round2(p.price * (proposedDisc / 100) * p.stock * 0.5),
+                impactLabel: `~${(p.price * (proposedDisc / 100) * p.stock * 0.5).toFixed(0)}₺ etki`,
+                urgency: "medium",
+                action: "apply_discount",
+                barcode: p.barcode,
+                params: { discountPercent: proposedDisc, currentPrice: p.price, currentStock: p.stock, daysSinceLastSale: p.daysSinceLastSale },
+                confidence: 70,
+                autoExecutable: false,
+                _ruleTrace: { source: lim.maxDiscount !== userG.maxDiscount ? "category" : "global", maxDiscount: lim.maxDiscount },
+            });
+        }
     }
 
     // 5. Price optimization for thin margins
-    const thinMargin = analyzedProducts.filter(p => p.profitMargin > 0 && p.profitMargin < 8 && p.totalSold > 10 && p.costPrice > 0);
+    const thinMargin = allowedProducts.filter(p => p.profitMargin > 0 && p.profitMargin < (userG.minMargin + 3) && p.totalSold > 10 && p.costPrice > 0);
     for (const p of thinMargin.slice(0, 3)) {
-        const newPrice = Math.ceil(p.price * 1.05);
+        const lim = effectiveLimits(p.category);
+        // Kategori hedef marjına çekmeye çalış
+        const targetPrice = Math.ceil(p.costPrice / (1 - lim.targetMargin / 100));
+        const newPrice = Math.min(targetPrice, Math.ceil(p.price * 1.05));
         decisions.push({
             priority: 5,
             type: "margin_optimize",
             icon: "💸",
             title: `${p.name.slice(0, 35)} — Marj Artır`,
-            description: `Marj sadece %${p.profitMargin.toFixed(1)}. Fiyatı %5 artırarak marjı iyileştirin`,
+            description: `Marj %${p.profitMargin.toFixed(1)} (hedef: %${lim.targetMargin}). Fiyat ${p.price.toFixed(0)}₺ → ${newPrice}₺`,
             impact: round2((newPrice - p.price) * p.avgDailySales * 30),
             impactLabel: `+${((newPrice - p.price) * p.avgDailySales * 30).toFixed(0)}₺/ay`,
             urgency: "medium",
@@ -1572,11 +1693,12 @@ async function autoDecide(userId, analyzedProducts, data, businessHealth, lossHu
             params: { oldPrice: p.price, newPrice },
             confidence: 78,
             autoExecutable: true,
+            _ruleTrace: { source: lim.targetMargin !== userG.targetMargin ? "category" : "global", targetMargin: lim.targetMargin },
         });
     }
 
     // 6. Expand to new marketplaces
-    const singleChannel = analyzedProducts.filter(p => p.marketplaceCount === 1 && p.totalSold > 5 && p.stock > 0);
+    const singleChannel = allowedProducts.filter(p => p.marketplaceCount === 1 && p.totalSold > 5 && p.stock > 0);
     if (singleChannel.length > 10) {
         decisions.push({
             priority: 6,
@@ -1878,104 +2000,329 @@ function trackMoney(analyzedProducts, data) {
 // #53 "KIRMIZI ALARM" — Red Alert System
 // ═════════════════════════════════════════════════════════════════════════════
 
+// ── Yardımcılar: alert detaylandırma ────────────────────────────────────────
+
+/** Marketplace listesinden insan okunabilir kısa string */
+function fmtMarketplaces(arr, max = 2) {
+    if (!Array.isArray(arr) || arr.length === 0) return "—";
+    const names = arr.map(m => (typeof m === "string" ? m : m?.marketplaceName || m?.name)).filter(Boolean);
+    if (names.length === 0) return "—";
+    const shown = names.slice(0, max).join(", ");
+    return names.length > max ? `${shown} +${names.length - max}` : shown;
+}
+
+/** Ürün listesini frekans bazlı kategori/pazaryeri dağılımına dönüştür */
+function aggregateBreakdown(products, field) {
+    const counts = new Map();
+    for (const p of products) {
+        let key;
+        if (field === "marketplaces") {
+            const ms = p.marketplaces || [];
+            for (const m of ms) {
+                const name = typeof m === "string" ? m : (m?.marketplaceName || m?.name);
+                if (!name) continue;
+                counts.set(name, (counts.get(name) || 0) + 1);
+            }
+            continue;
+        }
+        key = p[field] || "Diğer";
+        counts.set(key, (counts.get(key) || 0) + 1);
+    }
+    return Array.from(counts.entries())
+        .map(([label, count]) => ({ label, count }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 5);
+}
+
+/** Ürünü alert listesi için detaylı, tıklanabilir hale getir */
+function detailProduct(p, extras = {}) {
+    return {
+        barcode: p.barcode,
+        name: (p.name || "İsimsiz ürün").slice(0, 60),
+        category: p.category || "Kategorisiz",
+        marketplaces: fmtMarketplaces(p.marketplaces),
+        marketplaceCount: p.marketplaceCount || (Array.isArray(p.marketplaces) ? p.marketplaces.length : 0),
+        price: round2(p.price || 0),
+        costPrice: round2(p.costPrice || 0),
+        stock: p.stock || 0,
+        daysOfStock: p.daysOfStock,
+        daysSinceLastSale: p.daysSinceLastSale, // null olabilir
+        hasSalesHistory: !!p.hasSalesHistory,
+        isNewProduct: !!p.isNewProduct,
+        productAgeDays: p.productAgeDays ?? null,
+        totalSold: p.totalSold || 0,
+        avgDailySales: round2(p.avgDailySales || 0),
+        profit: round2(p.profit || 0),
+        profitMargin: round2(p.profitMargin || 0),
+        returnRate: round2(p.returnRate || 0),
+        healthScore: p.healthScore || 0,
+        ...extras,
+    };
+}
+
 function generateRedAlerts(analyzedProducts, data, businessHealth) {
     const alerts = [];
     const { hasOrderData, ordersToday, orders30 } = data;
+    const totalProducts = analyzedProducts.length;
 
-    // ZARAR EDİYORSUN
+    // ── 1. ZARAR EDİYORSUN ─────────────────────────────────────────────────
     const lossProducts = analyzedProducts.filter(p => p.profit < 0 && p.totalSold > 0 && p.costPrice > 0);
     if (lossProducts.length > 0) {
-        const totalLoss = lossProducts.reduce((s, p) => s + Math.abs(p.profit) * p.totalSold, 0);
+        const sorted = [...lossProducts].sort((a, b) => (Math.abs(b.profit) * b.avgDailySales) - (Math.abs(a.profit) * a.avgDailySales));
+        const monthlyLoss = lossProducts.reduce((s, p) => s + Math.abs(p.profit) * p.avgDailySales * 30, 0);
+        const dailyLoss = lossProducts.reduce((s, p) => s + Math.abs(p.profit) * p.avgDailySales, 0);
         alerts.push({
             type: "loss",
             icon: "🔴",
             headline: "ZARAR EDİYORSUN!",
-            message: `${lossProducts.length} ürün zararda. Toplam ${totalLoss.toFixed(0)}₺ kaybettin. Her satışta para kaybediyorsun!`,
+            message: `${lossProducts.length} ürün her satışta para kaybettiriyor. Aylık tahmini kayıp ${monthlyLoss.toFixed(0)}₺, günlük ${dailyLoss.toFixed(0)}₺.`,
             severity: "critical",
-            amount: round2(totalLoss),
-            action: "Fiyatları HEMEN güncelle",
-            products: lossProducts.slice(0, 3).map(p => ({ name: p.name.slice(0, 30), loss: round2(Math.abs(p.profit)), barcode: p.barcode })),
+            amount: round2(monthlyLoss),
+            amountLabel: "30 günlük tahmini kayıp",
+            action: "Fiyatları HEMEN güncelle (öneriler hazır)",
+            cta: { tab: "recommendations", filter: { type: "loss_detection,price_optimization" }, label: "Fiyat Önerilerini Aç" },
+            products: sorted.slice(0, 8).map(p => detailProduct(p, {
+                unitLoss: round2(Math.abs(p.profit)),
+                monthlyImpact: round2(Math.abs(p.profit) * p.avgDailySales * 30),
+                suggestion: `Min ${Math.ceil((p.costPrice || 0) * 1.15)}₺ — %15 kar marjı için`,
+            })),
+            breakdown: {
+                byMarketplace: aggregateBreakdown(lossProducts, "marketplaces"),
+                byCategory: aggregateBreakdown(lossProducts, "category"),
+            },
+            kpis: [
+                { label: "Toplam ürün", value: lossProducts.length },
+                { label: "Günlük kayıp", value: `${dailyLoss.toFixed(0)}₺` },
+                { label: "Aylık kayıp", value: `${monthlyLoss.toFixed(0)}₺` },
+            ],
         });
     }
 
-    // STOK BİTİYOR
-    const criticalStock = analyzedProducts.filter(p => p.stock > 0 && p.daysOfStock < 3 && p.avgDailySales > 0.5);
+    // ── 2. STOK TÜKENDİ / TÜKENİYOR ────────────────────────────────────────
     const outOfStock = analyzedProducts.filter(p => p.stock === 0 && p.avgDailySales > 0.3);
-    if (outOfStock.length > 0 || criticalStock.length > 0) {
-        const dailyLoss = outOfStock.reduce((s, p) => s + p.price * p.avgDailySales, 0);
+    const criticalStock = analyzedProducts.filter(p => p.stock > 0 && p.daysOfStock < 3 && p.avgDailySales > 0.5);
+    if (outOfStock.length + criticalStock.length > 0) {
+        const oosRev = outOfStock.reduce((s, p) => s + p.price * p.avgDailySales, 0);
+        const csRev = criticalStock.reduce((s, p) => s + p.price * p.avgDailySales, 0);
+        const dailyLossNow = oosRev;
+        const projected30 = (oosRev + csRev) * 30;
+        const all = [...outOfStock.map(p => ({ p, isOut: true })), ...criticalStock.map(p => ({ p, isOut: false }))]
+            .sort((a, b) => (b.p.price * b.p.avgDailySales) - (a.p.price * a.p.avgDailySales));
+
+        let message;
+        if (outOfStock.length > 0 && criticalStock.length > 0) {
+            message = `${outOfStock.length} ürün şu an STOKTA YOK, ${criticalStock.length} ürün 3 gün içinde tükenecek. Stoksuz olanlar günde ${dailyLossNow.toFixed(0)}₺ satış kaçırıyor.`;
+        } else if (outOfStock.length > 0) {
+            message = `${outOfStock.length} ürün şu an STOKTA YOK ve düzenli satıyordu — günde ${dailyLossNow.toFixed(0)}₺ kaçırıyorsun.`;
+        } else {
+            message = `${criticalStock.length} hızlı satan ürünün stoğu 3 gün içinde tükenecek. Hemen sipariş ver.`;
+        }
         alerts.push({
             type: "stock",
             icon: "📦",
-            headline: "STOK BİTİYOR!",
-            message: `${outOfStock.length} ürün tükendi, ${criticalStock.length} ürün 3 gün içinde bitecek. Günlük ${dailyLoss.toFixed(0)}₺ kaçırıyorsun!`,
-            severity: outOfStock.length > 3 ? "critical" : "high",
-            amount: round2(dailyLoss * 30),
-            action: "Acil tedarik başlat",
-            products: [...outOfStock, ...criticalStock].slice(0, 3).map(p => ({ name: p.name.slice(0, 30), stock: p.stock, daysLeft: p.daysOfStock, barcode: p.barcode })),
+            headline: outOfStock.length > 0 ? "STOK TÜKENDİ!" : "STOK BİTİYOR!",
+            message,
+            severity: outOfStock.length > 3 ? "critical" : outOfStock.length > 0 ? "high" : "medium",
+            amount: round2(projected30),
+            amountLabel: "30 günlük risk",
+            action: outOfStock.length > 0 ? "Tedarikçiye sipariş ver" : "Stok takvimi kur",
+            cta: { tab: "advisor", filter: { lowStock: true }, label: "Stok Listesini Aç" },
+            products: all.slice(0, 10).map(({ p, isOut }) => detailProduct(p, {
+                status: isOut ? "Stokta yok" : `${p.daysOfStock} gün kaldı`,
+                suggestion: isOut
+                    ? `Acil ${Math.ceil(p.avgDailySales * 30)} adet sipariş`
+                    : `${Math.max(Math.ceil(p.avgDailySales * 30) - p.stock, 1)} adet ek sipariş`,
+                projectedLoss: round2(p.price * p.avgDailySales * 30),
+            })),
+            breakdown: {
+                byMarketplace: aggregateBreakdown([...outOfStock, ...criticalStock], "marketplaces"),
+                byCategory: aggregateBreakdown([...outOfStock, ...criticalStock], "category"),
+            },
+            kpis: [
+                { label: "Stoğu biten", value: outOfStock.length },
+                { label: "3 gün içinde bitecek", value: criticalStock.length },
+                { label: "Günlük kayıp (stoksuz)", value: `${dailyLossNow.toFixed(0)}₺` },
+            ],
         });
     }
 
-    // SATIŞ ÇÖKTÜ
+    // ── 3. SATIŞ ÇÖKTÜ ─────────────────────────────────────────────────────
     if (hasOrderData) {
         const todayRev = ordersToday.reduce((s, o) => s + (o.totalPrice || 0), 0);
         const avgDaily = orders30.reduce((s, o) => s + (o.totalPrice || 0), 0) / 30;
-        if (avgDaily > 0 && todayRev < avgDaily * 0.4) {
+        // Saat 10:00'dan önce uyarı atma (gün daha bitmedi)
+        const now = new Date();
+        const hourTR = (now.getUTCHours() + 3) % 24;
+        if (avgDaily > 50 && hourTR >= 12 && todayRev < avgDaily * 0.4) {
+            const dropPct = Math.round((1 - todayRev / avgDaily) * 100);
+            // En çok düşen kanal: bugünkü siparişlerde olmayan ama 30 günde aktif olan pazaryerleri
+            const mpToday = new Map();
+            for (const o of ordersToday) mpToday.set(o.marketplaceName, (mpToday.get(o.marketplaceName) || 0) + (o.totalPrice || 0));
+            const mp30 = new Map();
+            for (const o of orders30) mp30.set(o.marketplaceName, (mp30.get(o.marketplaceName) || 0) + (o.totalPrice || 0) / 30);
+            const mpDrops = [];
+            for (const [mp, daily] of mp30.entries()) {
+                const today = mpToday.get(mp) || 0;
+                if (daily > 30) mpDrops.push({ label: mp, dailyAvg: round2(daily), today: round2(today), gap: round2(daily - today) });
+            }
+            mpDrops.sort((a, b) => b.gap - a.gap);
             alerts.push({
                 type: "sales_crash",
                 icon: "📉",
                 headline: "SATIŞ ÇÖKTÜ!",
-                message: `Bugün: ${todayRev.toFixed(0)}₺ — Ortalama: ${avgDaily.toFixed(0)}₺. Satışlar %${Math.round((1 - todayRev / avgDaily) * 100)} düştü!`,
+                message: `Bugün şu ana kadar ${todayRev.toFixed(0)}₺ ciro var, son 30 günün günlük ortalaması ${avgDaily.toFixed(0)}₺. %${dropPct} düşüş.`,
                 severity: "critical",
                 amount: round2(avgDaily - todayRev),
-                action: "Kampanya başlat veya fiyatları gözden geçir",
+                amountLabel: "Bugünkü kayıp",
+                action: "Kampanya başlat veya en düşen kanalı incele",
+                cta: { tab: "platforms", label: "Kanal Analizini Aç" },
+                products: [],
+                breakdown: {
+                    byMarketplaceDrops: mpDrops.slice(0, 5),
+                },
+                kpis: [
+                    { label: "Bugün", value: `${todayRev.toFixed(0)}₺` },
+                    { label: "Günlük ort. (30g)", value: `${avgDaily.toFixed(0)}₺` },
+                    { label: "Düşüş", value: `-%${dropPct}` },
+                ],
             });
         }
     }
 
-    // SERMAYE BAĞLI
-    const deadProducts = analyzedProducts.filter(p => p.daysSinceLastSale > 60 && p.stock > 5);
+    // ── 4. SERMAYE BAĞLI (Ölü ürünler) ─────────────────────────────────────
+    // ⚠️ Yeni eklenmiş ürünleri dışla — daysSinceLastSale null ise ürün hiç satılmamış,
+    //    productAgeDays < 21 ise henüz yeni → "ölü ürün" sayma (yalancı uyarı önlenir)
+    const deadProducts = analyzedProducts.filter(p =>
+        p.daysSinceLastSale !== null &&
+        p.daysSinceLastSale !== undefined &&
+        p.daysSinceLastSale > 60 &&
+        p.stock > 5 &&
+        !p.isNewProduct
+    );
     if (deadProducts.length > 5) {
         const deadValue = deadProducts.reduce((s, p) => s + p.price * p.stock, 0);
         if (deadValue > 5000) {
+            const sorted = [...deadProducts].sort((a, b) => (b.price * b.stock) - (a.price * a.stock));
             alerts.push({
                 type: "dead_capital",
                 icon: "💀",
                 headline: "PARAN KİLİTLİ!",
-                message: `${deadProducts.length} üründe ${deadValue.toFixed(0)}₺ sermaye bağlı. Bu ürünler satış stratejisi bekliyor!`,
+                message: `${deadProducts.length} ürün 60+ gündür satılmıyor — toplam ${deadValue.toFixed(0)}₺ sermaye stokta bekliyor. Aşağıdaki ürünlere göz at, AI her birine ayrı indirim önerisi hazırladı.`,
                 severity: "high",
                 amount: round2(deadValue),
-                action: "Agresif indirim + kampanya sayfasına ekleme + set/kombin oluşturma ile satışa dönüştür",
+                amountLabel: "Bağlı sermaye",
+                action: "Önerileri gör — her ürün için ayrı indirim hazır",
+                cta: { tab: "recommendations", filter: { type: "dead_product,dynamic_pricing" }, label: "İndirim Önerilerini Gör" },
+                products: sorted.slice(0, 10).map(p => detailProduct(p, {
+                    capitalLocked: round2(p.price * p.stock),
+                    suggestion: `%20 indirim → ${Math.round(p.price * 0.8)}₺ ile hareket başlatın`,
+                    daysIdle: p.daysSinceLastSale,
+                })),
+                breakdown: {
+                    byMarketplace: aggregateBreakdown(deadProducts, "marketplaces"),
+                    byCategory: aggregateBreakdown(deadProducts, "category"),
+                },
+                kpis: [
+                    { label: "Ürün sayısı", value: deadProducts.length },
+                    { label: "Toplam stok", value: deadProducts.reduce((s, p) => s + p.stock, 0) },
+                    { label: "Bağlı sermaye", value: `${deadValue.toFixed(0)}₺` },
+                ],
             });
         }
     }
 
-    // MALİYET BİLGİSİ EKSİK
-    const noCost = analyzedProducts.filter(p => p.costPrice === 0);
-    if (noCost.length > analyzedProducts.length * 0.5 && analyzedProducts.length > 5) {
+    // ── 5. MALİYET BİLGİSİ EKSİK ───────────────────────────────────────────
+    const noCost = analyzedProducts.filter(p => (p.costPrice || 0) === 0);
+    const noCostWithSales = noCost.filter(p => p.totalSold > 0);
+    if (noCost.length > Math.max(5, totalProducts * 0.5)) {
+        // Sat saten varsa öncelik onlar
+        const focus = noCostWithSales.length > 0 ? noCostWithSales : noCost;
+        const sortedFocus = [...focus].sort((a, b) => (b.totalSold || 0) - (a.totalSold || 0));
+        const revAtRisk = noCostWithSales.reduce((s, p) => s + p.totalRevenue, 0);
         alerts.push({
             type: "blind_flying",
             icon: "🙈",
             headline: "KÖR UÇUYORSUN!",
-            message: `${noCost.length} ürünün maliyetini bilmiyorsun. Belki zararda satıyorsun haberin bile yok!`,
-            severity: "high",
-            amount: 0,
-            action: "Ürünlerim sekmesinden maliyetleri gir",
+            message: noCostWithSales.length > 0
+                ? `${noCost.length} ürünün maliyeti girilmemiş — bunlardan ${noCostWithSales.length} tanesi son 90 günde toplam ${revAtRisk.toFixed(0)}₺ satış yaptı, ama kâr/zarar bilemiyoruz.`
+                : `${noCost.length} ürünün maliyeti girilmemiş. Bu ürünler satarsa kâr hesaplayamayız.`,
+            severity: noCostWithSales.length > 0 ? "high" : "medium",
+            amount: round2(revAtRisk),
+            amountLabel: "Görmediğimiz ciro",
+            action: noCostWithSales.length > 0 ? "Önce satan ürünlerin maliyetini gir" : "Ürünlerim sekmesinden toplu maliyet gir",
+            cta: { tab: "costs", label: "Maliyet Girme Sayfasını Aç" },
+            products: sortedFocus.slice(0, 10).map(p => detailProduct(p, {
+                suggestion: "Maliyet gir → AI kâr önerisini açar",
+                priority: p.totalSold > 0 ? "Yüksek (satıyor)" : "Düşük (henüz satılmadı)",
+            })),
+            breakdown: {
+                byCategory: aggregateBreakdown(focus, "category"),
+                byMarketplace: aggregateBreakdown(focus, "marketplaces"),
+            },
+            kpis: [
+                { label: "Maliyetsiz toplam", value: noCost.length },
+                { label: "Bunlardan satılan", value: noCostWithSales.length },
+                { label: "Görmediğimiz ciro", value: `${revAtRisk.toFixed(0)}₺` },
+            ],
         });
     }
 
-    // İADE ORANI YÜKSEK
+    // ── 6. İADE ORANI YÜKSEK ───────────────────────────────────────────────
     const highReturn = analyzedProducts.filter(p => p.returnRate > 15 && p.totalSold > 5);
     if (highReturn.length > 0) {
+        const sorted = [...highReturn].sort((a, b) => (b.price * b.totalSold * (b.returnRate / 100)) - (a.price * a.totalSold * (a.returnRate / 100)));
         const returnLoss = highReturn.reduce((s, p) => s + p.price * p.totalSold * (p.returnRate / 100), 0);
         alerts.push({
             type: "returns",
             icon: "↩️",
             headline: "İADELER ARTIYOR!",
-            message: `${highReturn.length} ürünün iade oranı %15+. Tahmini ${returnLoss.toFixed(0)}₺ iade kaybı!`,
+            message: `${highReturn.length} ürünün iade oranı %15'in üzerinde. Tahmini iade kaybı ${returnLoss.toFixed(0)}₺. Açıklama/foto/beden tablosu yetersiz olabilir.`,
             severity: "high",
             amount: round2(returnLoss),
-            action: "Ürün açıklamalarını ve kaliteyi kontrol et",
-            products: highReturn.slice(0, 3).map(p => ({ name: p.name.slice(0, 30), returnRate: round2(p.returnRate), barcode: p.barcode })),
+            amountLabel: "Tahmini iade kaybı (90g)",
+            action: "Ürün açıklamalarını ve görsellerini gözden geçir",
+            cta: { tab: "advisor", filter: { highReturn: true }, label: "Yüksek İadeli Ürünleri Aç" },
+            products: sorted.slice(0, 10).map(p => detailProduct(p, {
+                projectedLoss: round2(p.price * p.totalSold * (p.returnRate / 100)),
+                suggestion: "Açıklama + beden/ölçü tablosu + ek görsel ekle",
+            })),
+            breakdown: {
+                byCategory: aggregateBreakdown(highReturn, "category"),
+                byMarketplace: aggregateBreakdown(highReturn, "marketplaces"),
+            },
+            kpis: [
+                { label: "Sorunlu ürün", value: highReturn.length },
+                { label: "Ort. iade oranı", value: `%${(highReturn.reduce((s, p) => s + p.returnRate, 0) / highReturn.length).toFixed(1)}` },
+                { label: "Tahmini kayıp", value: `${returnLoss.toFixed(0)}₺` },
+            ],
+        });
+    }
+
+    // ── 7. TEK KANAL BAĞIMLILIĞI ───────────────────────────────────────────
+    const singleChannel = analyzedProducts.filter(p => (p.marketplaceCount || 0) === 1 && p.totalSold > 5);
+    if (singleChannel.length > 10) {
+        const totalRev = singleChannel.reduce((s, p) => s + p.totalRevenue, 0);
+        alerts.push({
+            type: "single_channel_risk",
+            icon: "🏪",
+            headline: "TEK KANALDAN BESLENİYORSUN!",
+            message: `${singleChannel.length} ürün sadece tek pazaryerinden satıyor. Bu kanal sorun yaşarsa ${totalRev.toFixed(0)}₺ ciro risk altında.`,
+            severity: "medium",
+            amount: round2(totalRev * 0.3),
+            amountLabel: "Çapraz satış potansiyeli",
+            action: "Diğer pazaryerlerine kopyala",
+            cta: { tab: "platforms", label: "Pazaryeri Genişletme Aç" },
+            products: [...singleChannel].sort((a, b) => b.totalRevenue - a.totalRevenue).slice(0, 8).map(p => detailProduct(p, {
+                suggestion: "Diğer pazaryerlerine de listele",
+                currentChannel: fmtMarketplaces(p.marketplaces),
+            })),
+            breakdown: {
+                byMarketplace: aggregateBreakdown(singleChannel, "marketplaces"),
+            },
+            kpis: [
+                { label: "Tek kanal ürün", value: singleChannel.length },
+                { label: "Bağlı ciro", value: `${totalRev.toFixed(0)}₺` },
+            ],
         });
     }
 

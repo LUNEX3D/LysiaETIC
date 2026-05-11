@@ -9,7 +9,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import API from "../../../services/api";
 import { T, fmt, fmtN, fmtP, useResponsive } from "../styles";
-import { Card, CardHeader, Badge, StatCard, EmptyState, LoadingState, ErrorState } from "./shared/SharedUI";
+import { Card, CardHeader, Badge, StatCard, EmptyState, LoadingState, ErrorState, PageHeader } from "./shared/SharedUI";
 
 const SEG_CFG = {
     stars: { color: T.green, icon: "⭐", label: "Yıldızlar", desc: "Yüksek satış + Yüksek marj" },
@@ -43,14 +43,32 @@ const BrainSegmentation = ({ t, onError }) => {
     const activeSeg = data[activeSegment] || { count: 0, products: [], strategy: "" };
     const activeCfg = SEG_CFG[activeSegment];
 
+    const tldrSeg = (() => {
+        if (summary.total === 0) return "Henüz segment analizi için ürün yok.";
+        const sp = summary.starsPercent || 0;
+        const dp = summary.dogsPercent || 0;
+        if (dp > 30) return `⚠️ Portföyünün %${dp}'i 'köpek' segmentinde — yer kaplıyor ama kazanç getirmiyor. Tasfiye et veya yeniden konumlandır.`;
+        if (sp > 20) return `Portföyünün %${sp}'i 'yıldız' segmentinde 🌟 — bu ürünleri ana eksen yap, stok yat, marketing'i bunlara çevir.`;
+        return `${summary.total} ürün BCG matrisinde segmentlere ayrıldı. ⭐ %${sp} yıldız · 🐕 %${dp} köpek. Aşağıdaki segmentlere tıklayarak ayrıntıyı gör.`;
+    })();
+    const headerStatus = (summary.dogsPercent || 0) > 30 ? "warning" : "good";
+
     return (
         <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-            {/* KPI */}
-            <div style={{ display: "flex", gap: isMobile ? "0.5rem" : "0.85rem", flexWrap: "wrap" }}>
-                <StatCard icon="📦" label={t("seg.total")} value={fmtN(summary.total || 0)} color={T.accent} />
-                <StatCard icon="⭐" label={t("seg.stars_pct")} value={`%${summary.starsPercent || 0}`} color={T.green} />
-                <StatCard icon="🐕" label={t("seg.dogs_pct")} value={`%${summary.dogsPercent || 0}`} color={T.red} />
-            </div>
+            <PageHeader
+                icon="🧬"
+                title={t("seg.title") || "Ürün Segmentasyonu (BCG)"}
+                subtitle={t("seg.subtitle") || "Yıldız / İnek / Soru / Köpek matrisinde portföyün"}
+                tldr={tldrSeg}
+                status={headerStatus}
+                kpis={[
+                    { label: "Toplam", value: fmtN(summary.total || 0), color: T.accent },
+                    { label: "⭐ Yıldız", value: `%${summary.starsPercent || 0}`, color: T.green },
+                    { label: "🐄 Nakit İneği", value: data.cashCows?.count || 0, color: T.blue },
+                    { label: "❓ Soru", value: data.questionMarks?.count || 0, color: T.yellow },
+                    { label: "🐕 Köpek", value: `%${summary.dogsPercent || 0}`, color: T.red },
+                ]}
+            />
 
             {/* BCG Visual Matrix */}
             <Card glow>

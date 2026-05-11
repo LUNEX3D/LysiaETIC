@@ -70,7 +70,7 @@ const RecommendationSchema = new mongoose.Schema({
     // ── Status & Lifecycle ──
     status: {
         type: String,
-        enum: ["pending", "approved", "rejected", "executed", "expired", "failed"],
+        enum: ["pending", "approved", "rejected", "executed", "expired", "failed", "noted"],
         default: "pending",
         index: true
     },
@@ -99,6 +99,20 @@ const RecommendationSchema = new mongoose.Schema({
     // ── Related Data ──
     relatedProducts: [{ type: String }],  // Barcodes
     marketplace:     { type: String },
+
+    // ── Guardrail / Otonomi izleri (kullanıcıya şeffaflık için) ──
+    guardrailNote: { type: String, default: "" },   // "İndirim %30 → %15 (Elektronik kategori kuralı)"
+    blocked:       { type: Boolean, default: false }, // true: AutonomyConfig tarafından engellendi
+    blockReasons:  [{ type: String }],              // ["Whitelist dışı", "Çalışma saatleri dışı", ...]
+    ruleTrace: {
+        source:        { type: String, enum: ["global", "category", "manual"], default: "global" },
+        categoryRule:  { type: String },           // matched category
+        targetMargin:  { type: Number },
+        minMargin:     { type: Number },
+        maxDiscount:   { type: Number },
+        clampApplied:  { type: Boolean, default: false },
+        clampDetail:   { type: String },           // human readable: "İndirim %25 → %15"
+    },
 
 }, { timestamps: true });
 

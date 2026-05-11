@@ -9,7 +9,7 @@
 import React, { useState } from "react";
 import API from "../../../services/api";
 import { T, fmt, useResponsive } from "../styles";
-import { Card, CardHeader, Badge, Btn, StatCard, EmptyState, LoadingState, ErrorState, Input } from "./shared/SharedUI";
+import { Card, CardHeader, Badge, Btn, StatCard, EmptyState, LoadingState, ErrorState, Input, PageHeader } from "./shared/SharedUI";
 
 const BrainSimulation = ({ t, onError }) => {
     const { isMobile } = useResponsive();
@@ -81,6 +81,18 @@ const BrainSimulation = ({ t, onError }) => {
 
     return (
         <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+            <PageHeader
+                icon="🧪"
+                title={t("sim.title") || "What-If Simülasyon"}
+                subtitle={t("sim.subtitle") || "Hipotez kur, AI tahmini hesaplasın — uygulamadan önce gör"}
+                tldr="Bir ürün barkodu, fiyat değişim %'si ve isteğe bağlı stok/kampanya gir → AI 30-90 günlük satış, ciro ve kâr projeksiyonu üretir. 'Uygula' butonu ile gerçek pazaryerine push edebilirsin."
+                status="info"
+                kpis={[
+                    { label: "Aktif Senaryo", value: scenarios.filter(s => s.barcode?.trim()).length, color: T.purple },
+                    { label: "Son Sonuç", value: result ? (result._applied ? "Uygulandı" : "Hazır") : "Yok", color: result?._applied ? T.green : T.accent },
+                ]}
+            />
+
             {/* ═══ Single Simulation ═══ */}
             <Card glow>
                 <CardHeader icon="🧪" title={t("sim.title")} subtitle={t("sim.subtitle")} color={T.accent} />

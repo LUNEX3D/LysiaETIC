@@ -9,7 +9,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import API from "../../../services/api";
 import { T, useResponsive } from "../styles";
-import { Card, CardHeader, Badge, EmptyState, LoadingState, ErrorState } from "./shared/SharedUI";
+import { Card, CardHeader, Badge, EmptyState, LoadingState, ErrorState, PageHeader } from "./shared/SharedUI";
 
 const BrainCauses = ({ t, onError }) => {
     useResponsive();
@@ -30,19 +30,47 @@ const BrainCauses = ({ t, onError }) => {
     if (loading) return <LoadingState message={t("loading.causes")} />;
     if (!data) return <ErrorState message={t("error.data_load_fail")} onRetry={load} />;
 
+    const tldrCauses = (() => {
+        if (data.length === 0) return "AI henüz bir kök neden tespit edemedi — şu an sistemde net bir 'X yüzünden Y oluyor' bağlantısı yok.";
+        const stockout = data.filter(c => c.issue === "Stok tükenmesi").length;
+        const other = data.length - stockout;
+        const parts = [`${data.length} sorun için kök neden zinciri çıkarıldı`];
+        if (stockout) parts.push(`${stockout} stok tükenmesi`);
+        if (other) parts.push(`${other} diğer`);
+        return parts.join(" · ");
+    })();
+
     if (data.length === 0) {
         return (
-            <Card>
-                <EmptyState icon="🔍" title={t("causes.no_data")} description={t("causes.no_data_desc")} />
-            </Card>
+            <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+                <PageHeader
+                    icon="🔍"
+                    title={t("causes.title") || "Kök Neden Analizi"}
+                    subtitle={t("causes.subtitle") || "AI'nın 'neden' sorularına 5-Why analizi"}
+                    tldr={tldrCauses}
+                    status="info"
+                    kpis={[{ label: "Tespit", value: 0, color: T.purple }]}
+                />
+                <Card>
+                    <EmptyState icon="🔍" title={t("causes.no_data")} description={t("causes.no_data_desc")} />
+                </Card>
+            </div>
         );
     }
 
     return (
         <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-            <Card glow>
-                <CardHeader icon="🔍" title={t("causes.title")} subtitle={t("causes.subtitle")} color={T.purple} badge={`${data.length} ${t("causes.issues")}`} />
-            </Card>
+            <PageHeader
+                icon="🔍"
+                title={t("causes.title") || "Kök Neden Analizi"}
+                subtitle={t("causes.subtitle") || "Her sorunun arkasındaki gerçek neden"}
+                tldr={tldrCauses}
+                status={data.length > 5 ? "warning" : "info"}
+                kpis={[
+                    { label: "Toplam Sorun", value: data.length, color: T.purple },
+                    { label: "Stok Tükenmesi", value: data.filter(c => c.issue === "Stok tükenmesi").length, color: T.yellow },
+                ]}
+            />
 
             {data.map((cause, i) => (
                 <Card key={i} style={{ borderLeft: `3px solid ${cause.issue === "Stok tükenmesi" ? T.yellow : T.red}` }}>

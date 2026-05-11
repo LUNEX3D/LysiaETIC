@@ -9,7 +9,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import API from "../../../services/api";
 import { T, fmt, useResponsive } from "../styles";
-import { Card, CardHeader, Badge, EmptyState, LoadingState, ErrorState } from "./shared/SharedUI";
+import { Card, CardHeader, Badge, EmptyState, LoadingState, ErrorState, PageHeader } from "./shared/SharedUI";
 
 const BrainOpportunities = ({ t, onError }) => {
     const { isMobile } = useResponsive();
@@ -32,19 +32,30 @@ const BrainOpportunities = ({ t, onError }) => {
 
     const totalPotential = data.reduce((s, o) => s + (o.potential || 0), 0);
 
+    const topOpp = data.slice().sort((a, b) => (b.potential || 0) - (a.potential || 0))[0];
+    const tldrOpps = (() => {
+        if (data.length === 0) return "AI henüz somut fırsat tespit edemedi. Daha fazla sipariş geçmişi biriktikçe yeni alanlar açılacak.";
+        const parts = [];
+        parts.push(`${data.length} fırsat bulundu`);
+        if (totalPotential > 0) parts.push(`toplam potansiyel +${fmt(totalPotential)}`);
+        if (topOpp) parts.push(`en yüksek: "${topOpp.title}"`);
+        return parts.join(" · ");
+    })();
+
     return (
         <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-            {/* Header */}
-            <Card glow>
-                <CardHeader icon="🎯" title={t("opps.title")} subtitle={t("opps.subtitle")} color={T.green}
-                    badge={data.length > 0 ? `${data.length} ${t("opps.found")}` : undefined} />
-                {totalPotential > 0 && (
-                    <div style={{ padding: "1rem", borderRadius: T.rSm, background: T.greenDim, border: `1px solid ${T.green}20`, textAlign: "center" }}>
-                        <div style={{ fontSize: "0.72rem", color: T.textDim, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>{t("opps.total_potential")}</div>
-                        <div style={{ fontSize: isMobile ? "1.5rem" : "2rem", fontWeight: 900, color: T.green, fontFamily: T.fontMono, marginTop: 4 }}>+{fmt(totalPotential)}</div>
-                    </div>
-                )}
-            </Card>
+            <PageHeader
+                icon="✨"
+                title={t("opps.title") || "Fırsat Radarı"}
+                subtitle={t("opps.subtitle") || "AI'nın tespit ettiği büyüme ve kâr fırsatları"}
+                tldr={tldrOpps}
+                status={data.length > 0 ? "good" : "info"}
+                kpis={[
+                    { label: "Toplam Fırsat", value: data.length, color: T.green },
+                    { label: "Potansiyel Etki", value: `+${fmt(totalPotential)}`, color: T.green, hint: "Tüm fırsatlar değerlendirilirse" },
+                    { label: "En Yüksek", value: topOpp ? `+${fmt(topOpp.potential || 0)}` : "—", color: T.accent },
+                ]}
+            />
 
             {/* Opportunity Items */}
             {data.length === 0 ? (

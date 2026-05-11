@@ -2,9 +2,55 @@
  * LYSIA BRAIN — AI Önerileri
  * Okunaklı kart düzeni + AI Fiyat / AI Stok / Diğer sınıflandırması
  */
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
+import API from "../../../services/api";
 import { T, fmt, useResponsive } from "../styles";
 import { Card, CardHeader, Badge, Btn, EmptyState } from "./shared/SharedUI";
+
+/** actionPayload.params üzerinden fiyat-aksiyon detaylarını çıkar */
+export function getActionPriceDetails(rec) {
+    const params = rec?.actionPayload?.params || {};
+    const actionType = String(rec?.actionPayload?.actionType || "").toLowerCase();
+
+    const round = (v) => (typeof v === "number" ? Math.round(v * 100) / 100 : v);
+
+    if (actionType === "update_price") {
+        const oldPrice = round(params.oldPrice);
+        const newPrice = round(params.newPrice);
+        if (oldPrice && newPrice && oldPrice !== newPrice) {
+            const diff = newPrice - oldPrice;
+            const pct = oldPrice > 0 ? Math.round((diff / oldPrice) * 100) : 0;
+            return {
+                kind: "price_change",
+                direction: diff > 0 ? "up" : "down",
+                oldPrice, newPrice, diff, pct,
+                label: diff > 0 ? "Fiyat Artışı" : "Fiyat Düşüşü",
+            };
+        }
+    }
+    if (actionType === "apply_discount") {
+        const oldPrice = round(params.oldPrice);
+        const newPrice = round(params.newPrice);
+        const discountPercent = Math.round(params.discountPercent || 0);
+        if (oldPrice && newPrice) {
+            return {
+                kind: "discount",
+                direction: "down",
+                oldPrice, newPrice,
+                discountPercent,
+                label: `İndirim %${discountPercent}`,
+            };
+        }
+        if (discountPercent > 0) {
+            return { kind: "discount_only", discountPercent, label: `İndirim %${discountPercent}` };
+        }
+    }
+    if (actionType === "create_stock_order") {
+        const qty = params.suggestedQty || params.qty || params.restockQty;
+        if (qty) return { kind: "restock", qty, label: `${qty} adet sipariş` };
+    }
+    return null;
+}
 
 /** Backend category + type + actionPayload üzerinden öneri ailesi */
 export function getRecommendationKind(rec) {
@@ -43,6 +89,44 @@ const BrainRecommendations = ({ recommendations, recSummary, refreshing, onAppro
     const [bulkLoading, setBulkLoading] = useState(false);
     const [actionLoading, setActionLoading] = useState(null);
     const [lastAction, setLastAction] = useState(null);
+    const [ctaHint, setCtaHint] = useState(null);
+    const [autonomyStatus, setAutonomyStatus] = useState(null);
+
+    // Otonom kuralları durumunu yükle (banner için)
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            try {
+                const res = await API.get("/ai-engine/autonomy-config/status");
+                if (!cancelled && res.data?.status) setAutonomyStatus(res.data.status);
+            } catch { /* silent */ }
+        })();
+        return () => { cancelled = true; };
+    }, []);
+
+    // Dashboard'dan "Fix Now" CTA ile gelinmişse ön-filtre uygula
+    useEffect(() => {
+        try {
+            const raw = sessionStorage.getItem("lysiabrain.tabFilter.recommendations");
+            if (!raw) return;
+            const parsed = JSON.parse(raw);
+            // 5 dakikadan eskiyse yok say
+            if (!parsed?.ts || Date.now() - parsed.ts > 5 * 60 * 1000) {
+                sessionStorage.removeItem("lysiabrain.tabFilter.recommendations");
+                return;
+            }
+            const f = parsed.filter || {};
+            if (typeof f.type === "string") {
+                const types = f.type.split(",").map(s => s.trim().toLowerCase());
+                const priceTypes = new Set(["loss_detection", "price_optimization", "dynamic_pricing", "inventory_pressure", "dead_product"]);
+                const stockTypes = new Set(["restock", "stock_order", "stockout_risk"]);
+                if (types.some(t => priceTypes.has(t))) setKindFilter("price");
+                else if (types.some(t => stockTypes.has(t))) setKindFilter("stock");
+                setCtaHint(`Dashboard yönlendirmesi: ${types.join(", ")}`);
+            }
+            sessionStorage.removeItem("lysiabrain.tabFilter.recommendations");
+        } catch { /* sessionStorage yok */ }
+    }, []);
 
     const PRI = {
         critical: { color: T.red, label: t("rec.priority.critical"), icon: "🔴", bg: T.redDim },
@@ -155,20 +239,20 @@ const BrainRecommendations = ({ recommendations, recSummary, refreshing, onAppro
     ];
 
     const pillBtn = (isActive, color, borderColor) => ({
-        background: isActive ? (borderColor ? `${color}18` : `${color}15`) : T.bgGlass,
-        border: `1px solid ${isActive ? (borderColor || `${color}40`) : T.border}`,
+        background: isActive ? (borderColor ? `${color}22` : `${color}1f`) : T.bgGlass,
+        border: `1px solid ${isActive ? (borderColor || `${color}55`) : T.border}`,
         borderRadius: T.rFull,
-        padding: isMobile ? "7px 12px" : "8px 14px",
+        padding: isMobile ? "7px 13px" : "8px 16px",
         cursor: "pointer",
-        fontSize: isMobile ? "0.72rem" : "0.78rem",
-        fontWeight: isActive ? 700 : 500,
+        fontSize: isMobile ? T.fz.xs : T.fz.sm,
+        fontWeight: isActive ? 700 : 600,
         color: isActive ? color : T.textSec,
         display: "inline-flex",
         alignItems: "center",
         gap: 8,
-        transition: "all 0.2s",
         fontFamily: "inherit",
-        boxShadow: isActive ? `0 0 0 1px ${color}20` : "none",
+        boxShadow: isActive ? `0 0 0 1px ${color}30, 0 2px 8px ${color}15` : "none",
+        // transition lysia-btn class'ı tarafından sağlanır
     });
 
     return (
@@ -195,12 +279,43 @@ const BrainRecommendations = ({ recommendations, recSummary, refreshing, onAppro
                     </Btn>
                 </div>
 
+                {/* Otonomi Mode Banner — kullanıcı modunu net görsün */}
+                {autonomyStatus && (
+                    <div style={{
+                        display: "flex", alignItems: "center", gap: 12,
+                        background: autonomyStatus.mode === "autonomous" ? `${T.red}10` : autonomyStatus.mode === "supervised" ? `${T.yellow}10` : `${T.green}10`,
+                        border: `1px solid ${autonomyStatus.mode === "autonomous" ? T.red : autonomyStatus.mode === "supervised" ? T.yellow : T.green}40`,
+                        borderRadius: 10, padding: "10px 14px", marginBottom: 14, fontSize: T.fz.sm,
+                        flexWrap: "wrap",
+                    }}>
+                        <span style={{ fontSize: "1.2rem" }}>
+                            {autonomyStatus.mode === "autonomous" ? "🤖" : autonomyStatus.mode === "supervised" ? "👁️" : "✋"}
+                        </span>
+                        <div style={{ flex: 1, minWidth: 200 }}>
+                            <b style={{ color: autonomyStatus.mode === "autonomous" ? T.red : autonomyStatus.mode === "supervised" ? T.yellow : T.green }}>
+                                {autonomyStatus.mode === "autonomous" ? "Tam Otonom Mod" : autonomyStatus.mode === "supervised" ? "Denetimli Mod" : "Manuel Mod"}
+                            </b>
+                            <span style={{ color: T.textDim, marginLeft: 8 }}>
+                                {autonomyStatus.mode === "autonomous" ? "Düşük etki + yüksek güvenli öneriler otomatik uygulanır." : autonomyStatus.mode === "supervised" ? "Kritik aksiyonlar onay bekler — sen onaylayınca uygulanır." : "Hiçbir öneri otomatik uygulanmaz; her şeyi sen onaylarsın."}
+                            </span>
+                        </div>
+                        <Btn size="sm" variant="ghost" onClick={() => { try { window.dispatchEvent(new CustomEvent("lysia-goto-tab", { detail: "autonomy" })); } catch {} }}>🎛️ Modu Değiştir</Btn>
+                    </div>
+                )}
+
+                {ctaHint && (
+                    <div style={{ background: `${T.accent}15`, border: `1px solid ${T.accent}40`, borderRadius: 8, padding: "0.65rem 0.85rem", marginBottom: "0.9rem", fontSize: "0.78rem", color: T.text, display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+                        <span><b style={{ color: T.accent }}>↻</b> {ctaHint}</span>
+                        <button onClick={() => { setCtaHint(null); setKindFilter("all"); }} style={{ background: "transparent", border: `1px solid ${T.border}`, color: T.textSec, fontSize: "0.7rem", padding: "3px 8px", borderRadius: 4, cursor: "pointer" }}>Filtreyi kaldır</button>
+                    </div>
+                )}
+
                 <div style={{ fontSize: "0.65rem", fontWeight: 800, letterSpacing: "0.12em", textTransform: "uppercase", color: T.textMuted, marginBottom: 8 }}>
                     Durum
                 </div>
                 <div role="tablist" aria-label="Status filters" style={{ display: "flex", gap: 8, marginBottom: "1.1rem", flexWrap: "wrap" }}>
                     {statusFilters.map(f => (
-                        <button key={f.id} type="button" role="tab" aria-selected={recFilter === f.id} onClick={() => { setRecFilter(f.id); setSelected(new Set()); }} style={pillBtn(recFilter === f.id, f.color)}>
+                        <button key={f.id} type="button" role="tab" aria-selected={recFilter === f.id} onClick={() => { setRecFilter(f.id); setSelected(new Set()); }} className="lysia-btn lysia-focus" style={pillBtn(recFilter === f.id, f.color)}>
                             {f.label}
                             <span style={{
                                 minWidth: 22,
@@ -232,6 +347,7 @@ const BrainRecommendations = ({ recommendations, recSummary, refreshing, onAppro
                             role="tab"
                             aria-selected={kindFilter === row.id}
                             onClick={() => { setKindFilter(row.id); setCatFilter("all"); }}
+                            className="lysia-btn lysia-focus"
                             style={pillBtn(kindFilter === row.id, row.cfg?.accent || T.accent, row.cfg?.border)}
                         >
                             {row.label}
@@ -286,9 +402,9 @@ const BrainRecommendations = ({ recommendations, recSummary, refreshing, onAppro
                             {t("rec.detail_cat")}
                         </div>
                         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                            <button type="button" onClick={() => setCatFilter("all")} style={pillBtn(catFilter === "all", T.textDim)}>{t("rec.all")}</button>
+                            <button type="button" onClick={() => setCatFilter("all")} className="lysia-btn lysia-focus" style={pillBtn(catFilter === "all", T.textDim)}>{t("rec.all")}</button>
                             {cats.map(c => (
-                                <button key={c} type="button" onClick={() => setCatFilter(c)} style={pillBtn(catFilter === c, T.blue)}>
+                                <button key={c} type="button" onClick={() => setCatFilter(c)} className="lysia-btn lysia-focus" style={pillBtn(catFilter === c, T.blue)}>
                                     {CAT[c] || c}
                                 </button>
                             ))}
@@ -303,7 +419,7 @@ const BrainRecommendations = ({ recommendations, recSummary, refreshing, onAppro
                         description={t("rec.use_button")}
                     />
                 ) : (
-                    <div style={{
+                    <div className="lysia-anim-stagger" style={{
                         display: "grid",
                         gridTemplateColumns: isMobile || isTablet ? "1fr" : "repeat(auto-fill, minmax(min(100%, 400px), 1fr))",
                         gap: "1rem",
@@ -318,9 +434,10 @@ const BrainRecommendations = ({ recommendations, recSummary, refreshing, onAppro
                             return (
                                 <article
                                     key={rec._id}
+                                    className="lysia-hover-lift"
                                     style={{
-                                        borderRadius: T.rSm,
-                                        border: `1px solid ${isSel ? T.accent + "35" : T.border}`,
+                                        borderRadius: T.rMd,
+                                        border: `1px solid ${isSel ? T.accent + "55" : T.border}`,
                                         background: isSel ? T.accentDim : T.bgCard,
                                         boxShadow: isSel ? `0 8px 28px ${T.accent}10` : T.shadow,
                                         overflow: "hidden",
@@ -389,6 +506,120 @@ const BrainRecommendations = ({ recommendations, recSummary, refreshing, onAppro
                                                 }}>
                                                     {rec.description}
                                                 </div>
+
+                                                {/* Fiyat aksiyon detayı: şu an / değişim / onaylarsan */}
+                                                {(() => {
+                                                    const det = getActionPriceDetails(rec);
+                                                    if (!det) return null;
+                                                    if (det.kind === "price_change" || det.kind === "discount") {
+                                                        const dirColor = det.direction === "down" ? T.green : T.red;
+                                                        const showPct = det.kind === "discount"
+                                                            ? `-%${det.discountPercent}`
+                                                            : `${det.pct > 0 ? "+" : ""}%${det.pct}`;
+                                                        return (
+                                                            <div style={{
+                                                                marginTop: "0.65rem",
+                                                                padding: "0.75rem 0.9rem",
+                                                                borderRadius: T.rSm,
+                                                                background: `${dirColor}10`,
+                                                                border: `1px solid ${dirColor}40`,
+                                                                display: "grid",
+                                                                gridTemplateColumns: "1fr auto 1fr",
+                                                                gap: "0.5rem",
+                                                                alignItems: "center",
+                                                            }}>
+                                                                <div style={{ textAlign: "center" }}>
+                                                                    <div style={{ fontSize: "0.6rem", color: T.textMuted, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.05em" }}>Şu anki fiyat</div>
+                                                                    <div style={{ fontSize: "1.05rem", color: T.text, fontWeight: 800, fontFamily: T.fontMono, textDecoration: det.direction === "down" ? "line-through" : "none", opacity: det.direction === "down" ? 0.6 : 1 }}>
+                                                                        {fmt(det.oldPrice)}
+                                                                    </div>
+                                                                </div>
+                                                                <div style={{ textAlign: "center", padding: "0 0.5rem" }}>
+                                                                    <div style={{ fontSize: "1.4rem", color: dirColor, fontWeight: 900 }}>→</div>
+                                                                    <Badge color={dirColor} size="sm">{showPct}</Badge>
+                                                                </div>
+                                                                <div style={{ textAlign: "center" }}>
+                                                                    <div style={{ fontSize: "0.6rem", color: T.textMuted, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.05em" }}>Onaylarsan</div>
+                                                                    <div style={{ fontSize: "1.15rem", color: dirColor, fontWeight: 900, fontFamily: T.fontMono }}>
+                                                                        {fmt(det.newPrice)}
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    }
+                                                    if (det.kind === "discount_only") {
+                                                        return (
+                                                            <div style={{
+                                                                marginTop: "0.65rem",
+                                                                padding: "0.6rem 0.85rem",
+                                                                borderRadius: T.rSm,
+                                                                background: `${T.green}10`,
+                                                                border: `1px solid ${T.green}40`,
+                                                                display: "flex",
+                                                                alignItems: "center",
+                                                                gap: "0.5rem",
+                                                                fontSize: "0.82rem",
+                                                                color: T.text,
+                                                            }}>
+                                                                <Badge color={T.green} size="sm">-%{det.discountPercent}</Badge>
+                                                                <span style={{ color: T.textSec }}>İndirim uygulanacak (mevcut fiyat üzerinden)</span>
+                                                            </div>
+                                                        );
+                                                    }
+                                                    if (det.kind === "restock") {
+                                                        return (
+                                                            <div style={{
+                                                                marginTop: "0.65rem",
+                                                                padding: "0.6rem 0.85rem",
+                                                                borderRadius: T.rSm,
+                                                                background: `${T.blue}10`,
+                                                                border: `1px solid ${T.blue}40`,
+                                                                fontSize: "0.82rem",
+                                                                color: T.text,
+                                                            }}>
+                                                                📦 Önerilen sipariş: <b style={{ color: T.blue }}>{det.qty} adet</b>
+                                                            </div>
+                                                        );
+                                                    }
+                                                    return null;
+                                                })()}
+
+                                                {/* Guardrail / Otonomi Kuralı izi (kullanıcı neden bu öneri böyle göründüğünü görsün) */}
+                                                {(rec.guardrailNote || rec.ruleTrace?.clampApplied || rec.ruleTrace?.source === "category" || (Array.isArray(rec.blockReasons) && rec.blockReasons.length > 0)) && (
+                                                    <div style={{
+                                                        marginTop: "0.65rem",
+                                                        padding: "0.55rem 0.8rem",
+                                                        borderRadius: T.rSm,
+                                                        background: rec.blocked ? `${T.red}10` : `${T.cyan}10`,
+                                                        border: `1px dashed ${rec.blocked ? T.red : T.cyan}50`,
+                                                        fontSize: "0.74rem",
+                                                        display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap",
+                                                    }}>
+                                                        <span style={{ fontSize: "0.9rem" }} aria-hidden="true">🎛️</span>
+                                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                                            {rec.blocked && Array.isArray(rec.blockReasons) && rec.blockReasons.length > 0 && (
+                                                                <div style={{ color: T.red, fontWeight: 700, marginBottom: 2 }}>
+                                                                    Otonomi kuralı engelledi: {rec.blockReasons.join(" · ")}
+                                                                </div>
+                                                            )}
+                                                            {rec.guardrailNote && (
+                                                                <div style={{ color: T.textSec }}>
+                                                                    <b style={{ color: T.cyan }}>Kural uygulandı:</b> {rec.guardrailNote}
+                                                                </div>
+                                                            )}
+                                                            {rec.ruleTrace?.source === "category" && rec.ruleTrace?.targetMargin && !rec.guardrailNote && (
+                                                                <div style={{ color: T.textSec }}>
+                                                                    <b style={{ color: T.purple }}>Kategori kuralı:</b> hedef marj %{rec.ruleTrace.targetMargin}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                        <button onClick={() => { try { window.dispatchEvent(new CustomEvent("lysia-goto-tab", { detail: "autonomy" })); } catch {} }}
+                                                            style={{ background: "transparent", border: `1px solid ${T.border}`, color: T.textSec, fontSize: "0.68rem", padding: "3px 8px", borderRadius: 4, cursor: "pointer", flexShrink: 0 }}>
+                                                            Kurallara git
+                                                        </button>
+                                                    </div>
+                                                )}
+
                                                 {rec.confidenceScore > 0 && (
                                                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: "0.75rem", fontSize: "0.74rem", color: T.textMuted }}>
                                                         <span style={{ fontWeight: 700 }}>{t("rec.confidence")}</span>

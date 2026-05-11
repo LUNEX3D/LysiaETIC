@@ -9,7 +9,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import API from "../../../services/api";
 import { T, fmt, fmtN, useResponsive } from "../styles";
-import { Card, CardHeader, StatCard, EmptyState, LoadingState, ErrorState } from "./shared/SharedUI";
+import { Card, CardHeader, StatCard, EmptyState, LoadingState, ErrorState, PageHeader } from "./shared/SharedUI";
 
 const TYPE_ICONS = {
     price_optimization: "💰",
@@ -43,14 +43,30 @@ const BrainROI = ({ t, onError }) => {
     const byType = Object.entries(data.byType || {}).sort((a, b) => b[1] - a[1]);
     const maxTypeVal = Math.max(...byType.map(([, v]) => Math.abs(v)), 1);
 
+    const profit = data.totalProfitGenerated || 0;
+    const exec = data.totalExecuted || 0;
+    const tldrROI = (() => {
+        if (exec === 0) return "AI henüz bir aksiyon uygulamadı — Otonom Kurallar'da modu 'Denetimli'ye al, öneriler oluştukça yatırım getirisi burada birikecek.";
+        if (profit > 0) return `AI ${exec} aksiyonla bugüne kadar ${fmt(profit)} ek kâr üretti. ${fmt(data.totalRevenueGenerated || 0)} ek gelir sağladı.`;
+        return `AI ${exec} aksiyon uyguladı ancak kâr katkısı henüz ölçülmedi — verify döngüsü için biraz daha veri biriksin.`;
+    })();
+    const headerStatus = profit > 0 ? "good" : exec === 0 ? "info" : "warning";
+
     return (
         <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-            {/* KPI */}
-            <div style={{ display: "flex", gap: isMobile ? "0.5rem" : "0.85rem", flexWrap: "wrap" }}>
-                <StatCard icon="📈" label={t("roi.profit_generated")} value={fmt(data.totalProfitGenerated || 0)} color={T.green} />
-                <StatCard icon="💰" label={t("roi.revenue_generated")} value={fmt(data.totalRevenueGenerated || 0)} color={T.accent} />
-                <StatCard icon="✅" label={t("roi.total_executed")} value={fmtN(data.totalExecuted || 0)} color={T.blue} />
-            </div>
+            <PageHeader
+                icon="💰"
+                title={t("roi.title") || "AI Yatırım Getirisi (ROI)"}
+                subtitle={t("roi.subtitle") || "AI'nın yaptığı aksiyonların finansal etkisi"}
+                tldr={tldrROI}
+                status={headerStatus}
+                kpis={[
+                    { label: "Üretilen Kâr", value: fmt(profit), color: profit >= 0 ? T.green : T.red },
+                    { label: "Üretilen Gelir", value: fmt(data.totalRevenueGenerated || 0), color: T.accent },
+                    { label: "Uygulanan Aksiyon", value: fmtN(exec), color: T.blue },
+                    { label: "Aksiyon/Kâr", value: exec > 0 ? fmt(profit / exec) : "—", color: T.purple, hint: "Aksiyon başına ortalama kâr" },
+                ]}
+            />
 
             {/* Message */}
             <Card glow>

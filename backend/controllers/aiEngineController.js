@@ -1539,6 +1539,45 @@ exports.getWorkerStatus = async (req, res) => {
 };
 
 // ═════════════════════════════════════════════════════════════════════════════
+// AI AUDIT — Geri alınabilir aksiyon defterinin listesi + rollback
+// ═════════════════════════════════════════════════════════════════════════════
+exports.getAuditList = async (req, res) => {
+    try {
+        const userId = uid(req);
+        const AIActionAudit = require("../models/AIActionAudit");
+        const limit = Math.min(parseInt(req.query.limit, 10) || 50, 200);
+        const filter = { userId };
+        if (req.query.actionType) filter.actionType = req.query.actionType;
+        if (req.query.barcode) filter["target.barcode"] = req.query.barcode;
+        if (req.query.rollbackable === "true") {
+            filter["rollback.rolledBack"] = false;
+            filter.actionType = { $in: ["update_price", "apply_discount", "mark_inactive"] };
+        }
+        const items = await AIActionAudit.find(filter)
+            .sort({ createdAt: -1 })
+            .limit(limit)
+            .lean();
+        res.json({ success: true, total: items.length, items });
+    } catch (err) {
+        logger.error(`[AI] getAuditList error: ${err.message}`);
+        res.status(500).json({ success: false, message: "Denetim defteri alınamadı", error: err.message });
+    }
+};
+
+exports.rollbackAuditAction = async (req, res) => {
+    try {
+        const userId = uid(req);
+        const { id } = req.params;
+        const reason = (req.body?.reason || "").toString().slice(0, 200);
+        const result = await AIEngine.rollbackAction(id, userId, reason || "Manuel geri alma");
+        res.json({ success: true, ...result });
+    } catch (err) {
+        logger.warn(`[AI] rollbackAuditAction failed: ${err.message}`);
+        res.status(400).json({ success: false, message: err.message });
+    }
+};
+
+// ═════════════════════════════════════════════════════════════════════════════
 // GET /notifications
 // ═════════════════════════════════════════════════════════════════════════════
 exports.getNotifications = async (req, res) => {
@@ -1676,5 +1715,159 @@ exports.getAdvisorPlatforms = async (req, res) => {
     } catch (err) {
         logger.error(`[AI Advisor] getAdvisorPlatforms error: ${err.message}`);
         res.status(500).json({ success: false, message: "Platform analizi yüklenemedi", error: err.message });
+    }
+};
+
+// ═════════════════════════════════════════════════════════════════════════════
+// AUTONOMY CONFIG — Kullanıcı otonomi kuralları
+// ═════════════════════════════════════════════════════════════════════════════
+const AutonomyConfig = require("../models/AutonomyConfig");
+
+const ALLOWED_AUTONOMY_FIELDS = [
+    "mode",
+    "targetProfitMarginPercent",
+    "minProfitMarginPercent",
+    "maxPriceChangePercent",
+    "maxPriceIncreasePercent",
+    "maxDiscountPercent",
+    "minDiscountPercent",
+    "maxStockOrderQuantity",
+    "enableAutoRestock",
+    "maxActionsPerHour",
+    "cooldownMinutes",
+    "requireApprovalForCritical",
+    "autoApproveBelowImpactTRY",
+    "autoApproveOnlyIfConfidence",
+    "allowedActions",
+    "productWhitelist",
+    "productBlacklist",
+    "categoryRules",
+    "workHours",
+    "marketplaceBlacklist",
+    "requireSyncedMarketplace",
+    "notifyOnExecute",
+    "notifyOnBlocked",
+    "notifyOnError",
+];
+
+function sanitizeAutonomyPayload(body = {}) {
+    const out = {};
+    for (const k of ALLOWED_AUTONOMY_FIELDS) {
+        if (body[k] !== undefined) out[k] = body[k];
+    }
+    // Yumuşak validasyon
+    if (typeof out.targetProfitMarginPercent === "number" && out.minProfitMarginPercent !== undefined) {
+        if (out.targetProfitMarginPercent < out.minProfitMarginPercent) {
+            out.targetProfitMarginPercent = out.minProfitMarginPercent + 1;
+        }
+    }
+    if (typeof out.workHours === "object" && out.workHours !== null) {
+        const wh = out.workHours;
+        if (typeof wh.startHour === "number") wh.startHour = Math.max(0, Math.min(23, wh.startHour));
+        if (typeof wh.endHour === "number") wh.endHour = Math.max(0, Math.min(23, wh.endHour));
+        if (Array.isArray(wh.daysOfWeek)) wh.daysOfWeek = wh.daysOfWeek.filter(d => Number.isInteger(d) && d >= 0 && d <= 6);
+    }
+    if (Array.isArray(out.productWhitelist)) out.productWhitelist = out.productWhitelist.filter(s => typeof s === "string" && s.trim()).slice(0, 5000);
+    if (Array.isArray(out.productBlacklist)) out.productBlacklist = out.productBlacklist.filter(s => typeof s === "string" && s.trim()).slice(0, 5000);
+    if (Array.isArray(out.categoryRules)) {
+        out.categoryRules = out.categoryRules
+            .filter(r => r && typeof r.category === "string" && r.category.trim())
+            .slice(0, 200)
+            .map(r => ({
+                category: String(r.category).trim().slice(0, 200),
+                maxDiscountPercent: typeof r.maxDiscountPercent === "number" ? Math.max(0, Math.min(90, r.maxDiscountPercent)) : undefined,
+                minProfitMarginPercent: typeof r.minProfitMarginPercent === "number" ? Math.max(0, Math.min(100, r.minProfitMarginPercent)) : undefined,
+                targetProfitMarginPercent: typeof r.targetProfitMarginPercent === "number" ? Math.max(0, Math.min(200, r.targetProfitMarginPercent)) : undefined,
+                notes: typeof r.notes === "string" ? r.notes.slice(0, 500) : undefined,
+            }));
+    }
+    return out;
+}
+
+// GET /autonomy-config
+exports.getAutonomyConfig = async (req, res) => {
+    try {
+        const userId = uid(req);
+        const cfg = await AutonomyConfig.getOrCreate(userId);
+        res.json({ success: true, config: cfg, presets: AutonomyConfig.PRESETS });
+    } catch (err) {
+        logger.error(`[AutonomyConfig] get error: ${err.message}`);
+        res.status(500).json({ success: false, message: "Konfigürasyon yüklenemedi", error: err.message });
+    }
+};
+
+// PUT /autonomy-config
+exports.updateAutonomyConfig = async (req, res) => {
+    try {
+        const userId = uid(req);
+        const patch = sanitizeAutonomyPayload(req.body || {});
+        patch.lastEditedAt = new Date();
+        patch.lastEditedBy = String(req.user?.email || req.user?.name || "user").slice(0, 100);
+        patch.presetUsed = "custom";
+
+        const cfg = await AutonomyConfig.findOneAndUpdate(
+            { userId },
+            { $set: patch },
+            { new: true, upsert: true, setDefaultsOnInsert: true, runValidators: true }
+        ).lean();
+
+        res.json({ success: true, config: cfg });
+    } catch (err) {
+        logger.error(`[AutonomyConfig] update error: ${err.message}`);
+        res.status(400).json({ success: false, message: err.message });
+    }
+};
+
+// POST /autonomy-config/preset/:name — Hazır preset uygula
+exports.applyAutonomyPreset = async (req, res) => {
+    try {
+        const userId = uid(req);
+        const presetName = req.params.name;
+        const preset = AutonomyConfig.PRESETS?.[presetName];
+        if (!preset) {
+            return res.status(400).json({ success: false, message: `Bilinmeyen preset: ${presetName}` });
+        }
+        const cfg = await AutonomyConfig.findOneAndUpdate(
+            { userId },
+            { $set: { ...preset, presetUsed: presetName, lastEditedAt: new Date(), lastEditedBy: "preset" } },
+            { new: true, upsert: true, setDefaultsOnInsert: true }
+        ).lean();
+        res.json({ success: true, config: cfg, applied: presetName });
+    } catch (err) {
+        logger.error(`[AutonomyConfig] preset error: ${err.message}`);
+        res.status(400).json({ success: false, message: err.message });
+    }
+};
+
+// GET /autonomy-config/status — Çalışma saatleri içinde miyiz, son aksiyon ne zaman, vs.
+exports.getAutonomyStatus = async (req, res) => {
+    try {
+        const userId = uid(req);
+        const cfg = await AutonomyConfig.getOrCreate(userId);
+        const withinWorkHours = AutonomyConfig.isWithinWorkHours(cfg);
+
+        const [hourlyCount, dailyCount, lastAction] = await Promise.all([
+            Recommendation.countDocuments({ userId, status: "executed", executedAt: { $gte: new Date(Date.now() - 60 * 60 * 1000) } }),
+            Recommendation.countDocuments({ userId, status: "executed", executedAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } }),
+            Recommendation.findOne({ userId, status: "executed" }).sort({ executedAt: -1 }).select("title executedAt actionPayload").lean(),
+        ]);
+
+        res.json({
+            success: true,
+            status: {
+                mode: cfg.mode,
+                presetUsed: cfg.presetUsed,
+                withinWorkHours,
+                rateLimit: { hourly: hourlyCount, limit: cfg.maxActionsPerHour, daily: dailyCount },
+                lastAction: lastAction ? { title: lastAction.title, at: lastAction.executedAt, type: lastAction.actionPayload?.actionType } : null,
+                lastEditedAt: cfg.lastEditedAt,
+                whitelistCount: cfg.productWhitelist?.length || 0,
+                blacklistCount: cfg.productBlacklist?.length || 0,
+                categoryRuleCount: cfg.categoryRules?.length || 0,
+            },
+        });
+    } catch (err) {
+        logger.error(`[AutonomyConfig] status error: ${err.message}`);
+        res.status(500).json({ success: false, message: err.message });
     }
 };

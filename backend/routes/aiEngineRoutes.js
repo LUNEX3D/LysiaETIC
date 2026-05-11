@@ -83,10 +83,20 @@ router.post("/brain/bulk-update-cost",       ctrl.bulkUpdateProductCost);
 // ── AI Background Worker Status ──
 router.get("/worker-status",                 ctrl.getWorkerStatus);
 
+// ── AI Audit & Rollback ──
+router.get("/audit",                         ctrl.getAuditList);
+router.post("/audit/:id/rollback",           ctrl.rollbackAuditAction);
+
 // ── AI Product Advisor (LysiaBrain) ──
 router.get("/advisor/products",              ctrl.getAdvisorProducts);
 router.get("/advisor/product/:barcode",      ctrl.getAdvisorProduct);
 router.get("/advisor/mistakes",              ctrl.getAdvisorMistakes);
 router.get("/advisor/platforms",             ctrl.getAdvisorPlatforms);
+
+// ── Otonom Kontrol Kuralları ──
+router.get("/autonomy-config",               ctrl.getAutonomyConfig);
+router.put("/autonomy-config",               ctrl.updateAutonomyConfig);
+router.post("/autonomy-config/preset/:name", ctrl.applyAutonomyPreset);
+router.get("/autonomy-config/status",        ctrl.getAutonomyStatus);
 
 module.exports = router;

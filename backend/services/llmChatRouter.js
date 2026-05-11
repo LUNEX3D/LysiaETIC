@@ -67,6 +67,33 @@ function getLlmKindLabel() {
     return "LLM kapalı";
 }
 
+// ── Circuit breaker — peş peşe başarısızlıkta kısa süre LLM'i atla ──
+const breaker = {
+    failureCount: 0,
+    cooldownUntil: 0,
+    threshold: 3,
+    cooldownMs: 60 * 1000, // 60s ceza süresi
+};
+
+function isBreakerOpen() {
+    return breaker.cooldownUntil > Date.now();
+}
+
+function recordSuccess() {
+    breaker.failureCount = 0;
+    breaker.cooldownUntil = 0;
+}
+
+function recordFailure() {
+    breaker.failureCount++;
+    if (breaker.failureCount >= breaker.threshold) {
+        breaker.cooldownUntil = Date.now() + breaker.cooldownMs;
+        logger.warn(`[LLM] Circuit breaker AÇILDI — ${breaker.cooldownMs / 1000}s LLM atlanacak`);
+    }
+}
+
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
 async function chatCompletionOllama(messages, cfg, options = {}) {
     const url = `${cfg.baseUrl}/api/chat`;
     const body = {
@@ -80,7 +107,7 @@ async function chatCompletionOllama(messages, cfg, options = {}) {
     };
 
     const res = await axios.post(url, body, {
-        timeout: options.timeoutMs || 120000,
+        timeout: options.timeoutMs || 45000, // 120s → 45s (kullanıcı bekletmemeli)
         validateStatus: () => true,
         headers: { "Content-Type": "application/json" },
     });
@@ -118,7 +145,7 @@ async function chatCompletionOpenAI(messages, cfg, options = {}) {
             Authorization: `Bearer ${apiKey}`,
             "Content-Type": "application/json",
         },
-        timeout: options.timeoutMs || 90000,
+        timeout: options.timeoutMs || 30000, // 90s → 30s (chat tek mesaj için)
         validateStatus: () => true,
     });
 
@@ -146,10 +173,36 @@ async function chatCompletion(messages, options = {}) {
     if (cfg.type === "none") {
         throw new Error("LLM yapılandırılmadı (LYSIA_LLM_PROVIDER=none veya anahtar/ollama yok)");
     }
-    if (cfg.type === "ollama") {
-        return chatCompletionOllama(messages, cfg, options);
+    if (isBreakerOpen()) {
+        const waitMs = breaker.cooldownUntil - Date.now();
+        throw new Error(`LLM circuit breaker açık — ${Math.ceil(waitMs / 1000)}s sonra tekrar deneyin`);
     }
-    return chatCompletionOpenAI(messages, cfg, options);
+
+    const maxAttempts = Number(options.maxAttempts) || 2;
+    let lastErr;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+            const result = cfg.type === "ollama"
+                ? await chatCompletionOllama(messages, cfg, options)
+                : await chatCompletionOpenAI(messages, cfg, options);
+            recordSuccess();
+            return result;
+        } catch (err) {
+            lastErr = err;
+            const isTimeout = String(err.code || "").includes("ECONNABORTED") || /timeout/i.test(err.message || "");
+            const isRateLimit = /rate limit|429/i.test(err.message || "");
+            // Sadece timeout veya 5xx benzeri network hatalarında retry
+            if (attempt < maxAttempts && (isTimeout || isRateLimit || /ETIMEDOUT|ECONNRESET|ENOTFOUND|ECONNREFUSED/.test(err.code || err.message))) {
+                const backoff = 400 * attempt;
+                logger.warn(`[LLM] Deneme ${attempt}/${maxAttempts} başarısız (${err.message}). ${backoff}ms sonra retry...`);
+                await sleep(backoff);
+                continue;
+            }
+            break;
+        }
+    }
+    recordFailure();
+    throw lastErr;
 }
 
 /** Geriye dönük uyumluluk */

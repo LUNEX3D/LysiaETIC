@@ -42,9 +42,31 @@ const OrderSchema = new mongoose.Schema({
     },
 
     // ── Pazaryeri fatura durumu ───────────────────────────────────────────────
-    // Pazaryerinde zaten fatura kesilmiş mi? (Trendyol "Invoiced" status vb.)
+    // Pazaryerinde zaten fatura kesilmiş mi? (Trendyol "Invoiced" status veya invoiceLink dolu)
     // Mükerrer fatura engeli için kullanılır
     marketplaceInvoiced: { type: Boolean, default: false },
+    // Pazaryeri tarafından döndürülen fatura PDF URL'si (Trendyol invoiceLink vb.)
+    // X kullanıcı sistemimize geçmeden önce panelden fatura yüklediyse buraya dolar
+    invoiceUrl: { type: String, default: "" },
+    // Fatura bilgisinin nereden geldiğini izleme — UI'da şeffaflık ve AI guardrail için
+    // marketplace_api: API'den invoiceLink döndü
+    // marketplace_status: status "Invoiced" ama link yok
+    // einvoice_match: kendi e-fatura sağlayıcımızla eşleşti
+    // manual_bulk: kullanıcı toplu işaretledi
+    // legacy_assumed: belirli tarihten önce faturalı varsayıldı
+    // lysia_generated: LysiaETIC otomatik kesti
+    invoiceSource: {
+        type: String,
+        enum: ["", "marketplace_api", "marketplace_status", "einvoice_match", "manual_bulk", "legacy_assumed", "lysia_generated"],
+        default: "",
+    },
+    // Son fatura durumu senkronizasyon zamanı (sync sırasında set edilir)
+    invoiceCheckedAt: { type: Date },
+    // Kurumsal fatura mı? (Trendyol commercial flag — B2B/mikro ihracat ayırt etmek için)
+    commercialInvoice: { type: Boolean, default: false },
+    // Mikro ihracat ETGB (gümrük) numarası (Trendyol micro=true ise)
+    etgbNo: { type: String, default: "" },
+    etgbDate: { type: Date },
 
     // ── Uluslararası sipariş bilgisi (mikro ihracat) ─────────────────────────
     // Teslimat ülkesi Türkiye dışı ise mikro ihracat faturası kesilir

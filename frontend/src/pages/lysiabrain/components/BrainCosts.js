@@ -9,7 +9,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import API from "../../../services/api";
 import { T, fmt, fmtN, fmtP, useResponsive } from "../styles";
-import { Card, CardHeader, Badge, Btn, StatCard, EmptyState, LoadingState, ErrorState, Input } from "./shared/SharedUI";
+import { Card, CardHeader, Badge, Btn, StatCard, EmptyState, LoadingState, ErrorState, Input, PageHeader } from "./shared/SharedUI";
 
 const PAGE_SIZE = 30;
 
@@ -504,16 +504,29 @@ const BrainCosts = ({ t, onError }) => {
     if (loading && products.length === 0) return <LoadingState message={t("cost.loading")} />;
     if (error && products.length === 0) return <ErrorState message={error} onRetry={loadProducts} />;
 
+    const tldrCosts = (() => {
+        if (stats.total === 0) return "Henüz analiz edilecek ürün yok.";
+        if (stats.withoutCost === 0) return `Tüm ${stats.total} ürün maliyet bilgisine sahip — AI kâr hesaplarını doğru yapabilir. 🎉`;
+        if (costCoverage < 50) return `⚠️ Ürünlerinin sadece %${costCoverage}'inde maliyet kayıtlı. AI kâr önerilerini güvenle veremiyor — eksik ${stats.withoutCost} ürünün maliyetini gir.`;
+        return `Ürünlerin %${costCoverage}'i maliyetli (${stats.withCost}/${stats.total}). Hâlâ ${stats.withoutCost} ürün eksik — bunlar için AI kâr analizi yapamaz.`;
+    })();
+    const headerStatus = stats.withoutCost === 0 ? "good" : costCoverage < 50 ? "danger" : "warning";
+
     return (
         <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-
-            {/* ═══ STATS BAR ═══ */}
-            <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
-                <StatCard icon="📦" label={t("cost.total_products")} value={fmtN(stats.total)} color={T.accent} />
-                <StatCard icon="✅" label={t("cost.with_cost")} value={fmtN(stats.withCost)} color={T.green} />
-                <StatCard icon="⚠️" label={t("cost.without_cost")} value={fmtN(stats.withoutCost)} color={stats.withoutCost > 0 ? T.red : T.green} />
-                <StatCard icon="📊" label={t("cost.coverage")} value={`%${costCoverage}`} color={coverageColor} />
-            </div>
+            <PageHeader
+                icon="💶"
+                title={t("cost.title") || "Maliyet Yönetimi"}
+                subtitle={t("cost.subtitle") || "AI'ın doğru kâr önerileri verebilmesi için ürün maliyetlerini gir"}
+                tldr={tldrCosts}
+                status={headerStatus}
+                kpis={[
+                    { label: "Toplam Ürün", value: fmtN(stats.total), color: T.accent },
+                    { label: "Maliyetli", value: fmtN(stats.withCost), color: T.green },
+                    { label: "Maliyetsiz", value: fmtN(stats.withoutCost), color: stats.withoutCost > 0 ? T.red : T.green },
+                    { label: "Kapsam", value: `%${costCoverage}`, color: coverageColor, trend: null },
+                ]}
+            />
 
             {/* ═══ COVERAGE WARNING ═══ */}
             {stats.withoutCost > 0 && (

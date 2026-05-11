@@ -1,6 +1,7 @@
 /**
- * Hata Merkezi — ürün yükleme / pazaryeri işlemlerini merkezi günlüğe yazar.
+ * Operasyon Defteri logger — ürün yükleme / pazaryeri işlemlerini merkezi günlüğe yazar.
  * API hataları axios interceptor'ında otomatik kaydedilir.
+ * Kullanıcı sayfada bu kayıtları "Operasyon Defteri" altında görür.
  */
 import { pushClientError, pushUserActivity } from "./clientErrorStore";
 

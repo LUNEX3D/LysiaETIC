@@ -34,6 +34,7 @@ const User = require("../models/User");
 const ProductMapping = require("../models/ProductMapping");
 const AIAnalysisCache = require("../models/AIAnalysisCache");
 const AICycleResult = require("../models/AICycleResult");
+const AICycleCounter = require("../models/AICycleCounter");
 const AIMemory = require("../models/AIMemory");
 const AIConversation = require("../models/AIConversation");
 const AIEngine = require("./aiEngineService");
@@ -367,12 +368,8 @@ async function runOperatorCycleForUser(userId) {
     // Kullanıcının operasyon modunu al
     const operationMode = await getUserOperationMode(userId);
 
-    // Son döngü numarasını bul
-    const lastCycle = await AICycleResult.findOne({ userId })
-        .sort({ cycleNumber: -1 })
-        .select("cycleNumber")
-        .lean();
-    const cycleNumber = (lastCycle?.cycleNumber || 0) + 1;
+    // Atomic döngü numarası (race-free)
+    const cycleNumber = await AICycleCounter.nextNumber(userId);
 
     // Döngü kaydını "running" olarak oluştur
     const cycleResult = await AICycleResult.create({
@@ -658,6 +655,13 @@ async function runOperatorCycle() {
 
         for (const userId of userIds) {
             try {
+                // Her döngü başında: bekleyen "pending" verdict'li hafızaları gerçek satış verisiyle güncelle
+                try {
+                    await AIOperator.revisitPendingMemories(userId);
+                } catch (revErr) {
+                    logger.debug(`[AI Döngü] revisitPendingMemories user=${userId}: ${revErr.message}`);
+                }
+
                 const result = await runOperatorCycleForUser(userId);
 
                 if (result.skipped) {
@@ -711,7 +715,36 @@ async function runOperatorCycle() {
 // START / STOP
 // ═════════════════════════════════════════════════════════════════════════════
 
+/**
+ * Worker'ın çalışıp çalışmayacağını env'den belirler.
+ * Production'da varsayılan AÇIK; test/dev ortamlarda kapalı tutmak için
+ *   AI_WORKER_ENABLED=false
+ * Sadece analiz cache'i çalışsın ama otonom döngü kapansın isteniyorsa
+ *   AI_OPERATOR_CYCLE_ENABLED=false
+ */
+function isWorkerEnabled() {
+    const env = process.env.NODE_ENV || "development";
+    const explicit = process.env.AI_WORKER_ENABLED;
+    if (explicit != null && explicit !== "") {
+        return explicit === "true" || explicit === "1";
+    }
+    // Default: production'da açık, test'te kapalı, dev'de açık
+    return env !== "test";
+}
+
+function isOperatorCycleEnabled() {
+    const explicit = process.env.AI_OPERATOR_CYCLE_ENABLED;
+    if (explicit != null && explicit !== "") {
+        return explicit === "true" || explicit === "1";
+    }
+    return true;
+}
+
 function startAIWorker() {
+    if (!isWorkerEnabled()) {
+        logger.info("⏸️ [AI Worker] AI_WORKER_ENABLED=false — AI Background Worker başlatılmadı");
+        return;
+    }
     if (analysisInterval || cycleInterval) {
         logger.warn("[AI Worker] Zaten çalışıyor, tekrar başlatma isteği yoksayıldı");
         return;
@@ -728,18 +761,22 @@ function startAIWorker() {
 
     analysisInterval = setInterval(runAnalysisCycle, ANALYSIS_INTERVAL_MS);
 
-    // ── Görev 2: AI Operatör Döngüsü — 60s sonra ilk çalışma, sonra her 10dk ──
-    setTimeout(() => {
-        logger.info("🤖 [AI Döngü] AI Operatör otonom döngüsü başlatıldı (her 10 dakika)");
-        runOperatorCycle();
-    }, CYCLE_INITIAL_DELAY_MS);
+    // ── Görev 2: AI Operatör Döngüsü — env-flag ile opsiyonel ──
+    if (isOperatorCycleEnabled()) {
+        setTimeout(() => {
+            logger.info("🤖 [AI Döngü] AI Operatör otonom döngüsü başlatıldı (her 10 dakika)");
+            runOperatorCycle();
+        }, CYCLE_INITIAL_DELAY_MS);
 
-    cycleInterval = setInterval(runOperatorCycle, CYCLE_INTERVAL_MS);
+        cycleInterval = setInterval(runOperatorCycle, CYCLE_INTERVAL_MS);
+    } else {
+        logger.info("⏸️ [AI Worker] AI_OPERATOR_CYCLE_ENABLED=false — sadece analiz cache çalışacak, otonom döngü kapalı");
+    }
 
     logger.info(
         "🚀 [AI Worker] AI Background Worker v2 başlatıldı:\n" +
         `   📊 Analiz Cache: her ${ANALYSIS_INTERVAL_MS / 60000} dakika (ilk çalışma ${INITIAL_DELAY_MS / 1000}s sonra)\n` +
-        `   🤖 Operatör Döngüsü: her ${CYCLE_INTERVAL_MS / 60000} dakika (ilk çalışma ${CYCLE_INITIAL_DELAY_MS / 1000}s sonra)`
+        `   🤖 Operatör Döngüsü: ${cycleInterval ? `her ${CYCLE_INTERVAL_MS / 60000} dakika` : "KAPALI"}`
     );
 }
 

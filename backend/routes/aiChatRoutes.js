@@ -26,6 +26,7 @@ router.delete("/conversation/:sessionId",  ctrl.deleteConversation);
 // ── Proactive System ────────────────────────────────────────────────────────
 router.get("/alerts",                      ctrl.getAlerts);
 router.get("/quick-stats",                 ctrl.getQuickStats);
+router.get("/llm-status",                  ctrl.getLlmStatus);
 
 // ── AI Operatör Engine ──────────────────────────────────────────────────────
 router.post("/operator/cycle",             ctrl.runOperatorCycle);

@@ -9,7 +9,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import API from "../../../services/api";
 import { T, fmt, fmtN, useResponsive } from "../styles";
-import { Card, CardHeader, StatCard, ScoreRing, HealthBar, LoadingState, ErrorState } from "./shared/SharedUI";
+import { Card, CardHeader, StatCard, ScoreRing, HealthBar, LoadingState, ErrorState, PageHeader } from "./shared/SharedUI";
 
 const EMPTY_SELF_EVAL = {
     aiPerformanceScore: 0,
@@ -46,8 +46,31 @@ const BrainSelfEval = ({ t, onError }) => {
     const scoreColor = score >= 80 ? T.green : score >= 60 ? T.accent : score >= 40 ? T.yellow : T.red;
     const gradeLetter = score >= 80 ? "A" : score >= 60 ? "B" : score >= 40 ? "C" : "D";
 
+    const tldrSelf = (() => {
+        if (data.totalRecommendations === 0) return "AI henüz öneri üretmedi — değerlendirme için zaman gerekiyor.";
+        const ar = data.acceptanceRate || 0;
+        if (score >= 80) return `AI performansı mükemmel (${score}/100, not: A). Onayladığın önerilerin oranı %${ar}, toplam üretilen kâr: ${fmt(data.totalProfitGenerated || 0)}.`;
+        return `AI performansı: ${score}/100 (not: ${gradeLetter}). Kabul oranı %${ar}, üretilen kâr: ${fmt(data.totalProfitGenerated || 0)}. Aşağıdaki ayrıntılarda iyileştirme alanları var.`;
+    })();
+    const headerStatus = score >= 80 ? "good" : score >= 60 ? "info" : score >= 40 ? "warning" : "danger";
+
     return (
         <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+            <PageHeader
+                icon="🤖"
+                title={t("selfeval.title") || "AI Öz Değerlendirme"}
+                subtitle={t("selfeval.subtitle") || "AI'nın kendi performans analizi"}
+                tldr={tldrSelf}
+                status={headerStatus}
+                kpis={[
+                    { label: "AI Performansı", value: `${score}/100`, color: scoreColor },
+                    { label: "Not", value: gradeLetter, color: scoreColor },
+                    { label: "Toplam Öneri", value: fmtN(data.totalRecommendations || 0), color: T.blue },
+                    { label: "Kabul Oranı", value: `%${data.acceptanceRate || 0}`, color: T.accent },
+                    { label: "Üretilen Kâr", value: fmt(data.totalProfitGenerated || 0), color: T.green },
+                ]}
+            />
+
             {/* Hero Score */}
             <Card glow style={{ textAlign: "center", padding: isMobile ? "2rem 1rem" : "2.5rem 2rem" }}>
                 <div style={{ marginBottom: "1.25rem" }}>

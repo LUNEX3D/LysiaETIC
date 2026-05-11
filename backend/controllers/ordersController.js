@@ -174,6 +174,69 @@ async function syncOrdersBackground(userId, marketplaceName, rawOrders) {
                     logger.info(`[OrderSync] ${marketplaceName}: ${orderNumber} görseli güncellendi`);
                 }
 
+                // ── Pazaryeri fatura durumunu mevcut siparişe yansıt ───────────
+                // X kullanıcı LysiaETIC'ten önce / sonra panel üzerinden fatura yüklediyse
+                // Trendyol bir sonraki sync'te invoiceLink + status="Invoiced" döndürüyor.
+                // Bu bilgiyi mükerrer fatura engeli için Order'a yazıyoruz.
+                try {
+                    const newStatusRaw = String(order.status || "").trim();
+                    const newStatusLower = newStatusRaw.toLowerCase();
+                    const newInvoiceLink = String(order.invoiceLink || "").trim();
+                    const newStatusSaysInvoiced = newStatusLower === "invoiced"
+                        || newStatusLower === "faturalandı"
+                        || newStatusLower === "faturalandi";
+                    const newMarketplaceInvoiced = newInvoiceLink.length > 0 || newStatusSaysInvoiced;
+                    const newSource = newInvoiceLink.length > 0
+                        ? "marketplace_api"
+                        : (newStatusSaysInvoiced ? "marketplace_status" : "");
+
+                    let invoiceChanged = false;
+                    // Sadece "bilgi geliştiren" yönde güncelle — daha önce true ise false yapmıyoruz
+                    if (newMarketplaceInvoiced && !exists.marketplaceInvoiced) {
+                        exists.marketplaceInvoiced = true;
+                        invoiceChanged = true;
+                    }
+                    if (newInvoiceLink && exists.invoiceUrl !== newInvoiceLink) {
+                        exists.invoiceUrl = newInvoiceLink;
+                        invoiceChanged = true;
+                    }
+                    if (newSource && exists.invoiceSource !== newSource) {
+                        // marketplace_api her zaman marketplace_status'tan üstün; downgrade yapma
+                        if (!(exists.invoiceSource === "marketplace_api" && newSource === "marketplace_status")) {
+                            exists.invoiceSource = newSource;
+                            invoiceChanged = true;
+                        }
+                    }
+                    if (newStatusRaw && exists.status !== newStatusRaw) {
+                        exists.status = newStatusRaw;
+                        invoiceChanged = true;
+                    }
+                    if (order.commercialInvoice && !exists.commercialInvoice) {
+                        exists.commercialInvoice = true;
+                        invoiceChanged = true;
+                    }
+                    if (order.etgbNo && exists.etgbNo !== order.etgbNo) {
+                        exists.etgbNo = order.etgbNo;
+                        invoiceChanged = true;
+                    }
+                    if (order.etgbDate) {
+                        const dt = Number.isFinite(Number(order.etgbDate))
+                            ? new Date(Number(order.etgbDate))
+                            : new Date(order.etgbDate);
+                        if (!isNaN(dt.getTime()) && (!exists.etgbDate || exists.etgbDate.getTime() !== dt.getTime())) {
+                            exists.etgbDate = dt;
+                            invoiceChanged = true;
+                        }
+                    }
+                    if (invoiceChanged) {
+                        exists.invoiceCheckedAt = new Date();
+                        await exists.save();
+                        logger.info(`[OrderSync] ${marketplaceName}: ${orderNumber} fatura bilgisi güncellendi (source=${exists.invoiceSource}, link=${exists.invoiceUrl ? "var" : "yok"})`);
+                    }
+                } catch (invSyncErr) {
+                    logger.warn(`[OrderSync] ${marketplaceName}: ${orderNumber} fatura sync hatası: ${invSyncErr.message}`);
+                }
+
                 skipped++; 
                 continue; 
             }
@@ -297,14 +360,31 @@ async function syncOrdersBackground(userId, marketplaceName, rawOrders) {
             const isCancelled = /cancel|iptal/i.test(status);
 
             // ── Pazaryeri fatura durumu kontrolü ──────────────────────────
-            // Trendyol: status "Invoiced" ise pazaryerinde fatura kesilmiş
-            // Hepsiburada/N11/ÇiçekSepeti: status'a göre kontrol
+            // Trendyol: status "Invoiced" VEYA invoiceLink dolu ise pazaryerinde fatura kesilmiş
+            // Hepsiburada/N11/ÇiçekSepeti: status'a göre kontrol (API invoiceLink döndürmüyor)
             const statusLower = status.toLowerCase();
-            const marketplaceInvoiced = statusLower === "invoiced"
+            const tyInvoiceLink = String(order.invoiceLink || "").trim();
+            const hasMarketplaceInvoiceLink = tyInvoiceLink.length > 0;
+            const statusSaysInvoiced = statusLower === "invoiced"
                 || statusLower === "faturalandı"
-                || statusLower === "faturalandi"
+                || statusLower === "faturalandi";
+            const marketplaceInvoiced = hasMarketplaceInvoiceLink
+                || statusSaysInvoiced
                 || (order.invoiceNumber && order.invoiceNumber !== "")
                 || false;
+            // Hangi kaynaktan fatura tespit ettik? (Operasyon Defteri ve UI rozeti için)
+            // hasMarketplaceInvoiceLink → marketplace_api (en güçlü sinyal, PDF URL var)
+            // statusSaysInvoiced       → marketplace_status (status sinyali, link yok)
+            const marketplaceInvoiceSource = hasMarketplaceInvoiceLink
+                ? "marketplace_api"
+                : (statusSaysInvoiced ? "marketplace_status" : "");
+            // ETGB tarihi parse (Trendyol unix ms döndürüyor)
+            const etgbDateParsed = order.etgbDate
+                ? (Number.isFinite(Number(order.etgbDate))
+                    ? new Date(Number(order.etgbDate))
+                    : new Date(order.etgbDate))
+                : null;
+            const etgbDateValid = etgbDateParsed && !isNaN(etgbDateParsed.getTime()) ? etgbDateParsed : null;
 
             // ── Teslimat ülkesi (mikro ihracat tespiti) ──────────────────
             const rawShipAddrForCountry = order.shipmentAddress || order.shippingAddress || order.address || {};
@@ -373,6 +453,12 @@ async function syncOrdersBackground(userId, marketplaceName, rawOrders) {
                 isReturned: isReturned,
                 isCancelled: isCancelled,
                 marketplaceInvoiced: marketplaceInvoiced,
+                invoiceUrl: tyInvoiceLink || "",
+                invoiceSource: marketplaceInvoiceSource,
+                invoiceCheckedAt: new Date(),
+                commercialInvoice: !!order.commercialInvoice,
+                etgbNo: order.etgbNo || "",
+                etgbDate: etgbDateValid || undefined,
                 shippingCountry: shippingCountry,
             });
 
@@ -682,7 +768,7 @@ exports.getDbOrders = async (req, res) => {
 
         const [orders, total, userProducts, userMappings] = await Promise.all([
             Order.find(filter)
-                .select("trackingNumber marketplaceName customerName totalPrice orderDate status invoiceId invoiceNumber invoiceStatus items isReturned isCancelled")
+                .select("trackingNumber marketplaceName customerName totalPrice orderDate status invoiceId invoiceNumber invoiceStatus items isReturned isCancelled marketplaceInvoiced invoiceUrl invoiceSource invoiceCheckedAt commercialInvoice etgbNo etgbDate")
                 .populate("invoiceId", "invoiceNumber uuid status faturaURL issueDate")
                 .sort({ orderDate: -1 })
                 .skip(skip)
@@ -706,11 +792,33 @@ exports.getDbOrders = async (req, res) => {
         // Ancak bu fonksiyon req/res döner, biz burada sadece DB'dekileri döndürüyoruz.
 
         // Fatura istatistikleri
-        // ✅ FIX: "error" ve "pending" durumundaki siparişleri "faturasız" olarak sayma
-        const [totalOrders, invoicedCount, uninvoicedCount, errorCount] = await Promise.all([
+        // ✅ FIX 1: "error" ve "pending" durumundaki siparişleri "faturasız" olarak sayma
+        // ✅ FIX 2: Pazaryerinde zaten faturalı (Trendyol invoiceLink / status="Invoiced")
+        //         siparişler de "faturalı" sayılır — X kullanıcı senaryosu için kritik
+        const [totalOrders, invoicedCount, marketplaceOnlyInvoicedCount, uninvoicedCount, errorCount] = await Promise.all([
             Order.countDocuments({ user: userId }),
-            Order.countDocuments({ user: userId, invoiceId: { $exists: true } }),
-            Order.countDocuments({ user: userId, invoiceId: { $exists: false }, invoiceStatus: { $nin: ["created", "pending", "error"] }, isCancelled: false, isReturned: false, totalPrice: { $gt: 0 } }),
+            Order.countDocuments({
+                user: userId,
+                $or: [
+                    { invoiceId: { $exists: true } },
+                    { marketplaceInvoiced: true },
+                ],
+            }),
+            // Sadece pazaryeri tarafı faturalı (LysiaETIC bizden bir fatura kesmedi)
+            Order.countDocuments({
+                user: userId,
+                invoiceId: { $exists: false },
+                marketplaceInvoiced: true,
+            }),
+            Order.countDocuments({
+                user: userId,
+                invoiceId: { $exists: false },
+                marketplaceInvoiced: { $ne: true },
+                invoiceStatus: { $nin: ["created", "pending", "error"] },
+                isCancelled: false,
+                isReturned: false,
+                totalPrice: { $gt: 0 },
+            }),
             Order.countDocuments({ user: userId, invoiceStatus: "error" }),
         ]);
 
@@ -774,6 +882,14 @@ exports.getDbOrders = async (req, res) => {
                 status: o.status || "",
                 invoiceStatus: o.invoiceStatus || (invoiceInfo ? "created" : ""),
                 invoice: invoiceInfo,
+                // Pazaryerinden gelen fatura bilgileri (X kullanıcı senaryosu için kritik)
+                marketplaceInvoiced: !!o.marketplaceInvoiced,
+                invoiceUrl: o.invoiceUrl || "",
+                invoiceSource: o.invoiceSource || "",
+                invoiceCheckedAt: o.invoiceCheckedAt || null,
+                commercialInvoice: !!o.commercialInvoice,
+                etgbNo: o.etgbNo || "",
+                etgbDate: o.etgbDate || null,
                 items: enrichedItems,
                 productCount: enrichedItems.length,
                 firstProduct: enrichedItems[0]?.productName || "",

@@ -9,7 +9,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import API from "../../../services/api";
 import { T, fmt, useResponsive } from "../styles";
-import { Card, CardHeader, Badge, Btn, EmptyState, LoadingState, ErrorState } from "./shared/SharedUI";
+import { Card, CardHeader, Badge, Btn, EmptyState, LoadingState, ErrorState, PageHeader } from "./shared/SharedUI";
 
 const LEVEL_CFG = {
     critical: { color: T.red, bg: T.redDim, icon: "🚨", label: "Kritik" },
@@ -42,36 +42,41 @@ const BrainAlerts = ({ t, onError }) => {
     const alerts = data.alerts || [];
     const filtered = filter === "all" ? alerts : alerts.filter(a => (a.severity || a.level) === filter);
 
+    const critCount = alerts.filter(a => (a.severity || a.level) === "critical").length;
+    const highCount = alerts.filter(a => (a.severity || a.level) === "high").length;
+    const tldrAlerts = (() => {
+        if (alerts.length === 0) return "Şu an proaktif uyarı yok — sistem stabil.";
+        if (critCount > 0) return `${critCount} KRİTİK uyarı var, hemen incele. Toplam ${alerts.length} bildirim.`;
+        return `${alerts.length} aktif uyarı. ${highCount} yüksek öncelikli — kalanı bilgilendirici.`;
+    })();
+    const headerStatus = critCount > 0 ? "danger" : highCount > 0 ? "warning" : "info";
+
+    const alertFilters = [
+        { id: "all", label: "Tümü", count: alerts.length, active: filter === "all", onClick: () => setFilter("all"), color: T.accent },
+        ...Object.entries(LEVEL_CFG).map(([key, cfg]) => ({
+            id: key,
+            label: `${cfg.icon} ${cfg.label}`,
+            count: alerts.filter(a => (a.severity || a.level) === key).length,
+            active: filter === key, onClick: () => setFilter(key), color: cfg.color,
+        })).filter(f => f.count > 0),
+    ];
+
     return (
         <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-            <Card glow>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.75rem" }}>
-                    <CardHeader icon="🔔" title={t("alerts.title")} subtitle={t("alerts.subtitle")} color={T.yellow} badge={alerts.length > 0 ? `${alerts.length}` : undefined} />
-                    <Btn color={T.accent} variant="ghost" size="sm" onClick={load}>↻ {t("header.refresh")}</Btn>
-                </div>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: "0.5rem" }}>
-                    <button onClick={() => setFilter("all")} style={{
-                        padding: "5px 12px", borderRadius: T.rFull, cursor: "pointer",
-                        background: filter === "all" ? T.accentDim : "transparent",
-                        border: `1px solid ${filter === "all" ? T.accent + "35" : T.border}`,
-                        color: filter === "all" ? T.accent : T.textDim,
-                        fontSize: "0.73rem", fontWeight: 600, fontFamily: "inherit",
-                    }}>{t("alerts.all")} ({alerts.length})</button>
-                    {Object.entries(LEVEL_CFG).map(([key, cfg]) => {
-                        const count = alerts.filter(a => (a.severity || a.level) === key).length;
-                        if (count === 0) return null;
-                        return (
-                            <button key={key} onClick={() => setFilter(key)} style={{
-                                padding: "5px 12px", borderRadius: T.rFull, cursor: "pointer",
-                                background: filter === key ? `${cfg.color}15` : "transparent",
-                                border: `1px solid ${filter === key ? cfg.color + "35" : T.border}`,
-                                color: filter === key ? cfg.color : T.textDim,
-                                fontSize: "0.73rem", fontWeight: 600, fontFamily: "inherit",
-                            }}>{cfg.icon} {cfg.label} ({count})</button>
-                        );
-                    })}
-                </div>
-            </Card>
+            <PageHeader
+                icon="🔔"
+                title={t("alerts.title") || "Proaktif Uyarılar"}
+                subtitle={t("alerts.subtitle") || "AI'nın seninle paylaşmak istediği bildirimler"}
+                tldr={tldrAlerts}
+                status={headerStatus}
+                kpis={[
+                    { label: "Toplam", value: alerts.length, color: T.accent },
+                    { label: "Kritik", value: critCount, color: T.red },
+                    { label: "Yüksek", value: highCount, color: T.yellow },
+                ]}
+                filters={alertFilters}
+                actions={<Btn color={T.accent} variant="ghost" size="sm" onClick={load}>↻ {t("header.refresh") || "Yenile"}</Btn>}
+            />
 
             {filtered.length === 0 ? (
                 <Card>

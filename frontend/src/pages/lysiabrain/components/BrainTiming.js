@@ -9,7 +9,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import API from "../../../services/api";
 import { T, fmt, fmtN, useResponsive } from "../styles";
-import { Card, CardHeader, Badge, StatCard, LoadingState, ErrorState } from "./shared/SharedUI";
+import { Card, CardHeader, Badge, StatCard, LoadingState, ErrorState, PageHeader } from "./shared/SharedUI";
 
 const BrainTiming = ({ t, onError }) => {
     const { isMobile } = useResponsive();
@@ -33,15 +33,30 @@ const BrainTiming = ({ t, onError }) => {
     const maxHourly = Math.max(...(data.hourlyOrders || []), 1);
     const maxDaily = Math.max(...(data.dailyOrders || []).map(d => d.orders), 1);
 
+    const tldrTiming = (() => {
+        if (!data.bestHour && !data.bestDay) return "Henüz zamanlama analizi için yeterli sipariş geçmişi yok.";
+        const parts = [];
+        if (data.bestHour) parts.push(`En iyi saat: ${data.bestHour}`);
+        if (data.bestDay) parts.push(`en iyi gün: ${data.bestDay}`);
+        if (data.worstHour) parts.push(`en sakin: ${data.worstHour}`);
+        return parts.join(" · ") + ". Kampanyalarını ve indirimleri bu saatlerde yap, AI'ın 'çalışma saatleri' ayarını da buna göre düzenle.";
+    })();
+
     return (
         <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-            {/* KPI Strip */}
-            <div style={{ display: "flex", gap: isMobile ? "0.5rem" : "0.85rem", flexWrap: "wrap" }}>
-                <StatCard icon="⏰" label={t("timing.best_hour")} value={data.bestHour || "--"} color={T.green} />
-                <StatCard icon="📅" label={t("timing.best_day")} value={data.bestDay || "--"} color={T.blue} />
-                <StatCard icon="🌙" label={t("timing.worst_hour")} value={data.worstHour || "--"} color={T.red} />
-                {!isMobile && <StatCard icon="📉" label={t("timing.worst_day")} value={data.worstDay || "--"} color={T.yellow} />}
-            </div>
+            <PageHeader
+                icon="⏰"
+                title={t("timing.title") || "Satış Zamanlama Analizi"}
+                subtitle={t("timing.subtitle") || "Saat ve günlere göre sipariş yoğunluğu"}
+                tldr={tldrTiming}
+                status="info"
+                kpis={[
+                    { label: "En İyi Saat", value: data.bestHour || "—", color: T.green },
+                    { label: "En İyi Gün", value: data.bestDay || "—", color: T.blue },
+                    { label: "En Sakin Saat", value: data.worstHour || "—", color: T.red },
+                    { label: "En Sakin Gün", value: data.worstDay || "—", color: T.yellow },
+                ]}
+            />
 
             {/* Hourly Heatmap */}
             <Card>

@@ -17,7 +17,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from "react";
 import API from "../../services/api";
 import { useApp } from "../../context/AppContext";
-import { T, useResponsive } from "./styles";
+import { T, useResponsive, ensureLysiaGlobalStyles } from "./styles";
 import { getBrainT } from "./i18n";
 import { ScoreRing, LoadingState, ErrorState, Modal, ModalHeader } from "./components/shared/SharedUI";
 
@@ -47,13 +47,14 @@ const BrainCauses = lazy(() => import("./components/BrainCauses"));
 const BrainDecisionHistory = lazy(() => import("./components/BrainDecisionHistory"));
 const BrainSelfEval = lazy(() => import("./components/BrainSelfEval"));
 const BrainChat = lazy(() => import("./components/BrainChat"));
+const BrainAutonomy = lazy(() => import("./components/BrainAutonomy"));
 
 const STORAGE_TAB = "lysiabrain_tab";
 const STORAGE_STRATEGY = "lysiabrain_strategy";
 
 /* ═══ VALID TAB IDS — Statik liste, render dışında tanımlı ═══ */
 const VALID_TAB_IDS = new Set([
-    "dashboard", "advisor", "recommendations", "operator",
+    "dashboard", "advisor", "recommendations", "operator", "autonomy",
     "mistakes", "profit_map", "segmentation", "causes", "health", "platforms",
     "costs", "losses", "roi", "risks",
     "predictions", "timing", "opportunities", "retro",
@@ -67,57 +68,71 @@ const LysiaBrain = () => {
     tRef.current = t;
     const { isMobile, isTablet } = useResponsive();
 
-    /* ═══ TAB GROUPS — Memoized, sadece language değişince yeniden oluşur ═══ */
-    const TAB_GROUPS = useMemo(() => [
+    /* ═══ TAB ORGANIZATION — Sade: 5 sabit ana sekme + "Gelişmiş" tek dropdown ═══ */
+    // PINNED_TABS: her zaman üst navda görünür (en sık kullanılanlar)
+    const PINNED_TABS = useMemo(() => [
+        { id: "dashboard", icon: "◈", label: t("tab.dashboard") },
+        { id: "recommendations", icon: "◆", label: t("tab.recommendations") },
+        { id: "advisor", icon: "◇", label: t("tab.advisor") },
+        { id: "operator", icon: "⬡", label: t("tab.operator") },
+        { id: "autonomy", icon: "🎛️", label: "Kurallar" },
+        { id: "decisions", icon: "📜", label: t("tab.decisions") },
+    ], [t]);
+
+    // ADVANCED_GROUPS: "Gelişmiş Analizler ▾" dropdown'unun içinde grup başlıkları
+    const ADVANCED_GROUPS = useMemo(() => [
         {
-            id: "main", label: t("tabgroup.main"), icon: "⚡",
+            id: "performance", label: "Performans & Sağlık", icon: "📊",
             tabs: [
-                { id: "dashboard", icon: "◈", label: t("tab.dashboard") },
-                { id: "recommendations", icon: "◆", label: t("tab.recommendations") },
-                { id: "operator", icon: "⬡", label: t("tab.operator") },
-                { id: "alerts", icon: "🔔", label: t("tab.alerts") },
-            ],
-        },
-        {
-            id: "intelligence", label: t("tabgroup.analysis"), icon: "🧠",
-            tabs: [
-                { id: "advisor", icon: "◇", label: t("tab.advisor") },
-                { id: "mistakes", icon: "△", label: t("tab.mistakes") },
                 { id: "health", icon: "🏥", label: t("tab.health") },
                 { id: "profit_map", icon: "📊", label: t("tab.profit_map") },
                 { id: "losses", icon: "💸", label: t("tab.losses") },
-                { id: "segmentation", icon: "◎", label: t("tab.segmentation") },
-                { id: "causes", icon: "🔍", label: t("tab.causes") },
-            ],
-        },
-        {
-            id: "strategy", label: t("tabgroup.predict"), icon: "🎯",
-            tabs: [
-                { id: "goals", icon: "🥅", label: t("tab.goals") },
-                { id: "simulation", icon: "🧪", label: t("tab.simulation") },
-                { id: "predictions", icon: "🔮", label: t("tab.predictions") },
-                { id: "timing", icon: "⏰", label: t("tab.timing") },
-            ],
-        },
-        {
-            id: "ecosystem", label: t("tabgroup.ai"), icon: "🌐",
-            tabs: [
-                { id: "platforms", icon: "▣", label: t("tab.platforms") },
-                { id: "opportunities", icon: "🎯", label: t("tab.opportunities") },
-                { id: "risks", icon: "⚠️", label: t("tab.risks") },
-                { id: "learning", icon: "📚", label: t("tab.learning") },
+                { id: "roi", icon: "💰", label: t("tab.roi") },
                 { id: "costs", icon: "💶", label: t("tab.costs") },
             ],
         },
         {
-            id: "history", label: t("tabgroup.history"), icon: "⏳",
+            id: "intelligence", label: "Analiz & Risk", icon: "🧠",
             tabs: [
-                { id: "decisions", icon: "📜", label: t("tab.decisions") },
+                { id: "mistakes", icon: "△", label: t("tab.mistakes") },
+                { id: "segmentation", icon: "◎", label: t("tab.segmentation") },
+                { id: "causes", icon: "🔍", label: t("tab.causes") },
+                { id: "risks", icon: "⚠️", label: t("tab.risks") },
+                { id: "alerts", icon: "🔔", label: t("tab.alerts") },
+            ],
+        },
+        {
+            id: "strategy", label: "Strateji & Tahmin", icon: "🎯",
+            tabs: [
+                { id: "goals", icon: "🥅", label: t("tab.goals") },
+                { id: "simulation", icon: "🧪", label: t("tab.simulation") },
+                { id: "predictions", icon: "🔮", label: t("tab.predictions") },
+                { id: "opportunities", icon: "✨", label: t("tab.opportunities") },
+                { id: "timing", icon: "⏰", label: t("tab.timing") },
+            ],
+        },
+        {
+            id: "ecosystem", label: "Ekosistem & AI", icon: "🌐",
+            tabs: [
+                { id: "platforms", icon: "▣", label: t("tab.platforms") },
+                { id: "learning", icon: "📚", label: t("tab.learning") },
                 { id: "retro", icon: "🔄", label: t("tab.retro") },
                 { id: "self_eval", icon: "🤖", label: t("tab.self_eval") },
             ],
         },
     ], [t]);
+
+    // Tüm tab'lar düz liste (label lookup için)
+    const ALL_TABS = useMemo(() => [
+        ...PINNED_TABS,
+        ...ADVANCED_GROUPS.flatMap(g => g.tabs),
+    ], [PINNED_TABS, ADVANCED_GROUPS]);
+
+    // Geriye uyumluluk: bazı eski referanslar TAB_GROUPS bekliyor olabilir
+    const TAB_GROUPS = useMemo(() => [
+        { id: "pinned", label: "Hızlı Erişim", icon: "⚡", tabs: PINNED_TABS },
+        ...ADVANCED_GROUPS,
+    ], [PINNED_TABS, ADVANCED_GROUPS]);
 
     const [openGroup, setOpenGroup] = useState(null);
     const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -160,8 +175,12 @@ const LysiaBrain = () => {
     const [explainModal, setExplainModal] = useState(null);
     const [showStrategyPicker, setShowStrategyPicker] = useState(false);
     const [showMobileMenu, setShowMobileMenu] = useState(false);
+    const [autonomyStatus, setAutonomyStatus] = useState(null);
 
     const strategyRef = useRef(null);
+
+    /* ═══ GLOBAL ANIMATION CSS — bir kez DOM'a inject edilir ═══ */
+    useEffect(() => { ensureLysiaGlobalStyles(); }, []);
 
     /* ═══ PERSIST STATE ═══ */
     useEffect(() => { try { localStorage.setItem(STORAGE_TAB, activeTab); } catch { /* */ } }, [activeTab]);
@@ -197,6 +216,19 @@ const LysiaBrain = () => {
         window.addEventListener("api:rate-limited", handler);
         return () => window.removeEventListener("api:rate-limited", handler);
     }, []);
+
+    /* ═══ Autonomy Status — global mod rozeti için ═══ */
+    const loadAutonomyStatus = useCallback(async () => {
+        try {
+            const res = await API.get("/ai-engine/autonomy-config/status");
+            if (res.data?.success !== false) setAutonomyStatus(res.data);
+        } catch { /* silent */ }
+    }, []);
+    useEffect(() => {
+        loadAutonomyStatus();
+        const interval = setInterval(loadAutonomyStatus, 60_000);
+        return () => clearInterval(interval);
+    }, [loadAutonomyStatus]);
 
     /* ═══ DATA FETCHING ═══ */
     // ✅ FIX: selectedStrategy'yi ref ile takip et — loadBrain'in dependency'si olmasın
@@ -236,11 +268,18 @@ const LysiaBrain = () => {
     useEffect(() => {
         loadBrain();
         loadOperatorStatus();
-        // ✅ v2: Polling 3 dakikaya çıkarıldı + sayfa görünmezken atla
-        const id = setInterval(() => {
+        // ✅ v2: Brain polling 3 dakika + sayfa görünmezken atla
+        const brainId = setInterval(() => {
             if (visibleRef.current) loadBrain(false);
         }, 180000);
-        return () => clearInterval(id);
+        // ✅ FIX (3.13): Operator status polling — mode/last cycle 60s'de bir yenilensin
+        const opId = setInterval(() => {
+            if (visibleRef.current) loadOperatorStatus();
+        }, 60000);
+        return () => {
+            clearInterval(brainId);
+            clearInterval(opId);
+        };
     }, [loadBrain, loadOperatorStatus]);
 
     // ✅ FIX: Strateji değişince sadece 1 kez yeniden yükle (polling'i bozmadan)
@@ -329,7 +368,29 @@ const LysiaBrain = () => {
         catch { setError(t("error.diagnosis_fail")); } finally { setDiagnosisLoading(false); }
     };
     const handleStrategyChange = (strategy) => { setSelectedStrategy(strategy); setShowStrategyPicker(false); };
-    const handleTabChange = (tab) => { setActiveTab(tab); setShowMobileMenu(false); };
+    const handleTabChange = useCallback((tab, filter) => {
+        if (!VALID_TAB_IDS.has(tab)) return;
+        setActiveTab(tab);
+        setShowMobileMenu(false);
+        try {
+            if (filter && typeof filter === "object" && Object.keys(filter).length > 0) {
+                sessionStorage.setItem(`lysiabrain.tabFilter.${tab}`, JSON.stringify({ filter, ts: Date.now() }));
+            } else {
+                sessionStorage.removeItem(`lysiabrain.tabFilter.${tab}`);
+            }
+        } catch { /* sessionStorage erişim hatası */ }
+    }, []);
+
+    // Alt bileşenlerden CustomEvent ile tab değişimi tetiklenebilsin
+    useEffect(() => {
+        const handler = (e) => {
+            const detail = e.detail;
+            if (typeof detail === "string") handleTabChange(detail);
+            else if (detail?.tab) handleTabChange(detail.tab, detail.filter);
+        };
+        window.addEventListener("lysia-goto-tab", handler);
+        return () => window.removeEventListener("lysia-goto-tab", handler);
+    }, [handleTabChange]);
 
     /* ═══ TAB CONTENT ═══ */
     const renderTab = () => {
@@ -341,6 +402,7 @@ const LysiaBrain = () => {
             case "mistakes": return <Suspense fallback={lazyFallback(t("loading.mistakes"))}><BrainMistakes t={t} onError={setError} /></Suspense>;
             case "platforms": return <Suspense fallback={lazyFallback(t("loading.platforms"))}><BrainPlatforms t={t} onError={setError} /></Suspense>;
             case "operator": return <BrainOperator operatorStatus={operatorStatus} cycleResult={cycleResult} cycleLoading={cycleLoading} onChangeMode={handleChangeMode} onRunCycle={handleRunCycle} onRefresh={loadOperatorStatus} t={t} onError={setError} />;
+            case "autonomy": return <Suspense fallback={lazyFallback("Otonom kurallar yükleniyor...")}><BrainAutonomy t={t} onError={setError} /></Suspense>;
             case "simulation": return <Suspense fallback={lazyFallback(t("loading.simulation"))}><BrainSimulation t={t} onError={setError} /></Suspense>;
             case "goals": return <Suspense fallback={lazyFallback(t("loading.goals"))}><BrainGoals t={t} onError={setError} /></Suspense>;
             case "costs": return <Suspense fallback={lazyFallback(t("loading.costs"))}><BrainCosts t={t} onError={setError} /></Suspense>;
@@ -376,122 +438,220 @@ const LysiaBrain = () => {
     /* ═══ LOADING SCREEN ═══ */
     if (loading) {
         return (
-            <div style={{ width: "100%", height: "100vh", background: T.bg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "1.5rem", fontFamily: T.font }}>
-                <div style={{
-                    width: 88, height: 88, borderRadius: "50%",
-                    background: T.accentDim, border: `2px solid ${T.accent}40`,
+            <div className="lysia-ambient-bg" style={{ width: "100%", height: "100vh", background: T.bg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: "1.5rem", fontFamily: T.font }}>
+                <div className="lysia-pulse-soft" style={{
+                    width: 96, height: 96, borderRadius: "50%",
+                    background: `radial-gradient(circle, ${T.accent}35 0%, ${T.accentDim} 70%)`,
+                    border: `2px solid ${T.accent}50`,
                     display: "flex", alignItems: "center", justifyContent: "center",
-                    fontSize: "2.2rem", boxShadow: T.shadowGlow,
-                    animation: "v9pulse 2.5s ease-in-out infinite",
+                    fontSize: "2.4rem", boxShadow: T.shadowGlow,
                 }}>🧠</div>
-                <div style={{ textAlign: "center" }}>
-                    <div style={{ fontSize: "1.4rem", fontWeight: 800, letterSpacing: "-0.03em", background: T.gradientText, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>LysiaBrain</div>
-                    <p style={{ color: T.textDim, fontSize: "0.85rem", marginTop: "0.5rem", letterSpacing: "0.05em" }}>{t("loading.init")}</p>
+                <div className="lysia-anim-fade" style={{ textAlign: "center" }}>
+                    <div className="lysia-text-gradient" style={{ fontSize: T.fz.h2, fontWeight: 800, letterSpacing: "-0.03em" }}>LysiaBrain</div>
+                    <p style={{ color: T.textSec, fontSize: T.fz.sm, marginTop: "0.5rem", letterSpacing: "0.05em" }}>{t("loading.init")}</p>
                 </div>
-                <style>{`@keyframes v9pulse { 0%,100% { transform: scale(1); box-shadow: 0 0 20px rgba(0,212,170,0.15); } 50% { transform: scale(1.06); box-shadow: 0 0 40px rgba(0,212,170,0.3); } }`}</style>
             </div>
         );
     }
 
     return (
-        <div style={{ display: "flex", width: "100%", height: "100vh", fontFamily: T.font, background: T.bg, color: T.text, overflow: "hidden" }}>
+        <div className="lysia-ambient-bg lysia-scroll" style={{ display: "flex", width: "100%", height: "100vh", fontFamily: T.font, background: T.bg, color: T.text, overflow: "hidden" }}>
 
             {/* ═══ MAIN CONTENT AREA ═══ */}
             <div style={{ flex: 1, display: "flex", flexDirection: "column", height: "100vh", overflow: "hidden", position: "relative" }}>
-                
+
                 {/* ═══ TOP BAR — NEW INTEGRATED NAV ═══ */}
                 <header style={{
                     height: 80, minHeight: 80,
-                    background: "rgba(8, 11, 22, 0.8)", backdropFilter: "blur(20px)",
+                    background: "rgba(10, 14, 28, 0.85)", backdropFilter: "blur(22px)", WebkitBackdropFilter: "blur(22px)",
                     borderBottom: `1px solid ${T.border}`,
                     display: "flex", alignItems: "center", justifyContent: "space-between",
-                    padding: "0 1.5rem", zIndex: 100
+                    padding: "0 1.5rem", zIndex: 100,
+                    boxShadow: "0 2px 12px rgba(0,0,0,0.25)",
                 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "2rem" }}>
                         {/* Logo */}
-                        <div onClick={() => handleTabChange("dashboard")} style={{ display: "flex", alignItems: "center", gap: "0.85rem", cursor: "pointer" }}>
-                            <div style={{
-                                width: 42, height: 42, borderRadius: T.rSm,
-                                background: T.accentDim, border: `1px solid ${T.accent}40`,
+                        <div onClick={() => handleTabChange("dashboard")} className="lysia-hover-scale lysia-focus" tabIndex={0} role="button" aria-label="Anasayfa"
+                            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); handleTabChange("dashboard"); } }}
+                            style={{ display: "flex", alignItems: "center", gap: "0.85rem", cursor: "pointer", borderRadius: T.rSm, padding: "4px 6px" }}>
+                            <div className="lysia-pulse-soft" style={{
+                                width: 44, height: 44, borderRadius: T.rSm,
+                                background: `linear-gradient(135deg, ${T.accent}30, ${T.accentAlt}20)`, border: `1px solid ${T.accent}50`,
                                 display: "flex", alignItems: "center", justifyContent: "center",
-                                fontSize: "1.5rem", boxShadow: T.shadowGlow, flexShrink: 0
+                                fontSize: "1.5rem", boxShadow: T.shadowGlow, flexShrink: 0,
                             }}>🧠</div>
                             {!isMobile && (
                                 <div>
-                                    <div style={{ fontSize: "1.25rem", fontWeight: 900, background: T.gradientText, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", letterSpacing: "-0.03em" }}>LysiaBrain</div>
-                                    <div style={{ fontSize: "0.6rem", color: T.textDim, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.1em" }}>Neural Command</div>
+                                    <div className="lysia-text-gradient" style={{ fontSize: "1.3rem", fontWeight: 900, letterSpacing: "-0.03em" }}>LysiaBrain</div>
+                                    <div style={{ fontSize: T.fz.xs, color: T.textMuted, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.1em" }}>Neural Command</div>
                                 </div>
                             )}
                         </div>
 
-                        {/* Top Navigation */}
+                        {/* Top Navigation — Sade: 5 sabit tab + "Gelişmiş" dropdown */}
                         {!isTablet && (
-                            <nav style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                                {TAB_GROUPS.map(group => (
-                                    <div key={group.id} style={{ position: "relative" }}>
-                                        <button 
-                                            onClick={() => setOpenGroup(openGroup === group.id ? null : group.id)}
+                            <nav style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
+                                {PINNED_TABS.map(tab => {
+                                    const active = activeTab === tab.id;
+                                    return (
+                                        <button
+                                            key={tab.id}
+                                            onClick={() => handleTabChange(tab.id)}
+                                            className={`lysia-btn lysia-focus lysia-tab-indicator${active ? " active" : ""}`}
                                             style={{
-                                                padding: "0.5rem 0.85rem",
-                                                background: group.tabs.some(tabItem => tabItem.id === activeTab) ? T.accentDim : "transparent",
-                                                border: "none",
+                                                padding: "0.55rem 0.95rem",
+                                                background: active ? T.accentDim : "transparent",
+                                                border: active ? `1px solid ${T.accent}40` : "1px solid transparent",
                                                 borderRadius: T.rSm,
-                                                color: group.tabs.some(tabItem => tabItem.id === activeTab) ? T.accent : T.textSec,
-                                                fontSize: "0.85rem",
-                                                fontWeight: 700,
+                                                color: active ? T.accent : T.textSec,
+                                                fontSize: T.fz.sm,
+                                                fontWeight: active ? 800 : 600,
                                                 cursor: "pointer",
                                                 display: "flex",
                                                 alignItems: "center",
                                                 gap: "0.5rem",
-                                                transition: "all 0.2s"
                                             }}
                                         >
-                                            <span>{group.icon}</span>
-                                            <span>{group.label}</span>
-                                            <span style={{ fontSize: "0.6rem", opacity: 0.5 }}>{openGroup === group.id ? "▲" : "▼"}</span>
+                                            <span>{tab.icon}</span>
+                                            <span>{tab.label}</span>
                                         </button>
+                                    );
+                                })}
 
-                                        {openGroup === group.id && (
-                                            <div ref={menuRef} style={{
-                                                position: "absolute", top: "100%", left: 0, marginTop: "0.5rem",
-                                                width: 220, background: T.bgCardSolid, border: `1px solid ${T.border}`,
-                                                borderRadius: T.rSm, boxShadow: T.shadowLg, padding: "0.5rem",
-                                                zIndex: 1000, backdropFilter: "blur(20px)"
-                                            }}>
-                                                {group.tabs.map(tab => (
-                                                    <button 
-                                                        key={tab.id} 
-                                                        onClick={() => { handleTabChange(tab.id); setOpenGroup(null); }}
-                                                        style={{
-                                                            width: "100%", textAlign: "left", padding: "0.65rem 0.75rem",
-                                                            background: activeTab === tab.id ? T.accentDim : "transparent",
-                                                            border: "none", borderRadius: T.rSm,
-                                                            color: activeTab === tab.id ? T.accent : T.text,
-                                                            fontSize: "0.8rem", fontWeight: activeTab === tab.id ? 800 : 500,
-                                                            cursor: "pointer", display: "flex", alignItems: "center", gap: "0.75rem"
-                                                        }}
-                                                    >
-                                                        <span style={{ opacity: 0.7 }}>{tab.icon}</span>
-                                                        <span>{tab.label}</span>
-                                                    </button>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </div>
-                                ))}
+                                {/* Gelişmiş Analizler — tek dropdown */}
+                                <div style={{ position: "relative" }}>
+                                    {(() => {
+                                        const inAdvanced = ADVANCED_GROUPS.some(g => g.tabs.some(tt => tt.id === activeTab));
+                                        return (
+                                            <button
+                                                onClick={() => setOpenGroup(openGroup === "advanced" ? null : "advanced")}
+                                                className="lysia-btn lysia-focus"
+                                                aria-expanded={openGroup === "advanced"}
+                                                aria-haspopup="menu"
+                                                style={{
+                                                    padding: "0.55rem 0.95rem",
+                                                    background: inAdvanced ? T.accentDim : "transparent",
+                                                    border: inAdvanced ? `1px solid ${T.accent}40` : "1px solid transparent",
+                                                    borderRadius: T.rSm,
+                                                    color: inAdvanced ? T.accent : T.textSec,
+                                                    fontSize: T.fz.sm,
+                                                    fontWeight: inAdvanced ? 800 : 600,
+                                                    cursor: "pointer",
+                                                    display: "flex",
+                                                    alignItems: "center",
+                                                    gap: "0.5rem",
+                                                }}
+                                            >
+                                                <span>🧠</span>
+                                                <span>Gelişmiş</span>
+                                                <span style={{ fontSize: T.fz.xs, opacity: 0.7, transition: T.transition.transform, transform: openGroup === "advanced" ? "rotate(180deg)" : "rotate(0)" }}>▾</span>
+                                            </button>
+                                        );
+                                    })()}
+
+                                    {openGroup === "advanced" && (
+                                        <div ref={menuRef} className="lysia-anim-slide-down lysia-scroll" style={{
+                                            position: "absolute", top: "100%", right: 0, marginTop: "0.6rem",
+                                            width: 560, maxWidth: "90vw", maxHeight: "70vh", overflowY: "auto",
+                                            background: T.bgCardSolid, border: `1px solid ${T.border}`,
+                                            borderRadius: T.r, boxShadow: T.shadowLg, padding: "1.1rem",
+                                            zIndex: 1000, backdropFilter: "blur(22px)", WebkitBackdropFilter: "blur(22px)",
+                                            display: "grid",
+                                            gridTemplateColumns: "1fr 1fr",
+                                            gap: "0.85rem",
+                                        }}>
+                                            {ADVANCED_GROUPS.map(group => (
+                                                <div key={group.id}>
+                                                    <div style={{
+                                                        fontSize: "0.6rem",
+                                                        fontWeight: 900,
+                                                        textTransform: "uppercase",
+                                                        letterSpacing: "0.08em",
+                                                        color: T.textMuted,
+                                                        marginBottom: 6,
+                                                        display: "flex",
+                                                        alignItems: "center",
+                                                        gap: 5,
+                                                    }}>
+                                                        <span>{group.icon}</span>
+                                                        <span>{group.label}</span>
+                                                    </div>
+                                                    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                                                        {group.tabs.map(tab => (
+                                                            <button
+                                                                key={tab.id}
+                                                                onClick={() => { handleTabChange(tab.id); setOpenGroup(null); }}
+                                                                className="lysia-btn lysia-focus"
+                                                                style={{
+                                                                    width: "100%", textAlign: "left", padding: "0.55rem 0.7rem",
+                                                                    background: activeTab === tab.id ? T.accentDim : "transparent",
+                                                                    border: "none", borderRadius: T.rSm,
+                                                                    color: activeTab === tab.id ? T.accent : T.text,
+                                                                    fontSize: T.fz.sm,
+                                                                    fontWeight: activeTab === tab.id ? 800 : 500,
+                                                                    cursor: "pointer",
+                                                                    display: "flex",
+                                                                    alignItems: "center",
+                                                                    gap: "0.6rem",
+                                                                }}
+                                                            >
+                                                                <span style={{ opacity: 0.85, width: 18, display: "inline-block", fontSize: T.fz.base }}>{tab.icon}</span>
+                                                                <span>{tab.label}</span>
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
                             </nav>
                         )}
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
                         {(isMobile || isTablet) && <button type="button" aria-expanded={showMobileMenu} aria-label={t("nav.menu_open")} onClick={() => setShowMobileMenu(!showMobileMenu)} style={{ background: "none", border: "none", color: T.text, fontSize: "1.5rem" }}>☰</button>}
-                        <h2 style={{ fontSize: "1.25rem", fontWeight: 800, margin: 0 }}>{TAB_GROUPS.flatMap(g => g.tabs).find(tabItem => tabItem.id === activeTab)?.label}</h2>
+                        <h2 style={{ fontSize: "1.25rem", fontWeight: 800, margin: 0 }}>{ALL_TABS.find(tabItem => tabItem.id === activeTab)?.label}</h2>
                     </div>
 
-                    <div style={{ display: "flex", alignItems: "center", gap: "1.5rem" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", background: T.bgGlass, padding: "0.5rem 1rem", borderRadius: T.rFull, border: `1px solid ${T.border}` }}>
-                            <div style={{ width: 8, height: 8, borderRadius: "50%", background: T.green, boxShadow: `0 0 8px ${T.green}` }} />
-                            <span style={{ fontSize: "0.75rem", fontWeight: 800, color: T.textSec }}>AI CORE ACTIVE</span>
-                        </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: isMobile ? "0.5rem" : "1rem" }}>
+                        {/* ═══ GLOBAL MOD BADGE — Otonom kurallar durumu her sayfada görünür ═══ */}
+                        {autonomyStatus && (() => {
+                            const mode = autonomyStatus.mode || "manual";
+                            const within = autonomyStatus.withinWorkHours !== false;
+                            const modeMeta = mode === "autonomous"
+                                ? { color: T.green, icon: "🤖", label: "Tam Otonom" }
+                                : mode === "supervised"
+                                    ? { color: T.accent, icon: "👁️", label: "Denetimli" }
+                                    : { color: T.textSec, icon: "✋", label: "Manuel" };
+                            return (
+                                <button
+                                    onClick={() => handleTabChange("autonomy")}
+                                    title={`AI çalışma modu: ${modeMeta.label}${!within ? " · ⏰ Çalışma saatleri dışı (AI pasif)" : ""} · Kurallara git`}
+                                    className="lysia-btn lysia-focus lysia-anim-fade"
+                                    style={{
+                                        display: "flex", alignItems: "center", gap: "0.45rem",
+                                        background: `${modeMeta.color}15`, border: `1px solid ${modeMeta.color}40`,
+                                        padding: isMobile ? "0.35rem 0.6rem" : "0.5rem 0.85rem",
+                                        borderRadius: T.rFull, cursor: "pointer",
+                                    }}
+                                >
+                                    <span aria-hidden="true">{modeMeta.icon}</span>
+                                    {!isMobile && (
+                                        <span style={{ fontSize: T.fz.xs, fontWeight: 800, color: modeMeta.color, letterSpacing: "0.04em" }}>{modeMeta.label}</span>
+                                    )}
+                                    {!within && (
+                                        <span style={{ fontSize: T.fz.xs, color: T.yellow }} title="Çalışma saatleri dışı">⏰</span>
+                                    )}
+                                </button>
+                            );
+                        })()}
+
+                        {!isMobile && (
+                            <div className="lysia-anim-fade" style={{ display: "flex", alignItems: "center", gap: "0.6rem", background: T.bgGlass, padding: "0.5rem 1rem", borderRadius: T.rFull, border: `1px solid ${T.border}` }}>
+                                <div className="lysia-status-blink" style={{ width: 8, height: 8, borderRadius: "50%", background: T.green, color: T.green }} />
+                                <span style={{ fontSize: T.fz.xs, fontWeight: 800, color: T.textSec, letterSpacing: "0.05em" }}>AI CORE ACTIVE</span>
+                            </div>
+                        )}
 
                         <div style={{ position: "relative" }} ref={strategyRef}>
                             <button onClick={() => setShowStrategyPicker(!showStrategyPicker)} style={{
@@ -512,7 +672,10 @@ const LysiaBrain = () => {
                             )}
                         </div>
 
-                        <button onClick={() => loadBrain(true)} style={{ width: 40, height: 40, borderRadius: T.rSm, background: T.bgGlass, border: `1px solid ${T.border}`, color: T.textDim, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>↻</button>
+                        <button onClick={() => loadBrain(true)} className="lysia-btn lysia-focus" aria-label="Yenile" title="Yenile"
+                            style={{ width: 40, height: 40, borderRadius: T.rSm, background: T.bgGlass, border: `1px solid ${T.border}`, color: T.textSec, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: T.fz.md }}>
+                            <span style={{ animation: refreshing ? "lysia-spin 1s linear infinite" : "none", display: "inline-block" }}>↻</span>
+                        </button>
                     </div>
                 </header>
 
@@ -530,8 +693,8 @@ const LysiaBrain = () => {
                     </div>
                 )}
 
-                {/* ═══ SCROLLABLE CONTENT ═══ */}
-                <main style={{
+                {/* ═══ SCROLLABLE CONTENT — tab değişimlerinde fade-in animasyon ═══ */}
+                <main className="lysia-scroll" style={{
                     flex: 1,
                     overflowY: "auto",
                     width: "100%",
@@ -546,7 +709,11 @@ const LysiaBrain = () => {
                             onRetry={() => { setError(null); loadBrain(true); }}
                             retryLabel={t("header.refresh")}
                         />
-                    ) : renderTab()}
+                    ) : (
+                        <div key={activeTab} className="lysia-anim-fade">
+                            {renderTab()}
+                        </div>
+                    )}
                 </main>
 
                 {/* ═══ DIAGNOSIS MODAL ═══ */}

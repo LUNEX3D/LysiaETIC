@@ -9,7 +9,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import API from "../../../services/api";
 import { T, fmt, fmtN, fmtP, useResponsive } from "../styles";
-import { Card, CardHeader, Badge, Btn, EmptyState, LoadingState, ErrorState } from "./shared/SharedUI";
+import { Card, CardHeader, Badge, Btn, EmptyState, LoadingState, ErrorState, PageHeader } from "./shared/SharedUI";
 
 const ZONE_CFG = {
     high_profit: { color: T.green, label: "Yksek Kâr", icon: "🟢" },
@@ -61,18 +61,37 @@ const BrainProfitMap = ({ t, onError }) => {
     const maxMpProfit = Math.max(...(data.byMarketplace || []).map(m => Math.abs(m.totalProfit)), 1);
     // maxProdProfit removed  unused
 
+    // Toplam kâr/zarar özetlerini hesapla
+    const totalProfit = (data.byCategory || []).reduce((s, c) => s + (c.totalProfit || 0), 0);
+    const lossCount = (data.byCategory || []).filter(c => c.totalProfit < 0).length;
+    const bestCat = (data.byCategory || []).slice().sort((a, b) => (b.totalProfit || 0) - (a.totalProfit || 0))[0];
+    const worstCat = (data.byCategory || []).slice().sort((a, b) => (a.totalProfit || 0) - (b.totalProfit || 0))[0];
+    const tldrProfit = (() => {
+        if (!data.byCategory || data.byCategory.length === 0) return "Henüz kâr/zarar haritası oluşturmak için yeterli veri yok.";
+        const parts = [];
+        if (bestCat?.totalProfit > 0) parts.push(`En kârlı kategori: ${bestCat.category} (${fmt(bestCat.totalProfit)})`);
+        if (worstCat?.totalProfit < 0) parts.push(`Zararda: ${worstCat.category} (${fmt(worstCat.totalProfit)})`);
+        if (lossCount > 0) parts.push(`${lossCount} kategori zararda — odak buraya`);
+        return parts.length ? parts.join(" · ") : `Toplam kâr ${fmt(totalProfit)} — tüm kategoriler pozitif.`;
+    })();
+    const headerStatus = lossCount > 0 ? "warning" : totalProfit > 0 ? "good" : "info";
+
     return (
         <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-            <Card glow>
-                <CardHeader icon="🗺️" title={t("pm.title")} subtitle={t("pm.subtitle")} color={T.green} />
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                    {views.map(v => (
-                        <Btn key={v.id} color={view === v.id ? T.accent : T.textDim} variant={view === v.id ? "default" : "ghost"} size="sm" onClick={() => setView(v.id)}>
-                            {v.icon} {v.label}
-                        </Btn>
-                    ))}
-                </div>
-            </Card>
+            <PageHeader
+                icon="🗺️"
+                title={t("pm.title") || "Kâr Haritası"}
+                subtitle={t("pm.subtitle") || "Kategori, pazaryeri ve ürün bazında nerede kazanıyoruz, nerede kaybediyoruz?"}
+                tldr={tldrProfit}
+                status={headerStatus}
+                kpis={[
+                    { label: "Toplam Kâr", value: fmt(totalProfit), color: totalProfit >= 0 ? T.green : T.red },
+                    { label: "Kategori", value: (data.byCategory || []).length, color: T.blue },
+                    { label: "Pazaryeri", value: (data.byMarketplace || []).length, color: T.purple },
+                    { label: "Zararda Kategori", value: lossCount, color: lossCount > 0 ? T.red : T.green },
+                ]}
+                filters={views.map(v => ({ id: v.id, label: `${v.icon} ${v.label}`, active: view === v.id, onClick: () => setView(v.id), color: T.accent }))}
+            />
 
             {view === "category" && (
                 <Card>

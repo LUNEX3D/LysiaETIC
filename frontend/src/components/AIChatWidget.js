@@ -1,21 +1,22 @@
 /**
- * 
- * AI CHAT WIDGET  Pazaryönetim AI Operatör
- * 
+ * ═══════════════════════════════════════════════════════════════════════════════
+ * AI CHAT WIDGET — LysiaETIC AI Operatör
+ * ═══════════════════════════════════════════════════════════════════════════════
  *
- * Floating chat widget  her sayfada görünür.
- * Kullanıcı AI ile doal dilde konuabilir.
+ * Floating chat widget — her sayfada görünür.
+ * Kullanıcı AI ile doğal dilde konuşabilir.
  *
- * zellikler:
- *  - Floating button (sa alt köe)
+ * Özellikler:
+ *  - Floating button (sağ alt köşe)
  *  - Açılır chat penceresi
- *  - Mesaj geçmii
+ *  - Mesaj geçmişi
  *  - Quick reply butonları
  *  - Proaktif uyarı badge'i
  *  - Typing indicator
  *  - Session management
+ *  - LLM provider durumu (Ollama/OpenAI/kural modu) gösterimi
  *
- * 
+ * ═══════════════════════════════════════════════════════════════════════════════
  */
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
@@ -34,7 +35,7 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import API from "../services/api";
 
-//  Helpers 
+// ── Helpers ─────────────────────────────────────────────────────────────────
 const generateSessionId = () => `session_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 
 const formatTime = (ts) => {
@@ -46,14 +47,14 @@ const formatTime = (ts) => {
 // Simple markdown-like bold: **text**  <strong>text</strong>
 const renderContent = (text) => {
     if (!text) return "";
-    // SEC: nce HTML entity escape  XSS koruması
+    // GÜVENLİK: önce HTML entity escape — XSS koruması
     const escaped = text
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#039;");
-    // Sonra güvenli markdown dönüümleri
+    // Sonra güvenli markdown dönüşümleri
     return escaped
         .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
         .replace(/\n/g, "<br/>");
@@ -111,7 +112,7 @@ const AgentTraceBlock = ({ trace, agentModel, agentNote }) => {
     );
 };
 
-//  Main Component 
+// ── Main Component ──────────────────────────────────────────────────────────
 const AIChatWidget = () => {
     const [isOpen, setIsOpen] = useState(false);
     const [messages, setMessages] = useState([]);
@@ -122,6 +123,7 @@ const AIChatWidget = () => {
     });
     const [alertCount, setAlertCount] = useState(0);
     const [quickStats, setQuickStats] = useState(null);
+    const [llmStatus, setLlmStatus] = useState(null);
     const messagesEndRef = useRef(null);
     const inputRef = useRef(null);
 
@@ -156,7 +158,7 @@ const AIChatWidget = () => {
         }
     }, []);
 
-    //  Load quick stats 
+    // ── Load quick stats ──
     const loadQuickStats = useCallback(async () => {
         try {
             const res = await API.get("/ai-chat/quick-stats");
@@ -168,18 +170,37 @@ const AIChatWidget = () => {
         }
     }, []);
 
-    //  Init 
+    // ── Load LLM provider status (Ollama/OpenAI/kural modu) ──
+    const loadLlmStatus = useCallback(async () => {
+        try {
+            const res = await API.get("/ai-chat/llm-status");
+            if (res.data?.success) {
+                setLlmStatus({
+                    enabled: !!res.data.enabled,
+                    type: res.data.type,
+                    model: res.data.model,
+                    label: res.data.label,
+                    mode: res.data.mode,
+                });
+            }
+        } catch {
+            setLlmStatus({ enabled: false, type: "none", label: "LLM bilinmiyor", mode: "rules" });
+        }
+    }, []);
+
+    // ── Init ──
     useEffect(() => {
         localStorage.setItem("ai_chat_session", sessionId);
         loadAlerts();
         loadQuickStats();
+        loadLlmStatus();
         // Refresh alerts every 5 minutes
         const interval = setInterval(() => {
             loadAlerts();
             loadQuickStats();
         }, 5 * 60 * 1000);
         return () => clearInterval(interval);
-    }, [sessionId, loadAlerts, loadQuickStats]);
+    }, [sessionId, loadAlerts, loadQuickStats, loadLlmStatus]);
 
     //  Load history when opened 
     useEffect(() => {
@@ -366,11 +387,29 @@ const AIChatWidget = () => {
                                         <Typography variant="subtitle1" fontWeight={700} lineHeight={1.2}>
                                             Lysia Agent
                                         </Typography>
-                                        <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                                        <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, flexWrap: "wrap" }}>
                                             <DotIcon sx={{ fontSize: 8, color: getHealthColor() }} />
                                             <Typography variant="caption" sx={{ opacity: 0.9 }}>
                                                 {quickStats ? `Sağlık skoru: ${quickStats.healthScore}/100` : "Bağlanıyor..."}
                                             </Typography>
+                                            {llmStatus && (
+                                                <Tooltip title={llmStatus.mode === "rules"
+                                                    ? "LLM kapalı — yalnızca kural tabanlı yanıt"
+                                                    : `LLM: ${llmStatus.label}`}>
+                                                    <Chip
+                                                        size="small"
+                                                        label={llmStatus.mode === "rules" ? "Kural modu" : llmStatus.type === "ollama" ? "Ollama" : "OpenAI"}
+                                                        sx={{
+                                                            ml: 0.5,
+                                                            height: 16,
+                                                            fontSize: "0.6rem",
+                                                            bgcolor: llmStatus.mode === "rules" ? "rgba(255,255,255,0.18)" : "rgba(76,175,80,0.55)",
+                                                            color: "#fff",
+                                                            "& .MuiChip-label": { px: 0.6 },
+                                                        }}
+                                                    />
+                                                </Tooltip>
+                                            )}
                                         </Box>
                                     </Box>
                                 </Box>

@@ -329,7 +329,14 @@ function analyzeProducts(products, orders90) {
         const avgDailySales = sales.totalSold / 30;
         const velocity = sales.totalSold > 0 ? sales.totalSold / activeDays : 0;
         const daysOfStock = avgDailySales > 0 ? Math.floor(p.stock / avgDailySales) : (p.stock > 0 ? 999 : 0);
-        const daysSinceLastSale = sales.lastSoldAt ? daysAgo(sales.lastSoldAt) : 999;
+        // ⚠️ daysSinceLastSale: hiç satılmamış ürün için null (eski 999 sentinel'i kullanıcıyı "999 gündür satılmıyor" gibi yalancı sayılarla şaşırtıyordu)
+        const daysSinceLastSale = sales.lastSoldAt ? daysAgo(sales.lastSoldAt) : null;
+        // hasSalesHistory: gerçekten satış kaydı var mı (yeni eklenmiş ürünleri "ölü ürün" sayma)
+        const hasSalesHistory = !!sales.lastSoldAt || (p._totalSales || 0) > 0;
+        // productAge: ürün ne zamandan beri sistemde (createdAt'ten)
+        const productCreatedAt = p.createdAt || p._createdAt || null;
+        const productAgeDays = productCreatedAt ? daysAgo(productCreatedAt) : null;
+        const isNewProduct = !hasSalesHistory && (productAgeDays === null || productAgeDays < 21);
         const returnRate = sales.totalSold > 0 ? (sales.returnCount / sales.totalSold) * 100 : 0;
 
         // Product health score (0-100)
@@ -398,9 +405,13 @@ function analyzeProducts(products, orders90) {
             isOutOfStock: p._isOutOfStock || false,
             daysOfStock,
             daysSinceLastSale,
+            hasSalesHistory,
+            productAgeDays,
+            isNewProduct,
             returnRate: round2(returnRate),
             healthScore,
             lastSoldAt: sales.lastSoldAt,
+            createdAt: productCreatedAt,
             dailySales: sales.dailySales,
         };
     });
@@ -511,7 +522,13 @@ function generateRecommendations(analyzedProducts, data, strategyMode) {
                     actionType: "apply_discount",
                     targetId: p.barcode,
                     targetName: p.name,
-                    params: { discountPercent: discountPct, reason: "slow_moving_overstock", daysOfStock: p.daysOfStock },
+                    params: {
+                        discountPercent: discountPct,
+                        oldPrice: round2(p.price),
+                        newPrice: round2(p.price * (1 - discountPct / 100)),
+                        reason: "slow_moving_overstock",
+                        daysOfStock: p.daysOfStock,
+                    },
                 },
                 relatedProducts: [p.barcode],
                 strategyMode,
@@ -605,7 +622,13 @@ function generateRecommendations(analyzedProducts, data, strategyMode) {
                     actionType: "apply_discount",
                     targetId: p.barcode,
                     targetName: p.name,
-                    params: { daysSinceLastSale: p.daysSinceLastSale, stock: p.stock, discountPercent: discountPct },
+                    params: {
+                        discountPercent: discountPct,
+                        oldPrice: round2(p.price),
+                        newPrice: round2(p.price * (1 - discountPct / 100)),
+                        daysSinceLastSale: p.daysSinceLastSale,
+                        stock: p.stock,
+                    },
                 },
                 relatedProducts: [p.barcode],
                 strategyMode,
@@ -1352,58 +1375,127 @@ async function executeRecommendation(recId, userId) {
     const { actionType, targetId, params } = rec.actionPayload || {};
     let result = { success: false, message: "Bilinmeyen aksiyon tipi" };
 
+    // ── AUDIT: önceki durumu yakala (rollback için) ──
+    const AIActionAudit = require("../models/AIActionAudit");
+    const execStartMs = Date.now();
+    let beforeSnapshot = null;
+    if (targetId && ["update_price", "apply_discount", "mark_inactive"].includes(actionType)) {
+        try {
+            const pmBefore = await ProductMapping.findOne(
+                { userId, "masterProduct.barcode": targetId },
+                { "masterProduct.price": 1, "masterProduct.listPrice": 1, "masterProduct.stock": 1, "masterProduct.name": 1 },
+            ).lean();
+            if (pmBefore?.masterProduct) {
+                beforeSnapshot = {
+                    price: Number(pmBefore.masterProduct.price) || 0,
+                    listPrice: Number(pmBefore.masterProduct.listPrice) || 0,
+                    stock: Number(pmBefore.masterProduct.stock) || 0,
+                    productName: pmBefore.masterProduct.name,
+                };
+            }
+        } catch (e) {
+            logger.debug(`[AI Audit] beforeSnapshot failed: ${e.message}`);
+        }
+    }
+
     try {
         switch (actionType) {
             case "update_price": {
+                if (!targetId) {
+                    result = { success: false, message: "Hedef ürün (barcode) belirtilmedi" };
+                    break;
+                }
+                const newPrice = Number(params?.newPrice);
+                if (!Number.isFinite(newPrice) || newPrice <= 0) {
+                    result = { success: false, message: "Yeni fiyat geçersiz" };
+                    break;
+                }
                 // Try ProductMapping first, then legacy Product
                 const pm = await ProductMapping.findOne({ userId, "masterProduct.barcode": targetId });
                 if (pm) {
-                    pm.masterProduct.price = params.newPrice;
+                    pm.masterProduct.price = newPrice;
                     pm.updatedAt = new Date();
-                    pm.addSyncLog("price_update", "AI Engine", params.oldPrice, params.newPrice, "success", `AI fiyat güncelleme: ${params.oldPrice}₺ → ${params.newPrice}₺`);
+                    pm.addSyncLog("price_update", "AI Engine", params.oldPrice, newPrice, "success", `AI fiyat güncelleme: ${params.oldPrice}₺ → ${newPrice}₺`);
                     await pm.save();
                     let mpSuffix = "";
+                    let mpDetails = [];
                     try {
                         const mpSync = await pushProductMappingPriceToMarketplaces(userId, pm);
                         if (mpSync.ok > 0) mpSuffix = ` Pazaryeri: ${mpSync.ok} platform güncellendi.`;
-                        if (mpSync.fail > 0) mpSuffix += ` (${mpSync.fail} platform hata — entegrasyon/barcode kontrol edin)`;
+                        if (mpSync.fail > 0) {
+                            mpSuffix += ` (${mpSync.fail} platform hata — entegrasyon/barcode kontrol edin)`;
+                            mpDetails = (mpSync.syncResults || []).filter(r => r.syncStatus === "error").map(r => ({
+                                marketplace: r.marketplaceName || r.marketplace || "?",
+                                error: r.errorMessage || r.message || "Bilinmeyen hata",
+                            }));
+                        }
                     } catch (syncErr) {
                         logger.warn(`[AI ACTION] Pazaryeri fiyat push: ${syncErr.message}`);
                         mpSuffix = ` (Yerel kayıt OK; pazaryeri bildirimi: ${syncErr.message})`;
                     }
                     result = {
                         success: true,
-                        message: `${pm.masterProduct.name} fiyatı ${params.oldPrice}₺ → ${params.newPrice}₺ güncellendi.${mpSuffix}`,
-                        data: { oldPrice: params.oldPrice, newPrice: params.newPrice },
+                        message: `${pm.masterProduct.name} fiyatı ${params.oldPrice}₺ → ${newPrice}₺ güncellendi.${mpSuffix}`,
+                        data: { oldPrice: params.oldPrice, newPrice, marketplaceErrors: mpDetails },
                     };
                 } else {
                     const product = await Product.findOne({ userId, barcode: targetId });
                     if (!product) { result = { success: false, message: "Ürün bulunamadı" }; break; }
-                    product.salePrice = params.newPrice;
-                    product.price = params.newPrice;
+                    product.salePrice = newPrice;
+                    product.price = newPrice;
                     await product.save();
-                    result = { success: true, message: `${product.name} fiyatı güncellendi`, data: { oldPrice: params.oldPrice, newPrice: params.newPrice } };
+                    result = { success: true, message: `${product.name} fiyatı güncellendi`, data: { oldPrice: params.oldPrice, newPrice } };
                 }
                 break;
             }
             case "apply_discount": {
+                if (!targetId) {
+                    result = { success: false, message: "Hedef ürün (barcode) belirtilmedi" };
+                    break;
+                }
+                // discountPercent güvenli clamp: 0-30 (executor seviyesi son savunma)
+                const rawPct = Number(params?.discountPercent);
+                const safePct = Number.isFinite(rawPct) ? Math.min(30, Math.max(0, rawPct)) : 10;
+                if (safePct <= 0) {
+                    result = { success: false, message: "İndirim oranı 0 — aksiyon atlandı" };
+                    break;
+                }
                 const pm = await ProductMapping.findOne({ userId, "masterProduct.barcode": targetId });
                 if (pm) {
-                    const discountedPrice = Math.round(pm.masterProduct.price * (1 - (params.discountPercent || 10) / 100));
-                    const oldPrice = pm.masterProduct.price;
+                    const oldPrice = Number(pm.masterProduct?.price) || 0;
+                    if (oldPrice <= 0) {
+                        result = { success: false, message: "Mevcut fiyat geçersiz — manuel kontrol gerekli" };
+                        break;
+                    }
+                    const discountedPrice = Math.round(oldPrice * (1 - safePct / 100));
+                    if (discountedPrice <= 0) {
+                        result = { success: false, message: "Hesaplanan fiyat geçersiz, aksiyon atlandı" };
+                        break;
+                    }
                     pm.masterProduct.price = discountedPrice;
                     pm.updatedAt = new Date();
-                    pm.addSyncLog("price_update", "AI Engine", oldPrice, discountedPrice, "success", `AI indirim: %${params.discountPercent}`);
+                    pm.addSyncLog("price_update", "AI Engine", oldPrice, discountedPrice, "success", `AI indirim: %${safePct}`);
                     await pm.save();
                     let mpSuffix = "";
+                    let mpDetails = [];
                     try {
                         const mpSync = await pushProductMappingPriceToMarketplaces(userId, pm);
                         if (mpSync.ok > 0) mpSuffix = ` Pazaryeri: ${mpSync.ok} platform güncellendi.`;
-                        if (mpSync.fail > 0) mpSuffix += ` (${mpSync.fail} platform hata)`;
+                        if (mpSync.fail > 0) {
+                            mpSuffix += ` (${mpSync.fail} platform hata)`;
+                            mpDetails = (mpSync.syncResults || []).filter(r => r.syncStatus === "error").map(r => ({
+                                marketplace: r.marketplaceName || r.marketplace || "?",
+                                error: r.errorMessage || r.message || "Bilinmeyen hata",
+                            }));
+                        }
                     } catch (syncErr) {
                         mpSuffix = ` (Pazaryeri: ${syncErr.message})`;
                     }
-                    result = { success: true, message: `${pm.masterProduct.name} fiyatı %${params.discountPercent} indirimle ${discountedPrice}₺ yapıldı.${mpSuffix}` };
+                    result = {
+                        success: true,
+                        message: `${pm.masterProduct.name} fiyatı %${safePct} indirimle ${discountedPrice}₺ yapıldı.${mpSuffix}`,
+                        data: { oldPrice, newPrice: discountedPrice, discountPercent: safePct, marketplaceErrors: mpDetails },
+                    };
                 } else {
                     result = { success: false, message: "Ürün bulunamadı" };
                 }
@@ -1444,8 +1536,9 @@ async function executeRecommendation(recId, userId) {
                 logger.info(`🤖 [AI ACTION] Stok siparişi talebi: ${rec.actionPayload.targetName} — ${params.restockQuantity} adet`);
                 result = {
                     success: true,
-                    message: `${rec.actionPayload.targetName} için ${params.restockQuantity} adet stok siparişi notu oluşturuldu. ⚠️ Tedarikçiye manuel sipariş vermeniz gerekiyor.`,
-                    data: { ...params, requiresManualAction: true },
+                    noted: true,
+                    message: `📝 NOT: ${rec.actionPayload.targetName} için ${params.restockQuantity} adet stok siparişi notu kaydedildi. ⚠️ Otomatik sipariş yok — tedarikçiye manuel sipariş vermeniz gerekiyor.`,
+                    data: { ...params, requiresManualAction: true, kind: "note" },
                 };
                 break;
             }
@@ -1454,8 +1547,9 @@ async function executeRecommendation(recId, userId) {
                 logger.info(`🤖 [AI ACTION] Strateji inceleme notu: ${rec.actionPayload.targetName}`);
                 result = {
                     success: true,
-                    message: `${rec.actionPayload.targetName} strateji inceleme notu kaydedildi. Büyüme: %${params.growthPct?.toFixed(1) || "N/A"}. ⚠️ Manuel strateji değerlendirmesi önerilir.`,
-                    data: { ...params, requiresManualAction: true },
+                    noted: true,
+                    message: `📝 NOT: ${rec.actionPayload.targetName} strateji inceleme notu kaydedildi. ⚠️ Otomatik aksiyon yok — manuel strateji değerlendirmesi önerilir.`,
+                    data: { ...params, requiresManualAction: true, kind: "note" },
                 };
                 break;
             }
@@ -1464,8 +1558,9 @@ async function executeRecommendation(recId, userId) {
                 logger.info(`🤖 [AI ACTION] İnceleme notu: ${rec.actionPayload.targetName} — düşüş %${params.dropPct?.toFixed(1) || "N/A"}`);
                 result = {
                     success: true,
-                    message: `${rec.actionPayload.targetName} inceleme notu kaydedildi. Satış düşüşü: %${params.dropPct?.toFixed(1) || "N/A"}. ⚠️ Fiyat, stok ve rekabet durumunu manuel kontrol edin.`,
-                    data: { ...params, requiresManualAction: true },
+                    noted: true,
+                    message: `📝 NOT: ${rec.actionPayload.targetName} inceleme notu kaydedildi. Satış düşüşü: %${params.dropPct?.toFixed(1) || "N/A"}. ⚠️ Otomatik aksiyon yok — fiyat, stok ve rekabet durumunu manuel kontrol edin.`,
+                    data: { ...params, requiresManualAction: true, kind: "note" },
                 };
                 break;
             }
@@ -1477,13 +1572,66 @@ async function executeRecommendation(recId, userId) {
     }
 
     // Update recommendation
-    rec.status = result.success ? "executed" : "failed";
+    if (result.success && result.noted) {
+        rec.status = "noted"; // gerçek değişiklik yok, sadece kullanıcıya hatırlatma
+    } else {
+        rec.status = result.success ? "executed" : "failed";
+    }
     rec.executedAt = new Date();
     rec.executionResult = result;
     if (!rec.executionKey) rec.executionKey = `${rec._id}_${Date.now()}`;
     await rec.save();
 
-    logger.info(`🤖 [AI ACTION] ${result.success ? "✅" : "❌"} ${actionType} — ${result.message}`);
+    // ── AUDIT: append-only kayıt (rollback için kritik) ──
+    if (!result.noted) {
+        try {
+            const afterPrice = result.data?.newPrice ?? null;
+            const trigger = String(rec.executionKey || "").startsWith("op_") ? "autonomous_cycle" : "manual_approve";
+            await AIActionAudit.create({
+                userId,
+                recommendationId: rec._id,
+                executionKey: rec.executionKey,
+                actionType: ["update_price", "apply_discount", "mark_inactive", "create_stock_order", "review_strategy", "investigate"].includes(actionType) ? actionType : "other",
+                trigger,
+                operationMode: rec.actionPayload?.operationMode || undefined,
+                target: {
+                    barcode: targetId,
+                    productName: beforeSnapshot?.productName || rec.actionPayload?.targetName,
+                },
+                before: beforeSnapshot ? {
+                    price: beforeSnapshot.price,
+                    listPrice: beforeSnapshot.listPrice,
+                    stock: beforeSnapshot.stock,
+                } : undefined,
+                after: afterPrice != null ? {
+                    price: afterPrice,
+                    listPrice: result.data?.listPrice ?? null,
+                } : undefined,
+                decision: {
+                    title: rec.title,
+                    description: rec.description,
+                    confidence: rec.confidenceScore,
+                    impact: rec.impact?.profitChange || 0,
+                    params,
+                },
+                marketplaceSync: {
+                    attempted: (result.data?.marketplaceErrors?.length || 0) + (result.data?.marketplaceOk || 0),
+                    succeeded: result.data?.marketplaceOk || 0,
+                    failed: result.data?.marketplaceErrors?.length || 0,
+                    errors: result.data?.marketplaceErrors || [],
+                },
+                result: {
+                    success: !!result.success,
+                    message: result.message,
+                    durationMs: Date.now() - execStartMs,
+                },
+            });
+        } catch (auditErr) {
+            logger.warn(`[AI Audit] kayıt başarısız: ${auditErr.message}`);
+        }
+    }
+
+    logger.info(`🤖 [AI ACTION] ${result.success ? (result.noted ? "📝" : "✅") : "❌"} ${actionType} — ${result.message}`);
     return { recommendation: rec, result };
 }
 
@@ -1598,6 +1746,87 @@ async function syncOrdersToDB(userId, marketplaceName, orders) {
 // EXPORTS
 // ═════════════════════════════════════════════════════════════════════════════
 
+// ═════════════════════════════════════════════════════════════════════════════
+// 17. ROLLBACK — AI aksiyonunu geri al
+// ═════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Bir AI aksiyonunu geri alır. Sadece price değiştirme ve indirim aksiyonları geri alınabilir;
+ * "noted" (gerçek değişiklik yok) ve "create_stock_order" gibi aksiyonlar geri alınamaz.
+ *
+ * @param {string} auditId AIActionAudit kaydının _id'si
+ * @param {string} userId
+ * @param {string} reason Kullanıcının rollback nedeni (opsiyonel)
+ */
+async function rollbackAction(auditId, userId, reason = "Manuel geri alma") {
+    const AIActionAudit = require("../models/AIActionAudit");
+
+    const audit = await AIActionAudit.findOne({ _id: auditId, userId });
+    if (!audit) throw new Error("Audit kaydı bulunamadı");
+    if (audit.rollback?.rolledBack) throw new Error("Bu aksiyon zaten geri alındı");
+    if (!audit.result?.success) throw new Error("Başarısız bir aksiyon geri alınamaz");
+    if (!["update_price", "apply_discount", "mark_inactive"].includes(audit.actionType)) {
+        throw new Error(`${audit.actionType} aksiyonu geri alınamaz (yalnızca fiyat değişimleri geri alınabilir)`);
+    }
+    if (!audit.before || !Number.isFinite(audit.before.price) || audit.before.price <= 0) {
+        throw new Error("Önceki fiyat bilgisi geçersiz — manuel düzeltme gerekli");
+    }
+    if (!audit.target?.barcode) {
+        throw new Error("Hedef ürün barcode'u bulunamadı");
+    }
+
+    const pm = await ProductMapping.findOne({ userId, "masterProduct.barcode": audit.target.barcode });
+    if (!pm) throw new Error("Ürün bulunamadı (silinmiş olabilir)");
+
+    const currentPrice = Number(pm.masterProduct?.price) || 0;
+    const previousPrice = Number(audit.before.price);
+
+    pm.masterProduct.price = previousPrice;
+    if (Number.isFinite(audit.before.listPrice) && audit.before.listPrice > 0) {
+        pm.masterProduct.listPrice = audit.before.listPrice;
+    }
+    pm.updatedAt = new Date();
+    pm.addSyncLog("price_update", "AI Rollback", currentPrice, previousPrice, "success", `Rollback: ${reason}`);
+    await pm.save();
+
+    let mpResult = { ok: 0, fail: 0, errors: [] };
+    try {
+        const mpSync = await pushProductMappingPriceToMarketplaces(userId, pm);
+        mpResult = {
+            ok: mpSync.ok,
+            fail: mpSync.fail,
+            errors: (mpSync.syncResults || []).filter(r => r.syncStatus === "error").map(r => ({
+                marketplace: r.marketplaceName || r.marketplace || "?",
+                error: r.errorMessage || r.message || "Bilinmeyen hata",
+            })),
+        };
+    } catch (syncErr) {
+        logger.warn(`[AI Rollback] Pazaryeri push: ${syncErr.message}`);
+    }
+
+    audit.rollback = {
+        rolledBack: true,
+        rolledBackAt: new Date(),
+        rolledBackBy: userId,
+        rollbackReason: reason,
+        rollbackResult: {
+            previousPrice: currentPrice,
+            newPrice: previousPrice,
+            marketplaceSync: mpResult,
+        },
+    };
+    await audit.save();
+
+    logger.info(`↩️ [AI Rollback] ${audit.actionType} geri alındı: ${currentPrice}₺ → ${previousPrice}₺ (barcode: ${audit.target.barcode})`);
+
+    return {
+        success: true,
+        message: `Fiyat ${currentPrice}₺ → ${previousPrice}₺ olarak geri alındı`,
+        audit,
+        marketplaceSync: mpResult,
+    };
+}
+
 module.exports = {
     collectData,
     analyzeProducts,
@@ -1613,6 +1842,7 @@ module.exports = {
     updateGoalProgress,
     analyzeUserPreferences,
     executeRecommendation,
+    rollbackAction,
     saveRecommendations,
     syncOrdersToDB,
 };

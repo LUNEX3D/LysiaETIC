@@ -30,7 +30,7 @@ import {
     FaChevronDown, FaBox, FaCrown,
     FaBrain, FaChartBar, FaBell, FaRocket, FaCrosshairs,
     FaCubes, FaSitemap, FaSignOutAlt, FaUserShield,
-    FaCloudUploadAlt, FaHeadset, FaBug
+    FaCloudUploadAlt, FaHeadset, FaBug, FaBookOpen
 } from "react-icons/fa";
 import { motion, AnimatePresence } from "framer-motion";
 import Particles from "react-tsparticles";
@@ -1235,7 +1235,7 @@ const UserDashboard = () => {
         { id: "users", icon: <FaUsers />, text: t("sidebar.userMgmt") },
         { id: "billing", icon: <FaFileInvoice />, text: t("sidebar.billing") },
         { id: "subscription", icon: <FaCrown />, text: language === "en" ? "Subscription & Plans" : "Abonelik & Paket" },
-        { id: "error-center", icon: <FaBug />, text: "Hata Merkezi" },
+        { id: "error-center", icon: <FaBookOpen />, text: "Operasyon Defteri" },
         { id: "support", icon: <FaHeadset />, text: t("sidebar.support") },
         { id: "settings", icon: <FaCog />, text: t("sidebar.settings") },
         ...(isAdmin ? [

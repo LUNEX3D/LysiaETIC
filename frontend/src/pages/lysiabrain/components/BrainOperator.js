@@ -8,7 +8,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import API from "../../../services/api";
 import { T, fmt, useResponsive } from "../styles";
-import { Card, CardHeader, Badge, Btn, HealthBar, StatCard, EmptyState, Divider, IconBox } from "./shared/SharedUI";
+import { Card, CardHeader, Badge, Btn, HealthBar, StatCard, EmptyState, Divider, IconBox, PageHeader } from "./shared/SharedUI";
 
 const BrainOperator = ({ operatorStatus, cycleResult, cycleLoading, onChangeMode, onRunCycle, onRefresh, t, onError }) => {
     const { isMobile, isTablet } = useResponsive();
@@ -16,6 +16,19 @@ const BrainOperator = ({ operatorStatus, cycleResult, cycleLoading, onChangeMode
     const [completedPhases, setCompletedPhases] = useState([]);
     const [cycleHistory, setCycleHistory] = useState([]);
     const [, setHistoryLoading] = useState(false);
+    const [autonomyStatus, setAutonomyStatus] = useState(null);
+
+    // Otonomi config durumunu yükle (mode, eşikler, çalışma saatleri)
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            try {
+                const res = await API.get("/ai-engine/autonomy-config/status");
+                if (!cancelled && res.data?.status) setAutonomyStatus(res.data.status);
+            } catch { /* silent */ }
+        })();
+        return () => { cancelled = true; };
+    }, []);
 
     const MODES = {
         passive: { label: t("op.mode.passive"), color: T.green, dim: T.greenDim, icon: "👁️", desc: t("op.mode.passive_desc") },
@@ -70,8 +83,37 @@ const BrainOperator = ({ operatorStatus, cycleResult, cycleLoading, onChangeMode
         loadHistory();
     };
 
+    const tldrOperator = (() => {
+        if (!operatorStatus) return "Operatör durumu yükleniyor...";
+        const mode = autonomyStatus?.mode || currentMode;
+        const modeText = mode === "autonomous" ? "TAM OTONOM 🤖" : mode === "supervised" ? "DENETİMLİ 👁️" : "MANUEL ✋";
+        const work = autonomyStatus?.withinWorkHours === false ? " · ⏰ ÇALIŞMA SAATLERİ DIŞINDA" : "";
+        const lastSeen = autonomyStatus?.lastAction?.at ? ` · Son aksiyon: ${new Date(autonomyStatus.lastAction.at).toLocaleString("tr-TR")}` : "";
+        return `AI şu anda ${modeText} modunda${work}. Bu saatte ${autonomyStatus?.rateLimit?.hourly || 0}/${autonomyStatus?.rateLimit?.limit || 50} aksiyon yapıldı${lastSeen}.`;
+    })();
+
     return (
         <div style={{ display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+
+            <PageHeader
+                icon="⬡"
+                title="AI Operatör"
+                subtitle="Otonom çalışma döngüsü ve performansı"
+                tldr={tldrOperator}
+                status={autonomyStatus?.mode === "autonomous" ? "warning" : "good"}
+                kpis={autonomyStatus ? [
+                    { label: "Mod", value: autonomyStatus.mode === "autonomous" ? "Otonom" : autonomyStatus.mode === "supervised" ? "Denetimli" : "Manuel", color: autonomyStatus.mode === "autonomous" ? T.red : autonomyStatus.mode === "supervised" ? T.yellow : T.green },
+                    { label: "Çalışma Saatleri", value: autonomyStatus.withinWorkHours ? "İçinde" : "Dışında", color: autonomyStatus.withinWorkHours ? T.green : T.red },
+                    { label: "Bu Saat", value: `${autonomyStatus.rateLimit?.hourly || 0}/${autonomyStatus.rateLimit?.limit || 0}`, color: T.cyan },
+                    { label: "Bugün", value: autonomyStatus.rateLimit?.daily || 0, color: T.purple },
+                    { label: "Şablon", value: autonomyStatus.presetUsed === "balanced" ? "Dengeli" : autonomyStatus.presetUsed === "conservative" ? "Tutucu" : autonomyStatus.presetUsed === "aggressive" ? "Agresif" : "Özel", color: T.accent },
+                ] : []}
+                actions={
+                    <Btn color={T.accent} onClick={() => { try { window.dispatchEvent(new CustomEvent("lysia-goto-tab", { detail: "autonomy" })); } catch {} }}>
+                        🎛️ Kuralları Düzenle
+                    </Btn>
+                }
+            />
 
             {/* ═══ Business Health from operator status ═══ */}
             {operatorStatus?.stats && (

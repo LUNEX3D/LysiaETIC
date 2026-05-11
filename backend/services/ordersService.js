@@ -126,10 +126,18 @@ const fetchTrendyolOrders = async (sellerId, apiKey, apiSecret, startDate, endDa
                             city: pkg.invoiceAddress.city || "",
                             district: pkg.invoiceAddress.district || "",
                             fullAddress: pkg.invoiceAddress.fullAddress || pkg.invoiceAddress.address1 || "",
-                            taxNumber: pkg.invoiceAddress.taxNumber || "",
+                            taxNumber: pkg.invoiceAddress.taxNumber || pkg.taxNumber || "",
                             taxOffice: pkg.invoiceAddress.taxOffice || "",
                             company: pkg.invoiceAddress.company || "",
-                        } : {},
+                        } : (pkg.taxNumber ? { taxNumber: pkg.taxNumber } : {}),
+                        // ── Pazaryeri fatura bilgileri (Trendyol getShipmentPackages) ──
+                        // X kullanıcı LysiaETIC'ten ÖNCE paneli üzerinden fatura yüklediyse
+                        // bu alanlar dolu gelir; sync sırasında okuyup Order'a yazıyoruz.
+                        invoiceLink: pkg.invoiceLink || "",
+                        commercialInvoice: !!pkg.commercial,
+                        microExport: !!pkg.micro,
+                        etgbNo: pkg.etgbNo || "",
+                        etgbDate: pkg.etgbDate || null,
                         products: pkg.lines.map(line => {
                             let img =
                                 line.imageUrl ||
