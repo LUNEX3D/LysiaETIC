@@ -97,6 +97,9 @@ const allowedOrigins = [
     "http://127.0.0.1:3000",
     "http://localhost:5000",
     "http://127.0.0.1:5000",
+    // ✅ Production sunucu IP'si (domain alınana kadar buradan erişim için)
+    "https://13.51.158.124",
+    "http://13.51.158.124",
     // Production origins — ek domain / geçici IP için CORS_EXTRA_ORIGINS kullanın
     // Yeni domain — pazaryonetim.com (IDN + punycode güvenli ekleme)
     "https://pazaryönetim.com",
@@ -145,30 +148,46 @@ const corsAllowLan =
     process.env.CORS_ALLOW_LAN === "true" ||
     process.env.NODE_ENV !== "production";
 
-// ✅ TANI MODU: CORS_ALLOW_ALL=true ise tüm origin'ler kabul edilir (production'da geçici tanı için)
-//    Bu env'yi sadece tanı/test için açıp sonra kapatın. Domain alıp doğru whitelist kurulana kadar.
+// ✅ CORS POLİTİKASI
+//   • Default davranış: BİLİNMEYEN origin'leri WARN ile loglar ama IZIN verir (soft mode)
+//     → Domain seçim sürecinde IP/farklı subdomain erişim sorunu yaşamamak için
+//   • CORS_STRICT=true ile sıkı mode'a geçilebilir (sadece whitelist'tekiler kabul edilir)
+//   • CORS_ALLOW_ALL=true ile her şey loglanmadan kabul edilir (debug)
+const corsStrict =
+    process.env.CORS_STRICT === "1" ||
+    process.env.CORS_STRICT === "true";
 const corsAllowAll =
     process.env.CORS_ALLOW_ALL === "1" ||
     process.env.CORS_ALLOW_ALL === "true";
 
 if (corsAllowAll) {
-    logger.warn("⚠️ CORS_ALLOW_ALL aktif — TÜM origin'lere izin veriliyor (sadece test için)");
+    logger.warn("⚠️ CORS_ALLOW_ALL aktif — tüm origin'ler sessizce kabul ediliyor");
+} else if (!corsStrict) {
+    logger.info("ℹ️ CORS soft mode (default) — bilinmeyen origin'ler loglanır ama kabul edilir. Sıkı mod için CORS_STRICT=true");
+} else {
+    logger.info("🔒 CORS strict mode — sadece whitelist'teki origin'ler kabul edilir");
 }
 
 app.use(cors({
     origin: function (origin, callback) {
         // Server-to-server istekler (origin yok) veya whitelist'teki origin'ler
         if (!origin || allowedOrigins.includes(origin)) {
-            callback(null, true);
-        } else if (corsAllowAll) {
-            callback(null, true);
-        } else if (corsAllowLan && isPrivateLanOrigin(origin)) {
-            callback(null, true);
-        } else {
-            // ✅ Tanı için: hangi origin reddedildi, hangi IP'den, hangi endpoint'e detaylı logla
-            logger.warn(`🚫 CORS ENGELLENDİ → origin="${origin}" — whitelist'te yok. (CORS_EXTRA_ORIGINS veya CORS_ALLOW_ALL ile açın)`);
-            callback(new Error(`CORS policy: '${origin}' origin'ine izin verilmiyor.`));
+            return callback(null, true);
         }
+        if (corsAllowAll) {
+            return callback(null, true);
+        }
+        if (corsAllowLan && isPrivateLanOrigin(origin)) {
+            return callback(null, true);
+        }
+        // Bilinmeyen origin
+        if (corsStrict) {
+            logger.warn(`🚫 CORS ENGELLENDİ (strict) → origin="${origin}" — whitelist'te yok.`);
+            return callback(new Error(`CORS policy: '${origin}' origin'ine izin verilmiyor.`));
+        }
+        // ✅ Soft mode: logla ama izin ver. Admin "Operasyon Defteri"nde görür ve whitelist'e ekleyebilir.
+        logger.warn(`⚠️ Bilinmeyen origin (soft mode'da kabul edildi): "${origin}" — kalıcı izin için CORS_EXTRA_ORIGINS'e ekleyin.`);
+        return callback(null, true);
     },
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
