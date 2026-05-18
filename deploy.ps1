@@ -35,7 +35,7 @@ Write-Host "[2/6] Git push tamamlandı!" -ForegroundColor Green
 
 ## 3. AWS Git Pull + npm install + Backend Restart
 Write-Host "[3/6] AWS sunucusu güncelleniyor..." -ForegroundColor Yellow
-ssh -i $KEY -o StrictHostKeyChecking=no $SERVER "cd ~/LysiaETIC && git fetch --all && git reset --hard origin/main && cd backend && npm install --omit=dev && pm2 restart backend"
+ssh -i $KEY -o StrictHostKeyChecking=no $SERVER "cd ~/LysiaETIC && git fetch --all && git reset --hard origin/main && cd backend && npm install --omit=dev && (pm2 describe backend >/dev/null 2>&1 && pm2 restart backend || pm2 start ecosystem.config.cjs) && pm2 save"
 Write-Host "[3/6] Backend güncellendi!" -ForegroundColor Green
 
 ## 4. Build dosyalarını SCP ile yükle

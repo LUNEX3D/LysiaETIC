@@ -19,12 +19,21 @@ function originsForHost(host) {
     return out;
 }
 
-const LOCAL_DEV_ORIGINS = [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "http://localhost:5000",
-    "http://127.0.0.1:5000",
-];
+const LOCAL_DEV_PORTS = [3000, 3001, 5000];
+
+function buildLocalDevOrigins() {
+    const hosts = new Set(["localhost", "127.0.0.1", APP_DOMAIN]);
+    if (!APP_DOMAIN.startsWith("www.")) hosts.add(`www.${APP_DOMAIN}`);
+    const out = [];
+    for (const h of hosts) {
+        for (const port of LOCAL_DEV_PORTS) {
+            out.push(`http://${h}:${port}`);
+        }
+    }
+    return out;
+}
+
+const LOCAL_DEV_ORIGINS = buildLocalDevOrigins();
 
 /** Eski / geçiş dönemi domain ve sunucu IP */
 const LEGACY_ORIGINS = [

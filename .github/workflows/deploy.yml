@@ -76,7 +76,7 @@ jobs:
         env:
           AWS_HOST: ${{ secrets.AWS_HOST }}
           AWS_USER: ${{ secrets.AWS_USER }}
-        run: ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=no "$AWS_USER@$AWS_HOST" "cd ~/LysiaETIC && git pull origin main && cd backend && npm ci --omit=dev && pm2 restart backend"
+        run: ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=no "$AWS_USER@$AWS_HOST" "cd ~/LysiaETIC && git pull origin main && cd backend && npm ci --omit=dev && (pm2 describe backend >/dev/null 2>&1 && pm2 restart backend || pm2 start ecosystem.config.cjs) && pm2 save"
 
       - name: Deploy Frontend
         env:
@@ -92,7 +92,8 @@ jobs:
           AWS_HOST: ${{ secrets.AWS_HOST }}
         run: |
           sleep 10
-          curl -f "http://$AWS_HOST/api/status" || echo "⚠️ Health check failed — sunucu henüz hazır olmayabilir"
+          sleep 5
+          curl -sf "http://$AWS_HOST/api/status" || (echo "::error::Backend /api/status yanıt vermiyor — EC2'de: pm2 list && pm2 logs backend --lines 30" && exit 1)
 
       - name: Cleanup SSH Key
         if: always()

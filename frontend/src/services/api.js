@@ -14,12 +14,20 @@ import { pushClientError } from "./clientErrorStore";
 // LAN: Sayfa http://192.168.x.x:3000 ile açıldıysa ve env hâlâ localhost:5000 ise,
 //      istekleri aynı makinenin LAN IP'sine yönlendir (telefon/test için).
 function resolveApiBase() {
-    // Production'da relative path (/api) kullanımı için boş string dön
+    const defaultLocal = "http://localhost:5000";
+
+    // Yerel makinede production build (serve/build) — Nginx yok; API doğrudan :5000
+    if (typeof window !== "undefined") {
+        const h = window.location.hostname;
+        if (h === "localhost" || h === "127.0.0.1") {
+            return defaultLocal;
+        }
+    }
+
+    // Canlı sunucuda relative path (/api) — Nginx reverse proxy
     if (process.env.NODE_ENV === "production") {
         return "";
     }
-
-    const defaultLocal = "http://localhost:5000";
     const fromEnv = process.env.REACT_APP_API_URL;
     const envVal = fromEnv !== undefined && fromEnv !== null && fromEnv !== ""
         ? fromEnv

@@ -15,6 +15,8 @@
 
 // ─── 1. ENV — EN ÜSTTE yüklenmeli ────────────────────────────────────────────
 require("dotenv").config();
+// Yerel geliştirme: backend/.env.local (gitignore) — NODE_ENV=development vb.
+require("dotenv").config({ path: ".env.local", override: true });
 
 const express        = require("express");
 const mongoose       = require("mongoose");
@@ -165,7 +167,6 @@ app.use(cors({
         }
         // ✅ Soft mode: logla ama izin ver. Admin "Operasyon Defteri"nde görür ve whitelist'e ekleyebilir.
         logger.warn(`CORS engellendi: ${origin}`); // Eski log formatı (analiz scriptleri için)
-        logger.warn(`CORS hatası: ${origin} → ${req.url}`); // Eski log formatı
         logger.warn(`⚠️ Bilinmeyen origin (soft mode'da kabul edildi): "${origin}" — kalıcı izin için CORS_EXTRA_ORIGINS'e ekleyin.`);
         return callback(null, true);
     },
