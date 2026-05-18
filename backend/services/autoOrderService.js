@@ -11,7 +11,7 @@
  *
  * Desteklenen Pazaryerleri:
  *   - Trendyol: PUT /integration/order/sellers/{sellerId}/shipment-packages
- *   - Hepsiburada: PUT /packages/merchantid/{merchantId}/packagenumber/{packageNumber}
+ *   - Hepsiburada: POST /packages/merchantid/{merchantId} (kalemleri paketleme)
  *   - ÇiçekSepeti: PUT /Order/readyforcargowithcsintegration
  *   - N11: (sipariş onaylama API'si)
  * ═══════════════════════════════════════════════════════════════
@@ -451,12 +451,45 @@ const processTrendyolOrders = async (credentials, cargoId, cargoName) => {
  * HB Sipariş Statüleri:
  *   Open → Packaged → Shipped → Delivered
  *
- * Paket onaylama:
- *   PUT /packages/merchantid/{merchantId}/packagenumber/{packageNumber}
- *   Body: { status: "Packaged", cargoCompany: "YURTICI_KARGO" }
+ * Paketleme (HB dokümanı):
+ *   POST /packages/merchantid/{merchantId}
+ *   Body: { lineItemRequests: [{ lineItemId, quantity }] }
+ *   Önce isteğe bağlı: PUT .../lineitems/.../orderlineid/{id}/cargocompany
  */
+const extractHbLineItemsForPackaging = (rows) => {
+    const { resolveHepsiburadaOrderNumber } = require("./hepsiburadaService");
+    const out = [];
+    const seen = new Set();
+
+    const pushLine = (li, parent) => {
+        const lid = String(li.lineItemId || li.lineItem?.id || li.id || "").trim();
+        if (!lid || seen.has(lid)) return;
+        seen.add(lid);
+        out.push({
+            lineItemId: lid,
+            quantity: Math.max(1, Number(li.quantity || 1) || 1),
+            orderNumber: resolveHepsiburadaOrderNumber(li, parent) || resolveHepsiburadaOrderNumber(parent) || ""
+        });
+    };
+
+    for (const row of rows || []) {
+        const subs = row.items || row.lineItems;
+        if (Array.isArray(subs) && subs.length > 0) subs.forEach((sub) => pushLine(sub, row));
+        else pushLine(row, null);
+    }
+    return out;
+};
+
 const processHepsiburadaOrders = async (credentials, cargoId, cargoName) => {
-    const { normalizeCredentials, getEndpoints, getHeaders } = require("./hepsiburadaService");
+    const {
+        normalizeCredentials,
+        getEndpoints,
+        getHeaders,
+        resolveHbCargoShortCode,
+        splitHbDateRange,
+        formatHbOmsDateTime,
+        HB_OMS_PACKAGES_MAX_DAYS
+    } = require("./hepsiburadaService");
     const hbCreds = normalizeCredentials(credentials);
     const { merchantId, secretKey, userAgent, useSit } = hbCreds;
     const results = [];
@@ -474,171 +507,174 @@ const processHepsiburadaOrders = async (credentials, cargoId, cargoName) => {
         const isSit = ep.OMS.includes("-sit");
         logger.info(`[AutoOrder] Hepsiburada ortam: ${isSit ? "SIT (test)" : "PRODUCTION"} — merchantId=${merchantId.substring(0, 8)}...`);
 
-        // 1) Open (yeni) sipariş kalemlerini çek (yalnızca PRODUCTION)
-        // Hepsiburada OMS: begindate/enddate + YYYY-MM-DD HH:mm:ss (dashboard/ordersService ile uyumlu).
-        // SIT (test) ortamında /orders uç noktası çoğu merchantId ile sürekli 400
-        // (GetPackageLinesBadRequestError) döndürüyor — gereksiz istek ve log kirliliği yaratıyor.
-        // Otomatik paketleme zaten /packages?timespan=... + PUT ile yapıldığı için SIT'te bu adım tamamen atlanır.
-        const ORDER_FETCH_DAYS = 7;
+        const cargoShort = resolveHbCargoShortCode(cargoId, cargoName);
         const limit = 100;
-        let openOrders = [];
+        let authAbort = false;
+        const rawRows = [];
 
-        const fetchOrdersForRange = async (encStart, encEnd, label) => {
-            const chunkItems = [];
+        const fetchOpenOrdersOffsetOnly = async () => {
             let offset = 0;
             let hasMore = true;
             while (hasMore) {
                 try {
-                    const url = `${ep.OMS}/orders/merchantid/${merchantId}?begindate=${encStart}&enddate=${encEnd}&offset=${offset}&limit=${limit}`;
+                    const url = `${ep.OMS}/orders/merchantid/${merchantId}?offset=${offset}&limit=${limit}`;
                     const resp = await axios.get(url, { headers, timeout: 30000 });
                     const items = resp.data?.items || [];
                     if (!Array.isArray(items) || items.length === 0) {
                         hasMore = false;
                         break;
                     }
-                    chunkItems.push(...items);
+                    rawRows.push(...items);
                     if (items.length < limit) hasMore = false;
                     else offset += items.length;
-                    await new Promise(r => setTimeout(r, 300));
+                    await new Promise((r) => setTimeout(r, 300));
                 } catch (err) {
-                    const st = err.response?.status;
                     hasMore = false;
-                    if (st === 404) {
-                        return { ok: true, fatal: false, chunkItems };
-                    }
-                    if (st === 401) {
-                        logger.warn(`[AutoOrder] Hepsiburada 401 Unauthorized — ${isSit ? "SIT" : "PROD"} ortamı ile merchantId uyumsuz olabilir. useSit=${useSit}`);
-                        return { ok: false, fatal: true, chunkItems };
-                    }
-                    const detail = {
-                        range: label,
-                        url: `${ep.OMS}/orders/merchantid/${merchantId}?begindate=${encStart}&enddate=${encEnd}&offset=${offset}&limit=${limit}`,
-                        env: isSit ? "SIT" : "PRODUCTION",
-                        responseBody: JSON.stringify(err.response?.data || "").substring(0, 500)
-                    };
-                    if (st === 400) {
-                        // Aynı cron turunda gün-0…gün-6 ayrı ayrı uyarı basmasın
-                        const k = `${String(merchantId).slice(0, 12)}:${isSit ? "SIT" : "PROD"}:oms-orders`;
-                        const prev = hbOms400LastWarn.get(k) || 0;
-                        if (Date.now() - prev > 45 * 60 * 1000) {
-                            logger.warn(`[AutoOrder] Hepsiburada sipariş çekme hatası: ${st || err.message}`, detail);
-                            hbOms400LastWarn.set(k, Date.now());
-                        }
-                    } else {
-                        logger.warn(`[AutoOrder] Hepsiburada sipariş çekme hatası: ${st || err.message}`, detail);
-                    }
-                    // 400 vb. — bir gün başarısız olsa bile diğer günlük pencereleri dene
-                    return { ok: false, fatal: false, chunkItems };
+                    if (err.response?.status === 401) authAbort = true;
                 }
             }
-            return { ok: true, fatal: false, chunkItems };
         };
 
-        let authAbort = false;
-
-        if (isSit) {
-            logger.info(
-                "[AutoOrder] Hepsiburada SIT: /orders (tarih aralığı) istekleri atlanıyor — " +
-                    "bu ortamda sık 400 döner; otomatik işlem /packages + PUT Packaged ile sürüyor."
-            );
-        } else {
-            for (let dayOffset = 0; dayOffset < ORDER_FETCH_DAYS; dayOffset++) {
-                const dayStart = moment().subtract(dayOffset, "days").startOf("day");
-                const dayEnd = moment().subtract(dayOffset, "days").endOf("day");
-                const encStart = encodeURIComponent(dayStart.format("YYYY-MM-DD HH:mm:ss"));
-                const encEnd = encodeURIComponent(dayEnd.format("YYYY-MM-DD HH:mm:ss"));
-                const label = `gün-${dayOffset} (${dayStart.format("YYYY-MM-DD")})`;
-
-                const { fatal, chunkItems } = await fetchOrdersForRange(encStart, encEnd, label);
-                if (chunkItems.length > 0) openOrders.push(...chunkItems);
-                if (fatal) {
-                    authAbort = true;
-                    break;
+        const fetchOpenOrdersByDateChunks = async () => {
+            const end = moment();
+            const start = moment().subtract(7, "days");
+            const chunks = splitHbDateRange(start, end, 1);
+            for (const range of chunks) {
+                let offset = 0;
+                let hasMore = true;
+                const encStart = encodeURIComponent(formatHbOmsDateTime(range.start));
+                const encEnd = encodeURIComponent(formatHbOmsDateTime(range.end));
+                while (hasMore) {
+                    try {
+                        const url = `${ep.OMS}/orders/merchantid/${merchantId}?begindate=${encStart}&enddate=${encEnd}&offset=${offset}&limit=${limit}`;
+                        const resp = await axios.get(url, { headers, timeout: 30000 });
+                        const items = resp.data?.items || [];
+                        if (!items.length) {
+                            hasMore = false;
+                            break;
+                        }
+                        rawRows.push(...items);
+                        if (items.length < limit) hasMore = false;
+                        else offset += items.length;
+                        await new Promise((r) => setTimeout(r, 300));
+                    } catch (err) {
+                        hasMore = false;
+                        const st = err.response?.status;
+                        if (st === 401) {
+                            authAbort = true;
+                            return;
+                        }
+                        if (st === 400) {
+                            const k = `${String(merchantId).slice(0, 12)}:oms-orders-date`;
+                            const prev = hbOms400LastWarn.get(k) || 0;
+                            if (Date.now() - prev > 45 * 60 * 1000) {
+                                logger.warn(`[AutoOrder] Hepsiburada tarihli /orders 400 — offset/limit veya unpacked yedek kullanılacak`, {
+                                    range: `${encStart} → ${encEnd}`,
+                                    responseBody: JSON.stringify(err.response?.data || "").substring(0, 400)
+                                });
+                                hbOms400LastWarn.set(k, Date.now());
+                            }
+                        }
+                    }
                 }
             }
+        };
 
-            // Yedek: günlük dilimlerde kayıt yoksa tek pencere (tam gün bitişi)
-            if (openOrders.length === 0 && !authAbort) {
-                const start = new Date();
-                start.setDate(start.getDate() - ORDER_FETCH_DAYS);
-                start.setHours(0, 0, 0, 0);
-                const encStart = encodeURIComponent(moment(start).format("YYYY-MM-DD HH:mm:ss"));
-                const encEnd = encodeURIComponent(moment().endOf("day").format("YYYY-MM-DD HH:mm:ss"));
-                const { chunkItems, fatal } = await fetchOrdersForRange(encStart, encEnd, "fallback-tek-pencere");
-                if (chunkItems.length > 0) openOrders.push(...chunkItems);
-                if (fatal) authAbort = true;
+        const fetchUnpackedRows = async () => {
+            const end = moment();
+            const start = moment().subtract(7, "days");
+            const chunks = splitHbDateRange(start, end, HB_OMS_PACKAGES_MAX_DAYS);
+            for (const range of chunks) {
+                let offset = 0;
+                const pkgLimit = 50;
+                let hasMore = true;
+                const encStart = encodeURIComponent(formatHbOmsDateTime(range.start));
+                const encEnd = encodeURIComponent(formatHbOmsDateTime(range.end));
+                while (hasMore) {
+                    try {
+                        const url = `${ep.OMS}/packages/merchantid/${merchantId}/unpacked?begindate=${encStart}&enddate=${encEnd}&offset=${offset}&limit=${pkgLimit}`;
+                        const resp = await axios.get(url, { headers, timeout: 30000 });
+                        const items = resp.data?.items || resp.data || [];
+                        const arr = Array.isArray(items) ? items : [];
+                        if (!arr.length) {
+                            hasMore = false;
+                            break;
+                        }
+                        rawRows.push(...arr);
+                        if (arr.length < pkgLimit) hasMore = false;
+                        else offset += arr.length;
+                        await new Promise((r) => setTimeout(r, 300));
+                    } catch (err) {
+                        hasMore = false;
+                        if (err.response?.status === 401) authAbort = true;
+                    }
+                }
             }
+        };
 
-            if (openOrders.length > 0) {
-                logger.info(`[AutoOrder] Hepsiburada: ${openOrders.length} kalem (Open orders API)`);
-            }
+        if (isSit) {
+            logger.info("[AutoOrder] Hepsiburada SIT: /orders atlanıyor — unpacked + POST paketleme");
+            await fetchUnpackedRows();
+        } else {
+            await fetchOpenOrdersOffsetOnly();
+            if (rawRows.length === 0 && !authAbort) await fetchOpenOrdersByDateChunks();
+            if (rawRows.length === 0 && !authAbort) await fetchUnpackedRows();
         }
 
         if (authAbort) {
-            logger.warn("[AutoOrder] Hepsiburada: Orders API 401 — kimlik doğrulama hatası, paket adımı atlanıyor.");
+            logger.warn("[AutoOrder] Hepsiburada: Orders API 401 — kimlik doğrulama hatası");
             return { processed: 0, success: 0, failed: 0, results: [] };
         }
 
-        // 2) Paketleri çek ve onaylama yap
-        // Önce paketlenmiş olmayan paketleri bul
-        let pkgOffset = 0;
-        const allPackages = [];
-        let pkgHasMore = true;
-        while (pkgHasMore) {
-            try {
-                const pkgUrl = `${ep.OMS}/packages/merchantid/${merchantId}?timespan=168&offset=${pkgOffset}&limit=10`;
-                const pkgResp = await axios.get(pkgUrl, { headers, timeout: 30000 });
-                const pkgs = pkgResp.data?.items || pkgResp.data || [];
-                const arr = Array.isArray(pkgs) ? pkgs : [];
-                if (arr.length === 0) { pkgHasMore = false; break; }
-                allPackages.push(...arr);
-                if (arr.length < 10) pkgHasMore = false;
-                else pkgOffset += arr.length;
-                await new Promise(r => setTimeout(r, 300));
-            } catch (err) {
-                pkgHasMore = false;
-            }
-        }
-
-        // Open/Unpacked paketleri filtrele
-        const unpackedPackages = allPackages.filter(p => {
-            const st = (p.status || "").toLowerCase();
-            return st === "open" || st === "unpacked" || st === "new";
-        });
-
-        if (unpackedPackages.length === 0) {
-            logger.info("[AutoOrder] Hepsiburada: Paketlenecek paket yok");
+        const lineItems = extractHbLineItemsForPackaging(rawRows);
+        if (lineItems.length === 0) {
+            logger.info("[AutoOrder] Hepsiburada: Paketlenecek kalem yok");
             return { processed: 0, success: 0, failed: 0, results: [] };
         }
 
-        logger.info(`[AutoOrder] Hepsiburada: ${unpackedPackages.length} paket onaylanacak`);
+        logger.info(`[AutoOrder] Hepsiburada: ${lineItems.length} kalem paketlenecek (kargo=${cargoShort})`);
 
-        // 3) Her paketi onayla
-        for (const pkg of unpackedPackages) {
-            const packageNumber = pkg.packageNumber || pkg.id;
-            const orderNumber = pkg.orderNumber || packageNumber;
+        const byOrder = new Map();
+        for (const li of lineItems) {
+            const key = li.orderNumber || li.lineItemId;
+            if (!byOrder.has(key)) byOrder.set(key, []);
+            byOrder.get(key).push(li);
+        }
 
-            if (!packageNumber) {
-                results.push({ orderNumber, status: "failed", error: "packageNumber bulunamadı", cargoUsed: cargoName });
-                continue;
-            }
-
+        for (const [orderKey, group] of byOrder) {
+            const orderNumber = group[0]?.orderNumber || orderKey;
             try {
-                const packUrl = `${ep.OMS}/packages/merchantid/${merchantId}/packagenumber/${packageNumber}`;
+                for (const li of group) {
+                    try {
+                        const cargoUrl = `${ep.OMS}/lineitems/merchantid/${merchantId}/orderlineid/${li.lineItemId}/cargocompany`;
+                        await axios.put(
+                            cargoUrl,
+                            { CargoCompanyShortName: cargoShort },
+                            { headers, timeout: 15000 }
+                        );
+                    } catch (cargoErr) {
+                        // Kargo zaten atanmış olabilir — paketlemeye devam
+                    }
+                }
+
+                const packUrl = `${ep.OMS}/packages/merchantid/${merchantId}`;
                 const packBody = {
-                    status: "Packaged",
-                    cargoCompany: cargoId || "YURTICI_KARGO"
+                    lineItemRequests: group.map((li) => ({
+                        lineItemId: String(li.lineItemId),
+                        quantity: String(li.quantity)
+                    }))
                 };
+                const packResp = await axios.post(packUrl, packBody, { headers, timeout: 30000 });
+                const pkgNo = packResp.data?.packageNumber || packResp.data?.barcode || "";
 
-                await axios.put(packUrl, packBody, { headers, timeout: 15000 });
-
-                results.push({ orderNumber, status: "success", cargoUsed: cargoName });
-                logger.info(`[AutoOrder] Hepsiburada ✅ ${orderNumber} → Packaged (${cargoName})`);
-
-                await new Promise(r => setTimeout(r, 300));
+                results.push({ orderNumber, status: "success", cargoUsed: cargoName, packageNumber: pkgNo });
+                logger.info(`[AutoOrder] Hepsiburada ✅ ${orderNumber} → paketlendi (${cargoName}${pkgNo ? `, pkg=${pkgNo}` : ""})`);
+                await new Promise((r) => setTimeout(r, 400));
             } catch (err) {
-                const errMsg = err.response?.data?.message ||
+                const errMsg =
+                    err.response?.data?.message ||
                     err.response?.data?.errors?.[0]?.message ||
+                    err.response?.statusText ||
                     err.message;
                 results.push({ orderNumber, status: "failed", error: errMsg, cargoUsed: cargoName });
                 logger.warn(`[AutoOrder] Hepsiburada ❌ ${orderNumber}: ${errMsg}`);

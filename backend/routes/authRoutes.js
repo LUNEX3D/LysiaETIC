@@ -11,6 +11,7 @@ const {
     logout,
     getProfile,
     verifyEmail,
+    verifyEmailByCode,
     resendVerification,
     googleAuth,
     forgotPassword,
@@ -34,6 +35,7 @@ router.post("/register", authLimiter, validateRegister, register);
 router.post("/login", authLimiter, validateLogin, login);
 router.get("/profile", authMiddleware, getProfile);
 router.get("/verify-email", verifyEmail);
+router.post("/verify-email-code", authLimiter, verifyEmailByCode);
 router.post("/resend-verification", authLimiter, resendVerification);
 
 // Google OAuth

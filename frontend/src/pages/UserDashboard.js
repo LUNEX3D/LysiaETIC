@@ -37,7 +37,8 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import Particles from "react-tsparticles";
 import { loadSlim } from "tsparticles-slim";
-import { classifyOrderStatus, getOrderStatusLabelTr } from "../utils/orderStatus";
+import { classifyOrderStatus, getOrderStatusLabelTr, parseOrderDateForDisplay, formatOrderNumberForDisplay } from "../utils/orderStatus";
+import useMobileShell from "../utils/useMobileShell";
 import { GlassCard, KpiCard, Pill, SectionTitle } from "../components/dashboard/DashboardUI";
 import "../styles/userDashboard.css";
 
@@ -187,17 +188,16 @@ const UserDashboard = () => {
         return () => window.removeEventListener("api:access-blocked", handler);
     }, []);
 
-    // ── Responsive ──
+    // ── Responsive (matchMedia — orientation / tarayıcı chrome uyumlu) ──
+    const shell = useMobileShell({ lockScroll: true, scrollLocked: menuOpen, setHtmlClasses: false });
     useEffect(() => {
-        const handleResize = () => {
-            const mobile = window.innerWidth < 768;
-            setIsMobile(mobile);
-            if (mobile && menuOpen) setMenuOpen(false);
-            if (!mobile && !menuOpen) setMenuOpen(true);
-        };
-        window.addEventListener("resize", handleResize);
-        if (window.innerWidth < 768) setMenuOpen(false);
-        return () => window.removeEventListener("resize", handleResize);
+        setIsMobile(shell.isMobile);
+        if (shell.isMobile && menuOpen) setMenuOpen(false);
+        if (!shell.isMobile && !menuOpen) setMenuOpen(true);
+    }, [shell.isMobile]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    useEffect(() => {
+        if (shell.isMobile) setMenuOpen(false);
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     const handlePanelChange = useCallback((panelId) => {
@@ -413,10 +413,11 @@ const UserDashboard = () => {
 
         Object.entries(dashboardData.marketplaceStatus).forEach(([marketplace, data]) => {
             if (data.orderDetails && Array.isArray(data.orderDetails)) {
-                data.orderDetails.forEach(o => orders.push({ ...o, marketplace }));
-            }
-            if (data.statusGroups) {
-                Object.keys(sc).forEach(k => { sc[k] += (data.statusGroups[k] || 0); });
+                data.orderDetails.forEach(o => {
+                    orders.push({ ...o, marketplace });
+                    const bucket = classifyOrderStatus(o.status);
+                    if (sc[bucket] !== undefined) sc[bucket]++;
+                });
             }
         });
 
@@ -435,6 +436,17 @@ const UserDashboard = () => {
     const orderTrendMax = Math.max(...trends.orderCounts, 1);
     const revenueTrendMax = Math.max(...trends.revenueTotals, 1);
     const avgOrderValue = allOrders.total > 0 ? (summary.todayRevenue || 0) / allOrders.total : 0;
+
+    const formatOrderDate = (orderDate) => {
+        const d = parseOrderDateForDisplay(orderDate);
+        if (!d) return "N/A";
+        return d.toLocaleString(language === "en" ? "en-US" : "tr-TR", {
+            day: "2-digit",
+            month: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+        });
+    };
 
     const pmProducts = pmDashboard?.products || {};
     const pmMarketplaces = pmDashboard?.marketplaces || [];
@@ -1226,11 +1238,11 @@ const UserDashboard = () => {
                                                             </Pill>
                                                         </div>
                                                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                                            <span style={{ color: C.dim, fontSize: "0.68rem", fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "55%" }}>#{order.orderNumber || "N/A"}</span>
+                                                            <span style={{ color: C.dim, fontSize: "0.68rem", fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "55%" }}>#{formatOrderNumberForDisplay(order)}</span>
                                                             <span style={{ color: C.green, fontSize: "0.82rem", fontWeight: 800 }}>{fmtCurrency(order.totalPrice || 0, language)}</span>
                                                         </div>
                                                         <div style={{ color: C.dim, fontSize: "0.62rem", marginTop: "0.2rem" }}>
-                                                            {order.orderDate ? new Date(order.orderDate).toLocaleString(language === "en" ? "en-US" : "tr-TR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "N/A"}
+                                                            {formatOrderDate(order.orderDate)}
                                                         </div>
                                                     </motion.div>
                                                 ) : (
@@ -1239,11 +1251,11 @@ const UserDashboard = () => {
                                                         initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: Math.min(idx * 0.01, 0.3) }}
                                                         style={{ display: "grid", gridTemplateColumns: "2fr 1.2fr 1fr 1.2fr 1fr", gap: "0.75rem", alignItems: "center", padding: "0.6rem 1rem", borderRadius: 8, background: idx % 2 === 0 ? C.glass : "transparent", border: `1px solid transparent`, transition: "background 0.15s ease, border-color 0.15s ease", cursor: "default" }}
                                                         whileHover={{ backgroundColor: `rgba(78,205,196,0.06)`, borderColor: `rgba(78,205,196,0.12)` }}>
-                                                        <span style={{ color: C.text, fontSize: "0.8rem", fontWeight: 600, fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{order.orderNumber || "N/A"}</span>
+                                                        <span style={{ color: C.text, fontSize: "0.8rem", fontWeight: 600, fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{formatOrderNumberForDisplay(order)}</span>
                                                         <span style={{ color: C.accent, fontSize: "0.8rem", fontWeight: 600 }}>{order.marketplace || "N/A"}</span>
                                                         <span style={{ color: C.green, fontSize: "0.82rem", fontWeight: 700, textAlign: "right" }}>{fmtCurrency(order.totalPrice || 0, language)}</span>
                                                         <span style={{ color: C.muted, fontSize: "0.75rem", fontWeight: 500, textAlign: "center" }}>
-                                                            {order.orderDate ? new Date(order.orderDate).toLocaleString(language === "en" ? "en-US" : "tr-TR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "N/A"}
+                                                            {formatOrderDate(order.orderDate)}
                                                         </span>
                                                         <div style={{ textAlign: "center" }}>
                                                             <Pill color={
@@ -1479,7 +1491,7 @@ const UserDashboard = () => {
     };
 
     return (
-        <div className="dashboard-container">
+        <div className={`dashboard-container${isMobile ? " dashboard-container--mobile" : ""}`}>
             {isImpersonating && (
                 <div style={{ position: "fixed", top: 8, left: "50%", transform: "translateX(-50%)", zIndex: 12000, background: "rgba(99,102,241,0.95)", color: "#fff", border: "1px solid rgba(165,180,252,0.45)", borderRadius: 999, padding: "8px 14px", display: "flex", alignItems: "center", gap: 10, fontSize: 12 }}>
                     Admin olarak kullanıcı görünümündesiniz
@@ -1518,7 +1530,7 @@ const UserDashboard = () => {
             />
 
             <motion.aside
-                className={`sidebar ${menuOpen ? "open" : "closed"}`}
+                className={`sidebar ${menuOpen ? "open" : "closed"}${isMobile ? " sidebar--mobile" : ""}`}
                 animate={isMobile ? {} : { width: menuOpen ? 260 : 72 }}
                 transition={{ duration: 0.25, ease: [0.25, 0.1, 0.25, 1] }}
             >
@@ -1652,7 +1664,7 @@ const UserDashboard = () => {
             <AnimatePresence mode="wait">
                 <motion.main
                     key={activePanel}
-                    className={`content-area${activePanel === "integration" ? " content-area--galaxy" : ""}${activePanel === "lysia-brain" ? " content-area--brain" : ""}${activePanel === "product-upload" || activePanel === "pm-center" ? " content-area--wizard-flush" : ""}${activePanel === "dashboard" ? " content-area--dashboard" : ""}`}
+                    className={`content-area${isMobile ? " content-area--mobile" : ""}${activePanel === "integration" ? " content-area--galaxy" : ""}${activePanel === "lysia-brain" ? " content-area--brain" : ""}${activePanel === "product-upload" || activePanel === "pm-center" ? " content-area--wizard-flush" : ""}${activePanel === "dashboard" ? " content-area--dashboard" : ""}`}
                     initial={{ opacity: 0, y: 12 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -8 }}

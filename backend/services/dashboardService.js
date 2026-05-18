@@ -7,7 +7,9 @@ const Product = require("../models/Product");
 const logger = require("../config/logger");
 // ✅ FIX: Credential'ları decrypt et — DB'de şifreli saklanıyor
 const { decryptCredentials } = require("../utils/encryption");
-const { extractTrendyolPackageMoney } = require("./ordersService");
+const { extractTrendyolPackageMoney, fetchHepsiburadaOrders: fetchHepsiburadaOrdersFull } = require("./ordersService");
+const { marketplaceOrderDateToIsoString } = require("../utils/helpers");
+const { isHbInternalId } = require("./hepsiburadaService");
 
 const REQUEST_TIMEOUT_MS = 15000; // 15 saniye timeout
 const RETRY_LIMIT = 3;
@@ -53,51 +55,35 @@ const requestWithControls = async (config) => {
     return { ok: false, error: lastError, status: lastError?.response?.status };
 };
 
+const { classifyOrderStatus } = require("../utils/orderStatus");
+
 const summarizeOrders = (orders = []) => {
     const orderCount = orders.length;
     const revenue = orders.reduce((sum, order) => sum + Number(order.totalPrice || order.price || 0), 0);
 
-    // Status bazlı gruplandırma
     const statusGroups = {
-        new: 0,           // Yeni siparişler
-        processing: 0,    // İşleme alınan
-        shipping: 0,      // Kargoda
-        delivered: 0,     // Teslim edildi
-        cancelled: 0,     // İptal
-        returned: 0       // İade
+        new: 0,
+        processing: 0,
+        shipping: 0,
+        delivered: 0,
+        cancelled: 0,
+        returned: 0
     };
 
     const ordersByStatus = [];
 
     orders.forEach(order => {
-        const status = String(order.status || "").toLowerCase();
+        const bucket = classifyOrderStatus(order.status);
 
-        // Her siparişi detaylı olarak kaydet
         ordersByStatus.push({
             orderNumber: order.orderNumber,
             orderDate: order.orderDate,
             totalPrice: order.totalPrice,
             status: order.status,
-            statusNormalized: status
+            statusNormalized: bucket
         });
 
-        // Status gruplarına say
-        if (status.includes('created') || status.includes('yeni') || status.includes('new')) {
-            statusGroups.new++;
-        } else if (status.includes('processing') || status.includes('işlem') || status.includes('hazırlan') || status.includes('picking') || status.includes('packing')) {
-            statusGroups.processing++;
-        } else if (status.includes('shipping') || status.includes('shipped') || status.includes('kargo') || status.includes('taşı') || status.includes('transit')) {
-            statusGroups.shipping++;
-        } else if (status.includes('delivered') || status.includes('teslim')) {
-            statusGroups.delivered++;
-        } else if (status.includes('cancel') || status.includes('iptal')) {
-            statusGroups.cancelled++;
-        } else if (status.includes('return') || status.includes('iade') || status.includes('refund')) {
-            statusGroups.returned++;
-        } else {
-            // Bilinmeyen statuslar processing'e ekle
-            statusGroups.processing++;
-        }
+        statusGroups[bucket]++;
     });
 
     // Pending: Sadece Yeni ve İşleme Alınan siparişler (Kargoda olanlar hariç)
@@ -204,110 +190,87 @@ const fetchTrendyolOrders = async (credentials, start, end) => {
 };
 
 const fetchHepsiburadaOrders = async (credentials, start, end) => {
-    const { normalizeCredentials, getHeaders, getEndpoints } = require("./hepsiburadaService");
+    const { normalizeCredentials } = require("./hepsiburadaService");
     const hbCreds = normalizeCredentials(credentials);
-    const { merchantId, secretKey, userAgent } = hbCreds;
+    const { merchantId, secretKey, userAgent, useSit } = hbCreds;
 
     if (!merchantId || !secretKey) {
         throw Object.assign(new Error("Hepsiburada credentials missing"), { status: 401 });
     }
 
-    logger.info("📦 [Hepsiburada Dashboard] OMS Orders API ile siparişler çekiliyor...");
+    logger.info("📦 [Hepsiburada Dashboard] ordersService ile siparişler çekiliyor...");
 
-    const headers = getHeaders(merchantId, secretKey, userAgent);
-    const ep = getEndpoints(hbCreds);
-
-    const moment = require("moment");
-    const formattedStartDate = moment(start).format('YYYY-MM-DD HH:mm:ss');
-    const formattedEndDate = moment(end).format('YYYY-MM-DD HH:mm:ss');
-
-    const allOrders = [];
-
-    // ── Yardımcı: Bir endpoint'ten pagination ile sipariş çek ──
-    const fetchFromEndpoint = async (endpointUrl, label, maxLimit) => {
-        let offset = 0;
-        const limit = maxLimit || 100;
-        let hasMore = true;
-        while (hasMore) {
-            try {
-                const url = endpointUrl.includes('?')
-                    ? `${endpointUrl}&offset=${offset}&limit=${limit}`
-                    : `${endpointUrl}?offset=${offset}&limit=${limit}`;
-
-                const result = await requestWithControls({ url, method: "GET", headers });
-
-                if (result.ok) {
-                    const data = result.response?.data;
-                    const items = data?.items || data?.orders || data?.data || data?.content || [];
-                    if (Array.isArray(items) && items.length > 0) {
-                        items.forEach(item => {
-                            // Packages endpoint: items[] içinde kalemler var
-                            const subItems = item.items || [];
-                            const orderNum = item.orderNumber || item.orderId || item.id;
-                            const totalPrice = subItems.length > 0
-                                ? subItems.reduce((sum, s) => sum + Number(s.totalPrice?.amount || s.totalPrice || s.price?.amount || 0), 0)
-                                : Number(item.totalPrice?.amount || item.totalPrice || item.unitPrice?.amount || 0);
-                            allOrders.push({
-                                orderNumber: orderNum,
-                                orderDate: item.orderDate,
-                                totalPrice: totalPrice,
-                                status: item.status || label || "UNKNOWN"
-                            });
-                        });
-                        if (items.length < limit) { hasMore = false; } else { offset += items.length; }
-                    } else { hasMore = false; }
-                } else { hasMore = false; }
-            } catch (err) {
-                logger.warn(`⚠️ [Hepsiburada Dashboard ${label}] Hata (offset=${offset}): ${err.message}`);
-                hasMore = false;
-            }
-        }
-    };
-
-    const encStart = encodeURIComponent(formattedStartDate);
-    const encEnd = encodeURIComponent(formattedEndDate);
-
-    // 1) Ödemesi tamamlanmış (Open) — limit max 100
-    await fetchFromEndpoint(
-        `${ep.OMS}/orders/merchantid/${merchantId}?begindate=${encStart}&enddate=${encEnd}`,
-        "Open", 100
+    const raw = await fetchHepsiburadaOrdersFull(
+        merchantId,
+        secretKey,
+        start,
+        end,
+        userAgent,
+        useSit
     );
 
-    // 2) Paketlenmiş — timespan=720 (30 gün), HB Docs: packages limit max 10
-    await fetchFromEndpoint(
-        `${ep.OMS}/packages/merchantid/${merchantId}?timespan=720`,
-        "Packaged", 10
-    );
+    const { resolveHepsiburadaOrderNumber } = require("./hepsiburadaService");
+    const orders = (raw || []).map(o => ({
+        orderNumber: resolveHepsiburadaOrderNumber(o) || o.orderNumber,
+        packageNumber: o.packageNumber || "",
+        orderDate: marketplaceOrderDateToIsoString(o.orderDateRaw ?? o.orderDate) || o.orderDate,
+        totalPrice: Number(parseFloat(o.totalPrice) || 0),
+        status: o.status || "Open"
+    })).filter(o => o.orderNumber && !isHbInternalId(o.orderNumber));
 
-    // 3) Kargoya verilmiş — son 30 gün, limit max 50
-    const shipStart = encodeURIComponent(moment().subtract(30, 'days').format('YYYY-MM-DD HH:mm:ss'));
-    const shipEnd = encodeURIComponent(moment().format('YYYY-MM-DD HH:mm:ss'));
-    await fetchFromEndpoint(
-        `${ep.OMS}/packages/merchantid/${merchantId}/shipped?begindate=${shipStart}&enddate=${shipEnd}`,
-        "Shipped", 50
-    );
+    logger.info(`✅ [Hepsiburada Dashboard] ${orders.length} sipariş (ordersService)`);
 
-    // 4) Teslim edilmiş — son 30 gün, limit max 50
-    await fetchFromEndpoint(
-        `${ep.OMS}/packages/merchantid/${merchantId}/delivered?begindate=${shipStart}&enddate=${shipEnd}`,
-        "Delivered", 50
-    );
-
-    // 5) İptal edilmiş — son 30 gün, limit max 50
-    await fetchFromEndpoint(
-        `${ep.OMS}/packages/merchantid/${merchantId}/cancelled?begindate=${shipStart}&enddate=${shipEnd}`,
-        "Cancelled", 50
-    );
-
-    // Tekrar eden siparişleri temizle (orderNumber'a göre)
-    const uniqueOrders = Array.from(
-        new Map(allOrders.map(order => [order.orderNumber, order])).values()
-    );
-
-    logger.info(`✅ [Hepsiburada Dashboard] ${uniqueOrders.length} benzersiz sipariş çekildi`);
-
-    const summary = summarizeOrders(uniqueOrders);
+    const summary = summarizeOrders(orders);
     return { ...summary, errorCount: 0, healthStatus: "healthy", pendingSync: 0 };
+};
+
+/** API + DB siparişlerini birleştir (modal listesinde eksik kanalları tamamlar) */
+const mergeMarketplaceStatusWithDbOrders = (marketplaceStatus, ordersFromDb) => {
+    const dbGrouped = new Map();
+    ordersFromDb.forEach(o => {
+        const orderNo = String(o.trackingNumber || o.orderNumber || "").trim();
+        if (!orderNo || isHbInternalId(orderNo)) return;
+        const key = normalizeName(o.marketplaceName || "");
+        if (!key) return;
+        if (!dbGrouped.has(key)) dbGrouped.set(key, []);
+        dbGrouped.get(key).push({
+            orderNumber: orderNo,
+            orderDate: o.orderDate,
+            totalPrice: Number(o.totalPrice || 0),
+            status: o.status || "Created"
+        });
+    });
+
+    dbGrouped.forEach((dbOrders, key) => {
+        const apiDetails = marketplaceStatus[key]?.orderDetails || [];
+        const mergedMap = new Map();
+        apiDetails.forEach(o => {
+            if (o?.orderNumber) mergedMap.set(String(o.orderNumber), o);
+        });
+        dbOrders.forEach(o => {
+            const id = String(o.orderNumber);
+            if (!mergedMap.has(id)) mergedMap.set(id, o);
+        });
+        const merged = Array.from(mergedMap.values());
+        const summary = summarizeOrders(merged);
+        marketplaceStatus[key] = {
+            ...(marketplaceStatus[key] || {
+                health: "healthy",
+                status: "active",
+                pendingSync: 0,
+                errors: 0,
+                stockMismatch: 0,
+                updatedAt: new Date().toISOString()
+            }),
+            orders: summary.orderCount,
+            revenue: summary.revenue,
+            statusGroups: summary.statusGroups,
+            ordersByStatus: summary.ordersByStatus,
+            orderDetails: summary.orderDetails
+        };
+    });
+
+    return marketplaceStatus;
 };
 
 const fetchN11Orders = async (credentials, start, end) => {
@@ -782,7 +745,7 @@ exports.getDashboardData = async (userId) => {
     const marketplaces = await Marketplace.find({ userId }).lean();
 
     const ordersFromDb = await Order.find({ user: userId, orderDate: { $gte: new Date(start), $lte: new Date(end) } })
-        .select("totalPrice status orderDate")
+        .select("trackingNumber marketplaceName totalPrice status orderDate")
         .lean();
 
     const products = await Product.find({ userId }).select("barcode stock").lean();
@@ -862,12 +825,17 @@ exports.getDashboardData = async (userId) => {
         });
     });
 
+    mergeMarketplaceStatusWithDbOrders(marketplaceStatus, ordersFromDb);
+
+    const mergedTodayOrders = Object.values(marketplaceStatus).reduce((sum, m) => sum + (m.orders || 0), 0);
+    const mergedTodayRevenue = Object.values(marketplaceStatus).reduce((sum, m) => sum + (m.revenue || 0), 0);
+
     const summary = {
         totalProducts,
         activeProducts,
         passiveProducts: Math.max(totalProducts - activeProducts, 0),
-        todayOrders,
-        todayRevenue,
+        todayOrders: mergedTodayOrders,
+        todayRevenue: mergedTodayRevenue,
         pendingSync,
         errorCount,
         stockMismatchCount,
@@ -928,8 +896,8 @@ exports.getDashboardData = async (userId) => {
         // Structure required by spec
         totalProducts,
         activeProducts,
-        todayOrders,
-        todayRevenue,
+        todayOrders: mergedTodayOrders,
+        todayRevenue: mergedTodayRevenue,
         pendingSync,
         errorCount,
         stockMismatchCount,

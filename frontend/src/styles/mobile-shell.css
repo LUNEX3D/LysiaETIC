@@ -1,0 +1,274 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   PazarYonet — Mobil kabuk (tüm sayfalar, iOS Safari + Android Chrome)
+   responsive.css ile birlikte yüklenir
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* Menü açıkken arka plan kaymasın (iOS) */
+body.mobile-menu-open {
+    overflow: hidden;
+    position: fixed;
+    width: 100%;
+    touch-action: none;
+}
+
+html.is-mobile-view,
+html.is-mobile-view body,
+html.is-mobile-view #root {
+    overflow-x: hidden;
+    max-width: 100vw;
+}
+
+/* Dashboard / panel kökü */
+html.is-mobile-view .dashboard-container {
+    min-height: 100dvh;
+    min-height: calc(var(--vh, 1vh) * 100);
+    overflow-x: hidden;
+}
+
+html.is-mobile-view .content-area {
+    -webkit-overflow-scrolling: touch;
+}
+
+/* ── MUI: dialog, drawer, menu, tablo ── */
+@media (max-width: 767.98px) {
+    .MuiDialog-container {
+        align-items: flex-end !important;
+    }
+
+    .MuiDialog-paper {
+        margin: 0 !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        max-height: min(92dvh, calc(var(--vh, 1vh) * 92)) !important;
+        border-radius: 20px 20px 0 0 !important;
+    }
+
+    .MuiDialog-paperScrollPaper {
+        max-height: min(92dvh, calc(var(--vh, 1vh) * 92)) !important;
+    }
+
+    .MuiDrawer-paper {
+        width: min(300px, 88vw) !important;
+        padding-bottom: env(safe-area-inset-bottom);
+    }
+
+    .MuiPopover-paper,
+    .MuiMenu-paper {
+        max-width: calc(100vw - 24px) !important;
+    }
+
+    .MuiTableContainer-root {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .MuiTabs-flexContainer {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+    }
+
+    .MuiTabs-flexContainer::-webkit-scrollbar {
+        display: none;
+    }
+
+    .MuiPagination-ul {
+        flex-wrap: wrap;
+        justify-content: center;
+    }
+}
+
+/* ── Ürün yönetimi modalları ── */
+@media (max-width: 767.98px) {
+    .ud-pm-modal-overlay {
+        padding: 0;
+        align-items: flex-end;
+        padding-bottom: env(safe-area-inset-bottom);
+    }
+
+    .ud-pm-modal {
+        width: 100%;
+        max-width: 100%;
+        max-height: min(92dvh, calc(var(--vh, 1vh) * 92));
+        border-radius: 20px 20px 0 0;
+        padding: 1rem;
+        margin: 0;
+    }
+
+    .ud-pm-modal-header {
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .ud-pm-modal-header .product-info {
+        width: 100%;
+    }
+
+    .ud-pm-tabs {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        padding-bottom: 4px;
+    }
+
+    .ud-pm-tabs::-webkit-scrollbar {
+        display: none;
+    }
+
+    .ud-pm-chpr-table-wrap {
+        margin-left: -4px;
+        margin-right: -4px;
+        border-radius: 10px;
+    }
+
+    .ud-pm-chpr-table {
+        min-width: 640px;
+        font-size: 11px;
+    }
+
+    .ud-pm-chpr-sticky-col {
+        min-width: 140px;
+        max-width: 160px;
+    }
+
+    .ud-pm-table-wrap {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .ud-pm-filters,
+    .ud-pm-toolbar,
+    .ud-pm-chpr-actions {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .ud-pm-filters > *,
+    .ud-pm-toolbar > * {
+        width: 100%;
+        max-width: 100%;
+    }
+}
+
+@media (max-width: 480px) {
+    .ud-pm-dash-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .ud-pm-chpr-table {
+        min-width: 560px;
+    }
+}
+
+/* ── Sipariş / stok / kargo sayfaları ── */
+@media (max-width: 767.98px) {
+    .order-container,
+    .stock-container,
+    .cargo-container,
+    .finance-dashboard,
+    .analytics-page {
+        padding-left: max(10px, env(safe-area-inset-left));
+        padding-right: max(10px, env(safe-area-inset-right));
+    }
+
+    .order-grid,
+    .product-grid,
+    .cargo-grid {
+        grid-template-columns: 1fr !important;
+    }
+
+    .filters-container,
+    .header-actions,
+    .dashboard-header {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .header-actions .MuiButton-root,
+    .header-actions button {
+        width: 100%;
+    }
+}
+
+/* ── Auth / landing ── */
+@media (max-width: 767.98px) {
+    .login-container,
+    .auth-page,
+    .mi-page {
+        min-height: 100dvh;
+        min-height: calc(var(--vh, 1vh) * 100);
+        padding-left: max(12px, env(safe-area-inset-left));
+        padding-right: max(12px, env(safe-area-inset-right));
+    }
+
+    .login-box,
+    .auth-form-card {
+        width: 100%;
+        max-width: 100%;
+    }
+}
+
+/* ── Admin panel ek güvenlik ── */
+@media (max-width: 767.98px) {
+    .ap-table-wrap,
+    .ap-body {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .ap-body table {
+        min-width: 520px;
+    }
+
+    .ap-hamburger {
+        top: calc(12px + env(safe-area-inset-top));
+        left: calc(12px + env(safe-area-inset-left));
+    }
+}
+
+/* ── Genel tablo kaydırma sarmalayıcı ── */
+.mobile-table-scroll,
+.table-responsive,
+.data-table-scroll {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+}
+
+/* Kart tabanlı liste (opsiyonel sınıf) */
+@media (max-width: 767.98px) {
+    .mobile-stack-cards {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .mobile-stack-cards .table-row,
+    .mobile-stack-cards tr {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        padding: 12px;
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+}
+
+/* PWA banner alt boşluk */
+html.is-mobile-view .pwa-install-banner,
+html.is-mobile-view .pwa-ios-instructions {
+    padding-bottom: calc(16px + env(safe-area-inset-bottom));
+}
+
+/* AI widget — mobilde tam genişlik */
+@media (max-width: 767.98px) {
+    .ai-chat-widget,
+    .ai-chat-panel {
+        max-width: calc(100vw - 16px) !important;
+        right: 8px !important;
+        left: 8px !important;
+        bottom: calc(8px + env(safe-area-inset-bottom)) !important;
+    }
+}

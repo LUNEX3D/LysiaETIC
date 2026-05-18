@@ -3,6 +3,12 @@ const moment = require("moment");
 const _ = require("lodash");
 const logger = require("../config/logger");
 const { marketplaceOrderDateToIsoString, trendyolOrderDateMsToUtcMs } = require("../utils/helpers");
+const {
+    resolveHepsiburadaOrderNumber,
+    splitHbDateRange,
+    HB_OMS_ORDERS_MAX_DAYS,
+    HB_OMS_PACKAGES_MAX_DAYS
+} = require("./hepsiburadaService");
 
 /**
  * Trendyol paket yanıtından brüt, satıcı/TY indirimi ve faturalanacak (packageTotalPrice) tutarları.
@@ -237,7 +243,12 @@ const fetchHepsiburadaOrders = async (merchantId, serviceKey, startDate, endDate
         // ── Yardımcı: OMS item'larını orderMap'e ekle ──
         const addItemsToMap = (items, defaultStatus) => {
             items.forEach(item => {
-                const orderNum = item.orderNumber || item.orderId || item.id;
+                const subItems = item.items || [];
+                const orderNum =
+                    (subItems.length > 0
+                        ? subItems.map((sub) => resolveHepsiburadaOrderNumber(sub, item)).find(Boolean)
+                        : null) ||
+                    resolveHepsiburadaOrderNumber(item, null);
                 if (!orderNum) return;
 
                 if (!allOrderMap.has(orderNum)) {
@@ -297,9 +308,6 @@ const fetchHepsiburadaOrders = async (merchantId, serviceKey, startDate, endDate
                 const lineTotal = itemTotalPrice > 0 ? itemTotalPrice : (itemUnitPrice * qty);
                 orderEntry.totalPrice += lineTotal;
 
-                // Packages endpoint'i items[] array'i içinde kalemler döner
-                // Orders endpoint'i her satırı ayrı item olarak döner
-                const subItems = item.items || [];
                 if (subItems.length > 0) {
                     // Packages response — items içinde kalemler var
                     subItems.forEach(sub => {
@@ -389,17 +397,11 @@ const fetchHepsiburadaOrders = async (merchantId, serviceKey, startDate, endDate
             return { items: allItems, totalCount: allItems.length };
         };
 
-        // Tarih formatı: YYYY-MM-DD HH:mm:ss
-        const fmtStart = moment(startDate).format('YYYY-MM-DD HH:mm:ss');
-        const fmtEnd = moment(endDate).format('YYYY-MM-DD HH:mm:ss');
-        const encStart = encodeURIComponent(fmtStart);
-        const encEnd = encodeURIComponent(fmtEnd);
+        const { formatHbOmsDateTime } = require("./hepsiburadaService");
 
-        // ═══════════════════════════════════════════════════════════════
-        // 1) Ödemesi Tamamlanmış Siparişler (Open/Unpacked) — limit max 100
-        // ═══════════════════════════════════════════════════════════════
-        logger.info(`🔍 [Hepsiburada] Adım 1: Ödemesi tamamlanmış siparişler çekiliyor...`);
-        try {
+        const fetchOrdersOpenForRange = async (rangeStart, rangeEnd) => {
+            const encStart = encodeURIComponent(formatHbOmsDateTime(rangeStart));
+            const encEnd = encodeURIComponent(formatHbOmsDateTime(rangeEnd));
             let offset = 0;
             const limit = 100;
             let hasMore = true;
@@ -409,8 +411,8 @@ const fetchHepsiburadaOrders = async (merchantId, serviceKey, startDate, endDate
                     const resp = await axios.get(url, { headers, timeout: 30000 });
                     const items = resp.data?.items || [];
                     if (!Array.isArray(items) || items.length === 0) { hasMore = false; break; }
-                    logger.info(`✅ [Hepsiburada Orders] ${items.length} kalem (offset=${offset})`);
-                    addItemsToMap(items, 'Open');
+                    logger.info(`✅ [Hepsiburada Orders] ${items.length} kalem (offset=${offset}, ${encStart} → ${encEnd})`);
+                    addItemsToMap(items, "Open");
                     if (items.length < limit) { hasMore = false; } else { offset += items.length; }
                     await new Promise(r => setTimeout(r, 300));
                 } catch (err) {
@@ -420,11 +422,54 @@ const fetchHepsiburadaOrders = async (merchantId, serviceKey, startDate, endDate
                         hasMore = false;
                     } else {
                         logger.warn(`⚠️ [Hepsiburada Orders] Hata: ${err.response?.status || err.message}`, {
-                            responseBody: JSON.stringify(err.response?.data || '').substring(0, 500)
+                            responseBody: JSON.stringify(err.response?.data || "").substring(0, 500)
                         });
                         hasMore = false;
                     }
                 }
+            }
+        };
+
+        const fetchPackagesByDatePath = async (pathSuffix, label, maxLimit = 50) => {
+            const chunks = splitHbDateRange(startDate, endDate, HB_OMS_PACKAGES_MAX_DAYS);
+            const ranges = chunks.length > 0 ? chunks : [{ start: moment(startDate), end: moment(endDate) }];
+            for (const range of ranges) {
+                const encStart = encodeURIComponent(formatHbOmsDateTime(range.start));
+                const encEnd = encodeURIComponent(formatHbOmsDateTime(range.end));
+                let offset = 0;
+                const limit = maxLimit;
+                let hasMore = true;
+                while (hasMore) {
+                    const url = `${BASE_URL}/packages/merchantid/${merchantId}/${pathSuffix}?begindate=${encStart}&enddate=${encEnd}&offset=${offset}&limit=${limit}`;
+                    try {
+                        const resp = await axios.get(url, { headers, timeout: 30000 });
+                        const items = resp.data?.items || resp.data || [];
+                        const arr = Array.isArray(items) ? items : [];
+                        if (arr.length === 0) { hasMore = false; break; }
+                        logger.info(`✅ [Hepsiburada ${label}] ${arr.length} kayıt (offset=${offset})`);
+                        addItemsToMap(arr, label);
+                        if (arr.length < limit) { hasMore = false; } else { offset += arr.length; }
+                        await new Promise(r => setTimeout(r, 300));
+                    } catch (err) {
+                        if (err.response?.status === 404 || err.response?.status === 401) { hasMore = false; }
+                        else {
+                            logger.warn(`⚠️ [Hepsiburada ${label}] Hata: ${err.response?.status || err.message}`);
+                            hasMore = false;
+                        }
+                    }
+                }
+            }
+        };
+
+        // ═══════════════════════════════════════════════════════════════
+        // 1) Ödemesi Tamamlanmış (Open) — HB çoğu hesapta ≤2 günlük aralık ister
+        // ═══════════════════════════════════════════════════════════════
+        logger.info(`🔍 [Hepsiburada] Adım 1: Ödemesi tamamlanmış siparişler çekiliyor...`);
+        try {
+            const orderChunks = splitHbDateRange(startDate, endDate, HB_OMS_ORDERS_MAX_DAYS);
+            const ranges = orderChunks.length > 0 ? orderChunks : [{ start: moment(startDate), end: moment(endDate) }];
+            for (const range of ranges) {
+                await fetchOrdersOpenForRange(range.start, range.end);
             }
         } catch (e) { logger.warn(`[Hepsiburada Orders] Genel hata: ${e.message}`); }
 
@@ -436,30 +481,7 @@ const fetchHepsiburadaOrders = async (merchantId, serviceKey, startDate, endDate
         // ═══════════════════════════════════════════════════════════════
         logger.info(`🔍 [Hepsiburada] Adım 1.5: İşlemde (Unpacked) siparişler çekiliyor...`);
         try {
-            let offset = 0;
-            const limit = 50;
-            let hasMore = true;
-            const unpStart = encodeURIComponent(moment().subtract(30, 'days').format('YYYY-MM-DD HH:mm:ss'));
-            const unpEnd = encodeURIComponent(moment().format('YYYY-MM-DD HH:mm:ss'));
-            while (hasMore) {
-                const url = `${BASE_URL}/packages/merchantid/${merchantId}/unpacked?begindate=${unpStart}&enddate=${unpEnd}&offset=${offset}&limit=${limit}`;
-                try {
-                    const resp = await axios.get(url, { headers, timeout: 30000 });
-                    const items = resp.data?.items || resp.data || [];
-                    const arr = Array.isArray(items) ? items : [];
-                    if (arr.length === 0) { hasMore = false; break; }
-                    logger.info(`✅ [Hepsiburada Unpacked] ${arr.length} sipariş (offset=${offset})`);
-                    addItemsToMap(arr, 'Unpacked');
-                    if (arr.length < limit) { hasMore = false; } else { offset += arr.length; }
-                    await new Promise(r => setTimeout(r, 300));
-                } catch (err) {
-                    if (err.response?.status === 404 || err.response?.status === 401) { hasMore = false; }
-                    else {
-                        logger.warn(`⚠️ [Hepsiburada Unpacked] Hata: ${err.response?.status || err.message}`);
-                        hasMore = false;
-                    }
-                }
-            }
+            await fetchPackagesByDatePath("unpacked", "Unpacked", 50);
         } catch (e) { logger.warn(`[Hepsiburada Unpacked] Genel hata: ${e.message}`); }
 
         // ═══════════════════════════════════════════════════════════════
@@ -498,93 +520,17 @@ const fetchHepsiburadaOrders = async (merchantId, serviceKey, startDate, endDate
         // ═══════════════════════════════════════════════════════════════
         logger.info(`🔍 [Hepsiburada] Adım 3: Kargoya verilmiş siparişler çekiliyor...`);
         try {
-            let offset = 0;
-            const limit = 50;
-            let hasMore = true;
-            // Son 30 gün — API max 1 ay
-            const shipStart = encodeURIComponent(moment().subtract(30, 'days').format('YYYY-MM-DD HH:mm:ss'));
-            const shipEnd = encodeURIComponent(moment().format('YYYY-MM-DD HH:mm:ss'));
-            while (hasMore) {
-                const url = `${BASE_URL}/packages/merchantid/${merchantId}/shipped?begindate=${shipStart}&enddate=${shipEnd}&offset=${offset}&limit=${limit}`;
-                try {
-                    const resp = await axios.get(url, { headers, timeout: 30000 });
-                    const items = resp.data?.items || resp.data || [];
-                    const arr = Array.isArray(items) ? items : [];
-                    if (arr.length === 0) { hasMore = false; break; }
-                    logger.info(`✅ [Hepsiburada Shipped] ${arr.length} sipariş (offset=${offset})`);
-                    addItemsToMap(arr, 'Shipped');
-                    if (arr.length < limit) { hasMore = false; } else { offset += arr.length; }
-                    await new Promise(r => setTimeout(r, 300));
-                } catch (err) {
-                    if (err.response?.status === 404 || err.response?.status === 401) { hasMore = false; }
-                    else {
-                        logger.warn(`⚠️ [Hepsiburada Shipped] Hata: ${err.response?.status || err.message}`);
-                        hasMore = false;
-                    }
-                }
-            }
+            await fetchPackagesByDatePath("shipped", "Shipped", 50);
         } catch (e) { logger.warn(`[Hepsiburada Shipped] Genel hata: ${e.message}`); }
 
-        // ═══════════════════════════════════════════════════════════════
-        // 4) Teslim Edilmiş Siparişler — son 1 ay, limit max 50
-        // ═══════════════════════════════════════════════════════════════
         logger.info(`🔍 [Hepsiburada] Adım 4: Teslim edilmiş siparişler çekiliyor...`);
         try {
-            let offset = 0;
-            const limit = 50;
-            let hasMore = true;
-            const delStart = encodeURIComponent(moment().subtract(30, 'days').format('YYYY-MM-DD HH:mm:ss'));
-            const delEnd = encodeURIComponent(moment().format('YYYY-MM-DD HH:mm:ss'));
-            while (hasMore) {
-                const url = `${BASE_URL}/packages/merchantid/${merchantId}/delivered?begindate=${delStart}&enddate=${delEnd}&offset=${offset}&limit=${limit}`;
-                try {
-                    const resp = await axios.get(url, { headers, timeout: 30000 });
-                    const items = resp.data?.items || resp.data || [];
-                    const arr = Array.isArray(items) ? items : [];
-                    if (arr.length === 0) { hasMore = false; break; }
-                    logger.info(`✅ [Hepsiburada Delivered] ${arr.length} sipariş (offset=${offset})`);
-                    addItemsToMap(arr, 'Delivered');
-                    if (arr.length < limit) { hasMore = false; } else { offset += arr.length; }
-                    await new Promise(r => setTimeout(r, 300));
-                } catch (err) {
-                    if (err.response?.status === 404 || err.response?.status === 401) { hasMore = false; }
-                    else {
-                        logger.warn(`⚠️ [Hepsiburada Delivered] Hata: ${err.response?.status || err.message}`);
-                        hasMore = false;
-                    }
-                }
-            }
+            await fetchPackagesByDatePath("delivered", "Delivered", 50);
         } catch (e) { logger.warn(`[Hepsiburada Delivered] Genel hata: ${e.message}`); }
 
-        // ═══════════════════════════════════════════════════════════════
-        // 5) İptal Edilmiş Siparişler — son 1 ay, limit max 50
-        // ═══════════════════════════════════════════════════════════════
         logger.info(`🔍 [Hepsiburada] Adım 5: İptal edilmiş siparişler çekiliyor...`);
         try {
-            let offset = 0;
-            const limit = 50;
-            let hasMore = true;
-            const canStart = encodeURIComponent(moment().subtract(30, 'days').format('YYYY-MM-DD HH:mm:ss'));
-            const canEnd = encodeURIComponent(moment().format('YYYY-MM-DD HH:mm:ss'));
-            while (hasMore) {
-                const url = `${BASE_URL}/packages/merchantid/${merchantId}/cancelled?begindate=${canStart}&enddate=${canEnd}&offset=${offset}&limit=${limit}`;
-                try {
-                    const resp = await axios.get(url, { headers, timeout: 30000 });
-                    const items = resp.data?.items || resp.data || [];
-                    const arr = Array.isArray(items) ? items : [];
-                    if (arr.length === 0) { hasMore = false; break; }
-                    logger.info(`✅ [Hepsiburada Cancelled] ${arr.length} sipariş (offset=${offset})`);
-                    addItemsToMap(arr, 'Cancelled');
-                    if (arr.length < limit) { hasMore = false; } else { offset += arr.length; }
-                    await new Promise(r => setTimeout(r, 300));
-                } catch (err) {
-                    if (err.response?.status === 404 || err.response?.status === 401) { hasMore = false; }
-                    else {
-                        logger.warn(`⚠️ [Hepsiburada Cancelled] Hata: ${err.response?.status || err.message}`);
-                        hasMore = false;
-                    }
-                }
-            }
+            await fetchPackagesByDatePath("cancelled", "Cancelled", 50);
         } catch (e) { logger.warn(`[Hepsiburada Cancelled] Genel hata: ${e.message}`); }
 
         // ═══════════════════════════════════════════════════════════════

@@ -1,10 +1,10 @@
 /**
  * PazarYonet — marka ve e-posta sabitleri (backend)
- * Doğrulama postası: info@pazaryonetim.com (Resend'de domain doğrulanmalı)
+ * Doğrulama postası: info@pazaryonet.com (Resend'de domain doğrulanmalı)
  */
 const BRAND_NAME = process.env.BRAND_NAME || "PazarYonet";
 
-const MAIL_DOMAIN = (process.env.MAIL_DOMAIN || "pazaryonetim.com").replace(/^@/, "");
+const MAIL_DOMAIN = (process.env.MAIL_DOMAIN || "pazaryonet.com").replace(/^@/, "");
 
 const DEFAULT_FROM = `PazarYonet <info@${MAIL_DOMAIN}>`;
 

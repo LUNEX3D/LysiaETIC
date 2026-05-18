@@ -646,11 +646,14 @@ const syncStockToAllMarketplaces = async (userId, productMapping, newStock, excl
                                 marketplaceMapping.marketplaceSku ||
                                 masterSku ||
                                 masterBarcode,
-                            hepsiburadaSku:
-                                marketplaceMapping.marketplaceProductId ||
-                                marketplaceMapping.marketplaceSku ||
-                                masterSku ||
-                                masterBarcode,
+                            hepsiburadaSku: (() => {
+                                const { isHbCatalogSku } = require("./hepsiburadaService");
+                                const pid = String(marketplaceMapping.marketplaceProductId || "").trim();
+                                if (isHbCatalogSku(pid)) return pid;
+                                const bc = String(marketplaceMapping.marketplaceBarcode || "").trim();
+                                if (isHbCatalogSku(bc)) return bc;
+                                return pid || bc || "";
+                            })(),
                         };
                     break;
                 default:
@@ -688,12 +691,17 @@ const syncStockToAllMarketplaces = async (userId, productMapping, newStock, excl
                     marketplaceMapping.listPrice ??
                     productMapping.masterProduct?.listPrice ??
                     fallbackSale;
-                if (fallbackSale != null && fallbackSale !== "") {
+                const saleNum = Number(fallbackSale);
+                if (Number.isFinite(saleNum) && saleNum > 0) {
+                    const listNum = Number(fallbackList);
                     effectivePriceUpdate = {
-                        salePrice: Number(fallbackSale) || 0,
-                        listPrice: Number(fallbackList) || Number(fallbackSale) || 0,
+                        salePrice: saleNum,
+                        listPrice: Number.isFinite(listNum) && listNum > 0 ? listNum : saleNum,
                     };
                     logger.info(`[HEPSIBURADA STOCK] Fiyat fallback aktif — salePrice=${effectivePriceUpdate.salePrice} listPrice=${effectivePriceUpdate.listPrice}`);
+                } else {
+                    effectivePriceUpdate = null;
+                    logger.warn(`[HEPSIBURADA STOCK] Geçerli satış fiyatı yok (0 veya boş) — yalnızca stok güncellemesi denenecek; ürün/master fiyatını kontrol edin`);
                 }
             }
 
@@ -965,19 +973,57 @@ const updateHepsiburadaStock = async (credentials, productId, newStock, priceUpd
         const rawMerchantSku = typeof productId === "object"
             ? productId.merchantSku
             : productId;
+        const { isHbCatalogSku } = require("./hepsiburadaService");
         const rawHbSku = typeof productId === "object"
-            ? (productId.hepsiburadaSku || productId.merchantSku)
-            : productId;
+            ? (isHbCatalogSku(productId.hepsiburadaSku) ? productId.hepsiburadaSku : "")
+            : (isHbCatalogSku(productId) ? productId : "");
 
-        const hbs = String(rawHbSku || "").trim();
+        let hbs = String(rawHbSku || "").trim();
         const ms = normalizeHbMerchantSku(rawMerchantSku) || String(rawMerchantSku || "").toUpperCase().replace(/\s+/g, "");
+        if (!isHbCatalogSku(hbs) && ms) {
+            try {
+                const probe = await checkHbReadbackStock(ep, merchantId, secretKey, userAgent, ms, "");
+                if (probe.found && isHbCatalogSku(probe.hepsiburadaSku)) {
+                    hbs = String(probe.hepsiburadaSku).trim();
+                }
+            } catch (_) { /* listing araması opsiyonel */ }
+        }
+        if (!hbs && isHbCatalogSku(rawHbSku)) hbs = String(rawHbSku).trim();
+        const saleNum = priceUpdate?.salePrice != null && priceUpdate?.salePrice !== ""
+            ? Number(priceUpdate.salePrice)
+            : NaN;
+        const listNum = priceUpdate?.listPrice != null && priceUpdate?.listPrice !== ""
+            ? Number(priceUpdate.listPrice)
+            : NaN;
+        const hasValidPrice = Number.isFinite(saleNum) && saleNum > 0;
+
+        if (!hasValidPrice) {
+            try {
+                const fallbackResp = await runHbSingleUpdate(ep, merchantId, secretKey, userAgent, hbs, ms, newStock, null);
+                if (fallbackResp.status >= 200 && fallbackResp.status < 300) {
+                    logger.info(`[HEPSIBURADA STOCK] ✅ Stok-only (tekil endpoint) — merchantSku=${ms} hbSku=${hbs} stok=${newStock}`);
+                    return { success: true, response: fallbackResp.data, fallback: "single-update-stock-only" };
+                }
+            } catch (fbErr) {
+                const fbMsg = fbErr.response?.data?.message || fbErr.message;
+                return {
+                    success: false,
+                    error: fbMsg || "Hepsiburada stok güncellemesi için geçerli satış fiyatı gerekli (ürün fiyatını panelde tanımlayın)"
+                };
+            }
+            return {
+                success: false,
+                error: "Hepsiburada: geçerli satış fiyatı olmadan inventory-uploads yapılamaz; ürün fiyatını kontrol edin"
+            };
+        }
+
         const listing = {
             hepsiburadaSku: hbs,
             merchantSku: ms || hbs,
-            availableStock: newStock
+            availableStock: newStock,
+            price: saleNum,
+            listPrice: Number.isFinite(listNum) && listNum > 0 ? listNum : saleNum
         };
-        if (priceUpdate?.salePrice) listing.price = priceUpdate.salePrice;
-        if (priceUpdate?.listPrice) listing.listPrice = priceUpdate.listPrice;
 
         const response = await postInventoryUploadListing({
             ep,
@@ -1068,11 +1114,15 @@ const updateHepsiburadaStock = async (credentials, productId, newStock, priceUpd
                                     };
                                 }
                             } else if (!readback.found) {
-                                logger.warn(`[HEPSIBURADA STOCK] Read-back listing bulunamadı — merchantSku=${ms} hbSku=${hbs}`);
+                                logger.warn(
+                                    `[HEPSIBURADA STOCK] Read-back listing bulunamadı (upload onaylı) — merchantSku=${ms} hbSku=${hbs || "-"}; ` +
+                                    "HBCV SKU mapping kontrol edin"
+                                );
                                 return {
-                                    success: false,
-                                    error: "HB read-back listing bulunamadı",
-                                    response: { uploadId: inventoryUploadId }
+                                    success: true,
+                                    response: stData,
+                                    inventoryUploadId,
+                                    readbackSkipped: true
                                 };
                             }
                         } catch (rbErr) {

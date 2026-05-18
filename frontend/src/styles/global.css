@@ -113,13 +113,14 @@ video {
 
     button {
         padding: 8px 12px;
-        font-size: 13px;
+        font-size: 14px;
     }
 
     input,
     select {
-        padding: 8px;
-        font-size: 13px;
+        padding: 10px;
+        /* iOS Safari odakta zoom önleme */
+        font-size: 16px;
     }
 
     .card {

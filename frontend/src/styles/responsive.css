@@ -67,13 +67,22 @@ body.pwa-standalone {
 }
 
 /* ── Touch-Friendly Targets (WCAG 2.5.5 — 44x44px minimum) ── */
-button,
-a,
-input,
+button:not(.pm-btn-xs):not(.ud-pm-icon-btn),
+a.nav-link-touch,
+input[type="button"],
+input[type="submit"],
+input[type="reset"],
 select,
 textarea,
-[role="button"],
-.clickable {
+[role="button"]:not(.icon-only) {
+    min-height: 44px;
+}
+
+/* İkon-only kontroller — 44px dokunma alanı padding ile */
+button.icon-only,
+.menu-toggle,
+.mobile-hamburger,
+.ap-hamburger {
     min-height: 44px;
     min-width: 44px;
 }

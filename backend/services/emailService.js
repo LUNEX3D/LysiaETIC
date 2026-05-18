@@ -34,11 +34,44 @@ const mailHeaders = () => ({
     reply_to: REPLY_TO_EMAIL,
 });
 
+/** Resend hata mesajını kullanıcı/operatör için okunur hale getir */
+function formatResendError(error) {
+    if (!error) return "E-posta servisi yanıt vermedi.";
+    const msg = error.message || error.error || String(error);
+    if (/domain is not verified/i.test(msg)) {
+        return `Gönderen domain Resend'de doğrulanmamış (${FROM_EMAIL}). resend.com/domains üzerinden DNS kayıtlarını ekleyin.`;
+    }
+    if (/only send testing emails to your own/i.test(msg)) {
+        return "Resend test modu: yalnızca hesap sahibi e-postasına gönderim yapılabilir. Domain doğrulaması gerekli.";
+    }
+    return msg;
+}
+
+exports.formatResendError = formatResendError;
+
 /**
  * Doğrulama e-postası gönder
  */
-exports.sendVerificationEmail = async (user, token) => {
+exports.sendVerificationEmail = async (user, token, verificationCode) => {
     const verifyUrl = `${APP_URL}/verify-email?token=${token}`;
+    const codeBlock = verificationCode
+        ? `
+                            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 28px;background:#f0fdf4;border-radius:12px;border:1px solid #bbf7d0;">
+                                <tr>
+                                    <td style="padding:20px 24px;text-align:center;">
+                                        <p style="color:#166534;font-size:13px;font-weight:600;margin:0 0 10px;letter-spacing:0.04em;text-transform:uppercase;">
+                                            Doğrulama kodunuz
+                                        </p>
+                                        <p style="color:#14532d;font-size:32px;font-weight:800;margin:0;letter-spacing:0.35em;font-family:ui-monospace,monospace;">
+                                            ${verificationCode}
+                                        </p>
+                                        <p style="color:#4ade80;font-size:12px;margin:12px 0 0;">
+                                            Bu kodu giriş ekranında veya doğrulama sayfasında girebilirsiniz.
+                                        </p>
+                                    </td>
+                                </tr>
+                            </table>`
+        : "";
 
     const htmlContent = `
 <!DOCTYPE html>
@@ -76,10 +109,12 @@ exports.sendVerificationEmail = async (user, token) => {
                             <h1 style="color:#1a1a2e;font-size:24px;font-weight:700;margin:0 0 8px;text-align:center;">
                                 E-posta Adresinizi Doğrulayın
                             </h1>
-                            <p style="color:#64748b;font-size:15px;line-height:1.6;text-align:center;margin:0 0 32px;">
+                            <p style="color:#64748b;font-size:15px;line-height:1.6;text-align:center;margin:0 0 24px;">
                                 Merhaba <strong style="color:#1a1a2e;">${user.name}</strong>, ${BRAND_NAME}'e hoş geldiniz!<br>
-                                Hesabınızı aktifleştirmek için aşağıdaki butona tıklayın.
+                                Hesabınızı aktifleştirmek için doğrulama kodunu girin veya aşağıdaki butona tıklayın.
                             </p>
+
+                            ${codeBlock}
 
                             <!-- CTA Button -->
                             <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto;">
@@ -133,11 +168,12 @@ exports.sendVerificationEmail = async (user, token) => {
     // Plain text versiyonu (spam filtrelerini geçmek için önemli)
     const textContent = `Merhaba ${user.name},
 
-${BRAND_NAME}'e hoş geldiniz! Hesabınızı aktifleştirmek için aşağıdaki bağlantıya tıklayın:
-
+${BRAND_NAME}'e hoş geldiniz!
+${verificationCode ? `\nDoğrulama kodunuz: ${verificationCode}\n` : ""}
+Hesabınızı aktifleştirmek için bağlantı:
 ${verifyUrl}
 
-Bu bağlantı 24 saat geçerlidir.
+Bu kod ve bağlantı 24 saat geçerlidir.
 Eğer bu hesabı siz oluşturmadıysanız, bu e-postayı görmezden gelebilirsiniz.
 
 © ${new Date().getFullYear()} ${BRAND_NAME}`;
@@ -155,15 +191,16 @@ Eğer bu hesabı siz oluşturmadıysanız, bu e-postayı görmezden gelebilirsin
         });
 
         if (error) {
-            logger.error(`Resend e-posta hatası: ${JSON.stringify(error)}`);
-            return { success: false, error };
+            const detail = formatResendError(error);
+            logger.error(`Resend doğrulama e-postası hatası → ${user.email}: ${detail}`);
+            return { success: false, error, message: detail };
         }
 
-        logger.info(`Doğrulama e-postası gönderildi: ${user.email} (ID: ${data?.id})`);
+        logger.info(`Doğrulama e-postası gönderildi: ${user.email} (ID: ${data?.id}) from=${FROM_EMAIL}`);
         return { success: true, id: data?.id };
     } catch (err) {
         logger.error(`E-posta gönderim hatası: ${err.message}`);
-        return { success: false, error: err.message };
+        return { success: false, error: err.message, message: err.message };
     }
 };
 

@@ -11,9 +11,9 @@ export const BRAND_AI = "PazarYonet AI";
 export const BRAND_RADAR = "PazarYonet Radar";
 export const BRAND_AGENT = "PazarYonet Agent";
 export const BRAND_LOGO_SRC = "/brand/pazaryonet-logo.svg";
-/** Doğrulama ve iletişim — pazaryonetim.com posta kutusu */
-export const BRAND_EMAIL = "info@pazaryonetim.com";
-export const BRAND_MAIL_DOMAIN = "pazaryonetim.com";
+/** Doğrulama ve iletişim */
+export const BRAND_EMAIL = "info@pazaryonet.com";
+export const BRAND_MAIL_DOMAIN = "pazaryonet.com";
 export const BRAND_VERIFY_EMAIL_NOTE =
-    "Kayıt ve e-posta doğrulama mesajları info@pazaryonetim.com adresinden gönderilir.";
+    "Kayıt ve e-posta doğrulama mesajları info@pazaryonet.com adresinden gönderilir.";
 export const BRAND_INTEGRATOR = "PazarYonet";

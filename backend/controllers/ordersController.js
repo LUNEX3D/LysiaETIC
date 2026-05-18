@@ -137,10 +137,19 @@ async function syncOrdersBackground(userId, marketplaceName, rawOrders) {
         if (stockCode && !skuMap.has(stockCode)) skuMap.set(stockCode, mp);
     });
 
+    const { resolveHepsiburadaOrderNumber, isHbInternalId } = require("../services/hepsiburadaService");
+    const mpNorm = String(marketplaceName || "").toLowerCase();
+    const isHepsiburadaMp = mpNorm.includes("hepsi");
+
     for (const order of rawOrders) {
         try {
-            const orderNumber = order.orderNumber || order.id;
-            if (!orderNumber) { skipped++; continue; }
+            const orderNumber = isHepsiburadaMp
+                ? (resolveHepsiburadaOrderNumber(order) || order.orderNumber)
+                : (order.orderNumber || order.id);
+            if (!orderNumber || (isHepsiburadaMp && isHbInternalId(orderNumber))) {
+                skipped++;
+                continue;
+            }
 
             // Ayni siparis zaten var mi kontrol et
             const exists = await Order.findOne({
@@ -148,9 +157,13 @@ async function syncOrdersBackground(userId, marketplaceName, rawOrders) {
                 marketplaceName: marketplaceName,
                 trackingNumber: String(orderNumber)
             });
-            if (exists) { 
-                // ✅ MEVCUT SİPARİŞİ GÜNCELLE: Eksik görsel varsa Product modelinden zenginleştir
+            if (exists) {
                 let needsUpdate = false;
+                if (isHepsiburadaMp && isHbInternalId(exists.trackingNumber) && !isHbInternalId(orderNumber)) {
+                    exists.trackingNumber = String(orderNumber);
+                    needsUpdate = true;
+                }
+                // ✅ MEVCUT SİPARİŞİ GÜNCELLE: Eksik görsel varsa Product modelinden zenginleştir
                 const updatedItems = exists.items.map(item => {
                     const barcode = String(item.barcode || "").trim();
                     const sku = String(item.sku || item.merchantSku || "").trim();

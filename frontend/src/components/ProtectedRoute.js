@@ -14,11 +14,15 @@ import React, { useState, useEffect, useCallback } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 import axios from "../services/api";
 import LegalAcceptanceModal from "./LegalAcceptanceModal";
+import { restoreSessionIfPossible } from "../utils/authSession";
 
 const ProtectedRoute = ({ children, requiredRoles = [] }) => {
     const location = useLocation();
-    // ✅ FIX H7: rememberMe — hem localStorage hem sessionStorage'dan token oku
-    const token = localStorage.getItem("token") || sessionStorage.getItem("token");
+    const [sessionToken, setSessionToken] = useState(
+        () => localStorage.getItem("token") || sessionStorage.getItem("token")
+    );
+    const [sessionBooting, setSessionBooting] = useState(!sessionToken);
+    const token = sessionToken;
     const [resolvedRole, setResolvedRole] = useState(localStorage.getItem("userRole") || null);
 
     // ✅ LEGAL: Yasal onay durumu
@@ -59,10 +63,42 @@ const ProtectedRoute = ({ children, requiredRoles = [] }) => {
     useEffect(() => {
         if (token) {
             checkLegalAcceptance();
-        } else {
-            setLegalChecked(true);
+            return;
         }
+        let cancelled = false;
+        (async () => {
+            const profile = await restoreSessionIfPossible();
+            if (cancelled) return;
+            if (profile?._id) {
+                setSessionToken(localStorage.getItem("token") || sessionStorage.getItem("token"));
+                setResolvedRole(profile.role || localStorage.getItem("userRole"));
+            }
+            setSessionBooting(false);
+            if (!profile?._id) setLegalChecked(true);
+        })();
+        return () => { cancelled = true; };
     }, [token, checkLegalAcceptance]);
+
+    if (sessionBooting) {
+        return (
+            <div style={{
+                minHeight: "100vh",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                background: "#0f1419",
+            }}>
+                <div style={{
+                    width: 36, height: 36,
+                    border: "3px solid rgba(124,92,252,0.2)",
+                    borderTopColor: "#7c5cfc",
+                    borderRadius: "50%",
+                    animation: "spin 0.8s linear infinite"
+                }} />
+                <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+            </div>
+        );
+    }
 
     // Token yoksa login'e yönlendir
     if (!token) {

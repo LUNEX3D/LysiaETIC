@@ -21,6 +21,7 @@ import DashboardMockup from "./auth/DashboardMockup";
 import { PlantDecoration, GoogleIcon, AuthFooter } from "./auth/AuthShared";
 import { BRAND_EMAIL, BRAND_VERIFY_EMAIL_NOTE } from "../constants/brand";
 import MarketplaceBlogSection from "./MarketplaceBlogSection";
+import { persistAuthSession, restoreSessionIfPossible } from "../utils/authSession";
 
 const GOOGLE_CLIENT_ID = process.env.REACT_APP_GOOGLE_CLIENT_ID || "";
 
@@ -78,12 +79,15 @@ const LoginFormInner = () => {
         };
         fetchPrices();
     }, []);
+
     const [message, setMessage] = useState({ text: "", type: "" });
     const [isLoading, setIsLoading] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
     const [rememberMe, setRememberMe] = useState(() => {
-        return localStorage.getItem("rememberMe") !== "false";
+        const stored = localStorage.getItem("rememberMe");
+        return stored === null ? true : stored === "true";
     });
+    const [autoLoginChecked, setAutoLoginChecked] = useState(false);
     const [needsVerification, setNeedsVerification] = useState(false);
     const [resendLoading, setResendLoading] = useState(false);
 
@@ -97,6 +101,25 @@ const LoginFormInner = () => {
 
     const navigate = useNavigate();
 
+    // Beni hatırla: kayıtlı oturum varsa şifre sormadan yönlendir
+    useEffect(() => {
+        if (autoLoginChecked) return;
+        let cancelled = false;
+        (async () => {
+            const profile = await restoreSessionIfPossible();
+            if (cancelled || !profile?._id) {
+                if (!cancelled) setAutoLoginChecked(true);
+                return;
+            }
+            if (profile.role === "admin") {
+                navigate("/admin", { replace: true });
+            } else {
+                navigate("/dashboard", { replace: true });
+            }
+        })();
+        return () => { cancelled = true; };
+    }, [autoLoginChecked, navigate]);
+
     const handleChange = (e) => {
         setFormData({ ...formData, [e.target.name]: e.target.value });
         setMessage({ text: "", type: "" });
@@ -109,7 +132,10 @@ const LoginFormInner = () => {
         setMessage({ text: "", type: "" });
 
         try {
-            const response = await axios.post("/auth/login", formData);
+            const response = await axios.post("/auth/login", {
+                ...formData,
+                rememberMe,
+            });
 
             //  FIX: Yeni token' NCE kaydet  axios interceptor localStorage'dan okuyor
             // ESK: Eski/bozuk token localStorage'da kalyordu  interceptor eski token'
@@ -124,25 +150,12 @@ const LoginFormInner = () => {
                 return;
             }
 
-            //  FIX H7: rememberMe  localStorage vs sessionStorage doru kullanm
-            //  FIX #12: refreshToken' da kaydet
-            if (rememberMe) {
-                localStorage.setItem("token", response.data.token);
-                if (response.data.refreshToken) localStorage.setItem("refreshToken", response.data.refreshToken);
-                sessionStorage.removeItem("token");
-                sessionStorage.removeItem("refreshToken");
-            } else {
-                sessionStorage.setItem("token", response.data.token);
-                if (response.data.refreshToken) sessionStorage.setItem("refreshToken", response.data.refreshToken);
-                localStorage.removeItem("token");
-                localStorage.removeItem("refreshToken");
-            }
-            localStorage.setItem("rememberMe", rememberMe.toString());
-
-            localStorage.setItem("userId", userResponse.data._id);
-            localStorage.setItem("userEmail", userResponse.data.email);
-            localStorage.setItem("userName", userResponse.data.name || "Bilinmiyor");
-            localStorage.setItem("userRole", userResponse.data.role || "user");
+            persistAuthSession({
+                token: response.data.token,
+                refreshToken: response.data.refreshToken,
+                rememberMe: response.data.rememberMe ?? rememberMe,
+                user: userResponse.data,
+            });
 
             setMessage({ text: t("auth.loginSuccess"), type: "success" });
 
@@ -202,15 +215,14 @@ const LoginFormInner = () => {
                 access_token: tokenResponse.access_token
             });
 
-            localStorage.setItem("token", response.data.token);
-            //  FIX #12: refreshToken' da kaydet
-            if (response.data.refreshToken) localStorage.setItem("refreshToken", response.data.refreshToken);
+            persistAuthSession({
+                token: response.data.token,
+                refreshToken: response.data.refreshToken,
+                rememberMe: true,
+                user: response.data.user,
+            });
 
             const user = response.data.user;
-            localStorage.setItem("userId", user._id);
-            localStorage.setItem("userEmail", user.email);
-            localStorage.setItem("userName", user.name || "Bilinmiyor");
-            localStorage.setItem("userRole", user.role || "user");
 
             setMessage({ text: t("auth.googleLoginSuccess"), type: "success" });
 
@@ -439,7 +451,12 @@ const LoginFormInner = () => {
                 <div className="auth-options-row">
                     <label className="auth-remember" onClick={() => setRememberMe(!rememberMe)}>
                         <div className={`auth-checkbox ${rememberMe ? "checked" : ""}`}><FaCheck /></div>
-                        <span className="auth-remember-text">{t("auth.rememberMe")}</span>
+                        <span className="auth-remember-text">
+                            {t("auth.rememberMe")}
+                            <small style={{ display: "block", opacity: 0.75, fontWeight: 400, marginTop: 2 }}>
+                                30 gün şifre sormaz; oturumu kapatınca sıfırlanır
+                            </small>
+                        </span>
                     </label>
                     <button type="button" className="auth-forgot" onClick={() => { setForgotMode("email"); setMessage({ text: "", type: "" }); }}>
                         {t("auth.forgotPassword")}

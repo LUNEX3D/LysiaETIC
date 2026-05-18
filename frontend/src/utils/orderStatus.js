@@ -46,6 +46,35 @@ export const getOrderStatusLabelTr = (status) => {
     return raw;
 };
 
+/** Dashboard / sipariş listesinde güvenli tarih gösterimi */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** HB dahil — panelde gösterilecek sipariş numarası (UUID iç id değil) */
+export const formatOrderNumberForDisplay = (order) => {
+    const candidates = [order?.orderNumber, order?.packageNumber, order?.trackingNumber];
+    for (const c of candidates) {
+        const s = String(c ?? "").trim();
+        if (!s || UUID_RE.test(s)) continue;
+        return s;
+    }
+    return "N/A";
+};
+
+export const parseOrderDateForDisplay = (value) => {
+    if (value == null || value === "") return null;
+    const direct = new Date(value);
+    if (!Number.isNaN(direct.getTime())) return direct;
+
+    const s = String(value).trim();
+    const tr = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})(?:\s+(\d{1,2}):(\d{2}))?/);
+    if (tr) {
+        const [, d, mo, y, h = "0", mi = "0"] = tr;
+        const parsed = new Date(Number(y), Number(mo) - 1, Number(d), Number(h), Number(mi));
+        if (!Number.isNaN(parsed.getTime())) return parsed;
+    }
+    return null;
+};
+
 export const classifyOrderStatus = (status) => {
     const key = normalizeStatus(status);
     if (includesAny(key, ["create", "new", "open", "waiting"])) return "new";

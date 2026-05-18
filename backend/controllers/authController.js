@@ -16,23 +16,35 @@ const getRefreshSecret = () => {
     return process.env.JWT_SECRET + "_refresh_fallback";
 };
 
+const REMEMBER_REFRESH_DAYS = 30;
+const SESSION_REFRESH_DAYS = 1;
+
+function refreshDuration(rememberMe) {
+    return rememberMe ? `${REMEMBER_REFRESH_DAYS}d` : `${SESSION_REFRESH_DAYS}d`;
+}
+
+function refreshExpiresAt(rememberMe) {
+    const days = rememberMe ? REMEMBER_REFRESH_DAYS : SESSION_REFRESH_DAYS;
+    return new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+}
+
 // ✅ SEC #2: Access + Refresh token çifti oluştur ve refresh token'ı DB'ye kaydet
-// ✅ FIX: Atomik güncelleme ile Mongoose version conflict önlendi
-const generateTokenPair = async (user, device = "unknown") => {
+// rememberMe=true → 30 gün refresh; false → 1 gün (tarayıcı oturumu)
+const generateTokenPair = async (user, device = "unknown", rememberMe = false) => {
     const accessToken = jwt.sign(
         { id: user._id, role: user.role },
         process.env.JWT_SECRET,
-        { expiresIn: "1d" }
+        { expiresIn: rememberMe ? "7d" : "1d" }
     );
 
     const refreshToken = jwt.sign(
-        { id: user._id, type: "refresh" },
+        { id: user._id, type: "refresh", remember: !!rememberMe },
         getRefreshSecret(),
-        { expiresIn: "7d" }
+        { expiresIn: refreshDuration(rememberMe) }
     );
 
     const now = new Date();
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 gün
+    const expiresAt = refreshExpiresAt(rememberMe);
 
     const newTokenEntry = {
         token: refreshToken,
@@ -112,9 +124,11 @@ exports.register = async (req, res) => {
             return conflict(res, "Bu e-posta adresi zaten kayıtlı.");
         }
 
-        // Doğrulama token'ı oluştur
+        // Doğrulama token + 6 haneli kod
         const verificationToken = crypto.randomBytes(32).toString("hex");
         const verificationTokenExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 saat
+        const verificationCode = String(Math.floor(100000 + Math.random() * 900000));
+        const verificationCodeExpires = verificationTokenExpires;
 
         const hashedPassword = await bcrypt.hash(password, 10);
 
@@ -133,6 +147,8 @@ exports.register = async (req, res) => {
             authProvider: "local",
             verificationToken,
             verificationTokenExpires,
+            verificationCode,
+            verificationCodeExpires,
             subscription: {
                 plan: "trial",
                 status: "trial",
@@ -146,14 +162,31 @@ exports.register = async (req, res) => {
         await newUser.save();
 
         // Doğrulama e-postası gönder
-        const emailResult = await sendVerificationEmail(newUser, verificationToken);
+        const emailResult = await sendVerificationEmail(newUser, verificationToken, verificationCode);
 
         if (!emailResult.success) {
-            logger.warn(`Doğrulama e-postası gönderilemedi: ${newUser.email} — ${JSON.stringify(emailResult.error)}`);
+            logger.warn(`Doğrulama e-postası gönderilemedi: ${newUser.email} — ${emailResult.message || JSON.stringify(emailResult.error)}`);
         }
 
         logger.info(`Yeni kullanıcı kaydedildi: ${newUser.email} (doğrulama bekliyor)`);
-        return created(res, "Kayıt başarılı! E-posta adresinize bir doğrulama bağlantısı gönderdik.", { emailSent: emailResult.success });
+
+        const payload = {
+            emailSent: emailResult.success,
+            email: newUser.email,
+        };
+        if (!emailResult.success) {
+            payload.emailError = emailResult.message || "Doğrulama e-postası gönderilemedi.";
+        }
+        // Geliştirme: domain doğrulanmadıysa kodu API'de göster (production'da asla)
+        if (!emailResult.success && process.env.NODE_ENV !== "production") {
+            payload.verificationCodeDev = verificationCode;
+        }
+
+        const userMessage = emailResult.success
+            ? "Kayıt başarılı! E-postanıza doğrulama kodu ve bağlantı gönderildi."
+            : "Kayıt oluşturuldu ancak doğrulama e-postası şu an gönderilemedi. Aşağıdaki kodu kullanın veya 'Tekrar gönder' deneyin.";
+
+        return created(res, userMessage, payload);
     } catch (error) {
         logger.error(`Kayıt hatası: ${error.message}`);
         return serverError(res, error);
@@ -187,12 +220,56 @@ exports.verifyEmail = async (req, res) => {
         user.emailVerified = true;
         user.verificationToken = undefined;
         user.verificationTokenExpires = undefined;
+        user.verificationCode = undefined;
+        user.verificationCodeExpires = undefined;
         await user.save();
 
         logger.info(`E-posta doğrulandı: ${user.email}`);
         return ok(res, "E-posta adresiniz başarıyla doğrulandı! Artık giriş yapabilirsiniz.");
     } catch (error) {
         logger.error(`E-posta doğrulama hatası: ${error.message}`);
+        return serverError(res, error);
+    }
+};
+
+// ─── VERIFY EMAIL BY CODE ───────────────────────────────────────────────────────
+exports.verifyEmailByCode = async (req, res) => {
+    try {
+        const { email, code } = req.body;
+        if (!email || !code) {
+            return badRequest(res, "E-posta ve doğrulama kodu zorunludur.");
+        }
+
+        const normalizedCode = String(code).trim().replace(/\s/g, "");
+        if (!/^\d{6}$/.test(normalizedCode)) {
+            return badRequest(res, "Geçerli 6 haneli doğrulama kodu girin.");
+        }
+
+        const user = await User.findOne({
+            email: email.toLowerCase().trim(),
+            verificationCode: normalizedCode,
+            verificationCodeExpires: { $gt: new Date() },
+        });
+
+        if (!user) {
+            return badRequest(res, "Geçersiz veya süresi dolmuş doğrulama kodu.");
+        }
+
+        if (user.emailVerified) {
+            return ok(res, "E-posta adresiniz zaten doğrulanmış.");
+        }
+
+        user.emailVerified = true;
+        user.verificationToken = undefined;
+        user.verificationTokenExpires = undefined;
+        user.verificationCode = undefined;
+        user.verificationCodeExpires = undefined;
+        await user.save();
+
+        logger.info(`E-posta kod ile doğrulandı: ${user.email}`);
+        return ok(res, "E-posta adresiniz başarıyla doğrulandı! Artık giriş yapabilirsiniz.");
+    } catch (error) {
+        logger.error(`Kod ile doğrulama hatası: ${error.message}`);
         return serverError(res, error);
     }
 };
@@ -219,14 +296,31 @@ exports.resendVerification = async (req, res) => {
 
         // Yeni token oluştur
         const verificationToken = crypto.randomBytes(32).toString("hex");
+        const verificationCode = String(Math.floor(100000 + Math.random() * 900000));
         user.verificationToken = verificationToken;
         user.verificationTokenExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
+        user.verificationCode = verificationCode;
+        user.verificationCodeExpires = user.verificationTokenExpires;
         await user.save();
 
-        const emailResult = await sendVerificationEmail(user, verificationToken);
+        const emailResult = await sendVerificationEmail(user, verificationToken, verificationCode);
 
-        logger.info(`Doğrulama e-postası yeniden gönderildi: ${user.email}`);
-        return ok(res, "Eğer bu e-posta kayıtlıysa, doğrulama bağlantısı gönderildi.", { emailSent: emailResult.success });
+        const payload = { emailSent: emailResult.success };
+        if (!emailResult.success) {
+            payload.emailError = emailResult.message;
+            if (process.env.NODE_ENV !== "production") {
+                payload.verificationCodeDev = verificationCode;
+            }
+            logger.warn(`Doğrulama e-postası yeniden gönderilemedi: ${user.email} — ${emailResult.message}`);
+        } else {
+            logger.info(`Doğrulama e-postası yeniden gönderildi: ${user.email}`);
+        }
+
+        const msg = emailResult.success
+            ? "Doğrulama e-postası gönderildi."
+            : "E-posta gönderilemedi. Resend domain doğrulamasını kontrol edin.";
+
+        return ok(res, msg, payload);
     } catch (error) {
         logger.error(`Yeniden doğrulama hatası: ${error.message}`);
         return serverError(res, error);
@@ -274,7 +368,8 @@ exports.login = async (req, res) => {
     logger.info(`[LOGIN-IN] email="${req.body?.email || "?"}" origin="${_diagOrigin}" ip="${_diagIp}" ref="${_diagRef.slice(0, 80)}" ua="${_diagUa}"`);
 
     try {
-        const { email, password } = req.body;
+        const { email, password, rememberMe } = req.body;
+        const persistSession = rememberMe === true || rememberMe === "true" || rememberMe === 1;
 
         if (!email || !password) {
             logger.warn(`[LOGIN-OUT] 400 — eksik alan (email="${email}" passwordSet=${!!password})`);
@@ -331,14 +426,21 @@ exports.login = async (req, res) => {
 
         // 🛡️ SEC #2: Access + Refresh token çifti oluştur (ayrı secret, DB'de saklanır)
         const device = req.headers["user-agent"] || "unknown";
-        const { accessToken, refreshToken } = await generateTokenPair(user, device);
+        const { accessToken, refreshToken } = await generateTokenPair(user, device, persistSession);
 
         // Şifre hash'i ve refreshTokens response'dan çıkarıldı
         const { password: _pw, refreshTokens: _rt, ...safeUser } = user.toObject();
 
-        logger.info(`Kullanıcı giriş yaptı: ${user.email} (${user.role})`);
+        logger.info(`Kullanıcı giriş yaptı: ${user.email} (${user.role}) remember=${persistSession}`);
         // Not: token/refreshToken/user üst seviyede — frontend uyumluluğu için
-        return res.status(200).json({ success: true, message: "Giriş başarılı!", token: accessToken, refreshToken, user: safeUser });
+        return res.status(200).json({
+            success: true,
+            message: "Giriş başarılı!",
+            token: accessToken,
+            refreshToken,
+            rememberMe: persistSession,
+            user: safeUser,
+        });
     } catch (error) {
         logger.error(`Giriş hatası: ${error.message}`);
         return serverError(res, error);
@@ -440,11 +542,18 @@ exports.googleAuth = async (req, res) => {
 
         // 🛡️ SEC #2: Access + Refresh token çifti oluştur (ayrı secret, DB'de saklanır)
         const device = req.headers["user-agent"] || "google-oauth";
-        const { accessToken, refreshToken } = await generateTokenPair(user, device);
+        const { accessToken, refreshToken } = await generateTokenPair(user, device, true);
         const { password: _pw, refreshTokens: _rt, ...safeUser } = user.toObject();
 
         logger.info(`Google ile giriş yapıldı: ${user.email} (${user.role})`);
-        return res.status(200).json({ success: true, message: "Google ile giriş başarılı!", token: accessToken, refreshToken, user: safeUser });
+        return res.status(200).json({
+            success: true,
+            message: "Google ile giriş başarılı!",
+            token: accessToken,
+            refreshToken,
+            rememberMe: true,
+            user: safeUser,
+        });
     } catch (error) {
         logger.error(`Google auth hatası: ${error.message}`);
         return serverError(res, error, "Google ile giriş yapılamadı.");
@@ -614,17 +723,17 @@ exports.refreshToken = async (req, res) => {
             return unauthorized(res, "Geçersiz refresh token! Tüm oturumlar kapatıldı.");
         }
 
-        // 5-6. Eski token'ı sil + yeni token çifti oluştur (atomik — version conflict önlenir)
+        const rememberMe = decoded.remember === true;
         const device = req.headers["user-agent"] || "unknown";
         const newAccessToken = jwt.sign(
             { id: user._id, role: user.role },
             process.env.JWT_SECRET,
-            { expiresIn: "1d" }
+            { expiresIn: rememberMe ? "7d" : "1d" }
         );
         const newRefreshToken = jwt.sign(
-            { id: user._id, type: "refresh" },
+            { id: user._id, type: "refresh", remember: rememberMe },
             getRefreshSecret(),
-            { expiresIn: "7d" }
+            { expiresIn: refreshDuration(rememberMe) }
         );
 
         const now = new Date();
@@ -632,7 +741,7 @@ exports.refreshToken = async (req, res) => {
             token: newRefreshToken,
             device,
             createdAt: now,
-            expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+            expiresAt: refreshExpiresAt(rememberMe),
         };
 
         // Atomik: eski token'ı sil + süresi dolmuşları temizle + yeni token ekle
@@ -648,7 +757,13 @@ exports.refreshToken = async (req, res) => {
         );
 
         logger.info(`Token yenilendi (rotation): ${user.email}`);
-        return res.status(200).json({ success: true, message: "Token yenilendi.", token: newAccessToken, refreshToken: newRefreshToken });
+        return res.status(200).json({
+            success: true,
+            message: "Token yenilendi.",
+            token: newAccessToken,
+            refreshToken: newRefreshToken,
+            rememberMe,
+        });
     } catch (error) {
         logger.error(`Token yenileme hatası: ${error.message}`);
         return serverError(res, error);

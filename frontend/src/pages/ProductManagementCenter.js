@@ -21,7 +21,7 @@ import {
     FaBolt, FaClipboardList, FaImage, FaFolderOpen, FaMagic,
     FaArrowRight, FaArrowLeft, FaSave, FaCloudUploadAlt, FaShieldAlt,
     FaPercentage, FaLayerGroup, FaExclamationTriangle, FaCheckCircle,
-    FaTimesCircle, FaInfoCircle, FaCubes, FaSitemap, FaSpinner, FaObjectGroup
+    FaTimesCircle, FaInfoCircle, FaCubes, FaSitemap, FaSpinner, FaObjectGroup, FaUndo
 } from "react-icons/fa";
 import {
     getProducts, getProductDetail, updateProduct, deleteProduct,
@@ -104,6 +104,21 @@ const getPlMap = (p, name) => (p.marketplaceMappings || []).find(m => normMP(m.m
 /** syncStatus fark etmeksizin eşleşme (pazaryeri fiyat sekmesi) */
 const getPlMappingAny = (p, name) => (p.marketplaceMappings || []).find(m => normMP(m.marketplaceName) === normMP(name));
 const getPlStatus = (p, name) => { const m = getPlMap(p, name); if (!m) return { exists: false }; return { exists: true, status: m.syncStatus || (m.isActive !== false ? "active" : "inactive"), price: m.price, stock: m.stock, lastSync: m.lastSyncDate }; };
+
+const buildChDraftFromProduct = (p) => {
+    const master = p?.masterProduct || {};
+    const d = {};
+    for (const pl of PLATFORMS) {
+        const m = getPlMappingAny(p, pl);
+        const sale = m?.price != null && m.price !== "" ? m.price : master.price;
+        const list = m?.listPrice != null && m.listPrice !== "" ? m.listPrice : (master.listPrice != null ? master.listPrice : sale);
+        d[pl] = {
+            sale: sale == null ? "" : String(sale),
+            list: list == null ? "" : String(list)
+        };
+    }
+    return d;
+};
 
 /* ═══════════════════════════════════════════════════════════════════
    ANA BİLEŞEN
@@ -268,10 +283,8 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
     const [chTabPage, setChTabPage] = useState(0);
     const [chTabSearch, setChTabSearch] = useState("");
     const [chTabLoading, setChTabLoading] = useState(false);
-    const [chSelectedId, setChSelectedId] = useState(null);
-    const [chDetail, setChDetail] = useState(null);
-    const [chDetailLoading, setChDetailLoading] = useState(false);
-    const [chDraft, setChDraft] = useState({});
+    /** productId → { [platform]: { sale, list } } */
+    const [chEditMap, setChEditMap] = useState({});
     const [chRowAction, setChRowAction] = useState("");
 
     const [catSelectedNode, setCatSelectedNode] = useState(null); // { id, name, path, platform }
@@ -929,25 +942,6 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
         return () => clearTimeout(t);
     }, [chTabSearch]); // eslint-disable-line
 
-    useEffect(() => {
-        if (!chDetail) {
-            setChDraft({});
-            return;
-        }
-        const d = {};
-        const master = chDetail.masterProduct || {};
-        for (const pl of PLATFORMS) {
-            const m = getPlMappingAny(chDetail, pl);
-            const sale = m?.price != null && m.price !== "" ? m.price : master.price;
-            const list = m?.listPrice != null && m.listPrice !== "" ? m.listPrice : (master.listPrice != null ? master.listPrice : sale);
-            d[pl] = {
-                sale: sale == null ? "" : String(sale),
-                list: list == null ? "" : String(list)
-            };
-        }
-        setChDraft(d);
-    }, [chDetail]);
-
     // ── Actions ──
     const openDetail = async (id) => {
         setDetailLoading(true); setShowDetail(true);
@@ -977,23 +971,20 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
         finally { setActionLoading(""); }
     };
 
-    const selectChProduct = async (id) => {
-        setChSelectedId(id);
-        setChDetailLoading(true);
-        setChDetail(null);
-        try {
-            const r = await getProductDetail(id);
-            setChDetail(r.product);
-        } catch { showToast("Ürün detayı alınamadı", "error"); }
-        finally { setChDetailLoading(false); }
+    const setChEditField = (productId, pl, field, value) => {
+        setChEditMap((prev) => {
+            const row = prev[productId] || buildChDraftFromProduct(chTabProducts.find((x) => String(x._id) === String(productId)) || {});
+            return {
+                ...prev,
+                [productId]: {
+                    ...row,
+                    [pl]: { ...(row[pl] || { sale: "", list: "" }), [field]: value }
+                }
+            };
+        });
     };
 
-    const setChDraftField = (pl, field, value) => {
-        setChDraft((prev) => ({
-            ...prev,
-            [pl]: { ...(prev[pl] || { sale: "", list: "" }), [field]: value }
-        }));
-    };
+    const getChRowDraft = (p) => chEditMap[p._id] || buildChDraftFromProduct(p);
 
     const parseChMoney = (v) => {
         if (v === "" || v == null) return null;
@@ -1001,65 +992,67 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
         return Number.isNaN(n) ? null : n;
     };
 
-    const saveChLocal = async (pl) => {
-        if (!chDetail) return;
-        const sale = parseChMoney(chDraft[pl]?.sale);
-        const list = parseChMoney(chDraft[pl]?.list);
+    const saveChLocal = async (productId, pl) => {
+        const p = chTabProducts.find((x) => String(x._id) === String(productId));
+        const draft = getChRowDraft(p || {});
+        const sale = parseChMoney(draft[pl]?.sale);
+        const list = parseChMoney(draft[pl]?.list);
         if (sale == null || sale <= 0) { showToast("Geçerli satış fiyatı girin", "error"); return; }
         const listFin = list != null && list > 0 ? list : sale;
-        setChRowAction(`${pl}-local`);
+        setChRowAction(`${productId}-${pl}-local`);
         try {
-            await updateChannelPricesLocal(chDetail._id, [{ marketplaceName: pl, price: sale, listPrice: listFin }]);
+            await updateChannelPricesLocal(productId, [{ marketplaceName: pl, price: sale, listPrice: listFin }]);
             showToast(`${pl}: panelde kaydedildi`);
-            const r = await getProductDetail(chDetail._id);
-            setChDetail(r.product);
             loadChTabProducts(chTabPage);
         } catch (e) {
             showToast(e?.response?.data?.error || "Kayıt başarısız", "error");
         } finally { setChRowAction(""); }
     };
 
-    const pushChPrice = async (pl) => {
-        if (!chDetail) return;
-        const sale = parseChMoney(chDraft[pl]?.sale);
-        const list = parseChMoney(chDraft[pl]?.list);
+    const pushChPrice = async (productId, pl) => {
+        const p = chTabProducts.find((x) => String(x._id) === String(productId));
+        const draft = getChRowDraft(p || {});
+        const sale = parseChMoney(draft[pl]?.sale);
+        const list = parseChMoney(draft[pl]?.list);
         if (sale == null || sale <= 0) { showToast("Geçerli satış fiyatı girin", "error"); return; }
         const listFin = list != null && list > 0 ? list : null;
-        setChRowAction(`${pl}-push`);
+        setChRowAction(`${productId}-${pl}-push`);
         try {
-            await syncPrice(chDetail._id, sale, listFin, pl);
+            await syncPrice(productId, sale, listFin, pl);
             showToast(`${pl}: pazaryerine iletildi`);
-            const r = await getProductDetail(chDetail._id);
-            setChDetail(r.product);
             loadChTabProducts(chTabPage);
         } catch (e) {
             showToast(e?.response?.data?.error || e?.response?.data?.details || "Pazaryeri güncellemesi başarısız", "error");
         } finally { setChRowAction(""); }
     };
 
-    const fillChDraftFromMaster = () => {
-        const master = chDetail?.masterProduct || {};
+    const fillChRowFromMaster = (productId) => {
+        const p = chTabProducts.find((x) => String(x._id) === String(productId));
+        if (!p) return;
+        const master = p.masterProduct || {};
         const mp = Number(master.price);
         const lp = master.listPrice != null && master.listPrice !== "" ? Number(master.listPrice) : mp;
-        if (!chDetail || !Number.isFinite(mp) || mp <= 0) {
+        if (!Number.isFinite(mp) || mp <= 0) {
             showToast("Master satış fiyatı yok veya geçersiz", "error");
             return;
         }
         const listVal = Number.isFinite(lp) && lp > 0 ? lp : mp;
-        setChDraft((prev) => {
-            const next = { ...prev };
+        setChEditMap((prev) => {
+            const next = { ...(prev[productId] || buildChDraftFromProduct(p)) };
             for (const pl of PLATFORMS) {
-                if (!getPlMappingAny(chDetail, pl)) continue;
+                if (!getPlMappingAny(p, pl)) continue;
                 next[pl] = { sale: String(mp), list: String(listVal) };
             }
-            return next;
+            return { ...prev, [productId]: next };
         });
-        showToast("Taslaklar master referans fiyatıyla dolduruldu", "success");
+        showToast("Satırlar master fiyatıyla dolduruldu", "success");
     };
 
-    const chListedCount = chDetail
-        ? PLATFORMS.filter((pl) => getPlMappingAny(chDetail, pl)).length
-        : 0;
+    const resetChRowDraft = (productId) => {
+        const p = chTabProducts.find((x) => String(x._id) === String(productId));
+        if (!p) return;
+        setChEditMap((prev) => ({ ...prev, [productId]: buildChDraftFromProduct(p) }));
+    };
 
     // Silme onay modal'ını aç
     const askDelete = (id) => {
@@ -1468,199 +1461,167 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
        TAB: PAZARYERİ BAZLI FİYATLAR
        ═══════════════════════════════════════════════════════════════ */
     const renderChannelPrices = () => {
-        const master = chDetail?.masterProduct || {};
         const chPages = Math.max(1, Math.ceil(chTabTotal / LIMIT));
+        const colSpan = 2 + PLATFORMS.length * 2 + 1;
         return (
-            <div className="ud-pm-chpr-root">
-                <div className="ud-pm-chpr-hero ud-pm-card">
-                    <div className="ud-pm-chpr-hero-main">
-                        <div className="ud-pm-chpr-hero-icon" aria-hidden><FaPercentage /></div>
-                        <div className="ud-pm-chpr-hero-copy">
-                            <h3 className="ud-pm-chpr-title"><FaDollarSign /> Pazaryeri fiyatları</h3>
-                            <p className="ud-pm-chpr-sub">Soldan ürün seçin; her pazaryeri için satış ve liste fiyatını girin. Önce <strong>Panelde kaydet</strong>, ardından <strong>Pazaryerine gönder</strong> ile canlı güncelleyin.</p>
-                        </div>
+            <motion.div className="ud-pm-chpr-root ud-pm-chpr-root--list">
+                <div className="ud-pm-toolbar ud-pm-toolbar--card ud-pm-chpr-toolbar">
+                    <div className="ud-pm-search-wrap">
+                        <span className="icon"><FaSearch /></span>
+                        <input
+                            className="ud-pm-search"
+                            value={chTabSearch}
+                            onChange={(e) => setChTabSearch(e.target.value)}
+                            placeholder="Ürün adı, barkod veya SKU…"
+                            aria-label="Pazaryeri fiyatlarında ara"
+                        />
                     </div>
-                    <ol className="ud-pm-chpr-steps" aria-label="İşlem adımları">
-                        <li><span className="ud-pm-chpr-step-num">1</span> Ürün seç</li>
-                        <li><span className="ud-pm-chpr-step-num">2</span> Fiyatları düzenle</li>
-                        <li><span className="ud-pm-chpr-step-num">3</span> Kaydet / gönder</li>
-                    </ol>
+                    <div className="ud-pm-spacer" />
+                    <Pill color="var(--ud-pm-accent)">{chTabTotal} ürün</Pill>
                 </div>
-                <div className="ud-pm-chpr-layout">
-                    <div className="ud-pm-chpr-list ud-pm-card">
-                        <div className="ud-pm-chpr-list-top">
-                            <div className="ud-pm-chpr-list-title">
-                                <FaLayerGroup /> Ürünler
-                                <span className="ud-pm-chpr-count">{chTabTotal}</span>
-                            </div>
-                        </div>
-                        <div className="ud-pm-search-wrap ud-pm-chpr-search">
-                            <span className="icon"><FaSearch /></span>
-                            <input className="ud-pm-search" value={chTabSearch} onChange={(e) => setChTabSearch(e.target.value)} placeholder="Ad, barkod veya SKU…" aria-label="Pazaryeri fiyatlarında ürün ara" />
-                        </div>
-                        {chTabLoading ? <Loading /> : chTabProducts.length === 0 ? <Empty title="Ürün yok" desc="Aramayı değiştirin veya ürün ekleyin." />
-                            : (
-                                <div className="ud-pm-chpr-list-scroll">
-                                    {chTabProducts.map((row) => {
-                                        const mp = row.masterProduct || {};
-                                        const active = chSelectedId && String(chSelectedId) === String(row._id);
-                                        const nListed = PLATFORMS.filter((pl) => getPlMappingAny(row, pl)).length;
-                                        return (
-                                            <button
-                                                key={row._id}
-                                                type="button"
-                                                className={`ud-pm-chpr-list-item ${active ? "active" : ""}`}
-                                                onClick={() => selectChProduct(row._id)}
-                                            >
-                                                {mp.images?.[0] ? <img src={mp.images[0]} alt="" className="ud-pm-chpr-thumb" /> : <div className="ud-pm-chpr-thumb ph"><FaBox /></div>}
-                                                <div className="ud-pm-chpr-list-meta">
-                                                    <div className="ud-pm-chpr-list-name">{mp.name || "İsimsiz"}</div>
-                                                    <div className="ud-pm-chpr-list-sub">{mp.barcode || "—"} · {fmt(mp.price)}</div>
-                                                    <div className="ud-pm-chpr-list-footer">
-                                                        <div className="ud-pm-chpr-list-pldots" aria-hidden>
-                                                            {PLATFORMS.map((pl) => {
-                                                                const on = getPlMappingAny(row, pl);
-                                                                return (
-                                                                    <span
-                                                                        key={pl}
-                                                                        className={`ud-pm-chpr-pldot ${on ? "on" : ""}`}
-                                                                        style={{ "--pl": PL_COLOR[pl] }}
-                                                                        title={pl}
-                                                                    />
-                                                                );
-                                                            })}
-                                                        </div>
-                                                        <span className="ud-pm-chpr-list-plhint">{nListed}/{PLATFORMS.length} kanal</span>
-                                                    </div>
-                                                </div>
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-                            )}
-                        <Pagination currentPage={chTabPage} totalPages={chPages} total={chTabTotal} onPageChange={(p) => loadChTabProducts(p)} />
-                    </div>
-                    <div className="ud-pm-chpr-panel ud-pm-card">
-                        {!chSelectedId ? (
-                            <div className="ud-pm-chpr-placeholder">
-                                <div className="ud-pm-chpr-placeholder-icon"><FaStore /></div>
-                                <div className="ud-pm-chpr-placeholder-title">Ürün seçilmedi</div>
-                                <p>Soldaki listeden bir ürün seçerek pazaryeri fiyatlarını görüntüleyip düzenleyebilirsiniz.</p>
-                            </div>
-                        ) : chDetailLoading ? <Loading /> : !chDetail ? <Empty title="Yüklenemedi" />
-                            : (
-                                <>
-                                    <div className="ud-pm-chpr-summary">
-                                        <div className="ud-pm-chpr-product-head">
-                                            {master.images?.[0] ? <img src={master.images[0]} alt="" className="ud-pm-chpr-hero-img" /> : <div className="ud-pm-chpr-hero-img ph"><FaBox /></div>}
-                                            <div className="ud-pm-chpr-product-head-text">
-                                                <h4 className="ud-pm-chpr-product-title">{master.name}</h4>
-                                                <div className="ud-pm-chpr-badges">
-                                                    <Pill color="var(--ud-pm-accent)"><FaBarcode style={{ fontSize: 8 }} /> {master.barcode}</Pill>
-                                                    {master.sku && <Pill color="var(--ud-pm-purple)">{master.sku}</Pill>}
-                                                    <span className="ud-pm-chpr-kanal-badge">{chListedCount} aktif kanal</span>
-                                                </div>
-                                                <div className="ud-pm-chpr-master-strip">
-                                                    <div className="ud-pm-chpr-master-row">
-                                                        <div className="ud-pm-chpr-master-ref">
-                                                            <span className="ud-pm-chpr-master-label">Master referans</span>
-                                                            <strong>{fmt(master.price)}</strong>
-                                                            {master.listPrice != null && master.listPrice !== master.price && (
-                                                                <span className="ud-pm-chpr-master-list"> · Liste {fmt(master.listPrice)}</span>
-                                                            )}
-                                                        </div>
-                                                        <button type="button" className="ud-pm-btn sm accent outline ud-pm-chpr-fill-master" onClick={fillChDraftFromMaster} disabled={chListedCount === 0}>
-                                                            <FaBolt /> Referansı doldur
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div className="ud-pm-chpr-channels-head">
-                                        <span className="ud-pm-chpr-channels-title">Kanal fiyatları</span>
-                                        <span className="ud-pm-chpr-channels-hint">Her satır bağımsız kaydedilir</span>
-                                    </div>
-                                    <div className="ud-pm-chpr-channels">
-                                        {PLATFORMS.map((pl) => {
-                                            const m = getPlMappingAny(chDetail, pl);
-                                            const listed = !!m;
-                                            const rowBusy = chRowAction.startsWith(`${pl}-`);
-                                            const d = chDraft[pl] || { sale: "", list: "" };
-                                            return (
-                                                <div
-                                                    key={pl}
-                                                    className={`ud-pm-chpr-card ${listed ? "is-listed" : "is-muted"}`}
-                                                    style={{ "--chpr-accent": PL_COLOR[pl] }}
-                                                >
-                                                    <div className="ud-pm-chpr-card-head">
-                                                        <span className="ud-pm-chpr-pl ud-pm-chpr-pl--lg" style={{ color: PL_COLOR[pl] }}>
-                                                            {MP_LOGO[pl]} {pl}
-                                                        </span>
-                                                        {listed ? (
-                                                            <span className="ud-pm-chpr-card-badge ud-pm-chpr-card-badge--ok">Kayıtlı</span>
-                                                        ) : (
-                                                            <span className="ud-pm-chpr-card-badge">Bu kanalda yok</span>
-                                                        )}
-                                                    </div>
-                                                    {listed ? (
-                                                        <>
-                                                            <div className="ud-pm-chpr-card-fields">
-                                                                <label className="ud-pm-chpr-field">
-                                                                    <span>Satış (₺)</span>
-                                                                    <input
-                                                                        className="ud-pm-chpr-input"
-                                                                        value={d.sale}
-                                                                        onChange={(e) => setChDraftField(pl, "sale", e.target.value)}
-                                                                        inputMode="decimal"
-                                                                        placeholder="0,00"
-                                                                    />
-                                                                </label>
-                                                                <label className="ud-pm-chpr-field">
-                                                                    <span>Liste (₺)</span>
-                                                                    <input
-                                                                        className="ud-pm-chpr-input"
-                                                                        value={d.list}
-                                                                        onChange={(e) => setChDraftField(pl, "list", e.target.value)}
-                                                                        inputMode="decimal"
-                                                                        placeholder="0,00"
-                                                                    />
-                                                                </label>
-                                                            </div>
-                                                            <div className="ud-pm-chpr-card-live">
-                                                                <span className="ud-pm-chpr-card-live-label">Kayıtlı fiyat</span>
-                                                                <span className="ud-pm-chpr-now">
-                                                                    {m.price != null ? fmt(m.price) : "—"}
-                                                                    {m.listPrice != null && m.listPrice !== m.price && <small> · liste {fmt(m.listPrice)}</small>}
-                                                                </span>
-                                                            </div>
-                                                            <div className="ud-pm-chpr-card-actions">
-                                                                <button type="button" className="ud-pm-btn sm muted ud-pm-chpr-card-btn" disabled={rowBusy} onClick={() => saveChLocal(pl)} title="Sadece panel veritabanı">
-                                                                    {rowBusy && chRowAction === `${pl}-local` ? <span className="spinner" /> : <FaSave />} Panelde kaydet
-                                                                </button>
-                                                                <button type="button" className="ud-pm-btn sm green ud-pm-chpr-card-btn ud-pm-chpr-btn-mp" disabled={rowBusy} onClick={() => pushChPrice(pl)} title="Pazaryeri API">
-                                                                    {rowBusy && chRowAction === `${pl}-push` ? <span className="spinner" /> : <FaGlobe />} Pazaryerine gönder
-                                                                </button>
-                                                            </div>
-                                                        </>
+                <p className="ud-pm-chpr-list-hint">
+                    <FaInfoCircle /> Satırda fiyatları düzenleyin. <strong>Kaydet</strong> panel veritabanını günceller; <strong>Gönder</strong> ilgili pazaryerine canlı iletir.
+                </p>
+                <div className="ud-pm-table-wrap ud-pm-chpr-table-wrap">
+                    <div className="ud-pm-table-scroll">
+                        <table className="ud-pm-table ud-pm-chpr-table">
+                            <thead>
+                                <tr className="ud-pm-chpr-head-main">
+                                    <th rowSpan={2} className="ud-pm-chpr-sticky-col">Ürün</th>
+                                    <th rowSpan={2} className="right ud-pm-chpr-sticky-master">Master</th>
+                                    {PLATFORMS.map((pl) => (
+                                        <th key={pl} colSpan={2} className="center ud-pm-chpr-pl-head" style={{ "--pl-color": PL_COLOR[pl] }}>
+                                            <span className="ud-pm-chpr-pl-label">{MP_LOGO[pl]} {PL_SHORT[pl]}</span>
+                                        </th>
+                                    ))}
+                                    <th rowSpan={2} className="center ud-pm-chpr-sticky-actions">Satır</th>
+                                </tr>
+                                <tr className="ud-pm-chpr-head-sub">
+                                    {PLATFORMS.map((pl) => (
+                                        <React.Fragment key={`${pl}-sub`}>
+                                            <th className="center ud-pm-chpr-sub-th">Satış</th>
+                                            <th className="center ud-pm-chpr-sub-th">Liste</th>
+                                        </React.Fragment>
+                                    ))}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {chTabLoading ? (
+                                    <tr><td colSpan={colSpan}><Loading /></td></tr>
+                                ) : chTabProducts.length === 0 ? (
+                                    <tr><td colSpan={colSpan}><Empty icon={FaPercentage} title="Ürün bulunamadı" desc="Aramayı değiştirin veya ürün ekleyin." /></td></tr>
+                                ) : chTabProducts.map((p) => {
+                                    const mp = p.masterProduct || {};
+                                    const draft = getChRowDraft(p);
+                                    const nListed = PLATFORMS.filter((pl) => getPlMappingAny(p, pl)).length;
+                                    return (
+                                        <tr key={p._id}>
+                                            <td className="ud-pm-chpr-sticky-col">
+                                                <div className="product-cell">
+                                                    {mp.images?.[0] ? (
+                                                        <img src={mp.images[0]} alt="" className="product-img" />
                                                     ) : (
-                                                        <p className="ud-pm-chpr-card-hint">Bu ürün bu pazaryerine dağıtılmamış; fiyat alanları kapalıdır.</p>
+                                                        <div className="product-img-placeholder"><FaBox /></div>
+                                                    )}
+                                                    <div style={{ minWidth: 0, flex: 1 }}>
+                                                        <div className="product-name ps-product-name" title={mp.name}>{mp.name || "İsimsiz"}</div>
+                                                        <div className="mono-dim">{mp.barcode || "—"}</div>
+                                                        <span className="ud-pm-chpr-row-channels">{nListed}/{PLATFORMS.length} kanal</span>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                            <td className="right ud-pm-chpr-sticky-master">
+                                                <div className="ud-pm-chpr-master-cell">
+                                                    <strong>{fmt(mp.price)}</strong>
+                                                    {mp.listPrice != null && mp.listPrice !== mp.price && (
+                                                        <small>Liste {fmt(mp.listPrice)}</small>
                                                     )}
                                                 </div>
-                                            );
-                                        })}
-                                    </div>
-                                    <div className="ud-pm-chpr-footnote ud-pm-chpr-footnote--box">
-                                        <FaInfoCircle className="ud-pm-chpr-footnote-ico" />
-                                        <div>
-                                            <strong>Panelde kaydet</strong> yalnızca veritabanını günceller. <strong>Pazaryerine gönder</strong> ilgili API ile canlı fiyat güncellemesi dener; ürünün o platformda aktif olması gerekir.
-                                        </div>
-                                    </div>
-                                </>
-                            )}
+                                            </td>
+                                            {PLATFORMS.map((pl) => {
+                                                const m = getPlMappingAny(p, pl);
+                                                const listed = !!m;
+                                                const d = draft[pl] || { sale: "", list: "" };
+                                                const busyLocal = chRowAction === `${p._id}-${pl}-local`;
+                                                const busyPush = chRowAction === `${p._id}-${pl}-push`;
+                                                if (!listed) {
+                                                    return (
+                                                        <React.Fragment key={pl}>
+                                                            <td colSpan={2} className="center ud-pm-chpr-cell-off">—</td>
+                                                        </React.Fragment>
+                                                    );
+                                                }
+                                                return (
+                                                    <React.Fragment key={pl}>
+                                                        <td className="center ud-pm-chpr-price-td">
+                                                            <input
+                                                                type="text"
+                                                                className="ud-pm-inline-input ud-pm-chpr-mini-input"
+                                                                value={d.sale}
+                                                                onChange={(e) => setChEditField(p._id, pl, "sale", e.target.value)}
+                                                                inputMode="decimal"
+                                                                placeholder="Satış"
+                                                                aria-label={`${pl} satış fiyatı`}
+                                                            />
+                                                            <div className="ud-pm-chpr-cell-actions">
+                                                                <button
+                                                                    type="button"
+                                                                    className="ud-pm-chpr-icon-btn"
+                                                                    title="Panelde kaydet"
+                                                                    disabled={!!chRowAction}
+                                                                    onClick={() => saveChLocal(p._id, pl)}
+                                                                >
+                                                                    {busyLocal ? <span className="spinner" /> : <FaSave />}
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    className="ud-pm-chpr-icon-btn ud-pm-chpr-icon-btn--mp"
+                                                                    title="Pazaryerine gönder"
+                                                                    disabled={!!chRowAction}
+                                                                    onClick={() => pushChPrice(p._id, pl)}
+                                                                >
+                                                                    {busyPush ? <span className="spinner" /> : <FaGlobe />}
+                                                                </button>
+                                                            </div>
+                                                        </td>
+                                                        <td className="center ud-pm-chpr-price-td">
+                                                            <input
+                                                                type="text"
+                                                                className="ud-pm-inline-input ud-pm-chpr-mini-input"
+                                                                value={d.list}
+                                                                onChange={(e) => setChEditField(p._id, pl, "list", e.target.value)}
+                                                                inputMode="decimal"
+                                                                placeholder="Liste"
+                                                                aria-label={`${pl} liste fiyatı`}
+                                                            />
+                                                            {m.price != null && (
+                                                                <div className="ud-pm-chpr-saved-hint" title="Kayıtlı fiyat">
+                                                                    {fmt(m.price)}
+                                                                </div>
+                                                            )}
+                                                        </td>
+                                                    </React.Fragment>
+                                                );
+                                            })}
+                                            <td className="center ud-pm-chpr-sticky-actions">
+                                                <div className="ud-pm-chpr-row-btns">
+                                                    <button type="button" className="ud-pm-btn sm accent outline" onClick={() => fillChRowFromMaster(p._id)} disabled={nListed === 0} title="Master fiyatıyla doldur">
+                                                        <FaBolt />
+                                                    </button>
+                                                    <button type="button" className="ud-pm-btn sm muted" onClick={() => resetChRowDraft(p._id)} title="Sıfırla">
+                                                        <FaUndo />
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
                     </div>
                 </div>
-            </div>
+                <Pagination currentPage={chTabPage} totalPages={chPages} total={chTabTotal} onPageChange={(pg) => loadChTabProducts(pg)} />
+            </motion.div>
         );
     };
 

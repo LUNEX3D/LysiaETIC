@@ -122,6 +122,129 @@ const getHeadersForGet = (merchantId, secretKey, userAgent) => ({
     Accept: "application/json"
 });
 
+/** HB satır/kalem `id` alanı (UUID) — sipariş no olarak kullanılmamalı */
+const isHbInternalId = (value) => {
+    const s = String(value ?? "").trim();
+    if (!s) return true;
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+};
+
+/** Satıcı panelindeki sipariş no genelde sayısal (UUID / paket iç id değil) */
+const isLikelyHbMerchantOrderNumber = (value) => {
+    const s = String(value ?? "").trim();
+    if (!s || isHbInternalId(s)) return false;
+    if (/^\d{6,14}$/.test(s)) return true;
+    return /^[A-Z0-9]{6,20}$/i.test(s) && !s.includes("-");
+};
+
+/** OMS /orders endpoint uzun aralıkta 400 (GetPackageLinesBadRequestError) döner — HB ~24 saat penceresi */
+const HB_OMS_ORDERS_MAX_DAYS = 1;
+const HB_OMS_PACKAGES_MAX_DAYS = 7;
+
+/** HB OMS begindate/enddate — dokümantasyon: YYYY-MM-DD HH:mm (saniye opsiyonel) */
+const formatHbOmsDateTime = (value) => {
+    const moment = require("moment");
+    return moment(value).format("YYYY-MM-DD HH:mm");
+};
+
+/** Katalog SKU (HBCV…) — merchantSku ile karıştırılmamalı */
+const isHbCatalogSku = (value) => /^HBCV/i.test(String(value ?? "").trim());
+
+/**
+ * Otomatik sipariş / lineitem kargo — HB CargoCompanyShortName (ör. HEPSIJET, YK).
+ */
+const resolveHbCargoShortCode = (cargoId, cargoName) => {
+    const norm = (s) =>
+        String(s ?? "")
+            .trim()
+            .toUpperCase()
+            .replace(/İ/g, "I")
+            .replace(/ı/g, "I")
+            .replace(/\s+/g, "_");
+    const idN = norm(cargoId);
+    const nameN = norm(cargoName);
+    const aliases = {
+        HEPSIJET: "HEPSIJET",
+        HEPSI_JET: "HEPSIJET",
+        YURTICI_KARGO: "YK",
+        YURTICI: "YK",
+        ARAS_KARGO: "AR",
+        ARAS: "AR",
+        MNG_KARGO: "MNG",
+        MNG: "MNG",
+        PTT_KARGO: "PTT",
+        PTT: "PTT",
+        SURAT_KARGO: "SURAT",
+        SURAT: "SURAT",
+        UPS_KARGO: "UPS",
+        HOROZ_LOJISTIK: "HOROZ",
+        CEVA_LOJISTIK: "CEVA",
+        TRENDYOL_EXPRESS: "TEX",
+        KARGOIST: "KARGOIST",
+        SENDEO: "SENDEO",
+        DIGER: "DIGER",
+    };
+    if (aliases[idN]) return aliases[idN];
+    if (aliases[nameN]) return aliases[nameN];
+    if (idN) return idN;
+    return "YK";
+};
+
+/**
+ * HB OMS tarih penceresini küçük parçalara böler (ms veya Date kabul eder).
+ */
+const splitHbDateRange = (startDate, endDate, maxDays = HB_OMS_ORDERS_MAX_DAYS) => {
+    const moment = require("moment");
+    let cur = moment(startDate);
+    const end = moment(endDate);
+    const chunks = [];
+    if (!cur.isValid() || !end.isValid() || cur.isAfter(end)) return chunks;
+    const span = Math.max(1, Number(maxDays) || 1);
+    while (cur.isBefore(end)) {
+        const chunkEnd = moment.min(cur.clone().add(span, "days").subtract(1, "second"), end);
+        chunks.push({ start: cur.clone(), end: chunkEnd.clone() });
+        cur = chunkEnd.clone().add(1, "second");
+    }
+    return chunks;
+};
+
+/**
+ * Hepsiburada OMS yanıtından satıcı panelinde görünen sipariş numarasını seç.
+ * orderNumber / merchantOrderNumber öncelikli; packageNumber yalnızca son çare.
+ */
+const resolveHepsiburadaOrderNumber = (item, parent = null) => {
+    const pick = (...vals) => {
+        for (const v of vals) {
+            const s = v == null ? "" : String(v).trim();
+            if (!s || isHbInternalId(s)) continue;
+            if (isLikelyHbMerchantOrderNumber(s)) return s;
+        }
+        for (const v of vals) {
+            const s = v == null ? "" : String(v).trim();
+            if (!s || isHbInternalId(s)) continue;
+            return s;
+        }
+        return null;
+    };
+
+    const fromItem = pick(
+        item?.orderNumber,
+        item?.merchantOrderNumber,
+        item?.sapNumber,
+        item?.packageNumber,
+        item?.orderId
+    );
+    if (fromItem) return fromItem;
+
+    return pick(
+        parent?.orderNumber,
+        parent?.merchantOrderNumber,
+        parent?.sapNumber,
+        parent?.packageNumber,
+        parent?.orderId
+    );
+};
+
 /**
  * Listing inventory-uploads: merchantSku büyük harf, boşluksuz; | vb. karakterler kaldırılır (HB kuralları + serileştirme tutarlılığı).
  */
@@ -3505,6 +3628,15 @@ module.exports = {
     getHeaders,
     getHeadersForGet,
     getEndpoints,
+    isHbInternalId,
+    isLikelyHbMerchantOrderNumber,
+    splitHbDateRange,
+    formatHbOmsDateTime,
+    isHbCatalogSku,
+    resolveHbCargoShortCode,
+    HB_OMS_ORDERS_MAX_DAYS,
+    HB_OMS_PACKAGES_MAX_DAYS,
+    resolveHepsiburadaOrderNumber,
     validateCredentials,
     classifyHepsiburadaTrackingPoll,
     summarizeHepsiburadaTrackingPayload,

@@ -1811,9 +1811,13 @@
         font-size: 0.8rem;
     }
 
-    /* ✅ Prevent all content from overflowing */
-    * {
+    /* ✅ Medya ve tablolar taşmasın (global * max-width kaldırıldı — flex/grid bozuyordu) */
+    .content-area img,
+    .content-area video,
+    .content-area iframe,
+    .content-area svg {
         max-width: 100%;
+        height: auto;
     }
 
     /* ✅ Make sure images and media are responsive */
@@ -1931,6 +1935,14 @@
 .dashboard-container {
     overflow-x: hidden;
     max-width: 100vw;
+}
+
+.dashboard-container--mobile .content-area--mobile {
+    padding-top: calc(60px + env(safe-area-inset-top));
+}
+
+.dashboard-container--mobile .sidebar--mobile.open {
+    box-shadow: 8px 0 40px rgba(0, 0, 0, 0.55);
 }
 
 .content-area {

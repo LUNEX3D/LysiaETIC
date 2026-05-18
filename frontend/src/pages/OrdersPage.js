@@ -3,7 +3,7 @@ import axios from "../services/api";
 import { motion, AnimatePresence } from "framer-motion";
 import { FaBox, FaImage } from "react-icons/fa";
 import { useApp } from "../context/AppContext";
-import { classifyOrderStatus, getOrderStatusLabelTr } from "../utils/orderStatus";
+import { classifyOrderStatus, getOrderStatusLabelTr, formatOrderNumberForDisplay } from "../utils/orderStatus";
 
 const fmtCurrency = (v) => {
     try {
@@ -978,7 +978,7 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId, marketplaceId: scop
                                                 color: C.accent, fontSize: "0.82rem", fontWeight: 700,
                                                 fontFamily: "monospace", letterSpacing: "-0.02em",
                                             }}>
-                                                {order.orderNumber || "N/A"}
+                                                {formatOrderNumberForDisplay(order)}
                                             </span>
                                         </td>
                                         <td style={{ padding: "0.75rem 0.5rem" }}>
@@ -1193,7 +1193,7 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId, marketplaceId: scop
                                         {t("orders.orderDetail")}
                                     </h2>
                                     <p style={{ color: C.muted, fontSize: "0.78rem", margin: "0.25rem 0 0 0", fontFamily: "monospace" }}>
-                                        #{selectedOrder.orderNumber}
+                                        #{formatOrderNumberForDisplay(selectedOrder)}
                                     </p>
                                 </div>
                                 <motion.button whileHover={{ scale: 1.1, rotate: 90 }} whileTap={{ scale: 0.9 }}

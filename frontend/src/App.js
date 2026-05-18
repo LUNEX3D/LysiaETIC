@@ -16,7 +16,9 @@ import { AppProvider } from "./context/AppContext";
 // PWA & Responsive
 import PWAInstallPrompt from "./components/PWAInstallPrompt";
 import useViewportHeight from "./utils/useViewportHeight";
+import useMobileShell from "./utils/useMobileShell";
 import "./styles/responsive.css";
+import "./styles/mobile-shell.css";
 
 // ✅ Capacitor Native Bridge — iOS/Android native features
 import useCapacitorInit from "./utils/useCapacitorInit";
@@ -212,6 +214,37 @@ const theme = createTheme({
                     }
                 }
             }
+        },
+        MuiDialog: {
+            styleOverrides: {
+                paper: {
+                    "@media (max-width: 768px)": {
+                        margin: 0,
+                        width: "100%",
+                        maxWidth: "100%",
+                        maxHeight: "min(92dvh, calc(var(--vh, 1vh) * 92))"
+                    }
+                }
+            }
+        },
+        MuiDrawer: {
+            styleOverrides: {
+                paper: {
+                    "@media (max-width: 768px)": {
+                        width: "min(300px, 88vw)"
+                    }
+                }
+            }
+        },
+        MuiTableContainer: {
+            styleOverrides: {
+                root: {
+                    "@media (max-width: 768px)": {
+                        overflowX: "auto",
+                        WebkitOverflowScrolling: "touch"
+                    }
+                }
+            }
         }
     }
 });
@@ -249,6 +282,7 @@ const LazyFallback = () => {
 const AppContent = () => {
     // ✅ WEB APP FIRST: Fix mobile browser viewport height (address bar issue)
     useViewportHeight();
+    useMobileShell();
 
     // ✅ Capacitor: Initialize native features (status bar, push, back button)
     const navigate = useNavigate();

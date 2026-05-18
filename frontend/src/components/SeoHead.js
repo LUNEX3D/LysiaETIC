@@ -78,7 +78,7 @@ export function injectOrganizationSchema() {
                 name: BRAND_NAME,
                 url: APP_SITE_URL,
                 logo: `${APP_SITE_URL}/brand/pazaryonet-logo.svg`,
-                email: "info@pazaryonetim.com",
+                email: "info@pazaryonet.com",
                 sameAs: [],
             },
             {

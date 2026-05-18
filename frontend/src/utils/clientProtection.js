@@ -1,7 +1,10 @@
 /**
- * Üretim ortamında geliştirici araçları / kaynak görüntülemeyi zorlaştırır.
- * Not: Tarayıcıya inen JS tamamen gizlenemez; bu katman caydırıcıdır.
- * Geliştirme: localhost veya REACT_APP_DISABLE_CLIENT_GUARD=true ile kapalı.
+ * Opsiyonel caydırıcı katman (varsayılan: kapalı).
+ * Açmak için build'de: REACT_APP_ENABLE_CLIENT_GUARD=true
+ * Kapatmak için: REACT_APP_DISABLE_CLIENT_GUARD=true
+ *
+ * Not: Pencere boyutu / docked DevTools algılaması sık yanlış pozitif verir;
+ * canlı sitede kullanıcıyı kilitlememek için varsayılan kapalıdır.
  */
 
 const GUARD_STYLE_ID = "py-client-guard-style";
@@ -9,6 +12,7 @@ const GUARD_OVERLAY_ID = "py-client-guard-overlay";
 
 function isGuardEnabled() {
     if (process.env.REACT_APP_DISABLE_CLIENT_GUARD === "true") return false;
+    if (process.env.REACT_APP_ENABLE_CLIENT_GUARD !== "true") return false;
     if (process.env.NODE_ENV !== "production") return false;
     const host = typeof window !== "undefined" ? window.location.hostname : "";
     if (host === "localhost" || host === "127.0.0.1") return false;

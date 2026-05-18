@@ -18,6 +18,8 @@ import { useApp } from "../context/AppContext";
 import AuthNavbar from "./auth/AuthNavbar";
 import DashboardMockup from "./auth/DashboardMockup";
 import { PlantDecoration, GoogleIcon, AuthFooter } from "./auth/AuthShared";
+import { BRAND_EMAIL } from "../constants/brand";
+import { persistAuthSession } from "../utils/authSession";
 
 const GOOGLE_CLIENT_ID = process.env.REACT_APP_GOOGLE_CLIENT_ID || "";
 
@@ -78,9 +80,26 @@ const RegisterFormInner = () => {
         }
 
         try {
-            await axios.post("/auth/register", formData);
-            setMessage({ text: t("auth.registerSuccess"), type: "success" });
-            setTimeout(() => { navigate("/login"); }, 2500);
+            const res = await axios.post("/auth/register", formData);
+            const data = res.data?.data || res.data;
+            const emailSent = data?.emailSent !== false;
+
+            let text = emailSent
+                ? `${t("auth.registerSuccess")} Doğrulama kodu ${BRAND_EMAIL} adresine gönderildi. Gelen kutusu ve spam klasörünü kontrol edin.`
+                : (data?.emailError || "Kayıt oluşturuldu ancak e-posta gönderilemedi.");
+
+            if (!emailSent && data?.verificationCodeDev) {
+                text += ` Geliştirme kodu: ${data.verificationCodeDev}`;
+            }
+
+            setMessage({ text, type: emailSent ? "success" : "warning" });
+            setTimeout(() => {
+                const q = new URLSearchParams({ email: formData.email });
+                if (!emailSent && data?.verificationCodeDev) {
+                    q.set("code", data.verificationCodeDev);
+                }
+                navigate(`/verify-email?${q.toString()}`);
+            }, emailSent ? 2000 : 3500);
         } catch (error) {
             const data = error.response?.data;
             let text = data?.message || "Bir hata oluştu.";
@@ -99,12 +118,13 @@ const RegisterFormInner = () => {
 
         try {
             const response = await axios.post("/auth/google", { access_token: tokenResponse.access_token });
-            localStorage.setItem("token", response.data.token);
+            persistAuthSession({
+                token: response.data.token,
+                refreshToken: response.data.refreshToken,
+                rememberMe: true,
+                user: response.data.user,
+            });
             const user = response.data.user;
-            localStorage.setItem("userId", user._id);
-            localStorage.setItem("userEmail", user.email);
-            localStorage.setItem("userName", user.name || "Bilinmiyor");
-            localStorage.setItem("userRole", user.role || "user");
             setMessage({ text: t("auth.googleRegisterSuccess"), type: "success" });
             setTimeout(() => { navigate(user.role === "admin" ? "/admin" : "/dashboard"); }, 1500);
         } catch (error) {

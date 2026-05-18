@@ -257,7 +257,7 @@ const checkHepsiburadaOrders = async (userId, credentials) => {
     const results = [];
 
     try {
-        const { normalizeCredentials, getHeaders, getEndpoints } = require("./hepsiburadaService");
+        const { normalizeCredentials, getHeaders, getEndpoints, resolveHepsiburadaOrderNumber } = require("./hepsiburadaService");
         const hbCreds = normalizeCredentials(credentials);
         const { merchantId, secretKey, userAgent } = hbCreds;
 
@@ -312,7 +312,7 @@ const checkHepsiburadaOrders = async (userId, credentials) => {
                 await applyCronOrderStockLine({
                     userId,
                     marketplaceName: "Hepsiburada",
-                    orderNumber: String(pkg.packageNumber || pkg.id),
+                    orderNumber: String(resolveHepsiburadaOrderNumber(pkg) || pkg.packageNumber || ""),
                     barcode,
                     quantity,
                     isCancelled,

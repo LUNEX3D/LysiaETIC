@@ -85,6 +85,7 @@ const clearSession = () => {
     localStorage.removeItem("adminLoginTime");
     localStorage.removeItem("legalAccepted");
     localStorage.removeItem("legalAcceptedAt");
+    localStorage.removeItem("rememberMe");
 };
 
 // ✅ FIX H7: rememberMe — hem localStorage hem sessionStorage'dan token oku
@@ -260,14 +261,22 @@ API.interceptors.response.use(
 
                     const newToken = data.token;
                     const newRefreshToken = data.refreshToken;
+                    const remember =
+                        data.rememberMe === true ||
+                        localStorage.getItem("rememberMe") === "true";
 
-                    // ✅ SEC #2: Token rotation — yeni access + refresh token'ı kaydet
-                    if (localStorage.getItem("token")) {
+                    if (remember) {
+                        localStorage.setItem("rememberMe", "true");
                         localStorage.setItem("token", newToken);
                         if (newRefreshToken) localStorage.setItem("refreshToken", newRefreshToken);
+                        sessionStorage.removeItem("token");
+                        sessionStorage.removeItem("refreshToken");
                     } else {
+                        localStorage.setItem("rememberMe", "false");
                         sessionStorage.setItem("token", newToken);
                         if (newRefreshToken) sessionStorage.setItem("refreshToken", newRefreshToken);
+                        localStorage.removeItem("token");
+                        localStorage.removeItem("refreshToken");
                     }
 
                     processQueue(null, newToken);
