@@ -84,7 +84,8 @@ jobs:
           AWS_USER: ${{ secrets.AWS_USER }}
         run: |
           scp -r -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=no ./frontend/build/* "$AWS_USER@$AWS_HOST:~/build/"
-          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=no "$AWS_USER@$AWS_HOST" "sudo rm -rf /var/www/html/* && sudo cp -r ~/build/* /var/www/html/ && sudo chmod -R 755 /var/www/html/ && sudo chown -R www-data:www-data /var/www/html/ && sudo systemctl restart nginx"
+          scp -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=no ./nginx-default.conf "$AWS_USER@$AWS_HOST:~/nginx-default.conf"
+          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=no "$AWS_USER@$AWS_HOST" "sudo rm -rf /var/www/html/* && sudo cp -r ~/build/* /var/www/html/ && sudo cp ~/nginx-default.conf /etc/nginx/sites-available/default && sudo ln -sf /etc/nginx/sites-available/default /etc/nginx/sites-enabled/default && sudo nginx -t && sudo chmod -R 755 /var/www/html/ && sudo chown -R www-data:www-data /var/www/html/ && sudo systemctl reload nginx"
 
       - name: Health Check
         env:

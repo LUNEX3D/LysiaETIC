@@ -9,6 +9,7 @@ const axios = require("axios");
 const n11Service = require("./n11Service");
 // ✅ FIX H5: Credential'ları decrypt ederek kullan
 const { decryptCredentials } = require("../utils/encryption");
+const { resolveOrderItemBarcodeForStock } = require("../utils/productFieldCompare");
 // ✅ FIX #1: Amazon stok push — gerçek API entegrasyonu
 let amazonSpApiService;
 try {
@@ -178,101 +179,380 @@ const releaseStock = async (userId, barcode, quantity) => {
 };
 
 // ═══════════════════════════════════════════════════════════════
-// ⚡ SİPARİŞ SONRASI ANLIK STOK GÜNCELLEME
+// ⚡ SİPARİŞ SATIRI — TEK MERKEZİ AKIŞ (cron + anlık sync)
 // ═══════════════════════════════════════════════════════════════
 
+const normMpKey = (n) => String(n || "").trim().toLowerCase();
+
+/** Pazaryeri + sipariş no + barkod — çift stok düşüşünü engelleyen anahtar */
+const makeOrderStockKey = (marketplaceName, orderNumber, barcode) => {
+    const mp = normalizeMarketplaceName(marketplaceName) || String(marketplaceName || "").trim();
+    return `${mp}:${String(orderNumber || "").trim()}:${String(barcode || "").trim()}`;
+};
+
+const resolveStockBarcodes = async (userId, barcode) => {
+    const codes = new Set([String(barcode || "").trim()].filter(Boolean));
+    const mapping = await ProductMapping.findOne({
+        userId,
+        $or: [
+            { "masterProduct.barcode": barcode },
+            { "masterProduct.sku": barcode },
+            { "marketplaceMappings.marketplaceSku": barcode },
+            { "marketplaceMappings.marketplaceBarcode": barcode }
+        ]
+    }).select("masterProduct.barcode masterProduct.sku").lean();
+    if (mapping?.masterProduct?.barcode) codes.add(String(mapping.masterProduct.barcode).trim());
+    if (mapping?.masterProduct?.sku) codes.add(String(mapping.masterProduct.sku).trim());
+    return [...codes];
+};
+
 /**
- * Sipariş sonrası stok güncelleme — atomic reserve + anlık tüm platformlara push
+ * DB-level tekrar işleme koruması — anlık sync ve cron aynı anahtarı kullanır
+ */
+const isOrderAlreadyProcessed = async (userId, marketplaceName, orderNumber, barcode) => {
+    const mp = normalizeMarketplaceName(marketplaceName);
+    const orderKey = makeOrderStockKey(mp, orderNumber, barcode);
+    const barcodes = await resolveStockBarcodes(userId, barcode);
+    try {
+        const existing = await StockSyncLog.findOne({
+            userId,
+            actionType: { $in: ["order_placed", "stock_update", "webhook_order"] },
+            status: { $in: ["success", "partial"] },
+            $or: [
+                { "order.orderId": orderKey },
+                {
+                    "order.orderId": String(orderNumber),
+                    "marketplace.name": mp,
+                    "product.barcode": { $in: barcodes }
+                },
+                {
+                    "order.orderNumber": String(orderNumber),
+                    "marketplace.name": mp,
+                    "product.barcode": { $in: barcodes }
+                }
+            ]
+        }).lean();
+        return !!existing;
+    } catch {
+        return false;
+    }
+};
+
+const deriveSyncLogStatus = (syncResults) => {
+    if (!syncResults?.length) return "error";
+    const ok = syncResults.filter((r) => r.syncStatus === "success").length;
+    const err = syncResults.filter((r) => r.syncStatus === "error").length;
+    if (err === 0) return "success";
+    if (ok > 0) return "partial";
+    return "error";
+};
+
+const isMongoVersionConflict = (err) =>
+    err?.name === "VersionError" ||
+    (typeof err?.message === "string" && err.message.includes("No matching document found"));
+
+const mergeMarketplaceSyncFromStale = (freshDoc, staleDoc) => {
+    if (!freshDoc?.marketplaceMappings || !staleDoc?.marketplaceMappings) return;
+    for (const sm of staleDoc.marketplaceMappings) {
+        const k = normMpKey(sm.marketplaceName);
+        const t = freshDoc.marketplaceMappings.find((m) => normMpKey(m.marketplaceName) === k);
+        if (!t) continue;
+        if (sm.stock !== undefined) t.stock = sm.stock;
+        if (sm.lastSyncDate) t.lastSyncDate = sm.lastSyncDate;
+        if (sm.syncStatus !== undefined) t.syncStatus = sm.syncStatus;
+        if (sm.isSynced !== undefined) t.isSynced = sm.isSynced;
+        if (sm.syncError !== undefined) t.syncError = sm.syncError;
+        if (sm.price !== undefined) t.price = sm.price;
+        if (sm.listPrice !== undefined) t.listPrice = sm.listPrice;
+    }
+};
+
+const saveProductMappingAfterPlatformSync = async (staleMapping) => {
+    try {
+        await staleMapping.save();
+        return;
+    } catch (e) {
+        if (!isMongoVersionConflict(e)) throw e;
+    }
+    let doc = await ProductMapping.findById(staleMapping._id);
+    if (!doc) throw new Error(`ProductMapping bulunamadı: ${staleMapping._id}`);
+    mergeMarketplaceSyncFromStale(doc, staleMapping);
+    try {
+        await doc.save();
+    } catch (e2) {
+        if (!isMongoVersionConflict(e2)) throw e2;
+        doc = await ProductMapping.findById(staleMapping._id);
+        if (!doc) throw e2;
+        mergeMarketplaceSyncFromStale(doc, staleMapping);
+        await doc.save();
+    }
+};
+
+/**
+ * Tek sipariş satırı: reserve/release → tüm platformlara push → log
+ */
+const processOrderStockLine = async ({
+    userId,
+    marketplaceName,
+    orderNumber,
+    barcode,
+    quantity = 1,
+    isCancelled = false,
+    actionType,
+    productName,
+    skipDedup = false
+}) => {
+    const mp = normalizeMarketplaceName(marketplaceName);
+    const orderKey = makeOrderStockKey(mp, orderNumber, barcode);
+    const logActionType = actionType || (isCancelled ? "stock_update" : "order_placed");
+
+    if (!skipDedup && (await isOrderAlreadyProcessed(userId, mp, orderNumber, barcode))) {
+        return { skipped: true, orderKey };
+    }
+
+    const stockResult = isCancelled
+        ? await releaseStock(userId, barcode, quantity)
+        : await reserveStock(userId, barcode, quantity);
+
+    if (!stockResult.success) {
+        logger.warn(`[STOCK LINE] ${mp} ${isCancelled ? "release" : "reserve"} başarısız: ${barcode} — ${stockResult.error}`);
+        try {
+            await StockSyncLog.create({
+                userId,
+                actionType: logActionType,
+                product: { barcode, sku: barcode, name: productName || barcode },
+                marketplace: { name: mp },
+                order: {
+                    orderId: orderKey,
+                    orderNumber: String(orderNumber),
+                    marketplace: mp,
+                    quantity
+                },
+                changes: {
+                    field: "stock",
+                    oldValue: stockResult.currentStock ?? null,
+                    newValue: stockResult.currentStock ?? null
+                },
+                status: "error",
+                error: {
+                    message: stockResult.error,
+                    code: stockResult.error === "Ürün bulunamadı" ? "PRODUCT_NOT_FOUND" : "INSUFFICIENT_STOCK"
+                },
+                notification: { priority: "critical" }
+            });
+        } catch (logErr) {
+            logger.warn(`[STOCK LINE] Hata logu yazılamadı: ${logErr.message}`);
+        }
+        return { success: false, error: stockResult.error, orderKey };
+    }
+
+    const { mapping, oldStock, newStock, marketplaceStock } = stockResult;
+
+    if (oldStock === newStock) {
+        return { success: true, noStockChange: true, orderKey, mapping, oldStock, newStock };
+    }
+
+    const syncResults = await syncStockToAllMarketplaces(userId, mapping, marketplaceStock, null);
+    await saveProductMappingAfterPlatformSync(mapping);
+
+    const status = deriveSyncLogStatus(syncResults);
+    const lowThreshold = mapping.stockTracking?.lowStockThreshold || 10;
+    const syncErrors = syncResults.filter((r) => r.syncStatus === "error");
+
+    await StockSyncLog.create({
+        userId,
+        actionType: logActionType,
+        product: {
+            productMappingId: mapping._id,
+            barcode: mapping.masterProduct?.barcode || barcode,
+            sku: mapping.masterProduct?.sku,
+            name: productName || mapping.masterProduct?.name
+        },
+        marketplace: { name: mp },
+        order: {
+            orderId: orderKey,
+            orderNumber: String(orderNumber),
+            marketplace: mp,
+            quantity
+        },
+        changes: {
+            field: "stock",
+            oldValue: oldStock,
+            newValue: newStock,
+            difference: newStock - oldStock
+        },
+        status,
+        affectedMarketplaces: syncResults,
+        ...(syncErrors.length > 0 && {
+            error: {
+                message: syncErrors.map((r) => `${r.name}: ${r.error || "hata"}`).join("; "),
+                code: "PARTIAL_PLATFORM_SYNC"
+            }
+        }),
+        notification: {
+            priority: newStock === 0 ? "critical" : newStock <= lowThreshold ? "high" : "medium"
+        }
+    });
+
+    const successCount = syncResults.filter((r) => r.syncStatus === "success").length;
+    logger.info(
+        `[STOCK LINE] ${mp} ${isCancelled ? "İPTAL" : "SİPARİŞ"} | ${mapping.masterProduct?.name} | ` +
+        `${oldStock}→${newStock} | platform: ${successCount}/${syncResults.length} | log: ${status}`
+    );
+
+    return {
+        success: true,
+        noStockChange: false,
+        orderKey,
+        mapping,
+        oldStock,
+        newStock,
+        marketplaceStock,
+        quantity,
+        syncResults,
+        status
+    };
+};
+
+/**
+ * Kısmi / hatalı platform push'larını yeniden dene (son 24 saat)
+ */
+const retryPendingStockPushes = async (limit = 30) => {
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const logs = await StockSyncLog.find({
+        status: { $in: ["partial", "error"] },
+        actionType: { $in: ["order_placed", "manual_sync", "auto_sync", "webhook_order", "stock_update"] },
+        "product.productMappingId": { $exists: true, $ne: null },
+        timestamp: { $gte: since },
+        $or: [
+            { "error.code": "PARTIAL_PLATFORM_SYNC" },
+            { status: "partial" }
+        ]
+    })
+        .sort({ timestamp: -1 })
+        .limit(limit)
+        .lean();
+
+    let retried = 0;
+    let fixed = 0;
+
+    for (const log of logs) {
+        const mapping = await ProductMapping.findById(log.product.productMappingId);
+        if (!mapping) continue;
+
+        const failed = (log.affectedMarketplaces || []).filter((m) => m.syncStatus === "error");
+        if (failed.length === 0 && log.status === "error" && log.error?.code !== "PARTIAL_PLATFORM_SYNC") {
+            continue;
+        }
+
+        const marketplaceStock = mapping.getMarketplaceStock();
+        const syncResults = await syncStockToAllMarketplaces(mapping.userId, mapping, marketplaceStock, null);
+        await saveProductMappingAfterPlatformSync(mapping);
+
+        const status = deriveSyncLogStatus(syncResults);
+        await StockSyncLog.updateOne(
+            { _id: log._id },
+            {
+                $set: {
+                    status,
+                    affectedMarketplaces: syncResults,
+                    ...(status === "success"
+                        ? { error: undefined }
+                        : {
+                            error: {
+                                message: syncResults
+                                    .filter((r) => r.syncStatus === "error")
+                                    .map((r) => `${r.name}: ${r.error || "hata"}`)
+                                    .join("; "),
+                                code: "PARTIAL_PLATFORM_SYNC"
+                            }
+                        })
+                }
+            }
+        );
+
+        retried++;
+        if (status === "success") fixed++;
+    }
+
+    if (retried > 0) {
+        logger.info(`[STOCK RETRY] ${retried} log yeniden denendi, ${fixed} tam başarı`);
+    }
+
+    return { retried, fixed };
+};
+
+/**
+ * Sipariş kaydı sonrası anlık stok — trackingNumber = pazaryeri sipariş no
  */
 const updateStockAfterOrder = async (orderId) => {
     try {
-        const order = await Order.findById(orderId).populate('marketplace');
+        const order = await Order.findById(orderId).lean();
         if (!order) {
             throw new Error("Sipariş bulunamadı");
         }
 
-        logger.info(`[STOCK SYNC] ⚡ Sipariş sonrası ANLIK stok güncelleme: ${order._id}`);
+        const orderNumber = order.trackingNumber || String(order._id);
+        const marketplaceName = order.marketplaceName || "Diğer";
+
+        logger.info(`[STOCK SYNC] ⚡ Anlık stok: ${marketplaceName} #${orderNumber} (${order._id})`);
 
         const results = [];
 
-        for (const item of order.items) {
+        for (const item of order.items || []) {
             try {
-                // 🔒 Atomic stok rezerve et
-                const reserveResult = await reserveStock(order.user, item.barcode, item.quantity);
-
-                if (!reserveResult.success) {
-                    logger.warn(`[STOCK SYNC] ⚠️ Stok rezerve başarısız: ${item.barcode} — ${reserveResult.error}`);
+                const stockBarcode = await resolveOrderItemBarcodeForStock(order.user, item);
+                if (!stockBarcode) {
                     results.push({
                         barcode: item.barcode,
                         name: item.productName,
                         status: "error",
-                        error: reserveResult.error
+                        error: "Stok için barkod/SKU çözülemedi"
                     });
                     continue;
                 }
 
-                const { mapping, oldStock, newStock, marketplaceStock } = reserveResult;
-
-                // ⚡ TÜM pazaryerlerine ANLIK push (güvenlik stoğu düşülmüş hali)
-                // ✅ FIX: excludeMarketplace=null — kaynak platform dahil tüm platformlara push
-                // ESKİ: order.marketplaceName geçiliyordu → kaynak platformdaki stok güncellenmiyordu
-                const syncResults = await syncStockToAllMarketplaces(
-                    order.user,
-                    mapping,
-                    marketplaceStock,
-                    null
-                );
-
-                // Log oluştur
-                await StockSyncLog.create({
+                const lineResult = await processOrderStockLine({
                     userId: order.user,
-                    actionType: "order_placed",
-                    product: {
-                        productMappingId: mapping._id,
-                        barcode: item.barcode,
-                        sku: mapping.masterProduct.sku,
-                        name: item.productName
-                    },
-                    marketplace: {
-                        name: order.marketplaceName,
-                        productId: null
-                    },
-                    order: {
-                        orderId: order._id.toString(),
-                        orderNumber: order.orderNumber || order._id.toString(),
-                        marketplace: order.marketplaceName,
-                        quantity: item.quantity
-                    },
-                    changes: {
-                        field: "stock",
-                        oldValue: oldStock,
-                        newValue: newStock,
-                        difference: -item.quantity
-                    },
-                    status: "success",
-                    affectedMarketplaces: syncResults,
-                    notification: {
-                        priority: newStock === 0 ? "critical" : newStock <= mapping.stockTracking.lowStockThreshold ? "high" : "medium"
-                    }
+                    marketplaceName,
+                    orderNumber,
+                    barcode: stockBarcode,
+                    quantity: item.quantity || 1,
+                    isCancelled: false,
+                    actionType: "webhook_order",
+                    productName: item.productName
                 });
 
-                await mapping.save();
+                if (lineResult.skipped) {
+                    results.push({ barcode: item.barcode, status: "skipped", reason: "already_processed" });
+                    continue;
+                }
+                if (!lineResult.success) {
+                    results.push({
+                        barcode: item.barcode,
+                        name: item.productName,
+                        status: "error",
+                        error: lineResult.error
+                    });
+                    continue;
+                }
+                if (lineResult.noStockChange) {
+                    results.push({ barcode: item.barcode, status: "skipped", reason: "no_stock_change" });
+                    continue;
+                }
 
                 results.push({
                     barcode: item.barcode,
                     name: item.productName,
-                    oldStock,
-                    newStock,
-                    marketplaceStock,
+                    oldStock: lineResult.oldStock,
+                    newStock: lineResult.newStock,
+                    marketplaceStock: lineResult.marketplaceStock,
                     quantity: item.quantity,
-                    status: "success",
-                    marketplaces: syncResults
+                    status: lineResult.status === "partial" ? "partial" : "success",
+                    marketplaces: lineResult.syncResults
                 });
-
-                logger.info(`[STOCK SYNC] ✅ ${item.productName} | stok: ${oldStock}→${newStock} | platformlara: ${marketplaceStock} | ${syncResults.filter(r => r.syncStatus === "success").length} platform güncellendi`);
-
             } catch (error) {
-                logger.error(`[STOCK SYNC] Ürün stok güncelleme hatası (${item.barcode}):`, error.message);
+                logger.error(`[STOCK SYNC] Satır hatası (${item.barcode}): ${error.message}`);
                 results.push({
                     barcode: item.barcode,
                     name: item.productName,
@@ -418,11 +698,14 @@ const syncStockToAllMarketplaces = async (userId, productMapping, newStock, excl
             }
 
             // Stok + fiyat güncelle
+            // Stok 0 ise Trendyol unlock tetiklenmesin (fiyat güncellemesi bile olsa)
+            const allowUnlock = Number(newStock) > 0;
             const updateResult = await updateStockOnMarketplace(
                 marketplace,
                 productIdForMarketplace,
                 newStock,
-                effectivePriceUpdate
+                effectivePriceUpdate,
+                { allowUnlock }
             );
 
             if (updateResult.success && updateResult.skipped) {
@@ -482,7 +765,7 @@ const syncStockToAllMarketplaces = async (userId, productMapping, newStock, excl
 };
 
 // Pazaryerinde stok VE fiyat güncelle
-const updateStockOnMarketplace = async (marketplace, productId, newStock, priceUpdate = null) => {
+const updateStockOnMarketplace = async (marketplace, productId, newStock, priceUpdate = null, options = {}) => {
     const marketplaceName = normalizeMarketplaceName(marketplace.marketplaceName);
     // ✅ FIX H5: Credential'ları decrypt et
     const credentials = decryptCredentials(marketplace.credentials);
@@ -490,7 +773,7 @@ const updateStockOnMarketplace = async (marketplace, productId, newStock, priceU
     try {
         switch (marketplaceName) {
             case "Trendyol":
-                return await updateTrendyolStock(credentials, productId, newStock, priceUpdate);
+                return await updateTrendyolStock(credentials, productId, newStock, priceUpdate, options);
             case "Hepsiburada":
                 return await updateHepsiburadaStock(credentials, productId, newStock, priceUpdate);
             case "N11":
@@ -514,7 +797,8 @@ const updateStockOnMarketplace = async (marketplace, productId, newStock, priceU
 };
 
 // Trendyol stok + fiyat güncelleme
-const updateTrendyolStock = async (credentials, productId, newStock, priceUpdate = null) => {
+// options.allowUnlock — false ise stok push sonrası unlock API çağrılmaz (stok 0 ürünler satışa açılmasın)
+const updateTrendyolStock = async (credentials, productId, newStock, priceUpdate = null, options = {}) => {
     try {
         const { apiKey, apiSecret, sellerId, supplierId } = credentials;
         const actualSellerId = sellerId || supplierId;
@@ -560,9 +844,10 @@ const updateTrendyolStock = async (credentials, productId, newStock, priceUpdate
 
         logger.info(`[TRENDYOL STOCK] ✅ Stok güncellendi — barcode: ${item.barcode}, batchId: ${batchId}`);
 
-        // 🔓 Stok > 0 ise ürünü otomatik olarak satışa aç (unlock)
-        // Trendyol'da ürün "satışa kapalı" (locked) olabilir — stok varsa unlock API ile açılır
-        if (stockQty > 0) {
+        // 🔓 Stok > 0 VE açıkça izin verildiyse satışa aç (unlock)
+        // Fiyat güncellemesi / yanlış snapshot ile stok 0 ürünün açılmasını engelle
+        const allowUnlock = options.allowUnlock !== false && stockQty > 0;
+        if (allowUnlock) {
             try {
                 const unlockResponse = await axios.put(
                     `https://apigw.trendyol.com/integration/product/sellers/${actualSellerId}/products/unlock`,
@@ -584,7 +869,7 @@ const updateTrendyolStock = async (credentials, productId, newStock, priceUpdate
             }
         }
 
-        return { success: true, batchId, response: response.data, unlocked: stockQty > 0 };
+        return { success: true, batchId, response: response.data, unlocked: allowUnlock };
     } catch (error) {
         const errData = error.response?.data;
         const errMsg = errData?.errors?.[0]?.message || errData?.message || error.message;
@@ -1166,7 +1451,7 @@ const manualStockSync = async (userId, productMappingId, newStock, priceUpdate =
 
         // Stoku güncelle
         mapping.stockTracking.totalStock = newStock;
-        mapping.masterProduct.stock      = newStock;
+        mapping.syncMasterStockFields?.();
         mapping.updateStockStatus();
 
         // Fiyat güncelleme varsa master product'ı da güncelle
@@ -1182,9 +1467,11 @@ const manualStockSync = async (userId, productMappingId, newStock, priceUpdate =
 
         // Tüm pazaryerlerinde stok + fiyat senkronize et
         const syncResults = await syncStockToAllMarketplaces(userId, mapping, marketplaceStock, null, priceUpdate);
-        const hasError = syncResults.some((x) => x.syncStatus === "error");
+        const logStatus = deriveSyncLogStatus(syncResults);
         const successCount = syncResults.filter((x) => x.syncStatus === "success").length;
         const errorMarketplaces = syncResults.filter((x) => x.syncStatus === "error").map((x) => `${x.name}: ${x.error || "bilinmeyen hata"}`);
+
+        await saveProductMappingAfterPlatformSync(mapping);
 
         // Stok log oluştur
         await StockSyncLog.create({
@@ -1202,7 +1489,10 @@ const manualStockSync = async (userId, productMappingId, newStock, priceUpdate =
                 newValue: newStock,
                 difference: newStock - oldStock
             },
-            status: hasError ? "error" : "success",
+            status: logStatus,
+            ...(logStatus !== "success" && errorMarketplaces.length > 0 && {
+                error: { message: errorMarketplaces.join("; "), code: "PARTIAL_PLATFORM_SYNC" }
+            }),
             affectedMarketplaces: syncResults,
             notification: {
                 priority: newStock === 0 ? "critical" : newStock <= mapping.stockTracking.lowStockThreshold ? "high" : "medium"
@@ -1226,22 +1516,20 @@ const manualStockSync = async (userId, productMappingId, newStock, priceUpdate =
                     newValue: priceUpdate.salePrice,
                     difference: priceUpdate.salePrice - oldPrice
                 },
-                status: hasError ? "error" : "success",
+                status: logStatus,
                 affectedMarketplaces: syncResults,
                 notification: { priority: "low" }
             });
         }
 
-        await mapping.save();
-
-        if (hasError) {
+        if (logStatus !== "success") {
             logger.warn(`[MANUAL SYNC] ⚠️ Kısmi başarısız — ${mapping.masterProduct.name} | stok: ${oldStock}→${newStock} | başarılı: ${successCount}/${syncResults.length} | hatalar: ${errorMarketplaces.join(" | ")}`);
         } else {
             logger.info(`[MANUAL SYNC] ✅ ${mapping.masterProduct.name} | stok: ${oldStock}→${newStock} | platformlara: ${marketplaceStock}`);
         }
 
         return {
-            success: !hasError,
+            success: logStatus === "success",
             oldStock,
             newStock,
             marketplaceStock,
@@ -1366,6 +1654,12 @@ const autoStockSync = async (userId, onProgress) => {
 module.exports = {
     // Sipariş akışı
     updateStockAfterOrder,
+    processOrderStockLine,
+    makeOrderStockKey,
+    isOrderAlreadyProcessed,
+    deriveSyncLogStatus,
+    retryPendingStockPushes,
+    saveProductMappingAfterPlatformSync,
     // Stok kilitleme (atomic)
     reserveStock,
     releaseStock,

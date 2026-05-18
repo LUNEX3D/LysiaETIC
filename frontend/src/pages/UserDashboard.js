@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
+﻿import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { getUserMarketplaces, fetchDashboardData } from "../services/marketplaceApi";
 import { getProductManagementDashboard } from "../services/productManagementApi";
 import { getNotifications, markNotificationAsRead, dismissNotification as apiDismissNotif, createBulkOrderNotifications } from "../services/notificationApi";
@@ -12,6 +12,8 @@ import CargoTrackingPage from "../pages/CargoTrackingPage";
 import UserProfilePage from "../pages/UserProfilePage";
 import AdvancedAnalytics from "../pages/AdvancedAnalytics";
 import LysiaBrain from "../pages/lysiabrain/LysiaBrain";
+import PazarYonetLogo from "../components/brand/PazarYonetLogo";
+import { BRAND_NAME } from "../constants/brand";
 import AIChatWidget from "../components/AIChatWidget";
 import ProductManagementCenter from "../pages/ProductManagementCenter";
 import CategoryCenterPage from "../pages/CategoryCenterPage";
@@ -670,7 +672,7 @@ const UserDashboard = () => {
                     const presets = {
                         TRIAL_ENDED: {
                             icon: "⏳", title: "Demo Süreniz Doldu",
-                            desc: subscriptionMessage || "Demo sürenizin sonuna geldiniz. LysiaBrain'i kullanmaya devam etmek için bir paket seçin.",
+                            desc: subscriptionMessage || "Demo sürenizin sonuna geldiniz. PazarYonet AI'i kullanmaya devam etmek için bir paket seçin.",
                             cta: "🚀 Paketleri İncele", border: C.yellow,
                         },
                         SUBSCRIPTION_EXPIRED: {
@@ -1353,7 +1355,7 @@ const UserDashboard = () => {
 
         { type: "divider", label: t("sidebar.analytics") },
         { id: "advanced-analytics", icon: <FaChartBar />, text: t("sidebar.advancedAnalytics") },
-        { id: "lysia-brain", icon: <FaBrain />, text: "LysiaBrain" },
+        { id: "lysia-brain", icon: <FaBrain />, text: "PazarYonet AI" },
         { id: "roketfy", icon: <FaRocket />, text: t("sidebar.roketfy") },
         { id: "radar-pro", icon: <FaCrosshairs />, text: t("sidebar.radarPro") },
         { type: "divider", label: t("sidebar.management") },
@@ -1521,12 +1523,14 @@ const UserDashboard = () => {
                 transition={{ duration: 0.25, ease: [0.25, 0.1, 0.25, 1] }}
             >
                 <div className="sidebar-header">
-                    <motion.div className="logo-container" animate={{ opacity: menuOpen ? 1 : 0 }} transition={{ duration: 0.12 }}>
-                        <h1 className="logo">
-                            <span className="logo-main">Pazaryönetim</span>
-                            <span className="logo-sub">Panel</span>
-                        </h1>
-                    </motion.div>
+                    <div className="logo-container" style={{ display: "flex", alignItems: "center", gap: 10, minHeight: 44 }}>
+                        <PazarYonetLogo size={menuOpen ? 34 : 30} />
+                        {menuOpen && (
+                            <h1 className="logo" style={{ margin: 0 }}>
+                                <span className="logo-main">{BRAND_NAME}</span>
+                            </h1>
+                        )}
+                    </div>
                     <button className="menu-toggle" onClick={() => setMenuOpen(!menuOpen)}>
                         {menuOpen ? <FaTimes /> : <FaBars />}
                     </button>

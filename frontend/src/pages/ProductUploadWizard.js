@@ -75,6 +75,17 @@ const extractCategories = (r) => {
     return d?.categories || d?.results || d?.tree || d?.data?.categories || d?.data?.results || d?.data?.tree || [];
 };
 
+/** Hepsiburada: yalnızca yaprak + listelenebilir katalog kategorisi (kampanya/HC değil) */
+const isHbListableCategory = (cat) =>
+    cat?.canListProduct === true ||
+    (cat?.canListProduct !== false && cat?.leaf === true && cat?.available !== false);
+
+const canSelectPlatformCategory = (platformName, node, hasChildren) => {
+    if (platformName === "Trendyol") return !hasChildren;
+    if (platformName === "Hepsiburada") return !hasChildren && isHbListableCategory(node);
+    return !hasChildren || platformName !== "Trendyol";
+};
+
 /* ═══════════════════════════════════════════════════════════════
    DIŞ BİLEŞEN: TreeNode (memo ile — re-render'da unmount olmaz)
    ═══════════════════════════════════════════════════════════════ */
@@ -86,22 +97,25 @@ const TreeNode = memo(({ platformName, node, depth = 0, expanded, selected, onTo
     const isLeaf = !hasChildren;
     const isSelected = selected?.id === nodeId;
     const nodeName = node.name || node.categoryName || "";
+    const treeSelectable = canSelectPlatformCategory(platformName, node, hasChildren);
 
     return (
         <div>
             <div
                 className={`puw-tree-node ${isSelected ? "selected" : ""} ${isLeaf ? "leaf" : ""}`}
-                style={{ paddingLeft: 12 + depth * 20 }}
+                style={{ paddingLeft: 12 + depth * 20, opacity: platformName === "Hepsiburada" && !treeSelectable ? 0.55 : 1 }}
                 onClick={() => {
                     if (hasChildren) onToggle(platformName, nodeId);
-                    // Trendyol: ürün yalnızca yaprak (leaf) kategoride açılır; üst düzey seçimi özellik listesini boş bırakır.
-                    if (!hasChildren || platformName !== "Trendyol") {
+                    if (canSelectPlatformCategory(platformName, node, hasChildren)) {
                         onSelect(platformName, {
                             id: nodeId,
                             name: nodeName,
                             path: node.path || node.fullPath || nodeName,
                             categoryId: nodeId,
-                            categoryName: nodeName
+                            categoryName: nodeName,
+                            canListProduct: node.canListProduct,
+                            leaf: node.leaf,
+                            available: node.available
                         });
                     }
                 }}
@@ -209,12 +223,15 @@ const PlatformCategoryPanel = memo(({ platformName, ps, onSearch, onSelect, onCl
                         const rawId = c.id || c.categoryId;
                         const cId = rawId !== undefined && rawId !== null ? String(rawId) : "";
                         const tyParent = platformName === "Trendyol" && c.hasChildren === true;
-                        const selectable = cId !== "" && cId !== "0" && !tyParent;
+                        const hbNotListable = platformName === "Hepsiburada" && !isHbListableCategory(c);
+                        const selectable = cId !== "" && cId !== "0" && !tyParent && !hbNotListable;
                         const cName = c.name || c.categoryName || "";
                         const cPath = c.path || c.fullPath || "";
                         const isSel = selected?.id === cId;
                         const blockTitle = tyParent
                             ? "Trendyol üst düzey kategori — ağaçta alt dalı açın veya yaprak sonucu seçin."
+                            : hbNotListable
+                                ? "Hepsiburada listelenebilir yaprak kategori değil (kampanya/üst düğüm)"
                             : !cId || cId === "0"
                                 ? "Bu sonuçta geçerli categoryId yok"
                                 : "Kategoriyi seç";
@@ -222,7 +239,10 @@ const PlatformCategoryPanel = memo(({ platformName, ps, onSearch, onSelect, onCl
                             <div
                                 key={`${platformName}-sr-${cId || i}`}
                                 className={`puw-cat-result-item ${isSel ? "selected" : ""}`}
-                                onClick={() => selectable && onSelect(platformName, { id: cId, name: cName, path: cPath })}
+                                onClick={() => selectable && onSelect(platformName, {
+                                    id: cId, name: cName, path: cPath,
+                                    canListProduct: c.canListProduct, leaf: c.leaf, available: c.available
+                                })}
                                 style={selectable ? {} : { opacity: 0.6, cursor: "not-allowed" }}
                                 title={blockTitle}
                             >
@@ -625,7 +645,7 @@ const ProductUploadWizard = ({ userId }) => {
 
         catSearchTimers.current[platformName] = setTimeout(async () => {
             try {
-                const r = await searchCategories(platformName, query.trim());
+                const r = await searchCategories(platformName, query.trim(), { listingOnly: true });
                 const results = extractCategories(r);
                 setCatState(prev => ({
                     ...prev,
@@ -649,7 +669,10 @@ const ProductUploadWizard = ({ userId }) => {
                 selected: {
                     id: cat.id || cat.categoryId,
                     name: cat.name || cat.categoryName || "",
-                    path: cat.path || cat.fullPath || cat.name || ""
+                    path: cat.path || cat.fullPath || cat.name || "",
+                    canListProduct: cat.canListProduct,
+                    leaf: cat.leaf,
+                    available: cat.available
                 }
             }
         }));
@@ -878,6 +901,12 @@ const ProductUploadWizard = ({ userId }) => {
                     if (!validCategoryId) {
                         toastErr(
                             `${pName} için seçilen kategori geçersiz (categoryId yok). Lütfen ağaçtan başka bir kategori seçin.`
+                        );
+                        return;
+                    }
+                    if (pName === "Hepsiburada" && !isHbListableCategory(cs.selected)) {
+                        toastErr(
+                            "Hepsiburada için listelenebilir yaprak katalog kategorisi seçin (kampanya veya üst düğüm değil)."
                         );
                         return;
                     }

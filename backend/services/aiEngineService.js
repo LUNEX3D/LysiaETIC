@@ -204,7 +204,8 @@ async function collectData(userId) {
             price: mp.price || 0,
             salePrice: mp.price || 0,
             listPrice: mp.listPrice || mp.price || 0,
-            stock: st.totalStock || st.availableStock || mp.stock || 0,
+            // mp.stock = pazaryeri snapshot; master stok için KULLANMA (0 stoklu ürün yanlışlıkla "stoklu" görünür)
+            stock: st.totalStock ?? st.availableStock ?? 0,
             costPrice: mp.costPrice || 0,
             commissionRate: avgCommission,
             shippingCost: mp.shippingCost || 0,

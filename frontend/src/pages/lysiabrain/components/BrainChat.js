@@ -1,4 +1,4 @@
-/**
+﻿/**
  * ═══════════════════════════════════════════════════════════════
  * LYSIA BRAIN v10 — AI Chat Widget — DARK GLASSMORPHISM
  * ═══════════════════════════════════════════════════════════════
@@ -108,7 +108,7 @@ const BrainChat = ({ t }) => {
                     }}>🤖</div>
                     <div>
                         <div style={{ fontSize: "0.88rem", fontWeight: 700, color: T.text }}>{t("chat.title")}</div>
-                        <div style={{ fontSize: "0.6rem", color: T.textDim }}>LysiaBrain AI</div>
+                        <div style={{ fontSize: "0.6rem", color: T.textDim }}>PazarYonet AI</div>
                     </div>
                 </div>
                 <button onClick={() => setOpen(false)} aria-label="Close chat"

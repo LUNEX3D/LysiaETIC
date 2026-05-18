@@ -309,13 +309,23 @@
 
 /*  Profit Summary Grid  */
 .aa-profit-summary-grid {
-    display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.75rem;
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 0.75rem;
+    padding: 0 1rem 1rem;
 }
+.aa-profit-summary-grid.aa-mb { margin-bottom: 0.5rem; }
+.aa-profit-label { font-size: 0.68rem; color: #64748b; font-weight: 600; text-transform: uppercase; }
+.aa-profit-value { font-size: 1rem; font-weight: 800; color: #e2e8f0; }
+.aa-table-profit th { font-size: 0.65rem; }
 .aa-profit-card {
     background: linear-gradient(145deg, rgba(15, 23, 42, 0.9) 0%, rgba(30, 41, 59, 0.5) 100%);
     border-radius: 12px; padding: 1rem;
     border: 1px solid rgba(255, 255, 255, 0.04);
     display: flex; align-items: center; gap: 0.75rem;
+}
+.aa-profit-summary-grid .aa-profit-card {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.35rem;
 }
 .aa-pc-icon {
     width: 40px; height: 40px; border-radius: 10px;
@@ -355,6 +365,7 @@
 .aa-td-green { color: #22c55e; }
 .aa-td-red { color: #ef4444; }
 .aa-td-orange { color: #f59e0b; }
+.aa-td-blue { color: #3b82f6; }
 .aa-td-dim { color: #475569; }
 
 .aa-rank { font-size: 1rem; min-width: 28px; display: inline-block; text-align: center; }

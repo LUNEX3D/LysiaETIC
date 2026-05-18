@@ -21,7 +21,7 @@ const translations = {
         "sidebar.analytics": "Analiz & AI",
         "sidebar.advancedAnalytics": "Gelişmiş Analiz",
         "sidebar.aiAssistant": "AI Asistan",
-        "sidebar.roketfy": "LysiaRadar",
+        "sidebar.roketfy": "PazarYonet Radar",
         "sidebar.radarPro": "Fırsat Radar",
         "sidebar.management": "Yönetim",
         "sidebar.userMgmt": "Kullanıcı Yönetimi",
@@ -626,7 +626,7 @@ const translations = {
 
         // Auth pages
         "auth.loginTitle": "Giriş Yap",
-        "auth.loginSubtitle": "Pazaryönetim hesabınıza hoş geldiniz.",
+        "auth.loginSubtitle": "PazarYonet hesabınıza hoş geldiniz.",
         "auth.registerTitle": "Kayıt Ol",
         "auth.registerSubtitle": "Ücretsiz hesap oluşturun ve hemen başlayın.",
         "auth.emailPlaceholder": "E-posta adresiniz",
@@ -649,7 +649,7 @@ const translations = {
         "auth.heroTitle2": "yönetin,",
         "auth.heroTitle3": "büyütün.",
         "auth.heroDesc1": "Pazaryeri entegrasyonu, stok, sipariş ve daha fazlası.",
-        "auth.heroDesc2": "Pazaryönetim ile e-ticarette bir adım önde olun.",
+        "auth.heroDesc2": "PazarYonet ile e-ticarette bir adım önde olun.",
         "auth.forgotTitle": "Şifremi Unuttum",
         "auth.forgotDesc": "Kayıtlı e-posta adresinizi girin, size bir sıfırlama kodu göndereceğiz.",
         "auth.sendCode": "Kod Gönder",
@@ -697,7 +697,7 @@ const translations = {
         "sidebar.analytics": "Analytics & AI",
         "sidebar.advancedAnalytics": "Advanced Analytics",
         "sidebar.aiAssistant": "AI Assistant",
-        "sidebar.roketfy": "LysiaRadar",
+        "sidebar.roketfy": "PazarYonet Radar",
         "sidebar.radarPro": "Opportunity Radar",
         "sidebar.management": "Management",
         "sidebar.userMgmt": "User Management",
@@ -1304,7 +1304,7 @@ const translations = {
 
         // Auth pages
         "auth.loginTitle": "Sign In",
-        "auth.loginSubtitle": "Welcome to your Pazaryönetim account.",
+        "auth.loginSubtitle": "Welcome to your PazarYonet account.",
         "auth.registerTitle": "Sign Up",
         "auth.registerSubtitle": "Create a free account and get started.",
         "auth.emailPlaceholder": "Your email address",
@@ -1327,7 +1327,7 @@ const translations = {
         "auth.heroTitle2": "from one panel,",
         "auth.heroTitle3": "grow it.",
         "auth.heroDesc1": "Marketplace integration, stock, orders and more.",
-        "auth.heroDesc2": "Stay ahead in e-commerce with Pazaryönetim.",
+        "auth.heroDesc2": "Stay ahead in e-commerce with PazarYonet.",
         "auth.forgotTitle": "Forgot Password",
         "auth.forgotDesc": "Enter your registered email address and we'll send you a reset code.",
         "auth.sendCode": "Send Code",

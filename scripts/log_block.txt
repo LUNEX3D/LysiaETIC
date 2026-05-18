@@ -1,0 +1,50 @@
+                    <div className="ud-pm-log-list ud-pm-log-list--journal">
+                        {syncLogs.map((log, i) => {
+                            const rowId = log._id || i;
+                            const expanded = logExpandedId === rowId;
+                            const pillColor = log.isZeroStock ? "var(--ud-pm-red)"
+                                : log.isStockIncrease ? "var(--ud-pm-green)"
+                                : log.isStockDecrease ? "var(--ud-pm-yellow)"
+                                : log.actionType === "price_update" ? "var(--ud-pm-yellow)" : "var(--ud-pm-accent)";
+                            return (
+                                <div key={rowId} className="ud-pm-log-item ud-pm-log-item--expandable"
+                                    onClick={() => setLogExpandedId(expanded ? null : rowId)}>
+                                    <div className="ud-pm-log-item-row">
+                                        <span className="dot" style={{ background: log.status === "success" ? "var(--ud-pm-green)" : log.status === "error" ? "var(--ud-pm-red)" : "var(--ud-pm-yellow)" }} />
+                                        <Pill color={pillColor}>{log.actionLabel || log.actionType}</Pill>
+                                        <Pill color="var(--ud-pm-text-dim)">{log.sourceLabel || log.source}</Pill>
+                                        {log.isZeroStock && <Pill color="var(--ud-pm-red)">Sıfırlandı</Pill>}
+                                        <span className="log-name">{log.product?.name || log.product?.barcode || "—"}</span>
+                                        {log.changes?.field === "stock" && (
+                                            <span className="log-change" style={{ fontWeight: 700 }}>
+                                                {log.changes.oldValue} → {log.changes.newValue}
+                                                {log.stockDelta != null && log.stockDelta !== 0 && (
+                                                    <span style={{ color: log.stockDelta > 0 ? "var(--ud-pm-green)" : "var(--ud-pm-red)", marginLeft: 4 }}>
+                                                        ({log.stockDelta > 0 ? "+" : ""}{log.stockDelta})
+                                                    </span>
+                                                )}
+                                            </span>
+                                        )}
+                                        <span className="log-date">{fmtDate(log.timestamp)}</span>
+                                        {expanded ? <FaChevronDown style={{ fontSize: 10, color: "var(--ud-pm-text-dim)" }} /> : <FaChevronRight style={{ fontSize: 10, color: "var(--ud-pm-text-dim)" }} />}
+                                    </div>
+                                    {expanded && (
+                                        <motion.div className="ud-pm-log-item-detail" onClick={e => e.stopPropagation()}>
+                                            {log.product?.barcode && <div>Barkod: <strong style={{ color: "var(--ud-pm-text)" }}>{log.product.barcode}</strong></motion.div>}
+                                            {log.order?.orderNumber && <div>Sipariş: <strong style={{ color: "var(--ud-pm-text)" }}>{log.order.orderNumber}</strong> ({log.order.marketplace || log.marketplace?.name || "—"})</motion.div>}
+                                            {log.marketplaceSummary && <div>Pazaryerleri: {log.marketplaceSummary}</motion.div>}
+                                            {log.hasMarketplaceErrors && log.marketplaceErrors?.map((e, j) => (
+                                                <div key={j} style={{ color: "var(--ud-pm-red)" }}>{e.name}: {e.error}</motion.div>
+                                            ))}
+                                            {log.product?.productMappingId && (
+                                                <button type="button" className="ud-pm-btn sm accent outline" style={{ marginTop: 6 }}
+                                                    onClick={() => openDetail(log.product.productMappingId)}>
+                                                    <FaEye /> Ürünü aç
+                                                </button>
+                                            )}
+                                        </motion.div>
+                                    )}
+                                </motion.div>
+                            );
+                        })}
+                    </motion.div>

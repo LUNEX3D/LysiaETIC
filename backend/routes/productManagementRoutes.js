@@ -73,6 +73,10 @@ router.get("/dashboard",   controller.getProductManagementDashboard);
 // ═══════════════════════════════════════════════════════════════
 router.post("/sync/all",                       controller.syncAllMarketplaces);
 router.get("/comparison",                      controller.getComparisonMatrix);
+router.get("/field-audit",                     controller.getFieldAuditList);
+router.get("/products/:productId/field-audit", controller.getProductFieldAudit);
+router.post("/products/:productId/refresh-field-audit", controller.refreshProductFieldAudit);
+router.post("/products/:productId/apply-platform-field", controller.applyPlatformField);
 router.post("/sync/bulk-distribute-selected",  controller.bulkDistributeSelected);
 router.post("/sync/distribute-undistributed",  controller.distributeUndistributed);
 

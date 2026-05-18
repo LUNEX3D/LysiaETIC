@@ -1,6 +1,6 @@
-/**
+﻿/**
  * 
- * LysiaRadar PRO  AI ürün Fırsat Motoru
+ * PazarYonet Radar  AI ürün Fırsat Motoru
  * 
  *
  * Kullanıcıya zel ürün frsatlar:

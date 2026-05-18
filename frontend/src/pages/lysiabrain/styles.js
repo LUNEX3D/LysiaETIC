@@ -1,4 +1,4 @@
-/**
+﻿/**
  * ═══════════════════════════════════════════════════════════════
  * LYSIA BRAIN v10 — DARK GLASSMORPHISM — Design Tokens + Responsive
  * ═══════════════════════════════════════════════════════════════
@@ -342,7 +342,7 @@ export const LYSIA_GLOBAL_CSS = `
 }
 `;
 
-/* DOM'a bir kez enjekte eden helper — LysiaBrain.js mount'unda çağrılır */
+/* DOM'a bir kez enjekte eden helper — PazarYonet AI.js mount'unda çağrılır */
 export function ensureLysiaGlobalStyles() {
     if (typeof document === "undefined") return;
     if (document.getElementById("lysia-global-styles")) return;

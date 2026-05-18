@@ -1,10 +1,10 @@
-/**
+﻿/**
  * AdminAccessControl — Erişim Kontrol Merkezi
  *
  * Bloklu kullanıcılar, erişim olayları (rate-limit, blokaj, yardım talepleri),
  * cihaz/IP geçmişi ve tek tıkla blokaj kaldırma.
  *
- * Tasarım kuralı (LysiaBrain ile aynı dil): sade KPI'lar, filtre çubuğu, kart listesi.
+ * Tasarım kuralı (PazarYonet AI ile aynı dil): sade KPI'lar, filtre çubuğu, kart listesi.
  */
 
 import React, { useEffect, useState, useMemo, useCallback } from "react";

@@ -1638,3 +1638,43 @@ exports.adminResetPassword = async (req, res) => {
         res.status(500).json({ success: false, message: "Şifre sıfırlanamadı" });
     }
 };
+
+/* ═══════════════════════════════════════════════════════════
+   Birim ekonomisi — kullanıcı başı tahmini maliyet
+   ═══════════════════════════════════════════════════════════ */
+const {
+    buildUnitEconomicsReport,
+    invalidateUnitEconomicsCache,
+} = require("../../services/userUnitEconomicsService");
+
+exports.getUnitEconomics = async (req, res) => {
+    try {
+        const force = req.query.refresh === "true";
+        const data = await buildUnitEconomicsReport({ force });
+        res.json({ success: true, data });
+    } catch (error) {
+        logger.error(`[SaaS Admin] Birim ekonomisi: ${error.message}`);
+        res.status(500).json({ success: false, message: "Maliyet verileri alınamadı", details: error.message });
+    }
+};
+
+exports.updateUnitEconomicsRates = async (req, res) => {
+    try {
+        const { rates } = req.body;
+        if (!rates || typeof rates !== "object") {
+            return res.status(400).json({ success: false, message: "rates nesnesi gerekli" });
+        }
+        const SystemConfig = require("../../models/SystemConfig");
+        await SystemConfig.findOneAndUpdate(
+            { key: "unitEconomicsRates" },
+            { key: "unitEconomicsRates", value: rates, updatedBy: req.user._id },
+            { upsert: true, new: true }
+        );
+        invalidateUnitEconomicsCache();
+        const data = await buildUnitEconomicsReport({ force: true });
+        res.json({ success: true, message: "Oranlar güncellendi", data });
+    } catch (error) {
+        logger.error(`[SaaS Admin] Birim ekonomisi oranları: ${error.message}`);
+        res.status(500).json({ success: false, message: "Oranlar kaydedilemedi" });
+    }
+};

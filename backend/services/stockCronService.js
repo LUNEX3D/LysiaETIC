@@ -16,7 +16,13 @@ const Marketplace = require("../models/Marketplace");
 const PendingDeletion = require("../models/PendingDeletion");
 const User = require("../models/User");
 const logger = require("../config/logger");
-const { syncStockToAllMarketplaces, reserveStock, releaseStock } = require("./stockSyncService");
+const {
+    syncStockToAllMarketplaces,
+    processOrderStockLine,
+    retryPendingStockPushes,
+    deriveSyncLogStatus,
+    saveProductMappingAfterPlatformSync
+} = require("./stockSyncService");
 const { checkPendingTrendyolBatches, checkPendingHepsiburadaUploads } = require("./productSyncService");
 // ✅ FIX: Credential'ları decrypt ederek kullan
 const { decryptCredentials } = require("../utils/encryption");
@@ -29,75 +35,55 @@ const processedOrders = new Map(); // key → timestamp
 
 // ✅ FIX #2: Cron re-entrancy lock — aynı anda iki runStockSync çalışmasını engelle
 let _cronRunning = false;
-
-const normMpKey = (n) => String(n || "").trim().toLowerCase();
-
-/**
- * syncStockToAllMarketplaces sonrası kayıtta Mongo VersionError olursa (paralel ürün güncellemesi)
- * güncel dokümanı çekip yalnızca pazaryeri stok senkro alanlarını birleştirir.
- */
-const mergeMarketplaceSyncFromStale = (freshDoc, staleDoc) => {
-    if (!freshDoc?.marketplaceMappings || !staleDoc?.marketplaceMappings) return;
-    for (const sm of staleDoc.marketplaceMappings) {
-        const k = normMpKey(sm.marketplaceName);
-        const t = freshDoc.marketplaceMappings.find((m) => normMpKey(m.marketplaceName) === k);
-        if (!t) continue;
-        if (sm.stock !== undefined) t.stock = sm.stock;
-        if (sm.lastSyncDate) t.lastSyncDate = sm.lastSyncDate;
-        if (sm.syncStatus !== undefined) t.syncStatus = sm.syncStatus;
-        if (sm.isSynced !== undefined) t.isSynced = sm.isSynced;
-        if (sm.syncError !== undefined) t.syncError = sm.syncError;
-        if (sm.price !== undefined) t.price = sm.price;
-        if (sm.listPrice !== undefined) t.listPrice = sm.listPrice;
-    }
-};
-
-const isMongoVersionConflict = (err) =>
-    err?.name === "VersionError" ||
-    (typeof err?.message === "string" && err.message.includes("No matching document found"));
+let _cronTick = 0;
+const STOCK_CRON_MS = Math.max(60_000, parseInt(process.env.STOCK_ORDER_CRON_MS || "120000", 10) || 120_000);
+const STOCK_PUSH_EVERY_N_CYCLES = Math.max(1, parseInt(process.env.STOCK_PUSH_EVERY_N_CYCLES || "3", 10) || 3);
 
 /**
- * @param {import("mongoose").Document} staleMapping — syncStockToAllMarketplaces ile mutasyona uğramış belge
+ * Cron sipariş satırı — merkezi processOrderStockLine + in-memory işaretleme
  */
-const saveProductMappingAfterPlatformSync = async (staleMapping) => {
-    try {
-        await staleMapping.save();
+const applyCronOrderStockLine = async ({
+    userId,
+    marketplaceName,
+    orderNumber,
+    barcode,
+    quantity,
+    isCancelled,
+    orderItemKey,
+    results
+}) => {
+    const lineResult = await processOrderStockLine({
+        userId,
+        marketplaceName,
+        orderNumber,
+        barcode,
+        quantity,
+        isCancelled,
+        actionType: isCancelled ? "stock_update" : "order_placed"
+    });
+
+    processedOrders.set(orderItemKey, Date.now());
+
+    if (lineResult.skipped || lineResult.noStockChange) return;
+    if (!lineResult.success) {
+        logger.warn(`[STOCK CRON] ${marketplaceName} stok hatası: ${barcode} — ${lineResult.error}`);
         return;
-    } catch (e) {
-        if (!isMongoVersionConflict(e)) throw e;
     }
-    let doc = await ProductMapping.findById(staleMapping._id);
-    if (!doc) throw new Error(`ProductMapping bulunamadı: ${staleMapping._id}`);
-    mergeMarketplaceSyncFromStale(doc, staleMapping);
-    try {
-        await doc.save();
-    } catch (e2) {
-        if (!isMongoVersionConflict(e2)) throw e2;
-        doc = await ProductMapping.findById(staleMapping._id);
-        if (!doc) throw e2;
-        mergeMarketplaceSyncFromStale(doc, staleMapping);
-        await doc.save();
-    }
-};
 
-/**
- * DB-level tekrar işleme koruması — server restart sonrası bile çalışır
- * StockSyncLog'da bu sipariş+ürün kombinasyonu zaten var mı kontrol eder
- */
-const isOrderAlreadyProcessed = async (userId, orderId, barcode, marketplace) => {
-    try {
-        const existing = await StockSyncLog.findOne({
-            userId,
-            "order.orderId": String(orderId),
-            "product.barcode": barcode,
-            "marketplace.name": marketplace,
-            actionType: { $in: ["order_placed", "stock_update"] },
-            status: "success"
-        }).lean();
-        return !!existing;
-    } catch {
-        return false; // Hata durumunda güvenli tarafta kal — tekrar işleme riski al
-    }
+    results.push({
+        barcode,
+        marketplace: marketplaceName,
+        action: isCancelled ? "cancel_restore" : "order_deduct",
+        oldStock: lineResult.oldStock,
+        newStock: lineResult.newStock,
+        quantity,
+        syncStatus: lineResult.status
+    });
+
+    logger.info(
+        `[STOCK CRON] ${marketplaceName} ${isCancelled ? "İPTAL +" : "SİPARİŞ -"}${quantity} | ` +
+        `${lineResult.mapping?.masterProduct?.name} | ${lineResult.oldStock} → ${lineResult.newStock}`
+    );
 };
 
 // Pazaryeri isimlerini normalize et
@@ -170,82 +156,18 @@ const checkTrendyolOrders = async (userId, credentials) => {
                     continue;
                 }
 
-                // ✅ DB-level tekrar işleme koruması (server restart sonrası bile çalışır)
-                if (await isOrderAlreadyProcessed(userId, order.orderNumber, barcode, "Trendyol")) {
-                    processedOrders.set(orderItemKey, Date.now());
-                    continue;
-                }
-
                 const quantity = line.quantity || 1;
 
-                // 🔒 Atomic stok kilitleme — race condition önlenir
-                let stockResult;
-                if (isCancelled) {
-                    stockResult = await releaseStock(userId, barcode, quantity);
-                } else {
-                    stockResult = await reserveStock(userId, barcode, quantity);
-                }
-
-                if (!stockResult.success) {
-                    logger.warn(`[STOCK CRON] Trendyol stok ${isCancelled ? "serbest bırakma" : "rezerve"} başarısız: ${barcode} — ${stockResult.error}`);
-                    processedOrders.set(orderItemKey, Date.now());
-                    continue;
-                }
-
-                const { mapping, oldStock, newStock, marketplaceStock } = stockResult;
-
-                if (oldStock === newStock) {
-                    processedOrders.set(orderItemKey, Date.now());
-                    continue;
-                }
-
-                // ⚡ Tüm platformlara ANLIK push (güvenlik stoğu düşülmüş)
-                // ✅ FIX: excludeMarketplace=null — kaynak platform dahil tüm platformlara push
-                // ESKİ: "Trendyol" geçiliyordu → Trendyol'daki stok güncellenmiyordu → tutarsızlık
-                const syncResults = await syncStockToAllMarketplaces(userId, mapping, marketplaceStock, null);
-                await saveProductMappingAfterPlatformSync(mapping);
-
-                // Log oluştur
-                await StockSyncLog.create({
+                await applyCronOrderStockLine({
                     userId,
-                    actionType: isCancelled ? "stock_update" : "order_placed",
-                    product: {
-                        productMappingId: mapping._id,
-                        barcode: mapping.masterProduct.barcode,
-                        sku: mapping.masterProduct.sku,
-                        name: mapping.masterProduct.name
-                    },
-                    marketplace: { name: "Trendyol" },
-                    order: {
-                        orderId: order.orderNumber,
-                        orderNumber: order.orderNumber,
-                        marketplace: "Trendyol",
-                        quantity
-                    },
-                    changes: {
-                        field: "stock",
-                        oldValue: oldStock,
-                        newValue: newStock,
-                        difference: newStock - oldStock
-                    },
-                    status: "success",
-                    affectedMarketplaces: syncResults,
-                    notification: {
-                        priority: newStock === 0 ? "critical" : newStock <= 10 ? "high" : "medium"
-                    }
-                });
-
-                results.push({
+                    marketplaceName: "Trendyol",
+                    orderNumber: order.orderNumber,
                     barcode,
-                    marketplace: "Trendyol",
-                    action: isCancelled ? "cancel_restore" : "order_deduct",
-                    oldStock,
-                    newStock,
-                    quantity
+                    quantity,
+                    isCancelled,
+                    orderItemKey,
+                    results
                 });
-
-                logger.info(`[STOCK CRON] Trendyol ${isCancelled ? "İPTAL +": "SİPARİŞ -"}${quantity} | ${mapping.masterProduct.name} | ${oldStock} → ${newStock}`);
-                processedOrders.set(orderItemKey, Date.now());
             }
         }
     } catch (error) {
@@ -304,80 +226,18 @@ const checkN11Orders = async (userId, credentials) => {
                     continue;
                 }
 
-                // ✅ DB-level tekrar işleme koruması (server restart sonrası bile çalışır)
-                if (await isOrderAlreadyProcessed(userId, String(order.id || order.orderNumber), barcode, "N11")) {
-                    processedOrders.set(orderItemKey, Date.now());
-                    continue;
-                }
-
                 const quantity = item.quantity || 1;
 
-                // 🔒 Atomic stok kilitleme — race condition önlenir
-                let stockResult;
-                if (isCancelled) {
-                    stockResult = await releaseStock(userId, barcode, quantity);
-                } else {
-                    stockResult = await reserveStock(userId, barcode, quantity);
-                }
-
-                if (!stockResult.success) {
-                    logger.warn(`[STOCK CRON] N11 stok ${isCancelled ? "serbest bırakma" : "rezerve"} başarısız: ${barcode} — ${stockResult.error}`);
-                    processedOrders.set(orderItemKey, Date.now());
-                    continue;
-                }
-
-                const { mapping, oldStock, newStock, marketplaceStock } = stockResult;
-
-                if (oldStock === newStock) {
-                    processedOrders.set(orderItemKey, Date.now());
-                    continue;
-                }
-
-                // ⚡ Tüm platformlara ANLIK push (güvenlik stoğu düşülmüş)
-                // ✅ FIX: excludeMarketplace=null — kaynak platform dahil tüm platformlara push
-                const syncResults = await syncStockToAllMarketplaces(userId, mapping, marketplaceStock, null);
-                await saveProductMappingAfterPlatformSync(mapping);
-
-                await StockSyncLog.create({
+                await applyCronOrderStockLine({
                     userId,
-                    actionType: isCancelled ? "stock_update" : "order_placed",
-                    product: {
-                        productMappingId: mapping._id,
-                        barcode: mapping.masterProduct.barcode,
-                        sku: mapping.masterProduct.sku,
-                        name: mapping.masterProduct.name
-                    },
-                    marketplace: { name: "N11" },
-                    order: {
-                        orderId: String(order.id || order.orderNumber),
-                        orderNumber: String(order.orderNumber || order.id),
-                        marketplace: "N11",
-                        quantity
-                    },
-                    changes: {
-                        field: "stock",
-                        oldValue: oldStock,
-                        newValue: newStock,
-                        difference: newStock - oldStock
-                    },
-                    status: "success",
-                    affectedMarketplaces: syncResults,
-                    notification: {
-                        priority: newStock === 0 ? "critical" : newStock <= 10 ? "high" : "medium"
-                    }
-                });
-
-                results.push({
+                    marketplaceName: "N11",
+                    orderNumber: String(order.id || order.orderNumber),
                     barcode,
-                    marketplace: "N11",
-                    action: isCancelled ? "cancel_restore" : "order_deduct",
-                    oldStock,
-                    newStock,
-                    quantity
+                    quantity,
+                    isCancelled,
+                    orderItemKey,
+                    results
                 });
-
-                logger.info(`[STOCK CRON] N11 ${isCancelled ? "İPTAL +" : "SİPARİŞ -"}${quantity} | ${mapping.masterProduct.name} | ${oldStock} → ${newStock}`);
-                processedOrders.set(orderItemKey, Date.now());
             }
         }
     } catch (error) {
@@ -447,72 +307,18 @@ const checkHepsiburadaOrders = async (userId, credentials) => {
                     continue;
                 }
 
-                // ✅ DB-level tekrar işleme koruması (server restart sonrası bile çalışır)
-                if (await isOrderAlreadyProcessed(userId, String(pkg.packageNumber || pkg.id), barcode, "Hepsiburada")) {
-                    processedOrders.set(orderItemKey, Date.now());
-                    continue;
-                }
-
                 const quantity = item.quantity || 1;
 
-                // 🔒 Atomic stok kilitleme
-                let stockResult;
-                if (isCancelled) {
-                    stockResult = await releaseStock(userId, barcode, quantity);
-                } else {
-                    stockResult = await reserveStock(userId, barcode, quantity);
-                }
-
-                if (!stockResult.success) {
-                    logger.warn(`[STOCK CRON] Hepsiburada stok ${isCancelled ? "serbest bırakma" : "rezerve"} başarısız: ${barcode} — ${stockResult.error}`);
-                    processedOrders.set(orderItemKey, Date.now());
-                    continue;
-                }
-
-                const { mapping, oldStock, newStock, marketplaceStock } = stockResult;
-
-                if (oldStock === newStock) {
-                    processedOrders.set(orderItemKey, Date.now());
-                    continue;
-                }
-
-                // ⚡ Tüm platformlara ANLIK push (güvenlik stoğu düşülmüş)
-                // ✅ FIX: excludeMarketplace=null — kaynak platform dahil tüm platformlara push
-                const syncResults = await syncStockToAllMarketplaces(userId, mapping, marketplaceStock, null);
-                await saveProductMappingAfterPlatformSync(mapping);
-
-                await StockSyncLog.create({
+                await applyCronOrderStockLine({
                     userId,
-                    actionType: isCancelled ? "stock_update" : "order_placed",
-                    product: {
-                        productMappingId: mapping._id,
-                        barcode: mapping.masterProduct.barcode,
-                        sku: mapping.masterProduct.sku,
-                        name: mapping.masterProduct.name
-                    },
-                    marketplace: { name: "Hepsiburada" },
-                    order: {
-                        orderId: String(pkg.packageNumber || pkg.id),
-                        orderNumber: String(pkg.packageNumber || pkg.id),
-                        marketplace: "Hepsiburada",
-                        quantity
-                    },
-                    changes: {
-                        field: "stock",
-                        oldValue: oldStock,
-                        newValue: newStock,
-                        difference: newStock - oldStock
-                    },
-                    status: "success",
-                    affectedMarketplaces: syncResults,
-                    notification: {
-                        priority: newStock === 0 ? "critical" : newStock <= 10 ? "high" : "medium"
-                    }
+                    marketplaceName: "Hepsiburada",
+                    orderNumber: String(pkg.packageNumber || pkg.id),
+                    barcode,
+                    quantity,
+                    isCancelled,
+                    orderItemKey,
+                    results
                 });
-
-                results.push({ barcode, marketplace: "Hepsiburada", action: isCancelled ? "cancel_restore" : "order_deduct", oldStock, newStock, quantity });
-                logger.info(`[STOCK CRON] Hepsiburada ${isCancelled ? "İPTAL +" : "SİPARİŞ -"}${quantity} | ${mapping.masterProduct.name} | ${oldStock} → ${newStock}`);
-                processedOrders.set(orderItemKey, Date.now());
             }
         }
     } catch (error) {
@@ -602,82 +408,18 @@ const checkCicekSepetiOrders = async (userId, credentials) => {
                 continue;
             }
 
-            // ✅ DB-level tekrar işleme koruması (server restart sonrası bile çalışır)
-            if (await isOrderAlreadyProcessed(userId, String(orderId), barcode, "ÇiçekSepeti")) {
-                processedOrders.set(orderItemKey, Date.now());
-                continue;
-            }
-
             const quantity = order.quantity || 1;
 
-            // 🔒 Atomic stok kilitleme — race condition önlenir
-            let stockResult;
-            if (isCancelled) {
-                stockResult = await releaseStock(userId, barcode, quantity);
-            } else {
-                stockResult = await reserveStock(userId, barcode, quantity);
-            }
-
-            if (!stockResult.success) {
-                logger.warn(`[STOCK CRON] ÇiçekSepeti stok ${isCancelled ? "serbest bırakma" : "rezerve"} başarısız: ${barcode} — ${stockResult.error}`);
-                processedOrders.set(orderItemKey, Date.now());
-                continue;
-            }
-
-            const { mapping, oldStock, newStock, marketplaceStock } = stockResult;
-
-            if (oldStock === newStock) {
-                processedOrders.set(orderItemKey, Date.now());
-                continue;
-            }
-
-            // ⚡ TÜM platformlara ANLIK push (güvenlik stoğu düşülmüş)
-            // ✅ FIX: excludeMarketplace YOK — sipariş kaynağı dahil tüm platformlara push
-            // Çünkü bizim hesapladığımız stok (safetyStock düşülmüş) platformun kendi düşürdüğünden farklı olabilir
-            const syncResults = await syncStockToAllMarketplaces(userId, mapping, marketplaceStock, null);
-            await saveProductMappingAfterPlatformSync(mapping);
-
-            // Log oluştur
-            await StockSyncLog.create({
+            await applyCronOrderStockLine({
                 userId,
-                actionType: isCancelled ? "stock_update" : "order_placed",
-                product: {
-                    productMappingId: mapping._id,
-                    barcode: mapping.masterProduct.barcode,
-                    sku: mapping.masterProduct.sku,
-                    name: mapping.masterProduct.name
-                },
-                marketplace: { name: "ÇiçekSepeti" },
-                order: {
-                    orderId: String(orderId),
-                    orderNumber: String(orderId),
-                    marketplace: "ÇiçekSepeti",
-                    quantity
-                },
-                changes: {
-                    field: "stock",
-                    oldValue: oldStock,
-                    newValue: newStock,
-                    difference: newStock - oldStock
-                },
-                status: "success",
-                affectedMarketplaces: syncResults,
-                notification: {
-                    priority: newStock === 0 ? "critical" : newStock <= 10 ? "high" : "medium"
-                }
-            });
-
-            results.push({
+                marketplaceName: "ÇiçekSepeti",
+                orderNumber: String(orderId),
                 barcode,
-                marketplace: "ÇiçekSepeti",
-                action: isCancelled ? "cancel_restore" : "order_deduct",
-                oldStock,
-                newStock,
-                quantity
+                quantity,
+                isCancelled,
+                orderItemKey,
+                results
             });
-
-            logger.info(`[STOCK CRON] ÇiçekSepeti ${isCancelled ? "İPTAL +" : "SİPARİŞ -"}${quantity} | ${mapping.masterProduct.name} | ${oldStock} → ${newStock}`);
-            processedOrders.set(orderItemKey, Date.now());
         }
     } catch (error) {
         if (error.response?.status !== 401) {
@@ -757,81 +499,18 @@ const checkAmazonOrders = async (userId, credentials) => {
                 const orderItemKey = `amz_${orderId}_${barcode}`;
                 if (processedOrders.has(orderItemKey)) continue;
 
-                // ✅ DB-level tekrar işleme koruması (server restart sonrası bile çalışır)
-                if (await isOrderAlreadyProcessed(userId, orderId, barcode, "Amazon")) {
-                    processedOrders.set(orderItemKey, Date.now());
-                    continue;
-                }
-
                 const quantity = item.quantity || 1;
 
-                // 🔒 Atomic stok kilitleme — race condition önlenir
-                let stockResult;
-                if (isCancelled) {
-                    stockResult = await releaseStock(userId, barcode, quantity);
-                } else {
-                    stockResult = await reserveStock(userId, barcode, quantity);
-                }
-
-                if (!stockResult.success) {
-                    logger.warn(`[STOCK CRON] Amazon stok ${isCancelled ? "serbest bırakma" : "rezerve"} başarısız: ${barcode} — ${stockResult.error}`);
-                    processedOrders.set(orderItemKey, Date.now());
-                    continue;
-                }
-
-                const { mapping, oldStock, newStock, marketplaceStock } = stockResult;
-
-                if (oldStock === newStock) {
-                    processedOrders.set(orderItemKey, Date.now());
-                    continue;
-                }
-
-                // ⚡ TÜM platformlara ANLIK push (güvenlik stoğu düşülmüş)
-                // ✅ FIX: excludeMarketplace YOK — sipariş kaynağı dahil tüm platformlara push
-                const syncResults = await syncStockToAllMarketplaces(userId, mapping, marketplaceStock, null);
-                await saveProductMappingAfterPlatformSync(mapping);
-
-                // Log oluştur
-                await StockSyncLog.create({
+                await applyCronOrderStockLine({
                     userId,
-                    actionType: isCancelled ? "stock_update" : "order_placed",
-                    product: {
-                        productMappingId: mapping._id,
-                        barcode: mapping.masterProduct.barcode,
-                        sku: mapping.masterProduct.sku,
-                        name: mapping.masterProduct.name
-                    },
-                    marketplace: { name: "Amazon" },
-                    order: {
-                        orderId: orderId,
-                        orderNumber: orderId,
-                        marketplace: "Amazon",
-                        quantity
-                    },
-                    changes: {
-                        field: "stock",
-                        oldValue: oldStock,
-                        newValue: newStock,
-                        difference: newStock - oldStock
-                    },
-                    status: "success",
-                    affectedMarketplaces: syncResults,
-                    notification: {
-                        priority: newStock === 0 ? "critical" : newStock <= 10 ? "high" : "medium"
-                    }
-                });
-
-                results.push({
+                    marketplaceName: "Amazon",
+                    orderNumber: String(orderId),
                     barcode,
-                    marketplace: "Amazon",
-                    action: isCancelled ? "cancel_restore" : "order_deduct",
-                    oldStock,
-                    newStock,
-                    quantity
+                    quantity,
+                    isCancelled,
+                    orderItemKey,
+                    results
                 });
-
-                logger.info(`[STOCK CRON] Amazon ${isCancelled ? "İPTAL +" : "SİPARİŞ -"}${quantity} | ${mapping.masterProduct.name} | ${oldStock} → ${newStock}`);
-                processedOrders.set(orderItemKey, Date.now());
             }
         }
     } catch (error) {
@@ -889,7 +568,12 @@ const pushMasterStockToMarketplaces = async () => {
                 // stok > 0 olup syncStatus hatalı/beklemede olan var mı kontrol et
                 // (Trendyol'da ürün satışa kapalı olabilir — unlock gerekebilir)
                 let needsSync = false;
+                // Master stok 0 → pazaryerinde satış kapanmalı (önceki push başarısız olsa bile tekrar dene)
+                if (marketplaceStock <= 0) {
+                    needsSync = true;
+                }
                 for (const mp of mapping.marketplaceMappings) {
+                    if (needsSync) break;
                     // Stok farkı varsa senkronize et
                     if (mp.stock === null || mp.stock === undefined || mp.stock !== marketplaceStock) {
                         needsSync = true;
@@ -981,6 +665,18 @@ const runStockSync = async () => {
 
     try {
         // ═══════════════════════════════════════════════════════
+        // ADIM 0: KISMI BAŞARISIZ PLATFORM PUSH — YENİDEN DENE
+        // ═══════════════════════════════════════════════════════
+        try {
+            const retryResult = await retryPendingStockPushes();
+            if (retryResult.retried > 0) {
+                logger.info(`[STOCK CRON] 🔁 Kısmi sync retry — denenen: ${retryResult.retried}, düzelen: ${retryResult.fixed}`);
+            }
+        } catch (retryErr) {
+            logger.warn(`[STOCK CRON] Retry hatası: ${retryErr.message}`);
+        }
+
+        // ═══════════════════════════════════════════════════════
         // ADIM 1: SİPARİŞ KONTROLÜ (mevcut mantık)
         // ═══════════════════════════════════════════════════════
         const marketplaces = await Marketplace.find({}).lean();
@@ -1030,12 +726,14 @@ const runStockSync = async () => {
         }
 
         // ═══════════════════════════════════════════════════════
-        // ADIM 2: MASTER STOK EŞİTLEME (yeni)
-        // Bizim programdaki stoku tüm pazaryerlerine push et
+        // ADIM 2: MASTER STOK EŞİTLEME (her N döngüde — varsayılan ~6 dk)
         // ═══════════════════════════════════════════════════════
-        const pushResult = await pushMasterStockToMarketplaces();
-        if (pushResult.synced > 0 || pushResult.errors > 0) {
-            logger.info(`[STOCK CRON] 🔄 Stok eşitleme — toplam: ${pushResult.total}, güncellenen: ${pushResult.synced}, hata: ${pushResult.errors}, atlanılan: ${pushResult.skipped}`);
+        _cronTick += 1;
+        if (_cronTick % STOCK_PUSH_EVERY_N_CYCLES === 0) {
+            const pushResult = await pushMasterStockToMarketplaces();
+            if (pushResult.synced > 0 || pushResult.errors > 0) {
+                logger.info(`[STOCK CRON] 🔄 Stok eşitleme — toplam: ${pushResult.total}, güncellenen: ${pushResult.synced}, hata: ${pushResult.errors}, atlanılan: ${pushResult.skipped}`);
+            }
         }
 
         // ═══════════════════════════════════════════════════════
@@ -1238,15 +936,14 @@ let cronInterval = null;
 const startStockCron = () => {
     if (cronInterval) return;
 
-    logger.info("[STOCK CRON] 🔄 Otomatik stok senkronizasyonu başlatıldı (5dk aralık)");
+    logger.info(`[STOCK CRON] 🔄 Otomatik stok senkronizasyonu başlatıldı (${Math.round(STOCK_CRON_MS / 60000)}dk sipariş, master push her ${STOCK_PUSH_EVERY_N_CYCLES} döngü)`);
 
     // İlk çalıştırma — 30 saniye sonra (sunucu başlangıcını bekle)
     setTimeout(() => {
         runStockSync();
     }, 30000);
 
-    // Periyodik çalıştırma — 5 dakikada bir
-    cronInterval = setInterval(runStockSync, 5 * 60 * 1000);
+    cronInterval = setInterval(runStockSync, STOCK_CRON_MS);
 };
 
 const stopStockCron = () => {

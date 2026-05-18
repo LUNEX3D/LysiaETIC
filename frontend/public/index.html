@@ -5,8 +5,17 @@
     <!-- ✅ WEB APP FIRST: viewport-fit=cover for notched devices (iPhone X+, Android punch-hole) -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover" />
     <meta http-equiv="X-UA-Compatible" content="IE=edge" />
-    <title>Pazaryönetim - Marketplace Yönetim Platformu</title>
-    <meta name="description" content="E-ticaret pazaryeri entegrasyonu, ürün yönetimi, sipariş takibi ve AI destekli karar merkezi." />
+    <title>PazarYonet - Pazaryeri Entegrasyon ve E-Ticaret Yönetim Sistemi</title>
+    <meta name="description" content="PazarYonet ile Trendyol, Hepsiburada, Amazon ve diğer pazaryerlerini tek panelden yönetin. Stok, sipariş, fiyat ve kâr analizi." />
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href="https://pazaryonet.com/" />
+    <meta property="og:url" content="https://pazaryonet.com/" />
+    <meta property="og:site_name" content="PazarYonet" />
+    <meta property="og:title" content="PazarYonet - Pazaryeri Entegrasyon ve E-Ticaret Yönetim Sistemi" />
+    <meta property="og:description" content="PazarYonet ile Trendyol, Hepsiburada, Amazon ve diğer pazaryerlerini tek panelden yönetin." />
+    <script type="application/ld+json">
+    {"@context":"https://schema.org","@graph":[{"@type":"Organization","name":"PazarYonet","url":"https://pazaryonet.com","email":"info@pazaryonetim.com","logo":"https://pazaryonet.com/brand/pazaryonet-logo.svg"},{"@type":"SoftwareApplication","name":"PazarYonet","applicationCategory":"BusinessApplication","operatingSystem":"Web","description":"Pazaryeri entegrasyonu ve e-ticaret yönetim SaaS platformu"}]}
+    </script>
 
     <!-- ✅ PWA Meta Tags — Full cross-platform support -->
     <meta name="theme-color" content="#0f766e" media="(prefers-color-scheme: light)" />
@@ -15,8 +24,8 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="Pazaryönetim" />
-    <meta name="application-name" content="Pazaryönetim" />
+    <meta name="apple-mobile-web-app-title" content="PazarYonet" />
+    <meta name="application-name" content="PazarYonet" />
     <meta name="msapplication-TileColor" content="#0f766e" />
     <meta name="msapplication-TileImage" content="/icons/icon-144x144.png" />
     <meta name="msapplication-starturl" content="/" />
@@ -74,6 +83,23 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
 
+    <!-- Üretim: geliştirici araçları / sağ tık (localhost hariç) -->
+    <script>
+        (function () {
+            var h = location.hostname;
+            if (h === "localhost" || h === "127.0.0.1") return;
+            document.addEventListener("contextmenu", function (e) { e.preventDefault(); }, true);
+            document.addEventListener("keydown", function (e) {
+                var k = (e.key || "").toLowerCase();
+                if (k === "f12") { e.preventDefault(); e.stopPropagation(); return false; }
+                if (e.ctrlKey && e.shiftKey && (k === "i" || k === "j" || k === "c" || k === "k")) {
+                    e.preventDefault(); e.stopPropagation(); return false;
+                }
+                if (e.ctrlKey && k === "u") { e.preventDefault(); return false; }
+            }, true);
+        })();
+    </script>
+
     <!-- ✅ WEB APP FIRST: Critical inline styles for instant first paint -->
     <style>
         /* Prevent FOUC and layout shift */
@@ -85,7 +111,7 @@
     </style>
 </head>
 <body>
-    <noscript>Pazaryönetim'i kullanabilmek için JavaScript'i etkinleştirmeniz gerekmektedir.</noscript>
+    <noscript>PazarYonet'i kullanabilmek için JavaScript'i etkinleştirmeniz gerekmektedir.</noscript>
     <div id="root"></div>
 </body>
 </html>

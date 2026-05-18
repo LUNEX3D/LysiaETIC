@@ -1,4 +1,4 @@
-/**
+﻿/**
  *
  * LYSIA BRAIN v10  Dashboard Tab  DARK GLASSMORPHISM
  *
@@ -234,7 +234,7 @@ const BrainDashboard = ({
         return () => { cancelled = true; };
     }, []);
 
-    if (!brain) return <EmptyState icon="🧠" title={t("common.loading")} description="LysiaBrain" />;
+    if (!brain) return <EmptyState icon="🧠" title={t("common.loading")} description="PazarYonet AI" />;
 
     const bh = brain.businessHealth || {};
     const tone = brain.emotionalTone || {};

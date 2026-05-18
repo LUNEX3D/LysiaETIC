@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+﻿import React, { useState, useEffect } from "react";
 import axios from "../services/api";
 import { useNavigate } from "react-router-dom";
 import { useGoogleLogin, GoogleOAuthProvider } from "@react-oauth/google";
@@ -19,21 +19,23 @@ import { useApp } from "../context/AppContext";
 import AuthNavbar from "./auth/AuthNavbar";
 import DashboardMockup from "./auth/DashboardMockup";
 import { PlantDecoration, GoogleIcon, AuthFooter } from "./auth/AuthShared";
+import { BRAND_EMAIL, BRAND_VERIFY_EMAIL_NOTE } from "../constants/brand";
+import MarketplaceBlogSection from "./MarketplaceBlogSection";
 
 const GOOGLE_CLIENT_ID = process.env.REACT_APP_GOOGLE_CLIENT_ID || "";
 
-/** Giriş sayfası → İletişim sekmesi. Telefon, e-posta vb. bilgileri buraya yazın. */
+/** Giriş sayfası → İletişim sekmesi */
 const LOGIN_PAGE_CONTACT = {
     phone: "+905363989092",
-    email: "info@pazaryönetim.com",
+    email: BRAND_EMAIL,
     address: "Türkiye/İstanbul/Ümraniye/parseller mah Nil sokak no:55",
     workingHours: "08:00-18:00",
     whatsapp: "+905363989092",
-    note: "",
-   
+    note: BRAND_VERIFY_EMAIL_NOTE,
 };
 
-const isLoginFullPageTab = (tab) => tab === "features" || tab === "pricing" || tab === "about" || tab === "contact";
+const isLoginFullPageTab = (tab) =>
+    tab === "features" || tab === "pricing" || tab === "about" || tab === "contact" || tab === "blog";
 
 /* 
    LOGIN FORM INNER
@@ -169,25 +171,11 @@ const LoginFormInner = () => {
                 setNeedsVerification(true);
                 setMessage({ text: data.message, type: "warning" });
             } else if (status === 403) {
-                // ✅ TANI: 403 alındığında otomatik /api/diagnostic/whoami çağır,
-                //   kullanıcıya ne döndüğünü göster — gizemli 403'ün gerçek sebebini ifşa eder.
-                let diagText = "";
-                try {
-                    // base URL'yi axios'un baseURL'inden al, ya da boş string ile aynı origin'i kullan
-                    const base = (axios.defaults && axios.defaults.baseURL) || "";
-                    const diagResp = await fetch(base + "/diagnostic/whoami", { credentials: "include" });
-                    if (diagResp.ok) {
-                        const diag = await diagResp.json();
-                        const allowedTxt = diag.cors?.yourOriginAllowed ? "EVET" : "HAYIR";
-                        diagText = ` [Tanı → Origin: ${diag.you?.origin || "yok"} | CORS izinli: ${allowedTxt} | IP: ${diag.you?.ip || "?"}]`;
-                    } else {
-                        diagText = ` [Tanı: /diagnostic/whoami → ${diagResp.status}]`;
-                    }
-                } catch (e2) {
-                    diagText = ` [Tanı başarısız: ${e2.message || "network"}]`;
-                }
+                // 403 alındı — backend'ten gelen orijinal mesajı sade şekilde göster.
+                // (Eskiden burada otomatik /diagnostic/whoami çağırılıyordu, kaldırıldı —
+                //  endpoint bulunamadığında çirkin "[Tanı: ... 404]" metni oluşturuyordu.)
                 setMessage({
-                    text: (data?.message || "Erişim engellendi.") + diagText,
+                    text: data?.message || "Sunucu şu anda erişim izni vermiyor. Lütfen daha sonra tekrar deneyin veya yöneticinize bildirin.",
                     type: "error"
                 });
             } else if (!error.response && (error.message?.includes("Network") || error.code === "ERR_NETWORK")) {
@@ -543,7 +531,7 @@ const LoginFormInner = () => {
                                 </h2>
                                 <p className="ft-hero-desc">
                                     Pazaryeri entegrasyonundan yapay zeka destekli analize, stok yönetiminden kargo takibine kadar
-                                    ihtiyacınız olan her şey Pazaryönetim'de. Artık 10 farklı araç kullanmanıza gerek yok.
+                                    ihtiyacınız olan her şey PazarYonet'de. Artık 10 farklı araç kullanmanıza gerek yok.
                                 </p>
                             </div>
 
@@ -580,7 +568,7 @@ const LoginFormInner = () => {
 
                                 <div className="ft-main-card">
                                     <div className="ft-main-icon" style={{ background: "linear-gradient(135deg, #6366f1, #8b5cf6)" }} aria-hidden>🧠</div>
-                                    <h4>LysiaBrain Yapay Zeka Asistanı</h4>
+                                    <h4>PazarYonet AI Yapay Zeka Asistanı</h4>
                                     <p>GPT-4 destekli AI asistanınız. Ürün açıklaması yazma, SEO optimizasyonu, fiyat önerisi, rakip analizi ve satış stratejisi... Hepsini yapay zeka ile yapın.</p>
                                     <div className="ft-main-tags">
                                         <span className="ft-tag" style={{ color: "#8b5cf6" }}>GPT-4</span>
@@ -614,7 +602,7 @@ const LoginFormInner = () => {
                                 <div className="ft-detail-card">
                                     <div className="ft-detail-icon" aria-hidden>🎯</div>
                                     <div className="ft-detail-body">
-                                        <h4>LysiaRadar PRO Fırsat Motoru</h4>
+                                        <h4>PazarYonet Radar Fırsat Motoru</h4>
                                         <p>Yapay zeka ile pazaryerlerini tarayarak yüksek kâr potansiyelli ürünleri keşfedin. Rakip analizi, talep tahmini ve fiyat optimizasyonu tek tuşla.</p>
                                         <ul className="ft-detail-list">
                                             <li>AI destekli ürün fırsat keşfi</li>
@@ -688,7 +676,7 @@ const LoginFormInner = () => {
                                 <div className="ft-ai-banner-content">
                                     <div className="ft-ai-badge"> YAPAY ZEKA DESTEKLİ</div>
                                     <h3>Rakiplerinizin Bir Adım Önünde Olun</h3>
-                                    <p>LysiaBrain AI ve LysiaRadar PRO ile pazaryerlerindeki trendleri analiz edin, yüksek kârlı ürünleri keşfedin ve satış stratejinizi optimize edin. Yapay zeka sizin için çalışsın.</p>
+                                    <p>PazarYonet AI ve PazarYonet Radar ile pazaryerlerindeki trendleri analiz edin, yüksek kârlı ürünleri keşfedin ve satış stratejinizi optimize edin. Yapay zeka sizin için çalışsın.</p>
                                     <div className="ft-ai-features">
                                         <div className="ft-ai-feat">
                                             <span aria-hidden>📈</span>
@@ -847,8 +835,8 @@ const LoginFormInner = () => {
                                         </ul>
                                         <div className="pr-section-label">AI & Araçlar</div>
                                         <ul className="pr-feature-list">
-                                            <li className="pr-feat-no"><span className="pr-x"></span> LysiaBrain AI Asistanı</li>
-                                            <li className="pr-feat-no"><span className="pr-x"></span> LysiaRadar PRO</li>
+                                            <li className="pr-feat-no"><span className="pr-x"></span> PazarYonet AI Asistanı</li>
+                                            <li className="pr-feat-no"><span className="pr-x"></span> PazarYonet Radar</li>
                                             <li className="pr-feat-no"><span className="pr-x"></span> Fiyat optimizasyonu</li>
                                             <li className="pr-feat-no"><span className="pr-x"></span> E-fatura entegrasyonu</li>
                                         </ul>
@@ -897,8 +885,8 @@ const LoginFormInner = () => {
                                         </ul>
                                         <div className="pr-section-label">AI & Araçlar</div>
                                         <ul className="pr-feature-list">
-                                            <li className="pr-feat-yes pr-feat-highlight"><span className="pr-check"></span> <strong>LysiaBrain AI</strong> - 500 sorgu/ay</li>
-                                            <li className="pr-feat-yes pr-feat-highlight"><span className="pr-check"></span> <strong>LysiaRadar PRO</strong> - Fırsat keşfi</li>
+                                            <li className="pr-feat-yes pr-feat-highlight"><span className="pr-check"></span> <strong>PazarYonet AI</strong> - 500 sorgu/ay</li>
+                                            <li className="pr-feat-yes pr-feat-highlight"><span className="pr-check"></span> <strong>PazarYonet Radar</strong> - Fırsat keşfi</li>
                                             <li className="pr-feat-yes"><span className="pr-check"></span> Fiyat optimizasyonu & kuralları</li>
                                             <li className="pr-feat-yes"><span className="pr-check"></span> E-fatura entegrasyonu</li>
                                             <li className="pr-feat-yes"><span className="pr-check"></span> Kargo takibi & etiket basımı</li>
@@ -947,8 +935,8 @@ const LoginFormInner = () => {
                                         </ul>
                                         <div className="pr-section-label">AI & Araçlar</div>
                                         <ul className="pr-feature-list">
-                                            <li className="pr-feat-yes pr-feat-highlight"><span className="pr-check"></span> <strong>LysiaBrain AI</strong> - Sınırsız sorgu</li>
-                                            <li className="pr-feat-yes pr-feat-highlight"><span className="pr-check"></span> <strong>LysiaRadar PRO</strong> - Tam erişim</li>
+                                            <li className="pr-feat-yes pr-feat-highlight"><span className="pr-check"></span> <strong>PazarYonet AI</strong> - Sınırsız sorgu</li>
+                                            <li className="pr-feat-yes pr-feat-highlight"><span className="pr-check"></span> <strong>PazarYonet Radar</strong> - Tam erişim</li>
                                             <li className="pr-feat-yes"><span className="pr-check"></span> Gelişmiş fiyat optimizasyonu</li>
                                             <li className="pr-feat-yes"><span className="pr-check"></span> E-fatura & muhasebe entegrasyonu</li>
                                             <li className="pr-feat-yes"><span className="pr-check"></span> Kargo takibi & etiket basımı</li>
@@ -1000,13 +988,13 @@ const LoginFormInner = () => {
                                     <div className="pr-compare-val">Sınırsız</div>
                                 </div>
                                 <div className="pr-compare-row">
-                                    <div className="pr-compare-feature">LysiaBrain AI</div>
+                                    <div className="pr-compare-feature">PazarYonet AI</div>
                                     <div className="pr-compare-val"><span className="pr-compare-no"></span></div>
                                     <div className="pr-compare-val pr-compare-val--pop"><span className="pr-compare-yes">500/ay</span></div>
                                     <div className="pr-compare-val"><span className="pr-compare-yes">Sınırsız</span></div>
                                 </div>
                                 <div className="pr-compare-row">
-                                    <div className="pr-compare-feature">LysiaRadar PRO</div>
+                                    <div className="pr-compare-feature">PazarYonet Radar</div>
                                     <div className="pr-compare-val"><span className="pr-compare-no"></span></div>
                                     <div className="pr-compare-val pr-compare-val--pop"><span className="pr-compare-yes"></span></div>
                                     <div className="pr-compare-val"><span className="pr-compare-yes"></span></div>
@@ -1071,13 +1059,13 @@ const LoginFormInner = () => {
                         <div className="auth-tab-content auth-tab-fullpage">
                             {/*  HERO SECTION  */}
                             <div className="ft-hero">
-                                <span className="ft-hero-badge"> Pazaryönetim Hakkında</span>
+                                <span className="ft-hero-badge"> PazarYonet Hakkında</span>
                                 <h2 className="ft-hero-title">
                                     E-Ticaretin Geleceğini<br />
                                     <span className="ft-gradient-text">Birlikte İnşa Ediyoruz</span>
                                 </h2>
                                 <p className="ft-hero-desc">
-                                    Pazaryönetim, Türkiye'nin en kapsamlı e-ticaret yönetim platformudur. Yapay zeka destekli
+                                    PazarYonet, Türkiye'nin en kapsamlı e-ticaret yönetim platformudur. Yapay zeka destekli
                                     araçlarımızla binlerce satıcının işini büyütmesine yardımcı oluyoruz.
                                 </p>
                             </div>
@@ -1094,7 +1082,7 @@ const LoginFormInner = () => {
                                         ayrı bir yerde... Bu karmaşayı ortadan kaldırmak için yola çıktık.
                                     </p>
                                     <p>
-                                        Pazaryönetim, tüm e-ticaret operasyonlarını tek bir çatı altında toplayan, yapay zeka
+                                        PazarYonet, tüm e-ticaret operasyonlarını tek bir çatı altında toplayan, yapay zeka
                                         ile güçlendirilmiş, kullanıcı dostu bir platform olarak doğdu. Amacımız basit:
                                         <strong> Satıcıların teknik detaylarla değil, işlerini büyütmeyle ilgilenmesini sağlamak.</strong>
                                     </p>
@@ -1233,7 +1221,7 @@ const LoginFormInner = () => {
 
                             {/*  RAKAMLARLA BİZ  */}
                             <div className="ft-section" style={{ marginTop: "48px" }}>
-                                <div className="ft-section-label"> RAKAMLARLA Pazaryönetim</div>
+                                <div className="ft-section-label"> RAKAMLARLA PazarYonet</div>
                                 <h3 className="ft-section-title">Büyüyen Bir Ekosistem</h3>
                             </div>
 
@@ -1270,9 +1258,9 @@ const LoginFormInner = () => {
                                 </div>
                             </div>
 
-                            {/*  NEDEN Pazaryönetim?  */}
+                            {/*  NEDEN PazarYonet?  */}
                             <div className="ft-section" style={{ marginTop: "48px" }}>
-                                <div className="ft-section-label"> NEDEN Pazaryönetim?</div>
+                                <div className="ft-section-label"> NEDEN PazarYonet?</div>
                                 <h3 className="ft-section-title">Farkımız Ne?</h3>
                             </div>
 
@@ -1280,12 +1268,12 @@ const LoginFormInner = () => {
                                 <div className="ab-why-card">
                                     <div className="ab-why-number">01</div>
                                     <h4>Hepsi Bir Arada</h4>
-                                    <p>Pazaryeri entegrasyonu, stok yönetimi, sipariş takibi, finans, kargo, AI analiz... Hepsi tek platformda. 10 farklı araç yerine sadece Pazaryönetim.</p>
+                                    <p>Pazaryeri entegrasyonu, stok yönetimi, sipariş takibi, finans, kargo, AI analiz... Hepsi tek platformda. 10 farklı araç yerine sadece PazarYonet.</p>
                                 </div>
                                 <div className="ab-why-card">
                                     <div className="ab-why-number">02</div>
                                     <h4>Yapay Zeka Gücü</h4>
-                                    <p>LysiaBrain AI ve LysiaRadar PRO ile rakiplerinizi analiz edin, trendleri önceden görün, fırsatları yakalayın. AI sizin için çalışsın.</p>
+                                    <p>PazarYonet AI ve PazarYonet Radar ile rakiplerinizi analiz edin, trendleri önceden görün, fırsatları yakalayın. AI sizin için çalışsın.</p>
                                 </div>
                                 <div className="ab-why-card">
                                     <div className="ab-why-number">03</div>
@@ -1327,7 +1315,7 @@ const LoginFormInner = () => {
                                     <div className="ab-timeline-content">
                                         <div className="ab-timeline-date">2024 Q3</div>
                                         <h4>AI Entegrasyonu</h4>
-                                        <p>LysiaBrain AI asistanı, LysiaRadar PRO fırsat motoru ve gelişmiş analitik modülleri eklendi.</p>
+                                        <p>PazarYonet AI asistanı, PazarYonet Radar fırsat motoru ve gelişmiş analitik modülleri eklendi.</p>
                                     </div>
                                 </div>
                                 <div className="ab-timeline-item">
@@ -1359,7 +1347,7 @@ const LoginFormInner = () => {
                                             <span aria-hidden>✉️</span>
                                             <div>
                                                 <strong>E-posta</strong>
-                                                <small>info@pazaryonetim.com</small>
+                                                <small>{BRAND_EMAIL}</small>
                                             </div>
                                         </div>
                                         <div className="ab-contact-item">
@@ -1380,7 +1368,7 @@ const LoginFormInner = () => {
                                             <span aria-hidden>🔗</span>
                                             <div>
                                                 <strong>Sosyal Medya</strong>
-                                                <small>@pazaryonetim</small>
+                                                <small>@PazarYonet</small>
                                             </div>
                                         </div>
                                     </div>
@@ -1395,6 +1383,12 @@ const LoginFormInner = () => {
                                     Ücretsiz Kayıt Ol 
                                 </button>
                             </div>
+                        </div>
+                    )}
+
+                    {activeTab === "blog" && (
+                        <div className="auth-tab-content auth-tab-fullpage auth-tab-blog">
+                            <MarketplaceBlogSection />
                         </div>
                     )}
 

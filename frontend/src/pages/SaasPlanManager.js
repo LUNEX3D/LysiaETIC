@@ -1,4 +1,4 @@
-/**
+﻿/**
  * SaasPlanManager - Admin Paket Yönetimi Sayfası
  *
  * Admin panelden tüm paketlerin fiyatlarını, limitlerini, özelliklerini,
@@ -83,7 +83,7 @@ const FEATURE_CATALOG = [
         category: "AI & Otomasyon",
         icon: <FaBrain style={{ fontSize: 11 }} />,
         items: [
-            "AI Asistan (LysiaBrain)",
+            "AI Asistan (PazarYonet AI)",
             "AI destekli analiz",
             "AI fiyat önerileri",
             "AI stok tahmini",

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+﻿import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
     FaUser, FaLock, FaPlug, FaChartLine, FaBell, FaKey,
@@ -1253,7 +1253,7 @@ const UserProfilePage = ({ userId, marketplaces }) => {
                                 <h3><FaInfoCircle /> API Anahtarları Nedir?</h3>
                                 <p className="section-description">
                                     API anahtarları, harici uygulamalar, mobil uygulamalar veya otomatik sistemlerin
-                                    Pazaryönetim platformuna güvenli bir ekilde erimesini salar.
+                                    PazarYonet platformuna güvenli bir ekilde erimesini salar.
                                 </p>
                                 <div className="api-use-cases">
                                     <h4>Kullanım Alanları:</h4>

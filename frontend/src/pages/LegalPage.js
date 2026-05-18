@@ -1,4 +1,4 @@
-/**
+﻿/**
  * LegalPage  Gizlilik Politikası, Kullanım Şartları, erez Politikası
  * URL: /privacy, /terms, /cookies
  * Public erişim  auth gerektirmez
@@ -18,11 +18,11 @@ const PRIVACY_POLICY = {
     sections: [
         {
             title: "1. Giri",
-            content: `Pazaryönetim ("Biz", "Bizim", "Platform") olarak, kullanıcılarımızın gizliliçini korumayı en önemli önceliklerimizden biri olarak görüyoruz. Bu Gizlilik Politikası, kiisel verilerİşinizin nasıl toplandıını, kullanıldıını, saklandıını ve korunduunu açıklamaktadır.\n\nBu politika, 6698 sayılı Kiisel Verilerin Korunması Kanunu (KVKK), Avrupa Birlii Genel Veri Koruma Yönetmelii (GDPR) ve ilgili tüm veri koruma mevzuatına tam uyum salamak üzere hazırlanmıtır.`
+            content: `PazarYonet ("Biz", "Bizim", "Platform") olarak, kullanıcılarımızın gizliliçini korumayı en önemli önceliklerimizden biri olarak görüyoruz. Bu Gizlilik Politikası, kiisel verilerİşinizin nasıl toplandıını, kullanıldıını, saklandıını ve korunduunu açıklamaktadır.\n\nBu politika, 6698 sayılı Kiisel Verilerin Korunması Kanunu (KVKK), Avrupa Birlii Genel Veri Koruma Yönetmelii (GDPR) ve ilgili tüm veri koruma mevzuatına tam uyum salamak üzere hazırlanmıtır.`
         },
         {
             title: "2. Veri Sorumlusu",
-            content: `Veri Sorumlusu: Pazaryönetim\nAdres: İstanbul, Türkiye\nE-posta: info@pazaryonetim.com\nWeb: https://pazaryonetim.com`
+            content: `Veri Sorumlusu: PazarYonet\nAdres: İstanbul, Türkiye\nE-posta: info@pazaryonetim.com\nWeb: https://pazaryonet.com`
         },
         {
             title: "3. Toplanan Kiisel Veriler",
@@ -54,7 +54,7 @@ const PRIVACY_POLICY = {
         },
         {
             title: "10. İİletişim",
-            content: `Gizlilik ile ilgili sorularınız için:\n\nE-posta: info@pazaryonetim.com\nVeri Koruma Görevlisi: dpo@pazaryonetim.com\nAdres: Pazaryönetim, İstanbul, Türkiye\n\nKiisel Verileri Koruma Kurulu:\nWeb: https://www.kvkk.gov.tr`
+            content: `Gizlilik ile ilgili sorularınız için:\n\nE-posta: info@pazaryonetim.com\nVeri Koruma Görevlisi: dpo@pazaryonet.com\nAdres: PazarYonet, İstanbul, Türkiye\n\nKiisel Verileri Koruma Kurulu:\nWeb: https://www.kvkk.gov.tr`
         }
     ]
 };
@@ -66,7 +66,7 @@ const TERMS_OF_SERVICE = {
     sections: [
         {
             title: "1. Giriş ve Kapsam",
-            content: `Bu Kullanım Şartları, Pazaryönetim platformu ile kullanıcılar arasındaki hukuki ilikiyi düzenler. Platformu kullanarak, bu Kullanım Şartlarını okuduunuzu, anladıınızı ve kabul ettiİşinizi beyan edersiniz.\n\nHizmet Salayıcı: Pazaryönetim, İstanbul, Türkiye\nE-posta: info@pazaryonetim.com\nWeb: https://pazaryonetim.com`
+            content: `Bu Kullanım Şartları, PazarYonet platformu ile kullanıcılar arasındaki hukuki ilikiyi düzenler. Platformu kullanarak, bu Kullanım Şartlarını okuduunuzu, anladıınızı ve kabul ettiİşinizi beyan edersiniz.\n\nHizmet Salayıcı: PazarYonet, İstanbul, Türkiye\nE-posta: info@pazaryonetim.com\nWeb: https://pazaryonet.com`
         },
         {
             title: "2. Hesap Oluturma ve Kullanıcı Yükümlülükleri",
@@ -78,7 +78,7 @@ const TERMS_OF_SERVICE = {
         },
         {
             title: "4. Hizmetler ve Paketler",
-            content: `Platform aaıdaki hizmetleri sunar: oklu pazaryeri entegrasyonu, rün ve stok yönetimi, Sipariş takibi, Fiyat senkâronizasyonu, Kargo entegrasyonu, E-fatura, Gelişmiş analitik, AI destekli araçlar (LysiaBrain), Fırsat keşfi (LysiaRadar PRO), Finans yönetimi.\n\nPaketler: Trial (14 gün ücretsiz), Starter, Pro, Enterprise. Detaylar fiyatlandırma sayfasında mevcuttur.`
+            content: `Platform aaıdaki hizmetleri sunar: oklu pazaryeri entegrasyonu, rün ve stok yönetimi, Sipariş takibi, Fiyat senkâronizasyonu, Kargo entegrasyonu, E-fatura, Gelişmiş analitik, AI destekli araçlar (PazarYonet AI), Fırsat keşfi (PazarYonet Radar), Finans yönetimi.\n\nPaketler: Trial (14 gün ücretsiz), Starter, Pro, Enterprise. Detaylar fiyatlandırma sayfasında mevcuttur.`
         },
         {
             title: "5. cretler ve deme",
@@ -86,7 +86,7 @@ const TERMS_OF_SERVICE = {
         },
         {
             title: "6. Fikâri Mülkiyet Hakları",
-            content: `Platform ve tüm bileenleri Pazaryönetim'in münhasır mülkiyetindedir: Kaynak kodu, Tasarım ve arayüz, Logo ve ticari markalar, Algoritmalar.\n\nPlatforma yüklediçiniz içerik (ürün bilgileri, görseller, müteri verileri) size aittir. Hizmet sunumu için bize sınırlı bir lisans verirsiniz.\n\nYAPAMAZSINIZ: Platformu kopyalamak, kaynak kodunu çıkarmak, yeniden satmak, rakip ürün geliştirmek için kullanmak.`
+            content: `Platform ve tüm bileenleri PazarYonet'in münhasır mülkiyetindedir: Kaynak kodu, Tasarım ve arayüz, Logo ve ticari markalar, Algoritmalar.\n\nPlatforma yüklediçiniz içerik (ürün bilgileri, görseller, müteri verileri) size aittir. Hizmet sunumu için bize sınırlı bir lisans verirsiniz.\n\nYAPAMAZSINIZ: Platformu kopyalamak, kaynak kodunu çıkarmak, yeniden satmak, rakip ürün geliştirmek için kullanmak.`
         },
         {
             title: "7. Sorumluluk Sınırlamaları",
@@ -102,7 +102,7 @@ const TERMS_OF_SERVICE = {
         },
         {
             title: "10. Genel Hükümler",
-            content: `Sözleme Değişiklikleri: nemli değişiklikler 30 gün önceden duyurulur. Devam eden kullanım, değişikliklerin kabulü anlamına gelir.\n\nMücbir Sebepler: Doal afetler, sava, hükümet kararları, internet kesintileri, siber saldırılar, salgın hastalıklar mücbir sebep sayılır.\n\nİİletişim: info@pazaryonetim.com | legal@pazaryonetim.com`
+            content: `Sözleme Değişiklikleri: nemli değişiklikler 30 gün önceden duyurulur. Devam eden kullanım, değişikliklerin kabulü anlamına gelir.\n\nMücbir Sebepler: Doal afetler, sava, hükümet kararları, internet kesintileri, siber saldırılar, salgın hastalıklar mücbir sebep sayılır.\n\nİİletişim: info@pazaryonetim.com | legal@pazaryonet.com`
         }
     ]
 };
@@ -114,7 +114,7 @@ const COOKIE_POLICY = {
     sections: [
         {
             title: "1. Giri",
-            content: `Pazaryönetim olarak, web sitemizde ve uygulamamızda çerezler ve benzeri teknolojiler kullanıyoruz. Bu erez Politikası, hangi çerezleri kullandıımızı, neden kullandıımızı ve çerezleri nasıl kontrol edebileceİşinizi açıklar.\n\nBu politika, KVKK, GDPR ve ilgili elektronik iİletişim mevzuatına uygun olarak hazırlanmıtır.`
+            content: `PazarYonet olarak, web sitemizde ve uygulamamızda çerezler ve benzeri teknolojiler kullanıyoruz. Bu erez Politikası, hangi çerezleri kullandıımızı, neden kullandıımızı ve çerezleri nasıl kontrol edebileceİşinizi açıklar.\n\nBu politika, KVKK, GDPR ve ilgili elektronik iİletişim mevzuatına uygun olarak hazırlanmıtır.`
         },
         {
             title: "2. erez Nedir?",
@@ -150,7 +150,7 @@ const COOKIE_POLICY = {
         },
         {
             title: "10. İİletişim",
-            content: `erez kullanımı hakkında sorularınız için:\n\nE-posta: privacy@pazaryonetim.com\nVeri Koruma Görevlisi: dpo@pazaryonetim.com\nAdres: Pazaryönetim, İstanbul, Türkiye\n\nKiisel Verileri Koruma Kurulu:\nWeb: https://www.kvkk.gov.tr`
+            content: `erez kullanımı hakkında sorularınız için:\n\nE-posta: privacy@pazaryonet.com\nVeri Koruma Görevlisi: dpo@pazaryonet.com\nAdres: PazarYonet, İstanbul, Türkiye\n\nKiisel Verileri Koruma Kurulu:\nWeb: https://www.kvkk.gov.tr`
         }
     ]
 };
@@ -162,15 +162,15 @@ const DISTANCE_SALES = {
     sections: [
         {
             title: "1. Taraflar",
-            content: `SATICI:\nUnvan: Pazaryönetim\nAdres: İstanbul, Türkiye\nE-posta: info@pazaryonetim.com\nWeb: https://pazaryonetim.com\n\nALICI:\nPlatformda kayıtlıı kullanıcı bilgileri esas alınır. Alıcının adı, soyadı, adresi, telefon numarası ve e-posta adresi üyelik bilgilerinde kayıtlıı olan bilgilerdir.`
+            content: `SATICI:\nUnvan: PazarYonet\nAdres: İstanbul, Türkiye\nE-posta: info@pazaryonetim.com\nWeb: https://pazaryonet.com\n\nALICI:\nPlatformda kayıtlıı kullanıcı bilgileri esas alınır. Alıcının adı, soyadı, adresi, telefon numarası ve e-posta adresi üyelik bilgilerinde kayıtlıı olan bilgilerdir.`
         },
         {
             title: "2. Sözlemenin Konusu",
-            content: `İbu sözlemenin konusu, ALICI'nın SATICI'ya ait https://pazaryonetim.com internet sitesinden elektronik ortamda satın aldıı hizmetin satıı ve teslimi ile ilgili olarak 6502 sayılı Tüketiçinin Korunması Hakkında Kanun ve Mesafeli Sözlemeler Yönetmelii hükümleri gereince tarafların hak ve yükümlülüklerinin belirlenmesidir.\n\nALICI, satıa konu hizmet ile ilgili tüm ön bilgiler ve cayma hakkının nasıl kullanılacaı konusunda SATICI tarafından bilgilendirildiçini, bu ön bilgileri elektronik ortamda teyit ettiçini kabul ve beyan eder.`
+            content: `İbu sözlemenin konusu, ALICI'nın SATICI'ya ait https://pazaryonet.com internet sitesinden elektronik ortamda satın aldıı hizmetin satıı ve teslimi ile ilgili olarak 6502 sayılı Tüketiçinin Korunması Hakkında Kanun ve Mesafeli Sözlemeler Yönetmelii hükümleri gereince tarafların hak ve yükümlülüklerinin belirlenmesidir.\n\nALICI, satıa konu hizmet ile ilgili tüm ön bilgiler ve cayma hakkının nasıl kullanılacaı konusunda SATICI tarafından bilgilendirildiçini, bu ön bilgileri elektronik ortamda teyit ettiçini kabul ve beyan eder.`
         },
         {
             title: "3. Hizmet Bilgileri",
-            content: `Pazaryönetim, e-ticaret yönetim platformu olarak aaıdaki hizmetleri sunar:\n\n oklu Pazaryeri Entegrasyonu (Trendyol, Hepsiburada, Amazon, N11, içeksepeti)\n rün ve Stok Yönetimi (merkezi katalog, senkâronizasyon)\n Sipariş Takibi (tüm pazaryerlerinden merkezi yönetim)\n Fiyat Senkâronizasyonu (otomatik güncelleme)\n Kargo Entegrasyonu (Aras, Yurtiçi, MNG, Sürat)\n E-Fatura (QNB, Sovos, Paraüt, deal)\n Gelişmiş Analitik ve Raporlama\n AI Destekli Araçlar (LysiaBrain, LysiaRadar PRO)\n Finans Yönetimi (gelir-gider, kâr analizi)\n\nPaketler: Trial (14 gün ücretsiz), Basic, Pro, Enterprise. Fiyatlara KDV dahildir.\ndeme: Kâredi kartı / Banka kartı (PayTR güvenli ödeme, 3D Secure)\nFaturalama: Aylık veya Yıllık abonelik dönemleri`
+            content: `PazarYonet, e-ticaret yönetim platformu olarak aaıdaki hizmetleri sunar:\n\n oklu Pazaryeri Entegrasyonu (Trendyol, Hepsiburada, Amazon, N11, içeksepeti)\n rün ve Stok Yönetimi (merkezi katalog, senkâronizasyon)\n Sipariş Takibi (tüm pazaryerlerinden merkezi yönetim)\n Fiyat Senkâronizasyonu (otomatik güncelleme)\n Kargo Entegrasyonu (Aras, Yurtiçi, MNG, Sürat)\n E-Fatura (QNB, Sovos, Paraüt, deal)\n Gelişmiş Analitik ve Raporlama\n AI Destekli Araçlar (PazarYonet AI, PazarYonet Radar)\n Finans Yönetimi (gelir-gider, kâr analizi)\n\nPaketler: Trial (14 gün ücretsiz), Basic, Pro, Enterprise. Fiyatlara KDV dahildir.\ndeme: Kâredi kartı / Banka kartı (PayTR güvenli ödeme, 3D Secure)\nFaturalama: Aylık veya Yıllık abonelik dönemleri`
         },
         {
             title: "4. Genel Hükümler",
@@ -202,7 +202,7 @@ const DISTANCE_SALES = {
         },
         {
             title: "11. Son Hükümler",
-            content: ` Sözleme, elektronik ortamda onaylandıı tarihte yürürlüe girer\n SATICI, sözlemede değişiklik yapma hakkını saklı tutar (30 gün önceden bildirim)\n ALICI, değişiklikleri kabul etmemesi halinde sözlemeyi feshedebilir\n Herhangi bir hükmün geçersiz sayılması dier hükümleri etkilemez\n\nALICI, ibu Mesafeli Satı Sözlemesi'nin tüm maddelerini okuduunu, anladıını ve kabul ettiçini, n Bilgilendirme Formu'nu teslim aldıını beyan eder.\n\nİİletişim: info@pazaryonetim.com | legal@pazaryonetim.com`
+            content: ` Sözleme, elektronik ortamda onaylandıı tarihte yürürlüe girer\n SATICI, sözlemede değişiklik yapma hakkını saklı tutar (30 gün önceden bildirim)\n ALICI, değişiklikleri kabul etmemesi halinde sözlemeyi feshedebilir\n Herhangi bir hükmün geçersiz sayılması dier hükümleri etkilemez\n\nALICI, ibu Mesafeli Satı Sözlemesi'nin tüm maddelerini okuduunu, anladıını ve kabul ettiçini, n Bilgilendirme Formu'nu teslim aldıını beyan eder.\n\nİİletişim: info@pazaryonetim.com | legal@pazaryonet.com`
         }
     ]
 };
@@ -214,7 +214,7 @@ const PRELIMINARY_INFO = {
     sections: [
         {
             title: "1. Satıcı Bilgileri",
-            content: `Ticari Unvan: Pazaryönetim\nAdres: İstanbul, Türkiye\nTelefon: Platformda belirtilen iİletişim numarası\nE-posta: info@pazaryonetim.com\nWeb Sitesi: https://pazaryonetim.com`
+            content: `Ticari Unvan: PazarYonet\nAdres: İstanbul, Türkiye\nTelefon: Platformda belirtilen iİletişim numarası\nE-posta: info@pazaryonetim.com\nWeb Sitesi: https://pazaryonet.com`
         },
         {
             title: "2. Alıcı Bilgileri",
@@ -222,7 +222,7 @@ const PRELIMINARY_INFO = {
         },
         {
             title: "3. Hizmet Tanımı",
-            content: `Hizmet Adı: Pazaryönetim E-Ticaret Yönetim Platformu\nHizmet Türü: Dijital Hizmet (SaaS  Software as a Service)\n\nPazaryönetim, e-ticaret iletmelerinin çoklu pazaryeri yönetimini tek bir platformdan gerçekletirmesini salayan bulut tabanlı bir yazılım hizmetidir.\n\nTemel özellikler:\n Pazaryeri Entegrasyonları (Trendyol, Hepsiburada, Amazon, N11, içeksepeti)\n rün Yönetimi (merkezi katalog, toplu yükleme, stok/fiyat senkâronizasyonu)\n Sipariş Yönetimi (merkezi toplama, otomatik ileme, iptal/iİade yönetimi)\n Kargo Entegrasyonları (Aras, Yurtiçi, MNG, Sürat)\n E-Fatura Entegrasyonları (QNB, Sovos, Paraüt, deal)\n Analitik ve Raporlama (satı, performans, kâr-zarar)\n AI Araçları (LysiaBrain asistan, LysiaRadar PRO fırsat keşfi)\n Finans Yönetimi (gelir-gider, kâr analizi)`
+            content: `Hizmet Adı: PazarYonet E-Ticaret Yönetim Platformu\nHizmet Türü: Dijital Hizmet (SaaS  Software as a Service)\n\nPazarYonet, e-ticaret iletmelerinin çoklu pazaryeri yönetimini tek bir platformdan gerçekletirmesini salayan bulut tabanlı bir yazılım hizmetidir.\n\nTemel özellikler:\n Pazaryeri Entegrasyonları (Trendyol, Hepsiburada, Amazon, N11, içeksepeti)\n rün Yönetimi (merkezi katalog, toplu yükleme, stok/fiyat senkâronizasyonu)\n Sipariş Yönetimi (merkezi toplama, otomatik ileme, iptal/iİade yönetimi)\n Kargo Entegrasyonları (Aras, Yurtiçi, MNG, Sürat)\n E-Fatura Entegrasyonları (QNB, Sovos, Paraüt, deal)\n Analitik ve Raporlama (satı, performans, kâr-zarar)\n AI Araçları (PazarYonet AI asistan, PazarYonet Radar fırsat keşfi)\n Finans Yönetimi (gelir-gider, kâr analizi)`
         },
         {
             title: "4. Abonelik Paketleri",
@@ -250,7 +250,7 @@ const PRELIMINARY_INFO = {
         },
         {
             title: "10. İİletişim",
-            content: `Genel Sorular: info@pazaryonetim.com\nTeknik Destek: support@pazaryonetim.com (7/24 canlı destek)\nHukuki Konular: legal@pazaryonetim.com\nVeri Koruma: dpo@pazaryonetim.com\n\nalıma Saatleri: Pazartesi-Cuma 09:00-18:00\nAcil Destek: 7/24 mevcuttur\n\nBu form, 6502 sayılı Tüketiçinin Korunması Hakkında Kanun ve Mesafeli Sözlemeler Yönetmelii hükümlerine uygun olarak hazırlanmıtır.`
+            content: `Genel Sorular: info@pazaryonetim.com\nTeknik Destek: support@pazaryonet.com (7/24 canlı destek)\nHukuki Konular: legal@pazaryonet.com\nVeri Koruma: dpo@pazaryonet.com\n\nalıma Saatleri: Pazartesi-Cuma 09:00-18:00\nAcil Destek: 7/24 mevcuttur\n\nBu form, 6502 sayılı Tüketiçinin Korunması Hakkında Kanun ve Mesafeli Sözlemeler Yönetmelii hükümlerine uygun olarak hazırlanmıtır.`
         }
     ]
 };
@@ -378,7 +378,7 @@ const LegalPage = () => {
                     {/* Footer */}
                     <div className="legal-doc-footer">
                         <p>Bu belge yasal olarak balayıcıdır. Sorularınız için <strong>info@pazaryonetim.com</strong> adresine bavurabilirsiniz.</p>
-                        <p>© {new Date().getFullYear()} Pazaryönetim. Tüm hakları saklıdır.</p>
+                        <p>© {new Date().getFullYear()} PazarYonet. Tüm hakları saklıdır.</p>
                     </div>
                 </div>
             </div>

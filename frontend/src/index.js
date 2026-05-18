@@ -1,12 +1,13 @@
+import "./styles/tailwind.css"; // Tailwind CSS — must be first
 import React from "react";
 import ReactDOM from "react-dom/client";
-import "./styles/tailwind.css"; // Tailwind CSS — must be first
-import App from "./App";
 import { LocalizationProvider } from "@mui/x-date-pickers";
 import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFns";
-
-// ✅ Enhanced SW registration with Push + Background Sync
+import App from "./App";
+import { initClientProtection } from "./utils/clientProtection";
 import { register as registerSW } from "./utils/serviceWorkerRegistration";
+
+initClientProtection();
 
 const root = ReactDOM.createRoot(document.getElementById("root"));
 root.render(

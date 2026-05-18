@@ -3,6 +3,7 @@
  * ✅ FIX E6: LoginForm ve RegisterForm'daki duplicate mockup tek dosyaya taşındı
  */
 import React from "react";
+import PazarYonetLogoMark from "../brand/PazarYonetLogoMark";
 
 const DashboardMockup = ({ gradientId = "chartGrad" }) => (
     <div className="auth-hero-mockup">
@@ -34,9 +35,7 @@ const DashboardMockup = ({ gradientId = "chartGrad" }) => (
                         <div className="auth-dash-dot auth-dash-dot--yellow" />
                         <div className="auth-dash-dot auth-dash-dot--green" />
                         <div className="auth-dash-logo-mini">
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
-                                <path d="M12 2L2 7l10 5 10-5-10-5z"/>
-                            </svg>
+                            <PazarYonetLogoMark size={18} />
                         </div>
                     </div>
 

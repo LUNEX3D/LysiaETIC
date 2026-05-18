@@ -37,6 +37,12 @@ export const getAllIntegrations = () => API.get(`${BASE}/integrations`);
 // ─── 6. Kullanım Limitleri ───────────────────────────────────────────────────
 export const getUsageStats = () => API.get(`${BASE}/usage`);
 
+// ─── 6b. Birim ekonomisi ─────────────────────────────────────────────────────
+export const getUnitEconomics = (refresh = false) =>
+    API.get(`${BASE}/unit-economics`, { params: refresh ? { refresh: "true" } : {} });
+export const updateUnitEconomicsRates = (rates) =>
+    API.put(`${BASE}/unit-economics/rates`, { rates });
+
 // ─── 7. Global Raporlama ─────────────────────────────────────────────────────
 export const getGlobalReports = () => API.get(`${BASE}/reports`);
 

@@ -5,9 +5,11 @@ import {
     FaUserShield, FaCog, FaSignOutAlt, FaBars, FaTimes,
     FaExternalLinkAlt, FaBuilding, FaCrown, FaCreditCard,
     FaPlug, FaTachometerAlt, FaChartBar, FaBullhorn,
-    FaHistory, FaTicketAlt, FaShieldAlt, FaBug
+    FaHistory, FaTicketAlt, FaShieldAlt, FaBug, FaCoins
 } from "react-icons/fa";
 import { logoutUser } from "../services/api";
+import PazarYonetLogo from "./brand/PazarYonetLogo";
+import { BRAND_NAME, BRAND_ADMIN_TAG } from "../constants/brand";
 import "../styles/admin.css";
 
 const AdminLayout = ({ title, subtitle, actions, children }) => {
@@ -15,7 +17,7 @@ const AdminLayout = ({ title, subtitle, actions, children }) => {
     const navigate = useNavigate();
 
     const name = localStorage.getItem("userName") || "Admin";
-    const email = localStorage.getItem("userEmail") || "admin@pazaryonetim.local";
+    const email = localStorage.getItem("userEmail") || "admin@PazarYonet.local";
     const rawRole = (localStorage.getItem("userRole") || "admin").toLowerCase();
     const loginTime = localStorage.getItem("adminLoginTime");
 
@@ -48,6 +50,7 @@ const AdminLayout = ({ title, subtitle, actions, children }) => {
                 { to: "/admin/plan-manager", label: "Paket Yönetimi", icon: <FaCrown /> },
                 { to: "/admin/subscriptions", label: "Abonelik Yönetimi", icon: <FaUsers /> },
                 { to: "/admin/payments", label: "Ödeme & Fatura", icon: <FaCreditCard /> },
+                { to: "/admin/unit-economics", label: "Birim Ekonomisi", icon: <FaCoins /> },
             ]
         },
         {
@@ -97,10 +100,10 @@ const AdminLayout = ({ title, subtitle, actions, children }) => {
                 <aside className={`ap-side ${sidebarOpen ? "ap-side--open" : ""}`}>
                     {/* Brand */}
                     <div className="ap-brand">
-                        <div className="ap-brand-icon">LE</div>
+                        <PazarYonetLogo size={36} />
                         <div>
-                            <div className="ap-brand-name">Pazaryönetim</div>
-                            <div className="ap-brand-tag">SaaS Yönetim Konsolu</div>
+                            <div className="ap-brand-name">{BRAND_NAME}</div>
+                            <div className="ap-brand-tag">{BRAND_ADMIN_TAG}</div>
                         </div>
                     </div>
 

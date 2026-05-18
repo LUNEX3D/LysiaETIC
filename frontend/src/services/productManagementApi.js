@@ -191,6 +191,28 @@ export const getComparisonMatrix = async (params = {}) => {
     return res.data;
 };
 
+/** Alan denetimi — barkod, SKU, ad, model vb. master vs platform farkları */
+export const getFieldAuditList = async (params = {}) => {
+    const res = await API.get(`${BASE}/field-audit`, { params });
+    return res.data;
+};
+
+export const getProductFieldAudit = async (productId) => {
+    const res = await API.get(`${BASE}/products/${productId}/field-audit`);
+    return res.data;
+};
+
+export const refreshProductFieldAudit = async (productId) => {
+    const res = await API.post(`${BASE}/products/${productId}/refresh-field-audit`);
+    return res.data;
+};
+
+/** Platform değerini master kayda uygula — body: { marketplaceName, field } */
+export const applyPlatformField = async (productId, body) => {
+    const res = await API.post(`${BASE}/products/${productId}/apply-platform-field`, body);
+    return res.data;
+};
+
 /**
  * Seçili ürünleri seçili pazaryerlerine toplu dağıt
  * @param {Array} productIds - Ürün ID'leri
@@ -212,7 +234,7 @@ export const bulkDistributeSelected = async (productIds, targetMarketplaces) => 
  * @param {Array} products - N11 formatında ürün listesi (max 1000)
  * @param {String} integrator - Entegratör firma ismi
  */
-export const n11CreateProduct = async (products, integrator = "LysiaETIC") => {
+export const n11CreateProduct = async (products, integrator = "PazarYonet") => {
     const res = await API.post(`${BASE}/n11/products`, { products, integrator });
     return res.data;
 };
@@ -231,7 +253,7 @@ export const n11GetProducts = async (params = {}) => {
  * @param {Array} updates - [{ stockCode, quantity, salePrice, listPrice }] (max 1000)
  * @param {String} integrator - Entegratör firma ismi
  */
-export const n11UpdateStock = async (updates, integrator = "LysiaETIC") => {
+export const n11UpdateStock = async (updates, integrator = "PazarYonet") => {
     const res = await API.post(`${BASE}/n11/stock-update`, { updates, integrator });
     return res.data;
 };

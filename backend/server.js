@@ -67,6 +67,7 @@ const webhookRoutes           = require("./routes/webhookRoutes");
 const ticketRoutes            = require("./routes/ticketRoutes");
 const clientErrorRoutes       = require("./routes/clientErrorRoutes");
 const accessControlRoutes     = require("./routes/accessControlRoutes");
+const seoPublicRoutes         = require("./routes/seoPublicRoutes");
 
 // ─── 3. DNS & App ─────────────────────────────────────────────────────────────
 dns.setServers(["1.1.1.1", "8.8.8.8"]);
@@ -84,6 +85,11 @@ const stats = {
     routes   : {},  // endpoint bazlı sayaç
 };
 
+// --- FRONTEND STATIC SERVING ---
+const buildPath = path.join(__dirname, "../frontend/build");
+app.use(express.static(buildPath));
+// -------------------------------
+
 // ─── 6. GÜVENLİK — Helmet.js + Ek Güvenlik Header'ları ────────────────────────
 app.use(helmet({
     crossOriginResourcePolicy: { policy: "cross-origin" },
@@ -91,39 +97,9 @@ app.use(helmet({
 }));
 app.use(additionalSecurityHeaders);
 
-// ─── 7. CORS — Whitelist bazlı ───────────────────────────────────────────────
-const allowedOrigins = [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "http://localhost:5000",
-    "http://127.0.0.1:5000",
-    // ✅ Production sunucu IP'si (domain alınana kadar buradan erişim için)
-    "https://13.51.158.124",
-    "http://13.51.158.124",
-    "http://13.51.158.124/",
-    "https://13.51.158.124/",
-    // Production origins — ek domain / geçici IP için CORS_EXTRA_ORIGINS kullanın
-    // Yeni domain — pazaryonetim.com (IDN + punycode güvenli ekleme)
-    "https://pazaryönetim.com",
-    "https://www.pazaryönetim.com",
-    "http://pazaryönetim.com",
-    "http://www.pazaryönetim.com",
-    "https://pazaryonetim.com",
-    "https://www.pazaryonetim.com",
-    "http://pazaryonetim.com",
-    "http://www.pazaryonetim.com",
-    "https://xn--pazarynetim-wfb.com",
-    "https://www.xn--pazarynetim-wfb.com",
-    "http://xn--pazarynetim-wfb.com",
-    "http://www.xn--pazarynetim-wfb.com"
-];
-
-// Örn: CORS_EXTRA_ORIGINS=http://192.168.1.108:3000,http://10.0.0.5:3000
-if (process.env.CORS_EXTRA_ORIGINS) {
-    process.env.CORS_EXTRA_ORIGINS.split(",").map(s => s.trim()).filter(Boolean).forEach(o => {
-        if (!allowedOrigins.includes(o)) allowedOrigins.push(o);
-    });
-}
+// ─── 7. CORS — Whitelist bazlı (config/domain.js) ───────────────────────────
+const { APP_URL, getCorsAllowedOrigins } = require("./config/domain");
+const allowedOrigins = getCorsAllowedOrigins();
 
 /** RFC1918 özel ağ: LAN'dan telefon/tablet ile test (örn. http://192.168.1.108:3000) */
 function isPrivateLanOrigin(origin) {
@@ -290,7 +266,7 @@ app.use((req, res, next) => {
 if (process.env.NODE_ENV !== "production") {
     app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
         customCss: ".swagger-ui .topbar { display: none }",
-        customSiteTitle: "LysiaETIC API Docs",
+        customSiteTitle: "PazarYonet API Docs",
         swaggerOptions: {
             persistAuthorization: true,
             docExpansion: "none",
@@ -309,6 +285,9 @@ if (process.env.NODE_ENV !== "production") {
 }
 
 // ─── 9. Route'ları bağla ──────────────────────────────────────────────────────
+// SEO — robots.txt / sitemap.xml (nginx bu path'leri backend'e yönlendirir)
+app.use(seoPublicRoutes);
+
 app.use("/api/orders",             orderRoutes);
 app.use("/api/products",           productRoutes);
 app.use("/api/auth",               authRoutes);
@@ -474,6 +453,14 @@ app.get("/api/status", (req, res) => {
 });
 
 // ─── 11. 404 — Bilinmeyen route ───────────────────────────────────────────────
+app.use((req, res, next) => {
+    // API endpoint'i değilse ve dosya uzantısı yoksa (SPA router) index.html döndür
+    if (!req.path.startsWith('/api') && !req.path.includes('.')) {
+        return res.sendFile(path.join(__dirname, "../frontend/build/index.html"));
+    }
+    next();
+});
+
 app.use((req, res) => {
     logger.warn(`404 Bulunamadı: ${req.method} ${req.originalUrl}`);
     res.status(404).json({ success: false, message: "Endpoint bulunamadı." });
@@ -575,9 +562,10 @@ const startServer = async () => {
     server = app.listen(PORT, '0.0.0.0', () => {
         const line = "─".repeat(52);
         logger.info(`\n${line}`);
-        logger.info(`  🚀  LysiaETIC Backend başlatıldı`);
+        logger.info(`  🚀  PazarYonet Backend başlatıldı`);
         logger.info(`  📡  Port     : ${PORT}`);
         logger.info(`  🌍  Ortam    : ${process.env.NODE_ENV || "development"}`);
+        logger.info(`  🔗  Site     : ${APP_URL}`);
         logger.info(`  📊  Durum    : http://localhost:${PORT}/api/status`);
         logger.info(`  🕐  Başlangıç: ${new Date().toLocaleString("tr-TR")}`);
         logger.info(`${line}\n`);

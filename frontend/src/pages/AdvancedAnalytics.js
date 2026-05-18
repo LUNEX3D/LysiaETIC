@@ -42,10 +42,11 @@ const fmtPercent = (v) => `%${Number(v || 0).toFixed(1)}`;
 
 //  Tab tanmlar 
 const TABS = [
-    { id: "overview",     label: "Genel Bak",       icon: FaChartArea },
-    { id: "sales",        label: "Sat & Kâr",       icon: FaMoneyBillWave },
-    { id: "products",     label: "ürün Performans",   icon: FaBoxes },
-    { id: "marketplaces", label: "Pazaryeri Karlatrma", icon: FaStore },
+    { id: "overview",     label: "Genel Bakış",       icon: FaChartArea },
+    { id: "sales",        label: "Satış & Kâr",       icon: FaMoneyBillWave },
+    { id: "profit-loss",  label: "Kar / Zarar",       icon: FaBalanceScale },
+    { id: "products",     label: "Ürün Performans",   icon: FaBoxes },
+    { id: "marketplaces", label: "Pazaryeri Karşılaştırma", icon: FaStore },
     { id: "stock",        label: "Stok & Talep",      icon: FaWarehouse },
     { id: "commission",   label: "Komisyon & Gider",  icon: FaHandHoldingUsd },
     { id: "actions",      label: "Aksiyon Merkezi",   icon: FaBullseye }
@@ -69,6 +70,8 @@ const AdvancedAnalytics = ({ userId }) => {
     const [hourlySales, setHourlySales] = useState([]);
     const [profitOverview, setProfitOverview] = useState(null);
     const [productPerformance, setProductPerformance] = useState([]);
+    const [profitLoss, setProfitLoss] = useState({ products: [], summary: null });
+    const [profitLossSort, setProfitLossSort] = useState("netProfit");
     const [mpComparison, setMpComparison] = useState([]);
     const [commissionAnalysis, setCommissionAnalysis] = useState(null);
     const [stockVelocity, setStockVelocity] = useState(null);
@@ -127,7 +130,7 @@ const AdvancedAnalytics = ({ userId }) => {
             // 2. Sonra analytics verilerini yukle
             const [
                 overviewData, trendData, mpDistData, topProdData, catDistData,
-                hourlyData, profitData, prodPerfData, mpCompData, commData,
+                hourlyData, profitData, prodPerfData, profitLossData, mpCompData, commData,
                 stockData, actionsData, summaryData
             ] = await Promise.all([
                 fetchEndpoint('overview'),
@@ -138,6 +141,7 @@ const AdvancedAnalytics = ({ userId }) => {
                 fetchEndpoint('hourly-sales'),
                 fetchEndpoint('profit-overview'),
                 fetchEndpoint('product-performance', { limit: 50 }),
+                fetchEndpoint('product-profit-loss', { limit: 200, sortBy: 'netProfit' }),
                 fetchEndpoint('marketplace-comparison'),
                 fetchEndpoint('commission-analysis'),
                 fetchEndpoint('stock-velocity'),
@@ -153,6 +157,11 @@ const AdvancedAnalytics = ({ userId }) => {
             setHourlySales(Array.isArray(hourlyData) ? hourlyData : []);
             setProfitOverview(profitData);
             setProductPerformance(Array.isArray(prodPerfData) ? prodPerfData : []);
+            setProfitLoss(
+                profitLossData?.products
+                    ? { products: profitLossData.products, summary: profitLossData.summary }
+                    : { products: Array.isArray(profitLossData) ? profitLossData : [], summary: null }
+            );
             setMpComparison(Array.isArray(mpCompData) ? mpCompData : []);
             setCommissionAnalysis(commData);
             setStockVelocity(stockData);
@@ -217,6 +226,12 @@ const AdvancedAnalytics = ({ userId }) => {
     const sortedProducts = useMemo(() => {
         return [...productPerformance].sort((a, b) => (b[sortField] || 0) - (a[sortField] || 0));
     }, [sortField, productPerformance]);
+
+    const sortedProfitLoss = useMemo(() => {
+        return [...(profitLoss.products || [])].sort(
+            (a, b) => (b[profitLossSort] || 0) - (a[profitLossSort] || 0)
+        );
+    }, [profitLoss.products, profitLossSort]);
 
     // 
     // LOADING
@@ -603,7 +618,112 @@ const AdvancedAnalytics = ({ userId }) => {
     };
 
     // 
-    // TAB 3: RN PERFORMANS
+    // TAB: KAR / ZARAR
+    // 
+    const renderProfitLoss = () => {
+        const summary = profitLoss.summary || {};
+        const rows = sortedProfitLoss;
+
+        return (
+            <motion.div className="aa-tab-grid" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                <div className="aa-card aa-span-full">
+                    <div className="aa-card-head">
+                        <h3><FaBalanceScale /> Ürün Başına Kar / Zarar</h3>
+                        <div className="aa-sort-controls">
+                            <span className="aa-sort-label">Sırala:</span>
+                            {[
+                                { key: "netProfit", label: "Net Kâr" },
+                                { key: "totalRevenue", label: "Ciro" },
+                                { key: "totalSold", label: "Adet" },
+                                { key: "profitMargin", label: "Marj" },
+                            ].map((s) => (
+                                <button
+                                    key={s.key}
+                                    type="button"
+                                    className={`aa-sort-btn ${profitLossSort === s.key ? "active" : ""}`}
+                                    onClick={() => setProfitLossSort(s.key)}
+                                >
+                                    {s.label}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                    <div className="aa-profit-summary-grid aa-mb">
+                        {[
+                            { label: "Toplam Ciro", value: fmtCurrency(summary.totalRevenue), color: "#10b981" },
+                            { label: "Ürün Maliyeti", value: fmtCurrency(summary.totalProductCost), color: "#ef4444" },
+                            { label: "Komisyon", value: fmtCurrency(summary.totalCommission), color: "#f59e0b" },
+                            { label: "Kargo", value: fmtCurrency(summary.totalShipping), color: "#3b82f6" },
+                            { label: "Net Kâr", value: fmtCurrency(summary.netProfit), color: "#22c55e" },
+                            { label: "Kâr Marjı", value: fmtPercent(summary.profitMargin), color: "#8b5cf6" },
+                        ].map((item, i) => (
+                            <motion.div key={i} className="aa-profit-card" style={{ borderTop: `3px solid ${item.color}` }}>
+                                <span className="aa-profit-label">{item.label}</span>
+                                <strong className="aa-profit-value">{item.value}</strong>
+                            </motion.div>
+                        ))}
+                    </div>
+                    <div className="aa-card-body">
+                        {rows.length > 0 ? (
+                            <div className="aa-table-wrap">
+                                <table className="aa-table aa-table-profit">
+                                    <thead>
+                                        <tr>
+                                            <th>#</th>
+                                            <th>Ürün</th>
+                                            <th>Adet</th>
+                                            <th>Ort. Satış Fiyatı</th>
+                                            <th>Birim Maliyet</th>
+                                            <th>Toplam Maliyet</th>
+                                            <th>Komisyon</th>
+                                            <th>Kargo</th>
+                                            <th>Net Kâr / Zarar</th>
+                                            <th>Marj</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {rows.map((p, idx) => (
+                                            <tr key={p.barcode || idx}>
+                                                <td><span className="aa-rank">{idx + 1}</span></td>
+                                                <td>
+                                                    <div className="aa-product-cell">
+                                                        <span className="aa-pc-name">{p.name}</span>
+                                                        <span className="aa-pc-cat">{p.barcode || "—"}</span>
+                                                    </div>
+                                                </td>
+                                                <td><strong>{fmtNumber(p.totalSold)}</strong></td>
+                                                <td>{fmtCurrency(p.avgSalePrice)}</td>
+                                                <td>{fmtCurrency(p.unitCost)}</td>
+                                                <td className="aa-td-red">{fmtCurrency(p.totalProductCost)}</td>
+                                                <td className="aa-td-orange">{fmtCurrency(p.totalCommission)}</td>
+                                                <td className="aa-td-blue">{fmtCurrency(p.totalShipping)}</td>
+                                                <td className={p.netProfit >= 0 ? "aa-td-green" : "aa-td-red"}>
+                                                    <strong>{fmtCurrency(p.netProfit)}</strong>
+                                                </td>
+                                                <td>
+                                                    <span className={`aa-margin-badge ${p.profitMargin >= 15 ? "good" : p.profitMargin >= 5 ? "mid" : "low"}`}>
+                                                        {fmtPercent(p.profitMargin)}
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        ) : (
+                            <div className="aa-no-data">
+                                <FaBalanceScale />
+                                <p>Kar/zarar verisi yok. Sipariş senkronu yapın ve ürün maliyetlerini girin.</p>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </motion.div>
+        );
+    };
+
+    // 
+    // TAB 3: ÜRÜN PERFORMANS
     // 
     const renderProducts = () => {
 
@@ -612,7 +732,7 @@ const AdvancedAnalytics = ({ userId }) => {
                 {/* ürün Performans Tablosu */}
                 <div className="aa-card aa-span-full">
                     <div className="aa-card-head">
-                        <h3><FaBoxes /> ürün Kârllk Tablosu</h3>
+                        <h3><FaBoxes /> Ürün Kârlılık Tablosu</h3>
                         <div className="aa-sort-controls">
                             <span className="aa-sort-label">Srala:</span>
                             {[
@@ -633,11 +753,12 @@ const AdvancedAnalytics = ({ userId }) => {
                                     <thead>
                                         <tr>
                                             <th>#</th>
-                                            <th>rn</th>
-                                            <th>Sat</th>
+                                            <th>Ürün</th>
+                                            <th>Satış</th>
                                             <th>Ciro</th>
                                             <th>Maliyet</th>
                                             <th>Komisyon</th>
+                                            <th>Kargo</th>
                                             <th>Net Kâr</th>
                                             <th>Marj</th>
                                             <th>Stok</th>
@@ -656,8 +777,9 @@ const AdvancedAnalytics = ({ userId }) => {
                                                 </td>
                                                 <td><strong>{fmtNumber(p.totalSold)}</strong></td>
                                                 <td className="aa-td-green">{fmtCurrency(p.totalRevenue)}</td>
-                                                <td className="aa-td-red">{fmtCurrency(p.totalCost)}</td>
+                                                <td className="aa-td-red">{fmtCurrency(p.totalProductCost ?? p.totalCost)}</td>
                                                 <td className="aa-td-orange">{fmtCurrency(p.totalCommission)}</td>
+                                                <td className="aa-td-blue">{fmtCurrency(p.totalShipping)}</td>
                                                 <td className={p.netProfit >= 0 ? 'aa-td-green' : 'aa-td-red'}>
                                                     <strong>{fmtCurrency(p.netProfit)}</strong>
                                                 </td>
@@ -1196,6 +1318,7 @@ const AdvancedAnalytics = ({ userId }) => {
                     exit={{ opacity: 0, y: -15 }} transition={{ duration: 0.25 }}>
                     {activeTab === 'overview' && renderOverview()}
                     {activeTab === 'sales' && renderSales()}
+                    {activeTab === 'profit-loss' && renderProfitLoss()}
                     {activeTab === 'products' && renderProducts()}
                     {activeTab === 'marketplaces' && renderMarketplaces()}
                     {activeTab === 'stock' && renderStock()}

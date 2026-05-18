@@ -11,6 +11,7 @@ import {
     FaSpinner
 } from "react-icons/fa";
 import "../styles/adminLogin.css";
+import PazarYonetLogoMark from "../components/brand/PazarYonetLogoMark";
 
 const AdminLogin = () => {
     const [formData, setFormData] = useState({ email: "", password: "" });
@@ -115,9 +116,9 @@ const AdminLogin = () => {
                 <div className="al-card">
                     <div className="al-header">
                         <div className="al-logo">
-                            <FaShieldAlt />
+                            <PazarYonetLogoMark size={56} />
                         </div>
-                        <h1 className="al-title">Pazaryönetim</h1>
+                        <h1 className="al-title">PazarYonet</h1>
                         <p className="al-subtitle">Yönetim Konsolu</p>
                     </div>
 
@@ -142,7 +143,7 @@ const AdminLogin = () => {
                                     className="al-input"
                                     type="email"
                                     name="email"
-                                    placeholder="admin@pazaryonetim.com"
+                                    placeholder="admin@pazaryonet.com"
                                     value={formData.email}
                                     onChange={handleChange}
                                     required

@@ -22,6 +22,7 @@ router.get("/hourly-sales", authMiddleware, subscriptionMiddleware, analyticsCon
 // ── Gelişmiş Analiz (YENİ) ──
 router.get("/profit-overview", authMiddleware, subscriptionMiddleware, analyticsController.getProfitOverview);
 router.get("/product-performance", authMiddleware, subscriptionMiddleware, analyticsController.getProductPerformance);
+router.get("/product-profit-loss", authMiddleware, subscriptionMiddleware, analyticsController.getProductProfitLoss);
 router.get("/marketplace-comparison", authMiddleware, subscriptionMiddleware, analyticsController.getMarketplaceComparison);
 router.get("/commission-analysis", authMiddleware, subscriptionMiddleware, analyticsController.getCommissionAnalysis);
 router.get("/stock-velocity", authMiddleware, subscriptionMiddleware, analyticsController.getStockVelocity);

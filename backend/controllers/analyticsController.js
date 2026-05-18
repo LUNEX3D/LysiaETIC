@@ -19,8 +19,16 @@
  */
 const Order = require("../models/Order");
 const Product = require("../models/Product");
-const Marketplace = require("../models/Marketplace");
 const logger = require("../config/logger");
+const {
+    buildOrderMatch,
+    itemEconomicsAddFields,
+    itemNetProfitAddFields,
+    productGroupStage,
+    allocateOrderShippingToRows,
+    postProcessGroupedProducts,
+    round2,
+} = require("../utils/analyticsEconomics");
 
 // ─── Yardımcı: Tarih aralığı oluştur ───
 const buildDateRange = (query) => {
@@ -41,6 +49,96 @@ const getPreviousPeriod = (start, end) => {
     };
 };
 
+const SORT_FIELD_MAP = {
+    revenue: "totalRevenue",
+    profit: "netProfit",
+    sales: "totalSold",
+    netProfit: "netProfit",
+    totalRevenue: "totalRevenue",
+    totalSold: "totalSold",
+};
+
+/** Ürün bazlı kalem ekonomisi + sipariş kargosu dağıtımı */
+async function fetchProductEconomics(userId, start, end, options = {}) {
+    const { sortBy = "netProfit", limit = 100 } = options;
+    const match = buildOrderMatch(userId, start, end, { excludeCancelled: true });
+    const sortField = SORT_FIELD_MAP[sortBy] || "netProfit";
+
+    const rawRows = await Order.aggregate([
+        { $match: match },
+        { $unwind: "$items" },
+        { $addFields: itemEconomicsAddFields },
+        { $addFields: itemNetProfitAddFields },
+        productGroupStage(),
+        { $sort: { [sortField]: -1 } },
+        { $limit: parseInt(limit, 10) || 100 },
+    ]);
+
+    if (rawRows.length === 0) return [];
+
+    const orderLines = await Order.aggregate([
+        { $match: match },
+        { $unwind: "$items" },
+        { $addFields: itemEconomicsAddFields },
+        {
+            $project: {
+                orderId: { $toString: "$_id" },
+                barcode: "$items.barcode",
+                lineRevenue: "$_lineRevenue",
+                lineShipping: "$_lineShipping",
+                orderShippingPool: "$_orderShippingPool",
+            },
+        },
+    ]);
+
+    const rowsForAlloc = rawRows.map((p) => ({
+        barcode: p._id,
+        totalShipping: p.totalShipping || 0,
+        netProfit: p.netProfit || 0,
+    }));
+    allocateOrderShippingToRows(
+        rowsForAlloc,
+        orderLines.map((l) => ({
+            orderId: l.orderId,
+            barcode: l.barcode,
+            lineRevenue: l.lineRevenue,
+            lineShipping: l.lineShipping,
+            orderShippingPool: l.orderShippingPool,
+        }))
+    );
+    const allocMap = new Map(rowsForAlloc.map((r) => [r.barcode, r]));
+    rawRows.forEach((p) => {
+        const a = allocMap.get(p._id);
+        if (a) {
+            p.totalShipping = a.totalShipping;
+            p.netProfit = a.netProfit;
+        }
+    });
+
+    const barcodes = rawRows.map((p) => p._id).filter(Boolean);
+    const products = await Product.find({
+        userId,
+        $or: [{ barcode: { $in: barcodes } }, { sku: { $in: barcodes } }],
+    })
+        .select("barcode sku name stock costPrice salePrice commissionRate category salesMetrics")
+        .lean();
+
+    const productMap = new Map();
+    for (const p of products) {
+        if (p.barcode) productMap.set(p.barcode, p);
+        if (p.sku) productMap.set(p.sku, p);
+    }
+
+    const returnData = await Order.aggregate([
+        { $match: { ...match, isReturned: true } },
+        { $unwind: "$items" },
+        { $group: { _id: "$items.barcode", returnCount: { $sum: "$items.quantity" } } },
+    ]);
+    const returnMap = new Map(returnData.map((r) => [r._id, r.returnCount]));
+
+    return postProcessGroupedProducts(rawRows, productMap, returnMap);
+}
+
 // ═══════════════════════════════════════════════════════════
 // 1. OVERVIEW — KPI verileri
 // ═══════════════════════════════════════════════════════════
@@ -50,8 +148,8 @@ exports.getAnalyticsOverview = async (req, res) => {
         const { start, end } = buildDateRange(req.query);
         const prev = getPreviousPeriod(start, end);
 
-        const query = { user: userId, orderDate: { $gte: start, $lte: end } };
-        const prevQuery = { user: userId, orderDate: { $gte: prev.start, $lte: prev.end } };
+        const query = buildOrderMatch(userId, start, end, { excludeCancelled: true });
+        const prevQuery = buildOrderMatch(userId, prev.start, prev.end, { excludeCancelled: true });
 
         // Paralel sorgular
         const [
@@ -92,8 +190,8 @@ exports.getAnalyticsOverview = async (req, res) => {
             ]),
             Product.countDocuments({ userId, status: "active" }),
             Product.countDocuments({ userId }),
-            Order.countDocuments({ ...query, isReturned: true }),
-            Order.countDocuments({ ...query, isCancelled: true })
+            Order.countDocuments({ user: userId, orderDate: { $gte: start, $lte: end }, isReturned: true }),
+            Order.countDocuments({ user: userId, orderDate: { $gte: start, $lte: end }, isCancelled: true })
         ]);
 
         const current = currentAgg[0] || {};
@@ -156,7 +254,7 @@ exports.getSalesTrend = async (req, res) => {
         const { start, end } = buildDateRange(req.query);
 
         const trendData = await Order.aggregate([
-            { $match: { user: userId, orderDate: { $gte: start, $lte: end } } },
+            { $match: buildOrderMatch(userId, start, end, { excludeCancelled: true }) },
             {
                 $group: {
                     _id: { $dateToString: { format: "%Y-%m-%d", date: "$orderDate" } },
@@ -198,7 +296,7 @@ exports.getMarketplaceDistribution = async (req, res) => {
         const userId = req.user._id || req.userId;
         const { start, end } = buildDateRange(req.query);
 
-        const query = { user: userId, orderDate: { $gte: start, $lte: end } };
+        const query = buildOrderMatch(userId, start, end, { excludeCancelled: true });
         const totalOrders = await Order.countDocuments(query);
 
         if (totalOrders === 0) {
@@ -254,29 +352,32 @@ exports.getTopProducts = async (req, res) => {
         const { start, end } = buildDateRange(req.query);
         const prev = getPreviousPeriod(start, end);
 
+        const match = buildOrderMatch(userId, start, end, { excludeCancelled: true });
         const topProducts = await Order.aggregate([
-            { $match: { user: userId, orderDate: { $gte: start, $lte: end } } },
+            { $match: match },
             { $unwind: "$items" },
+            { $addFields: itemEconomicsAddFields },
+            { $addFields: itemNetProfitAddFields },
             {
                 $group: {
                     _id: "$items.barcode",
                     name: { $first: "$items.productName" },
-                    sales: { $sum: "$items.quantity" },
-                    revenue: { $sum: { $multiply: ["$items.quantity", "$items.price"] } },
-                    totalCost: { $sum: { $multiply: ["$items.quantity", "$items.costPrice"] } },
-                    totalCommission: { $sum: "$items.commissionAmount" },
-                    netProfit: { $sum: "$items.netProfit" },
-                    category: { $first: "$items.category" }
-                }
+                    sales: { $sum: "$_lineQty" },
+                    revenue: { $sum: "$_lineRevenue" },
+                    totalCost: { $sum: "$_lineProductCost" },
+                    totalCommission: { $sum: "$_lineCommission" },
+                    netProfit: { $sum: "$_lineNetProfit" },
+                    category: { $first: "$items.category" },
+                },
             },
             { $sort: { revenue: -1 } },
-            { $limit: parseInt(limit) }
+            { $limit: parseInt(limit) },
         ]);
 
         // Trend hesapla
         const productsWithTrend = await Promise.all(topProducts.map(async (product) => {
             const prevSalesAgg = await Order.aggregate([
-                { $match: { user: userId, orderDate: { $gte: prev.start, $lte: prev.end } } },
+                { $match: buildOrderMatch(userId, prev.start, prev.end, { excludeCancelled: true }) },
                 { $unwind: "$items" },
                 { $match: { "items.barcode": product._id } },
                 { $group: { _id: null, sales: { $sum: "$items.quantity" }, revenue: { $sum: { $multiply: ["$items.quantity", "$items.price"] } } } }
@@ -319,17 +420,19 @@ exports.getCategoryDistribution = async (req, res) => {
         const { start, end } = buildDateRange(req.query);
 
         const categoryData = await Order.aggregate([
-            { $match: { user: userId, orderDate: { $gte: start, $lte: end } } },
+            { $match: buildOrderMatch(userId, start, end, { excludeCancelled: true }) },
             { $unwind: "$items" },
+            { $addFields: itemEconomicsAddFields },
+            { $addFields: itemNetProfitAddFields },
             {
                 $group: {
                     _id: "$items.category",
-                    sales: { $sum: "$items.quantity" },
-                    revenue: { $sum: { $multiply: ["$items.quantity", "$items.price"] } },
-                    netProfit: { $sum: "$items.netProfit" },
-                    totalCommission: { $sum: "$items.commissionAmount" },
-                    productCount: { $addToSet: "$items.barcode" }
-                }
+                    sales: { $sum: "$_lineQty" },
+                    revenue: { $sum: "$_lineRevenue" },
+                    netProfit: { $sum: "$_lineNetProfit" },
+                    totalCommission: { $sum: "$_lineCommission" },
+                    productCount: { $addToSet: "$items.barcode" },
+                },
             },
             { $sort: { revenue: -1 } }
         ]);
@@ -365,7 +468,7 @@ exports.getHourlySales = async (req, res) => {
         const { start, end } = buildDateRange(req.query);
 
         const hourlyData = await Order.aggregate([
-            { $match: { user: userId, orderDate: { $gte: start, $lte: end } } },
+            { $match: buildOrderMatch(userId, start, end, { excludeCancelled: true }) },
             {
                 $group: {
                     _id: { $hour: "$orderDate" },
@@ -402,8 +505,9 @@ exports.getProfitOverview = async (req, res) => {
         const { start, end } = buildDateRange(req.query);
 
         // Günlük kâr trendi
+        const profitMatch = buildOrderMatch(userId, start, end, { excludeCancelled: true });
         const dailyProfit = await Order.aggregate([
-            { $match: { user: userId, orderDate: { $gte: start, $lte: end }, isCancelled: { $ne: true } } },
+            { $match: profitMatch },
             {
                 $group: {
                     _id: { $dateToString: { format: "%Y-%m-%d", date: "$orderDate" } },
@@ -423,7 +527,7 @@ exports.getProfitOverview = async (req, res) => {
 
         // Gider dağılımı
         const expenseBreakdown = await Order.aggregate([
-            { $match: { user: userId, orderDate: { $gte: start, $lte: end }, isCancelled: { $ne: true } } },
+            { $match: profitMatch },
             {
                 $group: {
                     _id: null,
@@ -485,78 +589,68 @@ exports.getProductPerformance = async (req, res) => {
         const { start, end } = buildDateRange(req.query);
         const { sortBy = "revenue", limit = 50 } = req.query;
 
-        // Sipariş bazlı ürün performansı
-        const orderPerformance = await Order.aggregate([
-            { $match: { user: userId, orderDate: { $gte: start, $lte: end } } },
-            { $unwind: "$items" },
-            {
-                $group: {
-                    _id: "$items.barcode",
-                    name: { $first: "$items.productName" },
-                    category: { $first: "$items.category" },
-                    totalSold: { $sum: "$items.quantity" },
-                    totalRevenue: { $sum: { $multiply: ["$items.quantity", "$items.price"] } },
-                    totalCost: { $sum: { $multiply: ["$items.quantity", "$items.costPrice"] } },
-                    totalCommission: { $sum: "$items.commissionAmount" },
-                    totalShipping: { $sum: "$items.shippingCost" },
-                    netProfit: { $sum: "$items.netProfit" },
-                    orderCount: { $sum: 1 },
-                    avgPrice: { $avg: "$items.price" },
-                    marketplaces: { $addToSet: "$marketplaceName" }
-                }
-            },
-            { $sort: { [sortBy === "profit" ? "netProfit" : sortBy === "sales" ? "totalSold" : "totalRevenue"]: -1 } },
-            { $limit: parseInt(limit) }
-        ]);
-
-        // Ürün stok bilgilerini ekle
-        const barcodes = orderPerformance.map(p => p._id);
-        const products = await Product.find({ userId, barcode: { $in: barcodes } })
-            .select("barcode stock costPrice commissionRate salesMetrics")
-            .lean();
-
-        const productMap = new Map(products.map(p => [p.barcode, p]));
-
-        // İade bilgisi
-        const returnData = await Order.aggregate([
-            { $match: { user: userId, orderDate: { $gte: start, $lte: end }, isReturned: true } },
-            { $unwind: "$items" },
-            { $group: { _id: "$items.barcode", returnCount: { $sum: "$items.quantity" } } }
-        ]);
-        const returnMap = new Map(returnData.map(r => [r._id, r.returnCount]));
-
-        const result = orderPerformance.map(p => {
-            const productInfo = productMap.get(p._id) || {};
-            const returnCount = returnMap.get(p._id) || 0;
-            const profitMargin = p.totalRevenue > 0 ? (p.netProfit / p.totalRevenue) * 100 : 0;
-
-            return {
-                barcode: p._id,
-                name: p.name,
-                category: p.category,
-                totalSold: p.totalSold,
-                totalRevenue: p.totalRevenue,
-                totalCost: p.totalCost,
-                totalCommission: p.totalCommission,
-                netProfit: p.netProfit,
-                profitMargin: parseFloat(profitMargin.toFixed(1)),
-                avgPrice: parseFloat((p.avgPrice || 0).toFixed(2)),
-                currentStock: productInfo.stock || 0,
-                costPrice: productInfo.costPrice || 0,
-                commissionRate: productInfo.commissionRate || 0,
-                returnCount,
-                returnRate: p.totalSold > 0 ? parseFloat(((returnCount / p.totalSold) * 100).toFixed(1)) : 0,
-                orderCount: p.orderCount,
-                marketplaces: p.marketplaces,
-                daysOfStock: productInfo.salesMetrics?.daysOfStock || 0,
-                avgDailySales: productInfo.salesMetrics?.avgDailySales || 0
-            };
-        });
+        const rows = await fetchProductEconomics(userId, start, end, { sortBy, limit });
+        const result = rows.map((p) => ({
+            ...p,
+            totalCost: p.totalProductCost,
+            avgPrice: p.avgSalePrice,
+            daysOfStock: p.daysOfStock || 0,
+            avgDailySales: p.avgDailySales || 0,
+        }));
 
         res.json({ success: true, data: result });
     } catch (error) {
         logger.error("❌ Product performance hatası:", error);
         res.status(500).json({ success: false, message: "Ürün performansı alınamadı" });
+    }
+};
+
+// ═══════════════════════════════════════════════════════════
+// 8b. PRODUCT PROFIT LOSS — Ürün başına kar/zarar tablosu
+// ═══════════════════════════════════════════════════════════
+exports.getProductProfitLoss = async (req, res) => {
+    try {
+        const userId = req.user._id || req.userId;
+        const { start, end } = buildDateRange(req.query);
+        const { sortBy = "netProfit", limit = 200 } = req.query;
+
+        const products = await fetchProductEconomics(userId, start, end, { sortBy, limit });
+
+        const summary = products.reduce(
+            (acc, p) => {
+                acc.totalSold += p.totalSold || 0;
+                acc.totalRevenue += p.totalRevenue || 0;
+                acc.totalProductCost += p.totalProductCost || 0;
+                acc.totalCommission += p.totalCommission || 0;
+                acc.totalShipping += p.totalShipping || 0;
+                acc.netProfit += p.netProfit || 0;
+                return acc;
+            },
+            {
+                totalSold: 0,
+                totalRevenue: 0,
+                totalProductCost: 0,
+                totalCommission: 0,
+                totalShipping: 0,
+                netProfit: 0,
+            }
+        );
+        summary.grossProfit = round2(summary.totalRevenue - summary.totalProductCost);
+        summary.profitMargin =
+            summary.totalRevenue > 0
+                ? parseFloat(((summary.netProfit / summary.totalRevenue) * 100).toFixed(1))
+                : 0;
+        Object.keys(summary).forEach((k) => {
+            if (typeof summary[k] === "number" && k !== "profitMargin") summary[k] = round2(summary[k]);
+        });
+
+        res.json({
+            success: true,
+            data: { products, summary, period: { start, end } },
+        });
+    } catch (error) {
+        logger.error("❌ Product profit-loss hatası:", error);
+        res.status(500).json({ success: false, message: "Kar/zarar tablosu alınamadı" });
     }
 };
 
@@ -571,7 +665,7 @@ exports.getMarketplaceComparison = async (req, res) => {
 
         // Mevcut dönem
         const currentData = await Order.aggregate([
-            { $match: { user: userId, orderDate: { $gte: start, $lte: end } } },
+            { $match: buildOrderMatch(userId, start, end, { excludeCancelled: true }) },
             {
                 $group: {
                     _id: "$marketplaceName",
@@ -590,7 +684,7 @@ exports.getMarketplaceComparison = async (req, res) => {
 
         // Önceki dönem
         const prevData = await Order.aggregate([
-            { $match: { user: userId, orderDate: { $gte: prev.start, $lte: prev.end } } },
+            { $match: buildOrderMatch(userId, prev.start, prev.end, { excludeCancelled: true }) },
             {
                 $group: {
                     _id: "$marketplaceName",
@@ -647,7 +741,7 @@ exports.getCommissionAnalysis = async (req, res) => {
 
         // Pazaryeri bazlı komisyon
         const byMarketplace = await Order.aggregate([
-            { $match: { user: userId, orderDate: { $gte: start, $lte: end }, isCancelled: { $ne: true } } },
+            { $match: buildOrderMatch(userId, start, end, { excludeCancelled: true }) },
             {
                 $group: {
                     _id: "$marketplaceName",
@@ -666,15 +760,16 @@ exports.getCommissionAnalysis = async (req, res) => {
 
         // Kategori bazlı komisyon
         const byCategory = await Order.aggregate([
-            { $match: { user: userId, orderDate: { $gte: start, $lte: end }, isCancelled: { $ne: true } } },
+            { $match: buildOrderMatch(userId, start, end, { excludeCancelled: true }) },
             { $unwind: "$items" },
+            { $addFields: itemEconomicsAddFields },
             {
                 $group: {
                     _id: "$items.category",
-                    revenue: { $sum: { $multiply: ["$items.quantity", "$items.price"] } },
-                    commission: { $sum: "$items.commissionAmount" },
-                    avgCommissionRate: { $avg: "$items.commissionRate" }
-                }
+                    revenue: { $sum: "$_lineRevenue" },
+                    commission: { $sum: "$_lineCommission" },
+                    avgCommissionRate: { $avg: "$items.commissionRate" },
+                },
             },
             { $sort: { commission: -1 } },
             { $limit: 15 }
@@ -730,17 +825,18 @@ exports.getStockVelocity = async (req, res) => {
 
         // Ürün bazlı satış hızı
         const salesVelocity = await Order.aggregate([
-            { $match: { user: userId, orderDate: { $gte: start, $lte: end } } },
+            { $match: buildOrderMatch(userId, start, end, { excludeCancelled: true }) },
             { $unwind: "$items" },
+            { $addFields: itemEconomicsAddFields },
             {
                 $group: {
                     _id: "$items.barcode",
                     name: { $first: "$items.productName" },
                     category: { $first: "$items.category" },
-                    totalSold: { $sum: "$items.quantity" },
-                    revenue: { $sum: { $multiply: ["$items.quantity", "$items.price"] } },
-                    lastSaleDate: { $max: "$orderDate" }
-                }
+                    totalSold: { $sum: "$_lineQty" },
+                    revenue: { $sum: "$_lineRevenue" },
+                    lastSaleDate: { $max: "$orderDate" },
+                },
             },
             { $sort: { totalSold: -1 } }
         ]);
@@ -840,7 +936,7 @@ exports.getActions = async (req, res) => {
             cancelledOrders
         ] = await Promise.all([
             Product.find({ userId }).select("barcode name stock costPrice salePrice commissionRate salesMetrics status").lean(),
-            Order.find({ user: userId, orderDate: { $gte: start, $lte: end } })
+            Order.find(buildOrderMatch(userId, start, end, { excludeCancelled: false }))
                 .select("totalPrice costSummary marketplaceName items isReturned isCancelled")
                 .lean(),
             Order.countDocuments({ user: userId, orderDate: { $gte: start, $lte: end }, isReturned: true }),
@@ -999,9 +1095,13 @@ exports.getDailySummary = async (req, res) => {
         const weekStart = new Date(todayStart);
         weekStart.setDate(weekStart.getDate() - weekStart.getDay() + 1); // Pazartesi
 
+        const todayMatch = buildOrderMatch(userId, todayStart, todayEnd, { excludeCancelled: true });
+        const yesterdayMatch = buildOrderMatch(userId, yesterdayStart, yesterdayEnd, { excludeCancelled: true });
+        const weekMatch = buildOrderMatch(userId, weekStart, todayEnd, { excludeCancelled: true });
+
         const [todayAgg, yesterdayAgg, weekAgg, activeProducts, criticalStock, outOfStock] = await Promise.all([
             Order.aggregate([
-                { $match: { user: userId, orderDate: { $gte: todayStart, $lte: todayEnd } } },
+                { $match: todayMatch },
                 {
                     $group: {
                         _id: null,
@@ -1013,7 +1113,7 @@ exports.getDailySummary = async (req, res) => {
                 }
             ]),
             Order.aggregate([
-                { $match: { user: userId, orderDate: { $gte: yesterdayStart, $lte: yesterdayEnd } } },
+                { $match: yesterdayMatch },
                 {
                     $group: {
                         _id: null,
@@ -1024,7 +1124,7 @@ exports.getDailySummary = async (req, res) => {
                 }
             ]),
             Order.aggregate([
-                { $match: { user: userId, orderDate: { $gte: weekStart, $lte: todayEnd } } },
+                { $match: weekMatch },
                 {
                     $group: {
                         _id: null,

@@ -1,6 +1,6 @@
-/**
+﻿/**
  * ═══════════════════════════════════════════════════════════════════════════════
- * RADAR API SERVICE — LysiaRadar PRO Frontend
+ * RADAR API SERVICE — PazarYonet Radar Frontend
  * ═══════════════════════════════════════════════════════════════════════════════
  *
  * Backend /api/radar endpoint'leri ile iletişim.

@@ -1,4 +1,4 @@
-/* General Styles */
+﻿/* General Styles */
 .dashboard-container {
     position: relative;
     height: 100vh;
@@ -61,15 +61,14 @@
     top: 50%;
     transform: translateY(-50%);
     display: flex;
-    align-items: baseline;
-    gap: 0.2rem;
+    align-items: center;
+    gap: 0.55rem;
 }
 
 .logo {
     display: flex;
-    align-items: baseline;
-    gap: 0.2rem;
-    font-size: 1.35rem;
+    align-items: center;
+    font-size: 1.2rem;
     margin: 0;
     line-height: 1;
     white-space: nowrap;
@@ -81,12 +80,6 @@
     -webkit-text-fill-color: transparent;
     font-weight: 700;
     letter-spacing: -0.01em;
-}
-
-.logo-sub {
-    color: var(--app-text, rgba(255, 255, 255, 0.8));
-    font-weight: 300;
-    font-size: 0.8em;
 }
 
 /* ── Toggle Button ── */
@@ -557,7 +550,7 @@
     overflow-x: hidden;
 }
 
-/* LysiaBrain mode — full takeover, no padding/bg interference */
+/* PazarYonet AI mode — full takeover, no padding/bg interference */
 .content-area.content-area--brain {
     padding: 0;
     background: transparent;

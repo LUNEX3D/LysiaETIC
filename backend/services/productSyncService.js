@@ -11,6 +11,37 @@ const masterProductAdapter   = require("./masterProductAdapter");
 const { decryptCredentials } = require("../utils/encryption");
 const { resolveProductBrandName, isPlaceholderBrand } = require("../utils/resolveProductBrandName");
 const { prepareCrossListingProduct } = require("../utils/crossListingCanonicalProduct");
+const {
+    applyFieldDriftToMarketplaceMapping,
+    alignPlatformSnapshotFromMaster
+} = require("../utils/productFieldCompare");
+
+/** Kritik alan farkını Stok Defteri'ne yaz */
+const logFieldDriftToStockSyncLog = async (userId, mapping, marketplaceName, driftResult) => {
+    if (!driftResult?.hasCritical || !mapping?._id) return;
+    try {
+        const critical = (driftResult.drifts || []).filter((d) => d.severity === "critical");
+        await StockSyncLog.create({
+            userId,
+            actionType: "product_field_drift",
+            product: {
+                productMappingId: mapping._id,
+                barcode: mapping.masterProduct?.barcode,
+                sku: mapping.masterProduct?.sku,
+                name: mapping.masterProduct?.name
+            },
+            marketplace: { name: marketplaceName },
+            status: "error",
+            error: {
+                message: critical.map((d) => `${d.label}: master="${d.masterValue}" platform="${d.platformValue}"`).join("; "),
+                code: "FIELD_DRIFT_CRITICAL"
+            },
+            notification: { priority: "critical" }
+        });
+    } catch (e) {
+        logger.warn(`[FIELD DRIFT] Log yazılamadı: ${e.message}`);
+    }
+};
 
 /** Trendyol GET /integration/product/brands — markaId → görünen ad (çekme başına önbellek) */
 let _tyBrandLookupCache = { key: "", map: /** @type {Map<number, string>|null} */ (null), at: 0 };
@@ -114,9 +145,9 @@ const buildMarketplacePullPayload = (product, normalizedMarketplaceName) => {
         ...(Number.isFinite(crNum) && crNum >= 0 ? { commissionRate: crNum } : {}),
         pulledFromMarketplace: true,
         pullDate: new Date(),
-        isSynced: true,
         lastSyncDate: new Date(),
-        syncStatus: "synced"
+        // ⚠️ Pull = pazaryeri anlık görüntüsü; master stok değişmez.
+        // isSynced/syncStatus burada SET EDİLMEZ — yoksa stok 0 master + TY'de stok>0 iken UI "satışta" sanılır.
     };
 };
 
@@ -714,9 +745,19 @@ const syncProductsFromMarketplace = async (userId, marketplaceId, marketplaceNam
             if (m.masterProduct.barcode) mappingByBarcode.set(m.masterProduct.barcode, m);
             if (m.masterProduct.sku) mappingBySku.set(m.masterProduct.sku, m);
             if (m.masterProduct.name) mappingByName.set(m.masterProduct.name.trim().toLowerCase(), m);
-            // Marketplace product ID ile de eşleştir
+            // Pazaryeri kimlik alanları ile de eşleştir (platformda SKU/barkod değişmiş olabilir)
             for (const mp of (m.marketplaceMappings || [])) {
-                if (mp.marketplaceProductId) mappingByMpId.set(mp.marketplaceProductId, m);
+                if (mp.marketplaceProductId) {
+                    mappingByMpId.set(normalizeSyncLookupKey(mp.marketplaceProductId), m);
+                }
+                if (mp.marketplaceSku) {
+                    const k = normalizeSyncLookupKey(mp.marketplaceSku);
+                    if (k && !mappingBySku.has(k)) mappingBySku.set(k, m);
+                }
+                if (mp.marketplaceBarcode) {
+                    const k = normalizeSyncLookupKey(mp.marketplaceBarcode);
+                    if (k && !mappingByBarcode.has(k)) mappingByBarcode.set(k, m);
+                }
             }
         }
 
@@ -766,9 +807,38 @@ const syncProductsFromMarketplace = async (userId, marketplaceId, marketplaceNam
                         );
 
                         if (mpIndex >= 0) {
-                            Object.assign(mapping.marketplaceMappings[mpIndex], mpData);
+                            const prevMp = mapping.marketplaceMappings[mpIndex];
+                            Object.assign(mapping.marketplaceMappings[mpIndex], mpData, {
+                                // Pull ile gelen pazaryeri stoku yalnızca snapshot — senkron tamamlandı sayma
+                                isSynced: prevMp.isSynced,
+                                syncStatus: prevMp.syncStatus || "pending",
+                            });
                         } else {
-                            mapping.marketplaceMappings.push(mpData);
+                            mapping.marketplaceMappings.push({
+                                ...mpData,
+                                isSynced: false,
+                                syncStatus: "pulled",
+                            });
+                        }
+
+                        const mpTarget =
+                            mpIndex >= 0
+                                ? mapping.marketplaceMappings[mpIndex]
+                                : mapping.marketplaceMappings[mapping.marketplaceMappings.length - 1];
+                        const driftResult = applyFieldDriftToMarketplaceMapping(
+                            mpTarget,
+                            mapping.masterProduct,
+                            product,
+                            mapping.stockTracking
+                        );
+                        if (driftResult.hasDrift) {
+                            if (driftResult.hasCritical) {
+                                logger.warn(
+                                    `[SYNC] Kritik alan farkı — ${product.barcode || product.sku} @ ${normalizedName}: ` +
+                                    driftResult.drifts.filter((d) => d.severity === "critical").map((d) => d.label).join(", ")
+                                );
+                                await logFieldDriftToStockSyncLog(userId, mapping, normalizedName, driftResult);
+                            }
                         }
 
                         // ⚠️ Master product stok/fiyat güncelleme — DİKKAT!
@@ -841,10 +911,28 @@ const syncProductsFromMarketplace = async (userId, marketplaceId, marketplaceNam
                                 m => normalizeMarketplaceName(m.marketplaceName) === normalizedName
                             );
                             if (mpIdx >= 0) {
-                                Object.assign(finalCheck.marketplaceMappings[mpIdx], mpData);
+                                const prevMp = finalCheck.marketplaceMappings[mpIdx];
+                                Object.assign(finalCheck.marketplaceMappings[mpIdx], mpData, {
+                                    isSynced: prevMp.isSynced,
+                                    syncStatus: prevMp.syncStatus || "pending",
+                                });
                             } else {
-                                finalCheck.marketplaceMappings.push(mpData);
+                                finalCheck.marketplaceMappings.push({
+                                    ...mpData,
+                                    isSynced: false,
+                                    syncStatus: "pulled",
+                                });
                             }
+                            const fcMp =
+                                mpIdx >= 0
+                                    ? finalCheck.marketplaceMappings[mpIdx]
+                                    : finalCheck.marketplaceMappings[finalCheck.marketplaceMappings.length - 1];
+                            applyFieldDriftToMarketplaceMapping(
+                                fcMp,
+                                finalCheck.masterProduct,
+                                product,
+                                finalCheck.stockTracking
+                            );
                             if (product.price) finalCheck.masterProduct.price = product.price;
                             if (product.listPrice) finalCheck.masterProduct.listPrice = product.listPrice;
                             {
@@ -912,6 +1000,14 @@ const syncProductsFromMarketplace = async (userId, marketplaceId, marketplaceNam
                         });
 
                         newMapping.updateStockStatus();
+                        if (newMapping.marketplaceMappings[0]) {
+                            applyFieldDriftToMarketplaceMapping(
+                                newMapping.marketplaceMappings[0],
+                                newMapping.masterProduct,
+                                product,
+                                newMapping.stockTracking
+                            );
+                        }
                         await newMapping.save();
 
                         // Map'e ekle (aynı batch'teki sonraki ürünler için)
@@ -1364,6 +1460,13 @@ const distributeProductToMarketplaces = async (userId, productMappingId, targetM
                             if (idx === mapping.marketplaceMappings.length - 1) return true;
                             return normalizeMarketplaceName(m.marketplaceName) !== marketplaceName;
                         });
+                    }
+
+                    const uploadedMp = mapping.marketplaceMappings.find(
+                        (m) => normalizeMarketplaceName(m.marketplaceName) === marketplaceName
+                    );
+                    if (uploadedMp && !isPending) {
+                        alignPlatformSnapshotFromMaster(uploadedMp, mapping);
                     }
 
                     await mapping.save();

@@ -28,8 +28,20 @@ const fs = require("fs");
 const path = require("path");
 const duplicateGuard = require("../utils/productDuplicateGuard");
 const {
+    extractPlatformSnapshotFromMp,
+    applyPlatformValueToMaster,
+    applyFieldDriftToMarketplaceMapping,
+    refreshAllFieldDriftsForMapping,
+    FIELD_DEFS
+} = require("../utils/productFieldCompare");
+const {
     isHepsiburadaMappingListedForUi,
-    isHepsiburadaMappingVisibleForProductUi
+    isHepsiburadaMappingVisibleForProductUi,
+    loadHepsiburadaListableCategoryIdSet,
+    normalizeCredentials: normalizeHbCredentials,
+    validateCredentials: validateHbCredentials,
+    getEndpoints: getHbEndpoints,
+    HB_SIT_ENDPOINTS
 } = require("../services/hepsiburadaService");
 const { buildProductCategoryFieldOverview } = require("../services/categoryFieldOverviewService");
 const {
@@ -350,7 +362,33 @@ exports.getProductDetail = async (req, res) => {
             visibleMappings = visibleMappings.filter((m) => m && isHepsiburadaMappingVisibleForProductUi(m));
         }
 
-        const product = { ...productDoc, marketplaceMappings: visibleMappings, categoryFieldOverview };
+        const fieldAuditSummary = {
+            hasAnyDrift: false,
+            hasCritical: false,
+            platforms: []
+        };
+        for (const mp of visibleMappings) {
+            const fd = mp.fieldDrift;
+            if (fd?.hasDrift) {
+                fieldAuditSummary.hasAnyDrift = true;
+                if (fd.hasCritical) fieldAuditSummary.hasCritical = true;
+                fieldAuditSummary.platforms.push({
+                    marketplaceName: mp.marketplaceName,
+                    hasCritical: !!fd.hasCritical,
+                    driftCount: (fd.drifts || []).length,
+                    drifts: fd.drifts || [],
+                    lastCheckedAt: fd.lastCheckedAt
+                });
+            }
+        }
+
+        const product = {
+            ...productDoc,
+            marketplaceMappings: visibleMappings,
+            categoryFieldOverview,
+            fieldAuditSummary,
+            fieldAuditFields: FIELD_DEFS.map((f) => ({ key: f.key, label: f.label, severity: f.severity }))
+        };
 
         const activePlatforms = (product.marketplaceMappings || []).map(m => m.marketplaceName).filter(Boolean);
         logger.info(`[PRODUCT DETAIL] "${product.masterProduct?.name}" → platforms: [${activePlatforms.join(", ")}]`);
@@ -381,6 +419,8 @@ exports.updateProduct = async (req, res) => {
 
         // Master product alanlarını güncelle
         if (updates.name) product.masterProduct.name = updates.name;
+        if (updates.barcode) product.masterProduct.barcode = String(updates.barcode).trim();
+        if (updates.sku) product.masterProduct.sku = String(updates.sku).trim();
         if (updates.description) product.masterProduct.description = updates.description;
         if (updates.images) product.masterProduct.images = updates.images;
         if (updates.price) product.masterProduct.price = updates.price;
@@ -453,6 +493,18 @@ exports.updateProduct = async (req, res) => {
             } catch (syncError) {
                 logger.error(`[PRODUCT UPDATE] Güvenlik stoğu sync hatası: ${syncError.message}`);
             }
+        }
+
+        const identityTouched =
+            updates.name ||
+            updates.barcode ||
+            updates.sku ||
+            updates.brand ||
+            updates.category ||
+            updates.attributes ||
+            updates.price;
+        if (identityTouched) {
+            refreshAllFieldDriftsForMapping(product);
         }
 
         await product.save();
@@ -740,6 +792,36 @@ exports.distributeProduct = async (req, res) => {
 
         if (!productMappingId || !targetMarketplaces || targetMarketplaces.length === 0) {
             return res.status(400).json({ error: "Ürün ID ve hedef pazaryerleri gerekli" });
+        }
+
+        const hbTarget = (targetMarketplaces || []).some((t) => /hepsiburada/i.test(String(t || "")));
+        const hbCategoryId = normalizedCategory?.id != null ? String(normalizedCategory.id).trim() : "";
+        if (hbTarget && hbCategoryId) {
+            const hbMp = await Marketplace.findOne({
+                userId,
+                marketplaceName: { $regex: /^hepsiburada$/i }
+            }).lean();
+            if (hbMp) {
+                const hbCreds = normalizeHbCredentials(decryptCredentials(hbMp.credentials));
+                const hbVal = validateHbCredentials(hbCreds, "kategori doğrulama");
+                if (hbVal.valid) {
+                    const useSit = getHbEndpoints(hbCreds).MPOP === HB_SIT_ENDPOINTS.MPOP;
+                    const listableIds = await loadHepsiburadaListableCategoryIdSet(
+                        hbCreds.merchantId,
+                        hbCreds.secretKey,
+                        hbCreds.userAgent,
+                        useSit
+                    );
+                    if (listableIds.size > 0 && !listableIds.has(hbCategoryId)) {
+                        return res.status(400).json({
+                            error: "Hepsiburada kategori geçersiz",
+                            details:
+                                `Kategori ID ${hbCategoryId} ürün listelemeye uygun değil (kampanya reyonu veya kapalı kategori). ` +
+                                "Kategori aramasında yaprak (listelenebilir) bir katalog kategorisi seçin."
+                        });
+                    }
+                }
+            }
         }
 
         const results = await distributeProductToMarketplaces(userId, productMappingId, targetMarketplaces, normalizedCategory);
@@ -1118,34 +1200,304 @@ exports.triggerAutoSync = async (req, res) => {
 // 📢 BİLDİRİM & LOG SİSTEMİ
 // ═══════════════════════════════════════════════════════════════
 
+/** Stok ile ilgili log tipleri */
+const STOCK_RELATED_ACTIONS = [
+    "stock_update",
+    "order_placed",
+    "auto_sync",
+    "manual_sync",
+    "webhook_order",
+    "bulk_update",
+];
+
+const ACTION_TYPE_LABELS = {
+    stock_update: "Stok güncelleme",
+    price_update: "Fiyat güncelleme",
+    product_created: "Yeni ürün",
+    product_pending: "Ürün kuyrukta",
+    product_deleted: "Ürün silindi",
+    product_synced: "Pazaryerinden çekildi",
+    product_field_drift: "Katalog alan farkı",
+    order_placed: "Sipariş (stok düşüşü)",
+    auto_sync: "Otomatik stok push",
+    manual_sync: "Manuel stok push",
+    webhook_order: "Webhook sipariş",
+    bulk_update: "Toplu güncelleme",
+    bulk_delete: "Toplu silme",
+};
+
+const SOURCE_LABELS = {
+    order: "Sipariş",
+    manual: "Manuel (panel)",
+    cron: "Arka plan (cron)",
+    bulk: "Toplu işlem",
+    webhook: "Webhook",
+    sync: "Senkronizasyon",
+    catalog: "Katalog denetimi",
+    system: "Sistem",
+};
+
+function inferLogSource(log) {
+    if (log.order?.orderId || log.order?.orderNumber) return "order";
+    if (log.actionType === "manual_sync") return "manual";
+    if (log.actionType === "auto_sync") return "cron";
+    if (log.actionType === "bulk_update" || log.actionType === "bulk_delete") return "bulk";
+    if (log.actionType === "webhook_order") return "webhook";
+    if (log.actionType === "product_synced") return "sync";
+    if (log.actionType === "product_field_drift") return "catalog";
+    return "system";
+}
+
+function formatSyncLogForClient(log) {
+    const oldV = log.changes?.oldValue;
+    const newV = log.changes?.newValue;
+    const stockDelta =
+        log.changes?.field === "stock" && oldV != null && newV != null
+            ? Number(newV) - Number(oldV)
+            : log.changes?.difference != null
+                ? Number(log.changes.difference)
+                : null;
+
+    const source = inferLogSource(log);
+    const mpErrors = (log.affectedMarketplaces || []).filter(m => m.syncStatus === "error");
+
+    return {
+        ...log,
+        actionLabel: ACTION_TYPE_LABELS[log.actionType] || log.actionType,
+        source,
+        sourceLabel: SOURCE_LABELS[source] || SOURCE_LABELS.system,
+        stockDelta,
+        isStockEvent:
+            log.changes?.field === "stock" ||
+            STOCK_RELATED_ACTIONS.includes(log.actionType),
+        isZeroStock: log.changes?.field === "stock" && Number(newV) === 0,
+        isStockIncrease: stockDelta != null && stockDelta > 0,
+        isStockDecrease: stockDelta != null && stockDelta < 0,
+        marketplaceSummary: (log.affectedMarketplaces || [])
+            .map(m => `${m.name}:${m.syncStatus || "?"}`)
+            .join(", "),
+        hasMarketplaceErrors: mpErrors.length > 0,
+        marketplaceErrors: mpErrors.map(m => ({ name: m.name, error: m.error || "" })),
+    };
+}
+
 /**
- * Senkronizasyon loglarını getir
+ * Senkronizasyon loglarını getir (+ stok defteri özeti)
+ * Query: page, limit, actionType, status, priority, hours (24), stockOnly, search, barcode
  */
 exports.getSyncLogs = async (req, res) => {
     try {
         const userId = toObjectId(req.user?._id || req.user?.id);
         if (!userId) return res.status(401).json({ error: "Yetkilendirme hatası" });
 
-        const { page = 0, limit = 50, actionType, status, priority } = req.query;
+        const {
+            page = 0,
+            limit = 50,
+            actionType,
+            status,
+            priority,
+            hours,
+            stockOnly,
+            search,
+            barcode,
+            source,
+        } = req.query;
 
         const filter = { userId };
+
+        const hoursNum = hours != null && hours !== "" ? Number(hours) : null;
+        if (hoursNum && hoursNum > 0) {
+            filter.timestamp = { $gte: new Date(Date.now() - hoursNum * 60 * 60 * 1000) };
+        }
+
         if (actionType) filter.actionType = actionType;
         if (status) filter.status = status;
         if (priority) filter["notification.priority"] = priority;
 
-        const total = await StockSyncLog.countDocuments(filter);
-        const logs = await StockSyncLog.find(filter)
-            .sort({ timestamp: -1 })
-            .skip(Number(page) * Number(limit))
-            .limit(Number(limit))
-            .lean();
+        if (barcode && String(barcode).trim()) {
+            filter["product.barcode"] = String(barcode).trim();
+        }
+
+        if (search && String(search).trim()) {
+            const q = String(search).trim();
+            const regex = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
+            filter.$or = [
+                { "product.barcode": regex },
+                { "product.sku": regex },
+                { "product.name": regex },
+            ];
+        }
+
+        const stockOnlyOn =
+            stockOnly === "1" ||
+            stockOnly === "true" ||
+            stockOnly === true;
+
+        if (stockOnlyOn) {
+            const stockClause = {
+                $or: [
+                    { "changes.field": "stock" },
+                    { actionType: { $in: STOCK_RELATED_ACTIONS } },
+                ],
+            };
+            if (filter.$or) {
+                filter.$and = [{ $or: filter.$or }, stockClause];
+                delete filter.$or;
+            } else {
+                Object.assign(filter, stockClause);
+            }
+        }
+
+        if (source && String(source).trim()) {
+            const src = String(source).trim().toLowerCase();
+            let sourceClause = null;
+            if (src === "order") {
+                sourceClause = {
+                    $or: [
+                        { actionType: "order_placed" },
+                        { actionType: "webhook_order" },
+                        { "order.orderId": { $exists: true, $ne: "" } },
+                    ],
+                };
+            } else if (src === "manual") {
+                filter.actionType = "manual_sync";
+            } else if (src === "cron") {
+                filter.actionType = "auto_sync";
+            } else if (src === "bulk") {
+                filter.actionType = "bulk_update";
+            } else if (src === "catalog") {
+                filter.actionType = "product_field_drift";
+            }
+            if (sourceClause) {
+                if (filter.$and) {
+                    filter.$and.push(sourceClause);
+                } else if (filter.$or) {
+                    filter.$and = [{ $or: filter.$or }, sourceClause];
+                    delete filter.$or;
+                } else {
+                    Object.assign(filter, sourceClause);
+                }
+            }
+        }
+
+        const [total, logsRaw, summaryAgg] = await Promise.all([
+            StockSyncLog.countDocuments(filter),
+            StockSyncLog.find(filter)
+                .sort({ timestamp: -1 })
+                .skip(Number(page) * Number(limit))
+                .limit(Math.min(Number(limit) || 50, 200))
+                .lean(),
+            StockSyncLog.aggregate([
+                { $match: filter },
+                {
+                    $group: {
+                        _id: null,
+                        totalEvents: { $sum: 1 },
+                        uniqueBarcodes: { $addToSet: "$product.barcode" },
+                        wentToZero: {
+                            $sum: {
+                                $cond: [
+                                    {
+                                        $and: [
+                                            { $eq: ["$changes.field", "stock"] },
+                                            { $eq: ["$changes.newValue", 0] },
+                                        ],
+                                    },
+                                    1,
+                                    0,
+                                ],
+                            },
+                        },
+                        increased: {
+                            $sum: {
+                                $cond: [
+                                    {
+                                        $and: [
+                                            { $eq: ["$changes.field", "stock"] },
+                                            { $gt: [{ $subtract: [{ $toDouble: "$changes.newValue" }, { $toDouble: "$changes.oldValue" }] }, 0] },
+                                        ],
+                                    },
+                                    1,
+                                    0,
+                                ],
+                            },
+                        },
+                        decreased: {
+                            $sum: {
+                                $cond: [
+                                    {
+                                        $and: [
+                                            { $eq: ["$changes.field", "stock"] },
+                                            { $lt: [{ $subtract: [{ $toDouble: "$changes.newValue" }, { $toDouble: "$changes.oldValue" }] }, 0] },
+                                        ],
+                                    },
+                                    1,
+                                    0,
+                                ],
+                            },
+                        },
+                        orderRelated: {
+                            $sum: {
+                                $cond: [
+                                    {
+                                        $in: [
+                                            "$actionType",
+                                            ["order_placed", "webhook_order"],
+                                        ],
+                                    },
+                                    1,
+                                    0,
+                                ],
+                            },
+                        },
+                        errors: {
+                            $sum: { $cond: [{ $eq: ["$status", "error"] }, 1, 0] },
+                        },
+                        byAction: { $push: "$actionType" },
+                    },
+                },
+            ]),
+        ]);
+
+        const logs = logsRaw.map(formatSyncLogForClient);
+
+        const agg = summaryAgg[0] || {};
+        const byActionType = {};
+        (agg.byAction || []).forEach((t) => {
+            byActionType[t] = (byActionType[t] || 0) + 1;
+        });
+
+        const summary = {
+            windowHours: hoursNum || null,
+            totalEvents: agg.totalEvents || 0,
+            uniqueProducts: (agg.uniqueBarcodes || []).filter(Boolean).length,
+            wentToZero: agg.wentToZero || 0,
+            stockIncreased: agg.increased || 0,
+            stockDecreased: agg.decreased || 0,
+            orderRelated: agg.orderRelated || 0,
+            errors: agg.errors || 0,
+            byActionType: Object.entries(byActionType).map(([type, count]) => ({
+                type,
+                label: ACTION_TYPE_LABELS[type] || type,
+                count,
+            })).sort((a, b) => b.count - a.count),
+        };
 
         return res.status(200).json({
             success: true,
             total,
             page: Number(page),
             limit: Number(limit),
-            logs
+            logs,
+            summary,
+            filters: {
+                hours: hoursNum,
+                stockOnly: stockOnlyOn,
+                search: search || "",
+                barcode: barcode || "",
+                actionType: actionType || "",
+                source: source || "",
+            },
         });
 
     } catch (error) {
@@ -2108,6 +2460,15 @@ exports.getProductManagementDashboard = async (req, res) => {
             "notification.read": false
         });
 
+        const productsWithFieldDrift = await ProductMapping.countDocuments({
+            userId,
+            "marketplaceMappings.fieldDrift.hasDrift": true
+        });
+        const criticalFieldDrift = await ProductMapping.countDocuments({
+            userId,
+            "marketplaceMappings.fieldDrift.hasCritical": true
+        });
+
         return res.status(200).json({
             success: true,
             dashboard: {
@@ -2115,7 +2476,9 @@ exports.getProductManagementDashboard = async (req, res) => {
                     total: totalProducts,
                     outOfStock,
                     lowStock,
-                    healthy: totalProducts - outOfStock - lowStock
+                    healthy: totalProducts - outOfStock - lowStock,
+                    withFieldDrift: productsWithFieldDrift,
+                    criticalFieldDrift
                 },
                 marketplaces: marketplaceStats,
                 recentLogs,
@@ -2428,6 +2791,13 @@ exports.getComparisonMatrix = async (req, res) => {
             // missingOnly filtresi — erken atlama
             if (missingOnly === "true" && missingCount === 0) continue;
 
+            let hasFieldDrift = false;
+            let hasCriticalFieldDrift = false;
+            for (const mm of product.marketplaceMappings || []) {
+                if (mm.fieldDrift?.hasDrift) hasFieldDrift = true;
+                if (mm.fieldDrift?.hasCritical) hasCriticalFieldDrift = true;
+            }
+
             matrix.push({
                 _id:      product._id,
                 name:     product.masterProduct?.name,
@@ -2438,7 +2808,9 @@ exports.getComparisonMatrix = async (req, res) => {
                 presence,
                 existsCount,
                 missingCount,
-                missingMarketplaces: mpNames.filter(mp => !presence[mp]?.exists)
+                missingMarketplaces: mpNames.filter(mp => !presence[mp]?.exists),
+                hasFieldDrift,
+                hasCriticalFieldDrift
             });
         }
 
@@ -2470,6 +2842,243 @@ exports.getComparisonMatrix = async (req, res) => {
     } catch (error) {
         logger.error("[COMPARISON MATRIX] Hata:", error.message);
         return res.status(500).json({ error: "Karşılaştırma matrisi alınamadı", details: error.message });
+    }
+};
+
+/**
+ * Alan denetimi listesi — barkod, SKU, ad, model vb. master vs platform farkları
+ * GET /product-management/field-audit?driftOnly=true&criticalOnly=false&page=0&limit=50
+ */
+exports.getFieldAuditList = async (req, res) => {
+    try {
+        const userId = toObjectId(req.user?._id || req.user?.id);
+        if (!userId) return res.status(401).json({ error: "Yetkilendirme hatası" });
+
+        const { page = 0, limit = 50, search, driftOnly = "true", criticalOnly = "false" } = req.query;
+        const filter = { userId };
+        if (search) {
+            filter.$or = [
+                { "masterProduct.name": { $regex: search, $options: "i" } },
+                { "masterProduct.barcode": { $regex: search, $options: "i" } },
+                { "masterProduct.sku": { $regex: search, $options: "i" } }
+            ];
+        }
+
+        const products = await ProductMapping.find(filter)
+            .select("masterProduct.name masterProduct.barcode masterProduct.sku marketplaceMappings.marketplaceName marketplaceMappings.fieldDrift marketplaceMappings.platformSnapshot")
+            .sort({ updatedAt: -1 })
+            .lean();
+
+        const items = [];
+        for (const p of products) {
+            const platformRows = [];
+            for (const mp of p.marketplaceMappings || []) {
+                const fd = mp.fieldDrift;
+                if (!fd?.hasDrift) continue;
+                if (criticalOnly === "true" && !fd.hasCritical) continue;
+                platformRows.push({
+                    marketplaceName: mp.marketplaceName,
+                    hasCritical: !!fd.hasCritical,
+                    drifts: fd.drifts || [],
+                    lastCheckedAt: fd.lastCheckedAt,
+                    platformSnapshot: mp.platformSnapshot || null
+                });
+            }
+            if (driftOnly === "true" && platformRows.length === 0) continue;
+            items.push({
+                _id: p._id,
+                name: p.masterProduct?.name,
+                barcode: p.masterProduct?.barcode,
+                sku: p.masterProduct?.sku,
+                platforms: platformRows,
+                driftPlatformCount: platformRows.length,
+                hasCritical: platformRows.some((r) => r.hasCritical)
+            });
+        }
+
+        const total = items.length;
+        const pageNum = Number(page);
+        const limitNum = Number(limit);
+        const paged = items.slice(pageNum * limitNum, (pageNum + 1) * limitNum);
+
+        return res.status(200).json({
+            success: true,
+            total,
+            page: pageNum,
+            limit: limitNum,
+            totalPages: Math.ceil(total / limitNum) || 0,
+            items: paged,
+            trackedFields: FIELD_DEFS,
+            summary: {
+                productsWithDrift: items.length,
+                criticalProducts: items.filter((i) => i.hasCritical).length
+            }
+        });
+    } catch (error) {
+        logger.error("[FIELD AUDIT] Hata:", error.message);
+        return res.status(500).json({ error: "Alan denetimi listesi alınamadı", details: error.message });
+    }
+};
+
+/**
+ * Tek ürün alan denetimi
+ * GET /product-management/products/:productId/field-audit
+ */
+exports.getProductFieldAudit = async (req, res) => {
+    try {
+        const userId = toObjectId(req.user?._id || req.user?.id);
+        if (!userId) return res.status(401).json({ error: "Yetkilendirme hatası" });
+
+        const product = await ProductMapping.findOne({ _id: req.params.productId, userId }).lean();
+        if (!product) return res.status(404).json({ error: "Ürün bulunamadı" });
+
+        const platforms = (product.marketplaceMappings || []).map((mp) => ({
+            marketplaceName: mp.marketplaceName,
+            platformSnapshot: mp.platformSnapshot || extractPlatformSnapshotFromMp(mp),
+            fieldDrift: mp.fieldDrift || { hasDrift: false, drifts: [] },
+            syncStatus: mp.syncStatus,
+            syncError: mp.syncError
+        }));
+
+        return res.status(200).json({
+            success: true,
+            productId: product._id,
+            master: {
+                name: product.masterProduct?.name,
+                barcode: product.masterProduct?.barcode,
+                sku: product.masterProduct?.sku,
+                modelNumber: product.masterProduct?.attributes?.model || "",
+                brand: product.masterProduct?.brand,
+                category: product.masterProduct?.category,
+                price: product.masterProduct?.price,
+                stock: product.stockTracking?.totalStock ?? product.masterProduct?.stock
+            },
+            platforms,
+            trackedFields: FIELD_DEFS
+        });
+    } catch (error) {
+        logger.error("[FIELD AUDIT DETAIL] Hata:", error.message);
+        return res.status(500).json({ error: "Alan denetimi alınamadı", details: error.message });
+    }
+};
+
+/**
+ * Platformdaki değeri master'a uygula (kullanıcı onayı)
+ * POST /product-management/products/:productId/apply-platform-field
+ * Body: { marketplaceName, field }
+ */
+exports.applyPlatformField = async (req, res) => {
+    try {
+        const userId = toObjectId(req.user?._id || req.user?.id);
+        if (!userId) return res.status(401).json({ error: "Yetkilendirme hatası" });
+
+        const { marketplaceName, field } = req.body;
+        if (!marketplaceName || !field) {
+            return res.status(400).json({ error: "marketplaceName ve field gerekli" });
+        }
+
+        const product = await ProductMapping.findOne({ _id: req.params.productId, userId });
+        if (!product) return res.status(404).json({ error: "Ürün bulunamadı" });
+
+        const norm = normalizeMarketplaceName(marketplaceName);
+        const mpIdx = (product.marketplaceMappings || []).findIndex(
+            (m) => normalizeMarketplaceName(m.marketplaceName) === norm
+        );
+        if (mpIdx < 0) {
+            return res.status(404).json({ error: "Bu pazaryeri eşleştirmesi bulunamadı" });
+        }
+
+        const mp = product.marketplaceMappings[mpIdx];
+        const snap = mp.platformSnapshot || extractPlatformSnapshotFromMp(mp);
+        const platformValue = snap[field];
+        if (platformValue === undefined || platformValue === "") {
+            return res.status(400).json({ error: "Platformda bu alan için değer yok" });
+        }
+
+        const ok = applyPlatformValueToMaster(product.masterProduct, field, platformValue);
+        if (!ok) {
+            return res.status(400).json({ error: "Geçersiz veya desteklenmeyen alan", field });
+        }
+
+        if (field === "barcode" || field === "sku") {
+            mp.marketplaceBarcode = field === "barcode" ? String(platformValue) : mp.marketplaceBarcode;
+            mp.marketplaceSku = field === "sku" ? String(platformValue) : mp.marketplaceSku;
+        }
+
+        applyFieldDriftToMarketplaceMapping(mp, product.masterProduct, {
+            name: snap.name,
+            barcode: snap.barcode,
+            sku: snap.sku,
+            attributes: { model: snap.modelNumber },
+            brand: snap.brand,
+            category: snap.category,
+            price: snap.price,
+            stock: snap.stock,
+            marketplaceProductId: snap.marketplaceProductId
+        }, product.stockTracking);
+
+        product.syncMasterStockFields?.();
+        await product.save();
+
+        return res.status(200).json({
+            success: true,
+            message: `${field} master kayda uygulandı`,
+            fieldDrift: mp.fieldDrift
+        });
+    } catch (error) {
+        logger.error("[APPLY PLATFORM FIELD] Hata:", error.message);
+        return res.status(500).json({ error: "Alan uygulanamadı", details: error.message });
+    }
+};
+
+/**
+ * Kayıtlı snapshot ile master'ı yeniden karşılaştır (API çağrısı yok)
+ * POST /product-management/products/:productId/refresh-field-audit
+ */
+exports.refreshProductFieldAudit = async (req, res) => {
+    try {
+        const userId = toObjectId(req.user?._id || req.user?.id);
+        if (!userId) return res.status(401).json({ error: "Yetkilendirme hatası" });
+
+        const product = await ProductMapping.findOne({ _id: req.params.productId, userId });
+        if (!product) return res.status(404).json({ error: "Ürün bulunamadı" });
+
+        let checked = 0;
+        for (const mp of product.marketplaceMappings || []) {
+            const snap = extractPlatformSnapshotFromMp(mp);
+            if (!snap.barcode && !snap.sku && !snap.name) continue;
+            applyFieldDriftToMarketplaceMapping(
+                mp,
+                product.masterProduct,
+                {
+                    name: snap.name,
+                    barcode: snap.barcode,
+                    sku: snap.sku,
+                    attributes: { model: snap.modelNumber },
+                    brand: snap.brand,
+                    category: snap.category,
+                    price: snap.price,
+                    stock: snap.stock,
+                    marketplaceProductId: snap.marketplaceProductId
+                },
+                product.stockTracking
+            );
+            checked++;
+        }
+
+        await product.save();
+
+        return res.status(200).json({
+            success: true,
+            message: `${checked} platform yeniden denetlendi`,
+            marketplaceMappings: product.marketplaceMappings.map((m) => ({
+                marketplaceName: m.marketplaceName,
+                fieldDrift: m.fieldDrift
+            }))
+        });
+    } catch (error) {
+        logger.error("[REFRESH FIELD AUDIT] Hata:", error.message);
+        return res.status(500).json({ error: "Denetim yenilenemedi", details: error.message });
     }
 };
 

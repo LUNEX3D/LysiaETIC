@@ -2626,6 +2626,17 @@
     margin: 0;
 }
 
+/* ── Blog tab (giriş sayfası) ── */
+.auth-tab-blog {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 8px 12px 40px;
+}
+
+.auth-tab-blog .mp-blog {
+    padding-top: 24px;
+}
+
 /* ── Contact Banner ── */
 .ab-contact-banner {
     position: relative;

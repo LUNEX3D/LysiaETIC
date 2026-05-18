@@ -26,8 +26,13 @@ const getResend = () => {
     return _resend;
 };
 
-const FROM_EMAIL = process.env.FROM_EMAIL || "LysiaETİC <onboarding@resend.dev>";
-const APP_URL = process.env.APP_URL || "http://localhost:3000";
+const { FROM_EMAIL, REPLY_TO_EMAIL, BRAND_NAME } = require("../config/brand");
+const { APP_URL } = require("../config/domain");
+
+const mailHeaders = () => ({
+    from: FROM_EMAIL,
+    reply_to: REPLY_TO_EMAIL,
+});
 
 /**
  * Doğrulama e-postası gönder
@@ -55,7 +60,7 @@ exports.sendVerificationEmail = async (user, token) => {
                             <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto;">
                                 <tr>
                                     <td style="background:rgba(255,255,255,0.2);border-radius:12px;padding:10px 14px;display:inline-block;">
-                                        <span style="color:#ffffff;font-size:22px;font-weight:800;letter-spacing:0.08em;">LysiaETİC</span>
+                                        <span style="color:#ffffff;font-size:22px;font-weight:800;letter-spacing:0.08em;">${BRAND_NAME}</span>
                                     </td>
                                 </tr>
                             </table>
@@ -72,7 +77,7 @@ exports.sendVerificationEmail = async (user, token) => {
                                 E-posta Adresinizi Doğrulayın
                             </h1>
                             <p style="color:#64748b;font-size:15px;line-height:1.6;text-align:center;margin:0 0 32px;">
-                                Merhaba <strong style="color:#1a1a2e;">${user.name}</strong>, LysiaETİC'e hoş geldiniz!<br>
+                                Merhaba <strong style="color:#1a1a2e;">${user.name}</strong>, ${BRAND_NAME}'e hoş geldiniz!<br>
                                 Hesabınızı aktifleştirmek için aşağıdaki butona tıklayın.
                             </p>
 
@@ -112,8 +117,8 @@ exports.sendVerificationEmail = async (user, token) => {
                     <tr>
                         <td style="background-color:#f8fafc;padding:24px 44px;border-top:1px solid #e2e8f0;">
                             <p style="color:#94a3b8;font-size:12px;line-height:1.6;text-align:center;margin:0;">
-                                Bu e-posta LysiaETİC hesap doğrulama işlemi için gönderilmiştir.<br>
-                                © ${new Date().getFullYear()} LysiaETİC. Tüm hakları saklıdır.
+                                Bu e-posta ${BRAND_NAME} hesap doğrulama işlemi için gönderilmiştir.<br>
+                                © ${new Date().getFullYear()} ${BRAND_NAME}. Tüm hakları saklıdır.
                             </p>
                         </td>
                     </tr>
@@ -128,23 +133,23 @@ exports.sendVerificationEmail = async (user, token) => {
     // Plain text versiyonu (spam filtrelerini geçmek için önemli)
     const textContent = `Merhaba ${user.name},
 
-LysiaETİC'e hoş geldiniz! Hesabınızı aktifleştirmek için aşağıdaki bağlantıya tıklayın:
+${BRAND_NAME}'e hoş geldiniz! Hesabınızı aktifleştirmek için aşağıdaki bağlantıya tıklayın:
 
 ${verifyUrl}
 
 Bu bağlantı 24 saat geçerlidir.
 Eğer bu hesabı siz oluşturmadıysanız, bu e-postayı görmezden gelebilirsiniz.
 
-© ${new Date().getFullYear()} LysiaETİC`;
+© ${new Date().getFullYear()} ${BRAND_NAME}`;
 
     try {
         const resend = getResend();
         if (!resend) return { success: false, error: "RESEND_API_KEY tanımlı değil" };
 
         const { data, error } = await resend.emails.send({
-            from: FROM_EMAIL,
+            ...mailHeaders(),
             to: [user.email],
-            subject: "LysiaETİC — E-posta Adresinizi Doğrulayın",
+            subject: `${BRAND_NAME} — E-posta Adresinizi Doğrulayın`,
             html: htmlContent,
             text: textContent,
         });
@@ -186,7 +191,7 @@ exports.send2FACodeEmail = async (user, code) => {
                             <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto;">
                                 <tr>
                                     <td style="background:rgba(255,255,255,0.2);border-radius:12px;padding:10px 14px;display:inline-block;">
-                                        <span style="color:#ffffff;font-size:22px;font-weight:800;letter-spacing:0.08em;">LysiaETİC</span>
+                                        <span style="color:#ffffff;font-size:22px;font-weight:800;letter-spacing:0.08em;">${BRAND_NAME}</span>
                                     </td>
                                 </tr>
                             </table>
@@ -225,8 +230,8 @@ exports.send2FACodeEmail = async (user, code) => {
                     <tr>
                         <td style="background-color:#f8fafc;padding:24px 44px;border-top:1px solid #e2e8f0;">
                             <p style="color:#94a3b8;font-size:12px;line-height:1.6;text-align:center;margin:0;">
-                                Bu e-posta LysiaETİC iki faktörlü doğrulama için gönderilmiştir.<br>
-                                &copy; ${new Date().getFullYear()} LysiaETİC. Tüm hakları saklıdır.
+                                Bu e-posta ${BRAND_NAME} iki faktörlü doğrulama için gönderilmiştir.<br>
+                                &copy; ${new Date().getFullYear()} ${BRAND_NAME}. Tüm hakları saklıdır.
                             </p>
                         </td>
                     </tr>
@@ -246,16 +251,16 @@ ${code}
 Bu kod 5 dakika geçerlidir.
 Eğer bu giriş denemesini siz yapmadıysanız, şifrenizi hemen değiştirin.
 
-© ${new Date().getFullYear()} LysiaETİC`;
+© ${new Date().getFullYear()} ${BRAND_NAME}`;
 
     try {
         const resend = getResend();
         if (!resend) return { success: false, error: "RESEND_API_KEY tanımlı değil" };
 
         const { data, error } = await resend.emails.send({
-            from: FROM_EMAIL,
+            ...mailHeaders(),
             to: [user.email],
-            subject: "LysiaETİC — Giriş Doğrulama Kodu (2FA)",
+            subject: `${BRAND_NAME} — Giriş Doğrulama Kodu (2FA)`,
             html: htmlContent,
             text: textContent,
         });
@@ -296,7 +301,7 @@ exports.sendPasswordResetEmail = async (user, code) => {
                             <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto;">
                                 <tr>
                                     <td style="background:rgba(255,255,255,0.2);border-radius:12px;padding:10px 14px;display:inline-block;">
-                                        <span style="color:#ffffff;font-size:22px;font-weight:800;letter-spacing:0.08em;">LysiaETİC</span>
+                                        <span style="color:#ffffff;font-size:22px;font-weight:800;letter-spacing:0.08em;">${BRAND_NAME}</span>
                                     </td>
                                 </tr>
                             </table>
@@ -335,8 +340,8 @@ exports.sendPasswordResetEmail = async (user, code) => {
                     <tr>
                         <td style="background-color:#f8fafc;padding:24px 44px;border-top:1px solid #e2e8f0;">
                             <p style="color:#94a3b8;font-size:12px;line-height:1.6;text-align:center;margin:0;">
-                                Bu e-posta LysiaETİC şifre sıfırlama işlemi için gönderilmiştir.<br>
-                                &copy; ${new Date().getFullYear()} LysiaETİC. Tüm hakları saklıdır.
+                                Bu e-posta ${BRAND_NAME} şifre sıfırlama işlemi için gönderilmiştir.<br>
+                                &copy; ${new Date().getFullYear()} ${BRAND_NAME}. Tüm hakları saklıdır.
                             </p>
                         </td>
                     </tr>
@@ -356,16 +361,16 @@ ${code}
 Bu kod 15 dakika geçerlidir.
 Eğer bu işlemi siz yapmadıysanız, bu e-postayı görmezden gelebilirsiniz.
 
-© ${new Date().getFullYear()} LysiaETİC`;
+© ${new Date().getFullYear()} ${BRAND_NAME}`;
 
     try {
         const resend = getResend();
         if (!resend) return { success: false, error: "RESEND_API_KEY tanımlı değil" };
 
         const { data, error } = await resend.emails.send({
-            from: FROM_EMAIL,
+            ...mailHeaders(),
             to: [user.email],
-            subject: "LysiaETİC — Şifre Sıfırlama Kodu",
+            subject: `${BRAND_NAME} — Şifre Sıfırlama Kodu`,
             html: htmlContent,
             text: textContent,
         });

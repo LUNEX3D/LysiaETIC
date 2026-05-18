@@ -247,11 +247,8 @@ exports.whoami = async (req, res) => {
 
     // server.js'deki allowedOrigins listesini burada da simüle edelim veya server.js'den export alabiliriz.
     // Şimdilik manuel kontrol:
-    const allowed = [
-        "http://localhost:3000", "http://127.0.0.1:3000",
-        "https://13.51.158.124", "http://13.51.158.124",
-        "https://pazaryonetim.com", "http://pazaryonetim.com"
-    ];
+    const { getCorsAllowedOrigins } = require("../config/domain");
+    const allowed = getCorsAllowedOrigins();
 
     res.status(200).json({
         success: true,

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+﻿import React, { useState, useEffect, useCallback } from "react";
 
 /**
  * PWA Install Prompt - Cross-platform install support
@@ -141,7 +141,7 @@ const PWAInstallPrompt = () => {
             {showBanner && (
                 <div className="pwa-install-banner">
                     <div className="pwa-install-banner-text">
-                        <strong>Pazaryönetim&apos;i Yükleyin</strong>
+                        <strong>PazarYonet&apos;i Yükleyin</strong>
                         <span>
                             Ana ekranınıza ekleyerek daha hızlı erişim sağlayın
                         </span>
@@ -159,7 +159,7 @@ const PWAInstallPrompt = () => {
             {showIOSInstructions && (
                 <div className="pwa-ios-instructions">
                     <div className="pwa-ios-instructions-title">
-                        Pazaryönetim&apos;i Ana Ekrana Ekleyin
+                        PazarYonet&apos;i Ana Ekrana Ekleyin
                     </div>
                     <div className="pwa-ios-step">
                         <span className="pwa-ios-step-num">1</span>

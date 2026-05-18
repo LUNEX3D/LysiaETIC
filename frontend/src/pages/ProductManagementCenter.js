@@ -41,6 +41,9 @@ import {
     addVariantGroupMembers,
     removeVariantGroupMembers,
     deleteVariantGroup,
+    getFieldAuditList,
+    applyPlatformField,
+    refreshProductFieldAudit,
 } from "../services/productManagementApi";
 import { searchCategories, getCategoryTree, resolveForDistribute } from "../services/categoryCenterApi";
 import { getUserMarketplaces } from "../services/marketplaceApi";
@@ -63,6 +66,15 @@ const fmtDate = (d) => { if (!d) return "—"; const dt = new Date(d); return is
 const fmtAgo = (d) => { if (!d) return "—"; const m = Math.floor((Date.now() - new Date(d).getTime()) / 60000); if (m < 1) return "Az önce"; if (m < 60) return `${m}dk`; const h = Math.floor(m / 60); if (h < 24) return `${h}sa`; return `${Math.floor(h / 24)}g`; };
 
 const normMP = (n) => { if (!n) return ""; const l = n.trim().toLowerCase(); if (l === "trendyol") return "trendyol"; if (l === "hepsiburada") return "hepsiburada"; if (l === "n11") return "n11"; if (l === "amazon" || l === "amazon türkiye") return "amazon"; if (l === "çiçeksepeti" || l === "ciceksepeti") return "ciceksepeti"; return l; };
+const isHbListableCategory = (cat) =>
+    cat?.canListProduct === true ||
+    (cat?.canListProduct !== false && cat?.leaf === true && cat?.available !== false);
+const canSelectPmCategory = (platform, cat, hasChildren) => {
+    const pl = normMP(platform);
+    if (pl === "trendyol") return !hasChildren;
+    if (pl === "hepsiburada") return !hasChildren && isHbListableCategory(cat);
+    return true;
+};
 const summarizeVariantAttrs = (attrs) => {
     if (!attrs || typeof attrs !== "object") return "—";
     const c = attrs.color || attrs.renk;
@@ -150,7 +162,22 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
     const [syncProgress, setSyncProgress] = useState(null);
     const [stockFilter, setStockFilter] = useState("");
     const [syncLogs, setSyncLogs] = useState([]);
+    const [logSummary, setLogSummary] = useState(null);
     const [logsLoading, setLogsLoading] = useState(false);
+    const [logHours, setLogHours] = useState("24");
+    const [logStockOnly, setLogStockOnly] = useState(true);
+    const [logActionFilter, setLogActionFilter] = useState("");
+    const [logSourceFilter, setLogSourceFilter] = useState("");
+    const [logSearch, setLogSearch] = useState("");
+    const [logExpandedId, setLogExpandedId] = useState(null);
+    const [faItems, setFaItems] = useState([]);
+    const [faTotal, setFaTotal] = useState(0);
+    const [faPage, setFaPage] = useState(0);
+    const [faSearch, setFaSearch] = useState("");
+    const [faCriticalOnly, setFaCriticalOnly] = useState(false);
+    const [faLoading, setFaLoading] = useState(false);
+    const [faSummary, setFaSummary] = useState(null);
+    const [faExpandedId, setFaExpandedId] = useState(null);
     const [editMap, setEditMap] = useState({});
     const [bulkModal, setBulkModal] = useState(false);
     const [psSelected, setPsSelected] = useState(new Set());
@@ -316,7 +343,80 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
     const loadDashboard = useCallback(async () => { try { const r = await getProductManagementDashboard(); setDashboard(r.dashboard || r); } catch {} }, []);
     useEffect(() => { loadDashboard(); }, []); // eslint-disable-line
 
-    const loadLogs = useCallback(async () => { setLogsLoading(true); try { const r = await getSyncLogs({ limit: 40 }); setSyncLogs(r.logs || []); } catch {} finally { setLogsLoading(false); } }, []);
+    const loadLogs = useCallback(async () => {
+        setLogsLoading(true);
+        try {
+            const params = { limit: 80, page: 0 };
+            if (logHours && logHours !== "0") params.hours = Number(logHours);
+            if (logStockOnly) params.stockOnly = "true";
+            if (logActionFilter) params.actionType = logActionFilter;
+            if (logSourceFilter) params.source = logSourceFilter;
+            if (logSearch.trim()) params.search = logSearch.trim();
+            const r = await getSyncLogs(params);
+            setSyncLogs(r.logs || []);
+            setLogSummary(r.summary || null);
+        } catch {
+            showToast("Stok defteri yüklenemedi", "error");
+        } finally {
+            setLogsLoading(false);
+        }
+    }, [logHours, logStockOnly, logActionFilter, logSourceFilter, logSearch, showToast]);
+
+    const loadFieldAudit = useCallback(async (p = 0, s = faSearch, critical = faCriticalOnly) => {
+        setFaLoading(true);
+        try {
+            const r = await getFieldAuditList({
+                page: p,
+                limit: 30,
+                search: s.trim() || undefined,
+                driftOnly: "true",
+                criticalOnly: critical ? "true" : "false"
+            });
+            setFaItems(r.items || []);
+            setFaTotal(r.total || 0);
+            setFaSummary(r.summary || null);
+            setFaPage(p);
+        } catch {
+            showToast("Alan denetimi yüklenemedi", "error");
+        } finally {
+            setFaLoading(false);
+        }
+    }, [faSearch, faCriticalOnly, showToast]);
+
+    const handleApplyPlatformField = async (productId, marketplaceName, field) => {
+        const key = `fa-${productId}-${field}`;
+        setActionLoading(key);
+        try {
+            await applyPlatformField(productId, { marketplaceName, field });
+            showToast("Platform değeri master kayda uygulandı");
+            await loadFieldAudit(faPage);
+            if (detail?._id === productId) {
+                const r = await getProductDetail(productId);
+                setDetail(r.product);
+            }
+        } catch (e) {
+            showToast(e?.response?.data?.error || "Uygulanamadı", "error");
+        } finally {
+            setActionLoading("");
+        }
+    };
+
+    const handleRefreshFieldAuditOne = async (productId) => {
+        setActionLoading(`fa-refresh-${productId}`);
+        try {
+            await refreshProductFieldAudit(productId);
+            showToast("Alan denetimi yenilendi");
+            await loadFieldAudit(faPage);
+            if (detail?._id === productId) {
+                const r = await getProductDetail(productId);
+                setDetail(r.product);
+            }
+        } catch (e) {
+            showToast(e?.response?.data?.error || "Yenilenemedi", "error");
+        } finally {
+            setActionLoading("");
+        }
+    };
 
     const formatSyncEta = (sec) => {
         if (sec == null || Number.isNaN(Number(sec))) return "—";
@@ -403,7 +503,7 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
             setUploadMpCatLoading(true);
             try {
                 const normalizedPl = normMP(platform);
-                const res = await searchCategories(normalizedPl, val.trim());
+                const res = await searchCategories(normalizedPl, val.trim(), { listingOnly: true });
                 setUploadMpCatResults(res?.data?.results || []);
             } catch { setUploadMpCatResults([]); }
             finally { setUploadMpCatLoading(false); }
@@ -437,14 +537,19 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
         });
     };
 
-    const handleCatTreeClick = (cat, path = []) => {
+    const handleCatTreeClick = (cat, path = [], platform = uploadMpSelectedPlatform) => {
         const hasChildren = (cat.children && cat.children.length > 0) || (cat.subCategories && cat.subCategories.length > 0);
         
         if (hasChildren) {
             toggleCatExpand(cat.id);
         }
         
-        // Hem yaprak hem de ara kategoriler seçilebilir olsun (Bazı pazar yerleri izin verir)
+        if (!canSelectPmCategory(platform, cat, hasChildren)) {
+            if (normMP(platform) === "hepsiburada") {
+                showToast("Hepsiburada için yaprak ve listelenebilir katalog kategorisi seçin (kampanya değil)", "error");
+            }
+            return;
+        }
         const fullPath = [...path, cat.name].join(" > ");
         setUploadMpSelectedCategory({ id: cat.id, name: cat.name, path: fullPath });
     };
@@ -455,14 +560,18 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
         const isExpanded = uploadMpCatExpanded.has(cat.id);
         const isSelected = uploadMpSelectedCategory?.id === cat.id;
         const currentPath = [...path, cat.name];
+        const treeSelectable = canSelectPmCategory(uploadMpSelectedPlatform, cat, hasChildren);
 
         return (
             <div key={cat.id} className={`ud-pm-cat-node-wrapper ${isExpanded ? "expanded" : ""}`}>
                 <div 
                     className={`ud-pm-cat-tree-item ${isSelected ? "selected" : ""} level-${level} ${hasChildren ? "has-children" : "is-leaf"}`}
-                    style={{ paddingLeft: 12 + (level * 20) }}
+                    style={{
+                        paddingLeft: 12 + (level * 20),
+                        opacity: normMP(uploadMpSelectedPlatform) === "hepsiburada" && !treeSelectable ? 0.55 : 1
+                    }}
                 >
-                    <div className="cat-info" onClick={() => handleCatTreeClick(cat, path)}>
+                    <div className="cat-info" onClick={() => handleCatTreeClick(cat, path, uploadMpSelectedPlatform)}>
                         {hasChildren ? (
                             <span className="expand-icon" onClick={(e) => { e.stopPropagation(); toggleCatExpand(cat.id); }}>
                                 {isExpanded ? <FaChevronDown /> : <FaChevronRight />}
@@ -624,7 +733,7 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
         distSearchTimer.current = setTimeout(async () => {
             setDistLoadingSearch(true);
             try {
-                const res = await searchCategories(normMP(platform), val.trim());
+                const res = await searchCategories(normMP(platform), val.trim(), { listingOnly: true });
                 setDistResults(res?.data?.results || []);
             } catch {
                 setDistResults([]);
@@ -643,10 +752,16 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
         });
     };
 
-    const handleDistTreeClick = (cat, path = []) => {
+    const handleDistTreeClick = (cat, path = [], platform = distUi?.platform) => {
         const children = cat.children || cat.subCategories || [];
         const hasChildren = children.length > 0;
         if (hasChildren) toggleDistExpand(cat.id);
+        if (!canSelectPmCategory(platform, cat, hasChildren)) {
+            if (normMP(platform) === "hepsiburada") {
+                showToast("Hepsiburada için yaprak ve listelenebilir katalog kategorisi seçin (kampanya değil)", "error");
+            }
+            return;
+        }
         const fullPath = [...path, cat.name].join(" > ");
         setDistSelected({ id: cat.id, name: cat.name, path: fullPath });
     };
@@ -657,13 +772,17 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
         const isExpanded = distExpanded.has(cat.id);
         const isSelected = distSelected?.id === cat.id;
         const currentPath = [...path, cat.name];
+        const treeSelectable = canSelectPmCategory(distUi?.platform, cat, hasChildren);
         return (
             <div key={cat.id} className={`ud-pm-cat-node-wrapper ${isExpanded ? "expanded" : ""}`}>
                 <div
                     className={`ud-pm-cat-tree-item ${isSelected ? "selected" : ""} level-${level} ${hasChildren ? "has-children" : "is-leaf"}`}
-                    style={{ paddingLeft: 12 + level * 20 }}
+                    style={{
+                        paddingLeft: 12 + level * 20,
+                        opacity: normMP(distUi?.platform) === "hepsiburada" && !treeSelectable ? 0.55 : 1
+                    }}
                 >
-                    <div className="cat-info" onClick={() => handleDistTreeClick(cat, path)}>
+                    <div className="cat-info" onClick={() => handleDistTreeClick(cat, path, distUi?.platform)}>
                         {hasChildren ? (
                             <span className="expand-icon" onClick={(e) => { e.stopPropagation(); toggleDistExpand(cat.id); }}>
                                 {isExpanded ? <FaChevronDown /> : <FaChevronRight />}
@@ -793,7 +912,15 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
         }
     }, [showToast]);
 
-    useEffect(() => { if (tab === "sync") loadLogs(); if (tab === "products" || tab === "pricestock") loadProducts(0); if (tab === "bulk") loadBulkProducts(0); if (tab === "uploadMp") loadUploadMpProducts(0, uploadMpSearch, uploadMpFilterPl, uploadMpFilterType); if (tab === "channel-prices") loadChTabProducts(0); if (tab === "variants") loadVariantGroups(); }, [tab]); // eslint-disable-line
+    useEffect(() => {
+        if (tab === "sync") loadLogs();
+        if (tab === "fieldAudit") loadFieldAudit(0);
+        if (tab === "products" || tab === "pricestock") loadProducts(0);
+        if (tab === "bulk") loadBulkProducts(0);
+        if (tab === "uploadMp") loadUploadMpProducts(0, uploadMpSearch, uploadMpFilterPl, uploadMpFilterType);
+        if (tab === "channel-prices") loadChTabProducts(0);
+        if (tab === "variants") loadVariantGroups();
+    }, [tab, loadLogs]); // eslint-disable-line
     useEffect(() => { if (tab === "bulk") { if (bulkSearchRef.current) clearTimeout(bulkSearchRef.current); bulkSearchRef.current = setTimeout(() => loadBulkProducts(0, bulkSearch), 400); return () => clearTimeout(bulkSearchRef.current); } }, [bulkSearch]); // eslint-disable-line
     useEffect(() => { if (tab === "uploadMp") { const t = setTimeout(() => loadUploadMpProducts(0, uploadMpSearch, uploadMpFilterPl, uploadMpFilterType), 400); return () => clearTimeout(t); } }, [uploadMpSearch, uploadMpFilterPl, uploadMpFilterType]); // eslint-disable-line
     useEffect(() => {
@@ -1226,19 +1353,113 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
             { icon: <FaCheckCircle />, label: "Sağlıklı", val: dbP.healthy || "—", color: "var(--ud-pm-green)" },
             { icon: <FaExclamationTriangle />, label: "Düşük Stok", val: dbP.lowStock || 0, color: "var(--ud-pm-yellow)" },
             { icon: <FaTimesCircle />, label: "Stok Yok", val: dbP.outOfStock || 0, color: "var(--ud-pm-red)" },
+            {
+                icon: <FaShieldAlt />,
+                label: "Alan farkı",
+                val: dbP.withFieldDrift ?? "—",
+                sub: dbP.criticalFieldDrift > 0 ? `${dbP.criticalFieldDrift} kritik` : "",
+                color: dbP.criticalFieldDrift > 0 ? "var(--ud-pm-red)" : "var(--ud-pm-purple)",
+                onClick: () => setTab("fieldAudit")
+            },
             { icon: <FaStore />, label: "Platform", val: (db.marketplaces || marketplaces || []).length, color: "var(--ud-pm-purple)" },
         ];
         return (
             <div className="ud-pm-dash-grid">
                 {cards.map(c => (
-                    <div key={c.label} className="ud-pm-dash-card" style={{ background: `linear-gradient(135deg, ${c.color}08, ${c.color}04)`, borderColor: `${c.color}20` }}>
+                    <motion.div key={c.label} role={c.onClick ? "button" : undefined} tabIndex={c.onClick ? 0 : undefined} className="ud-pm-dash-card" style={{ background: `linear-gradient(135deg, ${c.color}08, ${c.color}04)`, borderColor: `${c.color}20`, cursor: c.onClick ? "pointer" : undefined }} onClick={c.onClick} onKeyDown={c.onClick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); c.onClick(); } } : undefined}>
                         <div className="ud-pm-dash-icon" style={{ background: `${c.color}15`, color: c.color }}>{c.icon}</div>
                         <div>
                             <div className="ud-pm-dash-val" style={{ color: c.color }}>{c.val}</div>
                             <div className="ud-pm-dash-label">{c.label}</div>
+                            {c.sub ? <div style={{ fontSize: 10, color: c.color, marginTop: 2, opacity: 0.85 }}>{c.sub}</div> : null}
                         </div>
-                    </div>
+                    </motion.div>
                 ))}
+            </div>
+        );
+    };
+
+    const driftSeverityColor = (s) => {
+        if (s === "critical") return "var(--ud-pm-red)";
+        if (s === "high") return "var(--ud-pm-yellow)";
+        if (s === "medium") return "var(--ud-pm-accent)";
+        return "var(--ud-pm-text-dim)";
+    };
+
+    const renderFieldAudit = () => {
+        const faPages = Math.max(1, Math.ceil(faTotal / 30));
+        return (
+            <div className="ud-pm-card" style={{ padding: 16 }}>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", marginBottom: 14 }}>
+                    <h3 style={{ margin: 0, fontSize: 16, display: "flex", alignItems: "center", gap: 8 }}>
+                        <FaShieldAlt style={{ color: "var(--ud-pm-purple)" }} /> Alan denetimi
+                    </h3>
+                    {faSummary && <Pill color="var(--ud-pm-purple)">{faSummary.productsWithDrift} ürün</Pill>}
+                    {faSummary?.criticalProducts > 0 && <Pill color="var(--ud-pm-red)">{faSummary.criticalProducts} kritik</Pill>}
+                </div>
+                <p style={{ fontSize: 12, color: "var(--ud-pm-text-dim)", margin: "0 0 12px", lineHeight: 1.5 }}>
+                    Master kayıt ile pazaryeri snapshot karşılaştırması (barkod, SKU, ad, model, marka, kategori, fiyat).
+                </p>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
+                    <input className="ud-pm-input" style={{ flex: 1, minWidth: 180 }} placeholder="Ürün / barkod / SKU ara…" value={faSearch}
+                        onChange={e => setFaSearch(e.target.value)} onKeyDown={e => e.key === "Enter" && loadFieldAudit(0)} />
+                    <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--ud-pm-text-dim)" }}>
+                        <input type="checkbox" className="ud-pm-checkbox" checked={faCriticalOnly} onChange={e => setFaCriticalOnly(e.target.checked)} />
+                        Sadece kritik (barkod/SKU)
+                    </label>
+                    <button type="button" className="ud-pm-btn sm accent" onClick={() => loadFieldAudit(0)}><FaSearch /> Listele</button>
+                </div>
+                {faLoading ? <Loading /> : faItems.length === 0 ? (
+                    <Empty icon={FaShieldAlt} title="Alan farkı yok" desc="Uyumlu veya henüz ürün çekilmedi." />
+                ) : (
+                    <div className="ud-pm-log-list ud-pm-log-list--journal">
+                        {faItems.map(item => {
+                            const expanded = faExpandedId === item._id;
+                            return (
+                                <div key={item._id} className="ud-pm-log-item ud-pm-log-item--expandable"
+                                    onClick={() => setFaExpandedId(expanded ? null : item._id)}>
+                                    <div className="ud-pm-log-item-row">
+                                        <span className="dot" style={{ background: item.hasCritical ? "var(--ud-pm-red)" : "var(--ud-pm-yellow)" }} />
+                                        {item.hasCritical && <Pill color="var(--ud-pm-red)">Kritik</Pill>}
+                                        <span className="log-name">{item.name}</span>
+                                        <span style={{ fontSize: 11, color: "var(--ud-pm-text-dim)" }}>{item.barcode} · {item.sku}</span>
+                                        <Pill color="var(--ud-pm-purple)">{item.driftPlatformCount} platform</Pill>
+                                        {expanded ? <FaChevronDown style={{ fontSize: 10 }} /> : <FaChevronRight style={{ fontSize: 10 }} />}
+                                    </div>
+                                    {expanded && (
+                                        <div className="ud-pm-log-item-detail" onClick={e => e.stopPropagation()}>
+                                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+                                                <button type="button" className="ud-pm-btn sm outline" onClick={() => openDetail(item._id)}><FaEye /> Ürün detayı</button>
+                                                <button type="button" className="ud-pm-btn sm outline" onClick={() => handleRefreshFieldAuditOne(item._id)}
+                                                    disabled={actionLoading === `fa-refresh-${item._id}`}>
+                                                    <FaSync /> Yeniden denetle
+                                                </button>
+                                            </div>
+                                            {(item.platforms || []).map(pl => (
+                                                <div key={pl.marketplaceName} style={{ marginBottom: 10, padding: 8, border: "1px solid var(--ud-pm-glass-border)", borderRadius: 8 }}>
+                                                    <div style={{ fontWeight: 700, fontSize: 12, color: PL_COLOR[pl.marketplaceName], marginBottom: 6 }}>{pl.marketplaceName}</div>
+                                                    {(pl.drifts || []).map((d, di) => (
+                                                        <div key={di} style={{ display: "grid", gridTemplateColumns: "minmax(80px,1fr) 1fr 1fr auto", gap: 6, fontSize: 11, marginTop: 6, alignItems: "center" }}>
+                                                            <span style={{ color: driftSeverityColor(d.severity) }}>{d.label}</span>
+                                                            <span style={{ wordBreak: "break-all" }} title="Master">{d.masterValue || "—"}</span>
+                                                            <span style={{ wordBreak: "break-all" }} title="Platform">{d.platformValue || "—"}</span>
+                                                            <button type="button" className="ud-pm-btn sm accent outline"
+                                                                disabled={actionLoading === `fa-${item._id}-${d.field}`}
+                                                                onClick={() => handleApplyPlatformField(item._id, pl.marketplaceName, d.field)}>
+                                                                Platformu al
+                                                            </button>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+                {faTotal > 30 && <Pagination currentPage={faPage} totalPages={faPages} total={faTotal} onPageChange={pg => loadFieldAudit(pg)} />}
             </div>
         );
     };
@@ -1856,15 +2077,28 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
                                         {uploadMpCatSearch.length >= 2 ? (
                                             /* Arama Sonuçları */
                                             uploadMpCatResults.length > 0 ? (
-                                                uploadMpCatResults.map(cat => (
+                                                uploadMpCatResults.map(cat => {
+                                                    const selectable = canSelectPmCategory(uploadMpSelectedPlatform, cat, cat.hasChildren);
+                                                    return (
                                                     <div key={cat.id} 
                                                         className={`ud-pm-cat-result-item ${uploadMpSelectedCategory?.id === cat.id ? "selected" : ""}`}
-                                                        onClick={() => setUploadMpSelectedCategory(cat)}>
+                                                        style={selectable ? undefined : { opacity: 0.6, cursor: "not-allowed" }}
+                                                        title={!selectable && normMP(uploadMpSelectedPlatform) === "hepsiburada" ? "Listelenebilir yaprak kategori değil" : undefined}
+                                                        onClick={() => {
+                                                            if (!canSelectPmCategory(uploadMpSelectedPlatform, cat, cat.hasChildren)) {
+                                                                if (normMP(uploadMpSelectedPlatform) === "hepsiburada") {
+                                                                    showToast("Hepsiburada için listelenebilir yaprak kategori seçin", "error");
+                                                                }
+                                                                return;
+                                                            }
+                                                            setUploadMpSelectedCategory(cat);
+                                                        }}>
                                                         <div className="cat-name">{cat.name}</div>
                                                         <div className="cat-path">{cat.path}</div>
                                                         {uploadMpSelectedCategory?.id === cat.id && <FaCheckCircle className="check" />}
                                                     </div>
-                                                ))
+                                                    );
+                                                })
                                             ) : !uploadMpCatLoading && (
                                                 <div className="ud-pm-cat-no-results">Sonuç bulunamadı.</div>
                                             )
@@ -2594,24 +2828,137 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
 
             <div className="ud-pm-card">
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                    <div style={{ color: "var(--ud-pm-text)", fontSize: 14, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}><FaClipboardList style={{ color: "var(--ud-pm-accent)" }} /> Senkâronizasyon Logları</div>
-                    <button className="ud-pm-btn sm accent outline" onClick={loadLogs}><FaSync /></button>
+                    <div>
+                        <div style={{ color: "var(--ud-pm-text)", fontSize: 14, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}>
+                            <FaClipboardList style={{ color: "var(--ud-pm-accent)" }} /> Stok Defteri
+                        </div>
+                        <div style={{ color: "var(--ud-pm-text-dim)", fontSize: 11, marginTop: 4 }}>
+                            Son {logHours === "0" ? "tüm" : `${logHours} saat`} — hangi ürünün stoku neden değişti burada görünür
+                        </div>
+                    </div>
+                    <button type="button" className="ud-pm-btn sm accent outline" onClick={loadLogs} disabled={logsLoading}><FaSync /> Yenile</button>
                 </div>
+
+                {logSummary && (
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: 8, marginBottom: 12 }}>
+                        <div className="ud-pm-stat-mini" style={{ borderColor: "rgba(78,205,196,0.35)" }}>
+                            <div className="val">{logSummary.totalEvents}</div>
+                            <div className="lbl">Toplam olay</div>
+                        </div>
+                        <div className="ud-pm-stat-mini">
+                            <div className="val">{logSummary.uniqueProducts}</div>
+                            <div className="lbl">Ürün (benzersiz)</div>
+                        </div>
+                        <div className="ud-pm-stat-mini" style={{ borderColor: "rgba(239,68,68,0.35)" }}>
+                            <div className="val" style={{ color: "var(--ud-pm-red)" }}>{logSummary.wentToZero}</div>
+                            <div className="lbl">Stok → 0</div>
+                        </div>
+                        <div className="ud-pm-stat-mini">
+                            <div className="val" style={{ color: "var(--ud-pm-green)" }}>+{logSummary.stockIncreased}</div>
+                            <div className="lbl">Stok artışı</div>
+                        </div>
+                        <div className="ud-pm-stat-mini">
+                            <div className="val" style={{ color: "var(--ud-pm-yellow)" }}>-{logSummary.stockDecreased}</div>
+                            <div className="lbl">Stok düşüşü</div>
+                        </div>
+                        <div className="ud-pm-stat-mini">
+                            <div className="val">{logSummary.orderRelated}</div>
+                            <div className="lbl">Sipariş kaynaklı</div>
+                        </div>
+                    </div>
+                )}
+
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12, alignItems: "center" }}>
+                    <select className="ud-pm-select" style={{ minWidth: 100 }} value={logHours} onChange={e => setLogHours(e.target.value)}>
+                        <option value="24">Son 24 saat</option>
+                        <option value="48">Son 48 saat</option>
+                        <option value="168">Son 7 gün</option>
+                        <option value="0">Tümü</option>
+                    </select>
+                    <select className="ud-pm-select" style={{ minWidth: 130 }} value={logSourceFilter} onChange={e => setLogSourceFilter(e.target.value)}>
+                        <option value="">Tüm kaynaklar</option>
+                        <option value="order">Sipariş</option>
+                        <option value="manual">Manuel</option>
+                        <option value="cron">Cron (oto)</option>
+                        <option value="bulk">Toplu işlem</option>
+                        <option value="catalog">Katalog denetimi</option>
+                    </select>
+                    <select className="ud-pm-select" style={{ minWidth: 140 }} value={logActionFilter} onChange={e => setLogActionFilter(e.target.value)}>
+                        <option value="">Tüm işlemler</option>
+                        <option value="order_placed">Sipariş düşüşü</option>
+                        <option value="manual_sync">Manuel push</option>
+                        <option value="auto_sync">Otomatik push</option>
+                        <option value="stock_update">Stok güncelleme</option>
+                        <option value="bulk_update">Toplu güncelleme</option>
+                        <option value="product_field_drift">Katalog alan farkı</option>
+                    </select>
+                    <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--ud-pm-text-dim)", cursor: "pointer" }}>
+                        <input type="checkbox" className="ud-pm-checkbox" checked={logStockOnly} onChange={e => setLogStockOnly(e.target.checked)} />
+                        Sadece stok olayları
+                    </label>
+                    <input
+                        className="ud-pm-input"
+                        style={{ flex: 1, minWidth: 160 }}
+                        placeholder="Barkod / ürün adı ara…"
+                        value={logSearch}
+                        onChange={e => setLogSearch(e.target.value)}
+                        onKeyDown={e => e.key === "Enter" && loadLogs()}
+                    />
+                    <button type="button" className="ud-pm-btn sm accent" onClick={loadLogs}><FaSearch /> Ara</button>
+                </div>
+
                 {logsLoading ? <Loading />
-                : syncLogs.length === 0 ? <Empty icon={FaClipboardList} title="Henüz log yok" />
+                : syncLogs.length === 0 ? <Empty icon={FaClipboardList} title="Bu filtrede kayıt yok" desc="Süreyi genişletin veya 'Sadece stok' işaretini kaldırın" />
                 : (
-                    <div className="ud-pm-log-list">
-                        {syncLogs.map((log, i) => (
-                            <div key={log._id || i} className="ud-pm-log-item">
-                                <span className="dot" style={{ background: log.status === "success" ? "var(--ud-pm-green)" : log.status === "error" ? "var(--ud-pm-red)" : "var(--ud-pm-yellow)" }} />
-                                <Pill color={log.actionType === "stock_update" ? "var(--ud-pm-green)" : log.actionType === "price_update" ? "var(--ud-pm-yellow)" : log.actionType === "product_created" ? "var(--ud-pm-purple)" : "var(--ud-pm-accent)"}>
-                                    {log.actionType === "stock_update" ? <><FaWarehouse style={{ fontSize: 8 }} /> Stok</> : log.actionType === "price_update" ? <><FaDollarSign style={{ fontSize: 8 }} /> Fiyat</> : log.actionType === "product_created" ? <><FaPlus style={{ fontSize: 8 }} /> Yeni</> : log.actionType === "bulk_update" ? <><FaLayerGroup style={{ fontSize: 8 }} /> Toplu</> : log.actionType}
-                                </Pill>
-                                <span className="log-name">{log.product?.name || log.product?.barcode || "—"}</span>
-                                {log.changes?.field && <span className="log-change">{log.changes.oldValue}→{log.changes.newValue}</span>}
-                                <span className="log-date">{fmtDate(log.timestamp)}</span>
-                            </div>
-                        ))}
+                    <div className="ud-pm-log-list ud-pm-log-list--journal">
+                        {syncLogs.map((log, i) => {
+                            const rowId = log._id || i;
+                            const expanded = logExpandedId === rowId;
+                            const pillColor = log.isZeroStock ? "var(--ud-pm-red)"
+                                : log.isStockIncrease ? "var(--ud-pm-green)"
+                                : log.isStockDecrease ? "var(--ud-pm-yellow)"
+                                : log.actionType === "price_update" ? "var(--ud-pm-yellow)" : "var(--ud-pm-accent)";
+                            return (
+                                <div key={rowId} className="ud-pm-log-item ud-pm-log-item--expandable"
+                                    onClick={() => setLogExpandedId(expanded ? null : rowId)}>
+                                    <div className="ud-pm-log-item-row">
+                                        <span className="dot" style={{ background: log.status === "success" ? "var(--ud-pm-green)" : log.status === "error" ? "var(--ud-pm-red)" : "var(--ud-pm-yellow)" }} />
+                                        <Pill color={pillColor}>{log.actionLabel || log.actionType}</Pill>
+                                        <Pill color="var(--ud-pm-text-dim)">{log.sourceLabel || log.source}</Pill>
+                                        {log.isZeroStock && <Pill color="var(--ud-pm-red)">Sıfırlandı</Pill>}
+                                        <span className="log-name">{log.product?.name || log.product?.barcode || "—"}</span>
+                                        {log.changes?.field === "stock" && (
+                                            <span className="log-change" style={{ fontWeight: 700 }}>
+                                                {log.changes.oldValue} → {log.changes.newValue}
+                                                {log.stockDelta != null && log.stockDelta !== 0 && (
+                                                    <span style={{ color: log.stockDelta > 0 ? "var(--ud-pm-green)" : "var(--ud-pm-red)", marginLeft: 4 }}>
+                                                        ({log.stockDelta > 0 ? "+" : ""}{log.stockDelta})
+                                                    </span>
+                                                )}
+                                            </span>
+                                        )}
+                                        <span className="log-date">{fmtDate(log.timestamp)}</span>
+                                        {expanded ? <FaChevronDown style={{ fontSize: 10, color: "var(--ud-pm-text-dim)" }} /> : <FaChevronRight style={{ fontSize: 10, color: "var(--ud-pm-text-dim)" }} />}
+                                    </div>
+                                    {expanded && (
+                                        <div className="ud-pm-log-item-detail" onClick={e => e.stopPropagation()}>
+                                            {log.product?.barcode && <div>Barkod: <strong style={{ color: "var(--ud-pm-text)" }}>{log.product.barcode}</strong></div>}
+                                            {log.order?.orderNumber && <div>Sipariş: <strong style={{ color: "var(--ud-pm-text)" }}>{log.order.orderNumber}</strong> ({log.order.marketplace || log.marketplace?.name || "—"})</div>}
+                                            {log.marketplaceSummary && <div>Pazaryerleri: {log.marketplaceSummary}</div>}
+                                            {log.hasMarketplaceErrors && log.marketplaceErrors?.map((e, j) => (
+                                                <div key={j} style={{ color: "var(--ud-pm-red)" }}>{e.name}: {e.error}</div>
+                                            ))}
+                                            {log.product?.productMappingId && (
+                                                <button type="button" className="ud-pm-btn sm accent outline" style={{ marginTop: 6 }}
+                                                    onClick={() => openDetail(log.product.productMappingId)}>
+                                                    <FaEye /> Ürünü aç
+                                                </button>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
                     </div>
                 )}
             </div>
@@ -2691,16 +3038,30 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
                                 </div>
                                 {distResults.length > 0 && (
                                     <div className="ud-pm-cat-results ud-pm-dist-cat-results">
-                                        {distResults.map((cat) => (
+                                        {distResults.map((cat) => {
+                                            const selectable = canSelectPmCategory(platform, cat, cat.hasChildren);
+                                            return (
                                             <div
                                                 key={String(cat.id)}
                                                 className={`ud-pm-cat-result-item ${distSelected?.id === cat.id ? "selected" : ""}`}
-                                                onClick={() => setDistSelected({ id: cat.id, name: cat.name, path: cat.path || cat.name })}
+                                                style={selectable ? undefined : { opacity: 0.6, cursor: "not-allowed" }}
+                                                title={!selectable && normMP(platform) === "hepsiburada" ? "Listelenebilir yaprak kategori değil" : undefined}
+                                                onClick={() => {
+                                                    const hasChildren = cat.hasChildren === true;
+                                                    if (!canSelectPmCategory(platform, cat, hasChildren)) {
+                                                        if (normMP(platform) === "hepsiburada") {
+                                                            showToast("Hepsiburada için listelenebilir yaprak kategori seçin", "error");
+                                                        }
+                                                        return;
+                                                    }
+                                                    setDistSelected({ id: cat.id, name: cat.name, path: cat.path || cat.name });
+                                                }}
                                             >
                                                 <div className="cat-name">{cat.name}</div>
                                                 <div className="cat-path">{cat.path}</div>
                                             </div>
-                                        ))}
+                                            );
+                                        })}
                                     </div>
                                 )}
                                 {distLoadingTree ? <div className="ud-pm-cat-loading"><FaSpinner className="spin" /> Yükleniyor...</div>
@@ -2862,6 +3223,40 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
                                     <div style={{ marginBottom: 16 }}>
                                         <div style={{ color: "var(--ud-pm-text)", fontSize: 13, fontWeight: 700, marginBottom: 6, display: "flex", alignItems: "center", gap: 6 }}><FaEdit style={{ color: "var(--ud-pm-accent)" }} /> Açıklama</div>
                                         <div style={{ color: "var(--ud-pm-text-sub)", fontSize: 11, lineHeight: 1.6, background: "var(--ud-pm-glass)", borderRadius: 8, padding: "10px 12px", maxHeight: 120, overflowY: "auto", whiteSpace: "pre-wrap" }}>{mp.description}</div>
+                                    </div>
+                                )}
+
+                                {p.fieldAuditSummary?.hasAnyDrift && (
+                                    <div style={{ marginBottom: 16 }}>
+                                        <div style={{ color: "var(--ud-pm-text)", fontSize: 13, fontWeight: 700, marginBottom: 6, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                                            <FaShieldAlt style={{ color: p.fieldAuditSummary.hasCritical ? "var(--ud-pm-red)" : "var(--ud-pm-yellow)" }} /> Alan farkı (master vs platform)
+                                            {p.fieldAuditSummary.hasCritical && <Pill color="var(--ud-pm-red)">Kritik</Pill>}
+                                            <button type="button" className="ud-pm-btn sm outline" style={{ marginLeft: "auto" }}
+                                                onClick={() => handleRefreshFieldAuditOne(p._id)}
+                                                disabled={actionLoading === `fa-refresh-${p._id}`}>
+                                                <FaSync /> Yeniden denetle
+                                            </button>
+                                        </div>
+                                        {(p.fieldAuditSummary.platforms || []).map((pl) => (
+                                            <div key={pl.marketplaceName} style={{ marginBottom: 10, padding: 8, border: "1px solid var(--ud-pm-glass-border)", borderRadius: 8 }}>
+                                                <div style={{ fontWeight: 700, fontSize: 12, color: PL_COLOR[pl.marketplaceName], marginBottom: 6 }}>
+                                                    {pl.marketplaceName}
+                                                    {pl.hasCritical && <Pill color="var(--ud-pm-red)" style={{ marginLeft: 6 }}>Kritik</Pill>}
+                                                </div>
+                                                {(pl.drifts || []).map((d, di) => (
+                                                    <div key={di} style={{ display: "grid", gridTemplateColumns: "minmax(80px,1fr) 1fr 1fr auto", gap: 6, fontSize: 11, marginTop: 6, alignItems: "center" }}>
+                                                        <span style={{ color: driftSeverityColor(d.severity) }}>{d.label}</span>
+                                                        <span style={{ wordBreak: "break-all" }}>{d.masterValue || "—"}</span>
+                                                        <span style={{ wordBreak: "break-all" }}>{d.platformValue || "—"}</span>
+                                                        <button type="button" className="ud-pm-btn sm accent outline"
+                                                            disabled={actionLoading === `fa-${p._id}-${d.field}`}
+                                                            onClick={() => handleApplyPlatformField(p._id, pl.marketplaceName, d.field)}>
+                                                            Platformu al
+                                                        </button>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        ))}
                                     </div>
                                 )}
 
@@ -3747,6 +4142,7 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
         { id: "pricestock", icon: <FaDollarSign />, label: "Fiyat & Stok" },
         { id: "channel-prices", icon: <FaPercentage />, label: "Pazaryeri Fiyatları" },
         { id: "bulk", icon: <FaLayerGroup />, label: "Toplu İşlem", count: bulkSelected.size > 0 ? bulkSelected.size : undefined },
+        { id: "fieldAudit", icon: <FaShieldAlt />, label: "Alan denetimi" },
         { id: "sync", icon: <FaSync />, label: "Senkâronizasyon" },
     ];
 
@@ -3792,6 +4188,7 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
                     {tab === "channel-prices" && renderChannelPrices()}
 
                     {tab === "bulk" && renderBulk()}
+                    {tab === "fieldAudit" && renderFieldAudit()}
                     {tab === "sync" && renderSync()}
                 </motion.div>
             </AnimatePresence>

@@ -17,8 +17,8 @@ const options = {
                 "Bu API, satıcıların Trendyol, Hepsiburada, N11, ÇiçekSepeti ve Amazon gibi " +
                 "pazaryerlerini tek panelden yönetmesini sağlar.",
             contact: {
-                name: "LysiaETIC Destek",
-                url: "https://lunexetic.com",
+                name: "PazarYonet Destek",
+                url: "https://pazaryonet.com",
             },
             license: {
                 name: "Proprietary",
@@ -30,7 +30,7 @@ const options = {
                 description: "Geliştirme Sunucusu",
             },
             {
-                url: "https://lunexetic.com/api",
+                url: "https://pazaryonet.com/api",
                 description: "Production Sunucusu",
             },
         ],

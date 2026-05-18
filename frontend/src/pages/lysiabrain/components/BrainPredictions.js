@@ -1,4 +1,4 @@
-/**
+﻿/**
  * ═══════════════════════════════════════════════════════════════
  * LYSIA BRAIN — Tahmin Motoru Tab
  * ═══════════════════════════════════════════════════════════════
@@ -45,7 +45,7 @@ const BrainPredictions = ({ t, onError }) => {
         const crit = summary.criticalCount || 0;
         const total = summary.totalPredictions || 0;
         const impact = summary.totalFinancialImpact || 0;
-        if (total === 0) return "Henüz tahmin üretilecek yeterli veri yok. Sipariş hareketlendikçe LysiaBrain seni 14 gün önceden uyarmaya başlayacak.";
+        if (total === 0) return "Henüz tahmin üretilecek yeterli veri yok. Sipariş hareketlendikçe PazarYonet AI seni 14 gün önceden uyarmaya başlayacak.";
         if (crit > 0) return `${crit} kritik öngörü var (toplam ${total} öngörü). Tahmini etki: ${fmt(impact)}. Önce kritik olanlara bak.`;
         return `${total} öngörü üretildi. Genel beklenen etki ${fmt(impact)}. Trend ${summary.revenueDirection === "up" ? "yukarı 📈" : "aşağı 📉"} yönlü.`;
     })();

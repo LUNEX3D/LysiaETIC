@@ -1,5 +1,5 @@
-/**
- * HomePage  Pazaryönetim Landing Page
+﻿/**
+ * HomePage  PazarYonet Landing Page
  *
  * Giriş yapmamış kullanıcılar için ana sayfa.
  * Admin panelden ayarlanan paket fiyatları ve özellikleri burada gösterilir.
@@ -16,6 +16,8 @@ import {
     FaCrown, FaStar, FaBolt, FaGlobe
 } from "react-icons/fa";
 import axios from "../services/api";
+import MarketplaceBlogSection from "../components/MarketplaceBlogSection";
+import { BRAND_EMAIL } from "../constants/brand";
 
 const HomePage = () => {
     const [plans, setPlans] = useState({});
@@ -70,13 +72,16 @@ const HomePage = () => {
                         Yönetin
                     </h1>
                     <p style={S.heroDesc}>
-                        Pazaryönetim ile Trendyol, Hepsiburada, N11, Amazon ve daha fazlasını
+                        PazarYonet ile Trendyol, Hepsiburada, N11, Amazon ve daha fazlasını
                         tek bir merkezden kontrol edin. Stok, sipariş, fiyat ve raporlarınız
                         her zaman güncel.
                     </p>
                     <div style={S.heroBtns}>
                         <button style={S.btnPrimary} onClick={() => navigate("/register")}>
                             Ücretsiz Dene <FaArrowRight />
+                        </button>
+                        <button style={S.btnSecondary} onClick={() => navigate("/blog")}>
+                            Blog & Rehberler
                         </button>
                         <button style={S.btnSecondary} onClick={() => navigate("/login")}>
                             Giriş Yap
@@ -104,7 +109,7 @@ const HomePage = () => {
             {/*  ÖZELLİKLER  */}
             <section style={S.section}>
                 <div style={S.sectionInner}>
-                    <h2 style={S.sectionTitle}>Neden Pazaryönetim?</h2>
+                    <h2 style={S.sectionTitle}>Neden PazarYonet?</h2>
                     <p style={S.sectionDesc}>E-ticaret operasyonlarınızı güçlendiren özellikler</p>
                     <div style={S.featuresGrid}>
                         {platformFeatures.map((f, i) => (
@@ -236,6 +241,8 @@ const HomePage = () => {
                 </div>
             </section>
 
+            <MarketplaceBlogSection />
+
             {/*  CTA  */}
             <section style={S.ctaSection}>
                 <h2 style={S.ctaTitle}>E-Ticaretinizi Bir Üst Seviyeye Taşıyın</h2>
@@ -257,7 +264,7 @@ const HomePage = () => {
                 <div style={S.footerInner}>
                     <div style={S.footerBrand}>
                         <div style={S.footerLogo}>LE</div>
-                        <span style={S.footerName}>Pazaryönetim</span>
+                        <span style={S.footerName}>PazarYonet</span>
                     </div>
                     <div style={S.footerLinks}>
                         <a href="/privacy" style={S.footerLink}>Gizlilik Politikası</a>
@@ -265,7 +272,7 @@ const HomePage = () => {
                         <a href="/distance-sales" style={S.footerLink}>Mesafeli Satış Sözleşmesi</a>
                     </div>
                     <div style={S.footerCopy}>
-                         {new Date().getFullYear()} Pazaryönetim. Tüm hakları saklıdır.
+                        {new Date().getFullYear()} PazarYonet · {BRAND_EMAIL}
                     </div>
                 </div>
             </footer>

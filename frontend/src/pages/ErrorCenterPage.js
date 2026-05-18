@@ -1,4 +1,4 @@
-/**
+﻿/**
  * ═══════════════════════════════════════════════════════════════════════════
  * 📋 Operasyon Defteri (Operations Journal) — Unified Activity Feed
  * ───────────────────────────────────────────────────────────────────────────
@@ -64,7 +64,7 @@ const SEVERITY_COLOR = {
 
 const ACTOR_META = {
     user: { icon: <FaUser />, label: "Ben", color: COLORS.blue },
-    ai: { icon: <FaRobot />, label: "AI / LysiaBrain", color: COLORS.purple },
+    ai: { icon: <FaRobot />, label: "AI / PazarYonet AI", color: COLORS.purple },
     admin: { icon: <FaUserShield />, label: "Admin", color: COLORS.yellow },
     system: { icon: <FaInfoCircle />, label: "Sistem", color: COLORS.cyan },
 };
@@ -128,6 +128,117 @@ const fmtMoney = (n) => {
     if (!Number.isFinite(v)) return "—";
     return v.toLocaleString("tr-TR", { style: "currency", currency: "TRY", maximumFractionDigits: 2 });
 };
+
+const fmtDateFull = (ts) => {
+    try {
+        const d = new Date(ts);
+        return d.toLocaleString("tr-TR", {
+            weekday: "short",
+            year: "numeric",
+            month: "long",
+            day: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+            timeZoneName: "short",
+        });
+    } catch { return String(ts || "—"); }
+};
+
+/** AI aksiyon türleri — kısa Türkçe açıklama */
+const AI_ACTION_HINT_TR = {
+    update_price: "Ürünün satış fiyatı pazaryerinde veya merkezde güncellendi.",
+    apply_discount: "İndirim oranı veya kampanya fiyatı uygulandı.",
+    create_stock_order: "Stok için sipariş / tedarik önerisi oluşturuldu (envanter aksiyonu).",
+    sync_stock: "Stok bilgisi pazaryeri ile eşitlendi.",
+    sync_price: "Fiyat bilgisi pazaryeri ile eşitlendi.",
+};
+
+/** Özet kartında ve genişletilmiş alanda okunaklı Türkçe metinler */
+const getEntryNarrative = (item) => {
+    const actorLabel = ACTOR_META[item.actor]?.label || "Kayıt";
+    const kindLabel = KIND_META[item.kind]?.label || "Kayıt";
+
+    let headline = item.title || "İşlem";
+    let detail = (item.description && String(item.description).trim()) || "";
+
+    if (item.kind === "error") {
+        const sc = item.statusCode;
+        const path = item.path ? ` (${item.method || "GET"} ${item.path})` : "";
+        headline = sc ? `Sunucu veya ağ hatası: HTTP ${sc}${path}` : headline;
+        if (!detail) detail = "İstek tamamlanamadı; aşağıda tam adres, kod ve hata mesajı var.";
+        return {
+            headline,
+            detail,
+            meaning:
+                "Tarayıcı veya uygulama, API’ye giderken bir sorunla karşılaştı. HTTP kodu genelde sorunun türünü gösterir " +
+                "(ör. 401 oturum, 403 yetki/CORS, 404 bulunamadı, 5xx sunucu). Teknik detaylar sorunu teşhis etmek içindir.",
+            hint: "Sayfayı yenileyin; oturum süresi dolduysa tekrar giriş yapın. Hata devam ederse ekran görüntüsü ile destekleyin.",
+        };
+    }
+
+    if (item.kind === "audit") {
+        const cat = item.category || "sistem";
+        if (!detail) detail = "Hesabınız veya aboneliğinizle ilgili bir işlem kaydedildi.";
+        return {
+            headline: headline,
+            detail,
+            meaning:
+                "Bu kayıt, panelde veya arka planda yaptığınız (veya sizin adınıza tetiklenen) resmi bir işlemi gösterir: örneğin giriş, ödeme, abonelik veya güvenlik olayı. " +
+                "Kategori ve aşağıdaki alanlar tam olarak hangi adımın loglandığını söyler.",
+            hint: `İşlemi siz yapmadıysanız şifrenizi değiştirin ve güvenlik kategorisindeki kayıtları kontrol edin. Kategori: ${cat}.`,
+        };
+    }
+
+    if (item.kind === "ai_action") {
+        const at = item.category || "";
+        const typeHint = AI_ACTION_HINT_TR[at] || "Yapay zeka tarafından ürün veya fiyat/stok ile ilgili bir işlem uygulandı.";
+        const parts = [typeHint];
+        if (item.productName) parts.unshift(`Ürün: ${item.productName}.`);
+        if (item.marketplace) parts.push(`Pazaryeri: ${item.marketplace}.`);
+        headline = item.title || `AI işlemi: ${at || "işlem"}`;
+        if (!detail) detail = parts.join(" ");
+        return {
+            headline,
+            detail,
+            meaning:
+                "PazarYonet AI (AI) bu kayıtta otomatik bir aksiyon almıştır. Tetikleyici, önce/sonra değerleri ve guardrail " +
+                "notları geri alma ile birlikte şeffaflık sağlar; sistem kuralı uygulandıysa sarı notta görürsünüz.",
+            hint: "Sonucu beğenmiyorsanız ürün sayfasından manuel düzeltme yapabilir veya otonomi ayarlarını gözden geçirebilirsiniz.",
+        };
+    }
+
+    if (item.kind === "ai_decision") {
+        headline = item.title || "AI önerisi / kararı";
+        if (!detail) detail = "Model bir öneri veya fiyat kararı üretti; durum uygulandı, beklemede veya reddedilmiş olabilir.";
+        return {
+            headline,
+            detail,
+            meaning:
+                "Bu satır bir AI kararını veya önerisini temsil eder: güven skoru, etki tahmini ve engelleme nedenleri " +
+                "otomatik fiyatlandırma kurallarınızla uyumlu mu çözmenize yardım eder.",
+            hint: item.blocked
+                ? "Bu karar güvenlik veya kural nedeniyle uygulanmadı; engelleme nedenlerini aşağıda okuyun."
+                : "Uygulanan kararlar envanter ve gelir üzerinde etkili olabilir; öneri geçmişini düzenli kontrol edin.",
+        };
+    }
+
+    /* activity (yerel) ve diğerleri */
+    if (!detail) detail = "Bu cihazda veya oturumda kaydedilen kısa bir bilgi veya işlem notu.";
+    return {
+        headline,
+        detail,
+        meaning: `${actorLabel} tarafından oluşturulan bir ${kindLabel.toLowerCase()} kaydı. Aşağıdaki metin olayın özeti ve teknik ekleri içerir.`,
+        hint: "Gerekirse JSON dışa aktararak tam veriyi paylaşabilirsiniz.",
+    };
+};
+
+const MetaKV = ({ label, children }) => (
+    <div style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+        <span style={{ fontSize: 10, color: COLORS.textMuted, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.04em" }}>{label}</span>
+        <span style={{ fontSize: 12, color: COLORS.text, fontWeight: 600, lineHeight: 1.4, wordBreak: "break-word" }}>{children}</span>
+    </div>
+);
 
 /* ═════════════════════════════════════════════════════════════════════
  * ANA SAYFA
@@ -201,7 +312,8 @@ const ErrorCenterPage = () => {
             if (severityFilter !== "all" && x.severity !== severityFilter) return false;
             if (debouncedSearch) {
                 const q = debouncedSearch.toLowerCase();
-                const hay = `${x.title || ""} ${x.description || ""} ${x.path || ""} ${x.category || ""}`.toLowerCase();
+                const nar = getEntryNarrative(x);
+                const hay = `${x.title || ""} ${x.description || ""} ${x.path || ""} ${x.category || ""} ${nar.headline} ${nar.detail} ${nar.meaning}`.toLowerCase();
                 if (!hay.includes(q)) return false;
             }
             if (from) {
@@ -367,10 +479,10 @@ const PageHero = ({ total, byActor, byKind, bySeverity, onRefresh, onExport, onS
                         Operasyon Defteri
                     </h1>
                 </div>
-                <p style={{ margin: "4px 0 0", color: COLORS.textDim, fontSize: 13, maxWidth: 720, lineHeight: 1.55 }}>
+                <p style={{ margin: "4px 0 0", color: COLORS.textDim, fontSize: 13, maxWidth: 780, lineHeight: 1.55 }}>
                     İşletmende olan biten her şeyin <b>tek defteri</b>: <b>senin yaptığın işlemler</b>,
-                    <b> karşılaşılan hatalar</b> ve <b>AI / LysiaBrain'in aldığı kararlar + uyguladığı aksiyonlar</b>
-                    {" "}kronolojik olarak yer alır. Her satıra tıklayarak detayı (before/after, kural izi, rollback) açabilirsin.
+                    <b> karşılaşılan hatalar</b> ve <b>AI / PazarYonet AI'in aldığı kararlar + uyguladığı aksiyonlar</b>
+                    {" "}kronolojik olarak yer alır. Her satırda <b>okunaklı başlık ve açıklama</b> görürsün; satıra tıklayınca <b>«Bu kayıt ne anlama geliyor?»</b> ve teknik detaylar (önce/sonra, kural izi, rollback) açılır.
                 </p>
             </div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -391,7 +503,7 @@ const PageHero = ({ total, byActor, byKind, bySeverity, onRefresh, onExport, onS
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 8, marginTop: 16 }}>
             <KPIBadge label="Toplam Kayıt" value={total} color={COLORS.accent} icon="📊" />
             <KPIBadge label="Ben" value={byActor?.user || 0} color={ACTOR_META.user.color} icon={<FaUser />} />
-            <KPIBadge label="AI / LysiaBrain" value={byActor?.ai || ((byKind?.ai_action || 0) + (byKind?.ai_decision || 0))} color={ACTOR_META.ai.color} icon={<FaRobot />} />
+            <KPIBadge label="AI / PazarYonet AI" value={byActor?.ai || ((byKind?.ai_action || 0) + (byKind?.ai_decision || 0))} color={ACTOR_META.ai.color} icon={<FaRobot />} />
             <KPIBadge label="Hatalar" value={byKind?.error || 0} color={COLORS.red} icon="⚠️" />
             <KPIBadge label="AI Aksiyonları" value={byKind?.ai_action || 0} color={COLORS.cyan} icon="⚡" />
             <KPIBadge label="AI Kararları" value={byKind?.ai_decision || 0} color={COLORS.purple} icon="🤖" />
@@ -592,6 +704,7 @@ const ActivityCard = ({ item, expanded, onToggle }) => {
     const sev = SEVERITY_COLOR[item.severity] || COLORS.blue;
     const actorM = ACTOR_META[item.actor] || ACTOR_META.user;
     const kindM = KIND_META[item.kind] || KIND_META.activity;
+    const nar = getEntryNarrative(item);
 
     return (
         <div style={{
@@ -603,15 +716,15 @@ const ActivityCard = ({ item, expanded, onToggle }) => {
         }}>
             {/* Özet satır */}
             <button
+                type="button"
                 onClick={onToggle}
                 style={{
-                    width: "100%", padding: "10px 14px", textAlign: "left",
+                    width: "100%", padding: "12px 14px", textAlign: "left",
                     background: "transparent", border: "none", cursor: "pointer",
-                    color: COLORS.text, display: "flex", alignItems: "center", gap: 10,
+                    color: COLORS.text, display: "flex", alignItems: "flex-start", gap: 10,
                     fontFamily: "inherit",
                 }}>
-                {/* Aktör + tür rozeti */}
-                <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0, marginTop: 2 }}>
                     <div title={actorM.label} style={{
                         width: 28, height: 28, borderRadius: 7,
                         background: `${actorM.color}18`, border: `1px solid ${actorM.color}40`,
@@ -620,27 +733,37 @@ const ActivityCard = ({ item, expanded, onToggle }) => {
                     }}>{actorM.icon}</div>
                 </div>
 
-                {/* İçerik */}
                 <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                         <span style={{ fontSize: 14 }}>{item.icon || kindM.icon}</span>
-                        <span style={{ fontWeight: 700, color: COLORS.text, fontSize: 14, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                            {item.title}
+                        <span style={{
+                            fontWeight: 800, color: COLORS.text, fontSize: 14, flex: 1, minWidth: 0,
+                            lineHeight: 1.35,
+                            display: expanded ? "block" : "-webkit-box",
+                            WebkitLineClamp: expanded ? undefined : 2,
+                            WebkitBoxOrient: "vertical",
+                            overflow: "hidden",
+                        }}>
+                            {nar.headline}
                         </span>
                         <SevBadge severity={item.severity} />
                         <KindBadge kind={item.kind} />
                     </div>
-                    {item.description && (
-                        <div style={{
-                            color: COLORS.textDim, fontSize: 12, marginTop: 4,
-                            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: expanded ? "normal" : "nowrap", maxWidth: "100%",
-                        }}>
-                            {item.description}
-                        </div>
-                    )}
-                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 6, fontSize: 11, color: COLORS.textMuted, flexWrap: "wrap" }}>
-                        <span title={fmtDate(item.ts)}>{fmtRelative(item.ts)}</span>
-                        {item.category && <span>•&nbsp;{item.category}</span>}
+                    <div style={{
+                        color: COLORS.textDim, fontSize: 12.5, marginTop: 6, lineHeight: 1.55,
+                        display: expanded ? "block" : "-webkit-box",
+                        WebkitLineClamp: expanded ? undefined : 2,
+                        WebkitBoxOrient: "vertical",
+                        overflow: "hidden",
+                    }}>
+                        <span style={{ color: COLORS.textMuted, fontWeight: 700, marginRight: 6 }}>Açıklama:</span>
+                        {nar.detail}
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8, fontSize: 11, color: COLORS.textMuted, flexWrap: "wrap" }}>
+                        <span title={fmtDateFull(item.ts)}>{fmtRelative(item.ts)}</span>
+                        <span title="Tam tarih">• {fmtDate(item.ts)}</span>
+                        {item.source && <span>• Kaynak: <strong style={{ color: COLORS.textDim }}>{item.source}</strong></span>}
+                        {item.category && <span>• {item.category}</span>}
                         {item.actor === "ai" && item.confidence != null && (
                             <span style={{ color: COLORS.purple }}>• Güven %{item.confidence}</span>
                         )}
@@ -652,7 +775,7 @@ const ActivityCard = ({ item, expanded, onToggle }) => {
                     </div>
                 </div>
 
-                <div style={{ flexShrink: 0, color: COLORS.textMuted }}>
+                <div style={{ flexShrink: 0, color: COLORS.textMuted, marginTop: 2 }}>
                     {expanded ? <FaChevronUp /> : <FaChevronDown />}
                 </div>
             </button>
@@ -660,7 +783,46 @@ const ActivityCard = ({ item, expanded, onToggle }) => {
             {/* Detay (genişletilmiş) */}
             {expanded && (
                 <div style={{ padding: "0 14px 14px", borderTop: `1px solid ${COLORS.border}`, marginTop: 4 }}>
-                    {/* Hata detayı */}
+                    <div style={{
+                        marginTop: 12,
+                        padding: "12px 14px",
+                        borderRadius: 10,
+                        background: "rgba(56,189,248,0.09)",
+                        border: `1px solid ${COLORS.accent}35`,
+                    }}>
+                        <div style={{ fontSize: 11, fontWeight: 800, color: COLORS.accent, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>
+                            Bu kayıt ne anlama geliyor?
+                        </div>
+                        <p style={{ margin: 0, color: COLORS.text, fontSize: 13, lineHeight: 1.65, fontWeight: 500 }}>
+                            {nar.meaning}
+                        </p>
+                        <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${COLORS.border}` }}>
+                            <div style={{ fontSize: 11, fontWeight: 800, color: COLORS.yellow, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>
+                                Ne yapabilirsiniz?
+                            </div>
+                            <p style={{ margin: 0, color: COLORS.textDim, fontSize: 12.5, lineHeight: 1.55 }}>
+                                {nar.hint}
+                            </p>
+                        </div>
+                    </div>
+
+                    <div style={{
+                        display: "grid",
+                        gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+                        gap: 10,
+                        marginTop: 12,
+                        padding: "10px 12px",
+                        borderRadius: 8,
+                        background: "rgba(148,163,184,0.06)",
+                        border: `1px solid ${COLORS.border}`,
+                    }}>
+                        <MetaKV label="Kim?">{actorM.label}</MetaKV>
+                        <MetaKV label="Kayıt türü">{kindM.label}</MetaKV>
+                        <MetaKV label="Önem / durum"><SevBadge severity={item.severity} /></MetaKV>
+                        <MetaKV label="Kayıt no.">{String(item.id || "—")}</MetaKV>
+                        <MetaKV label="Tam zaman">{fmtDateFull(item.ts)}</MetaKV>
+                    </div>
+
                     {item.kind === "error" && (
                         <DetailGrid>
                             <DetailRow label="HTTP" value={item.statusCode ? `${item.statusCode} ${item.method || ""}` : "—"} />
@@ -705,7 +867,7 @@ const ActivityCard = ({ item, expanded, onToggle }) => {
                             )}
 
                             {/* Before/After */}
-                            {(item.before?.price != null || item.after?.price != null) && (
+                            {(item.before?.price != null || item.after?.price != null || item.before?.stock != null || item.after?.stock != null) && (
                                 <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: 10, marginTop: 10, alignItems: "center" }}>
                                     <BeforeAfterCell label="Önce" data={item.before} color={COLORS.textDim} />
                                     <div style={{ fontSize: 20, color: COLORS.cyan, fontWeight: 900 }}>→</div>
@@ -752,6 +914,23 @@ const ActivityCard = ({ item, expanded, onToggle }) => {
                                 <div style={{ gridColumn: "1 / -1" }}>
                                     <DetailLabel>Parametreler</DetailLabel>
                                     <pre style={preStyle}>{JSON.stringify(item.params, null, 2)}</pre>
+                                </div>
+                            )}
+                        </DetailGrid>
+                    )}
+
+                    {item.kind === "activity" && (
+                        <DetailGrid>
+                            <DetailRow label="Başlık" value={item.title || "—"} wide />
+                            <DetailRow label="Açıklama" value={item.description || nar.detail} wide />
+                            {item.path && <DetailRow label="İlgili adres" value={item.path} mono wide />}
+                            {item.statusCode != null && Number(item.statusCode) > 0 && (
+                                <DetailRow label="HTTP" value={String(item.statusCode)} />
+                            )}
+                            {item.meta && Object.keys(item.meta).length > 0 && (
+                                <div style={{ gridColumn: "1 / -1" }}>
+                                    <DetailLabel>Ek bağlam</DetailLabel>
+                                    <pre style={preStyle}>{JSON.stringify(item.meta, null, 2)}</pre>
                                 </div>
                             )}
                         </DetailGrid>

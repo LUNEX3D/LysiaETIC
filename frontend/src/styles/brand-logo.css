@@ -1,0 +1,20 @@
+/* PazarYonet logo mark */
+.py-logo-mark {
+    display: block;
+    flex-shrink: 0;
+}
+
+.py-logo-mark--animated .py-logo-mark__arrow {
+    animation: py-logo-arrow-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes py-logo-arrow-pulse {
+    0%, 100% { opacity: 0.65; transform: translate(0, 0); }
+    50% { opacity: 1; transform: translate(1px, -1px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .py-logo-mark--animated .py-logo-mark__arrow {
+        animation: none;
+    }
+}

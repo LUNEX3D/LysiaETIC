@@ -51,6 +51,34 @@ const ProductMappingSchema = new mongoose.Schema({
         marketplaceProductId: { type: String }, // Pazaryerindeki ürün ID
         marketplaceSku: { type: String }, // Pazaryerindeki SKU
         marketplaceBarcode: { type: String }, // Pazaryerindeki barkod
+
+        /** Son pull'dan pazaryeri anlık görüntüsü (alan denetimi) */
+        platformSnapshot: {
+            name: { type: String },
+            barcode: { type: String },
+            sku: { type: String },
+            modelNumber: { type: String },
+            brand: { type: String },
+            category: { type: String },
+            price: { type: Number },
+            stock: { type: Number },
+            marketplaceProductId: { type: String },
+            pulledAt: { type: Date }
+        },
+        /** Master ile platform arasındaki farklar */
+        fieldDrift: {
+            hasDrift: { type: Boolean, default: false },
+            hasCritical: { type: Boolean, default: false },
+            drifts: [{
+                field: { type: String },
+                label: { type: String },
+                masterValue: { type: String },
+                platformValue: { type: String },
+                severity: { type: String, enum: ["critical", "high", "medium", "low", "info"] },
+                hint: { type: String }
+            }],
+            lastCheckedAt: { type: Date }
+        },
         categoryId: { type: String }, // Pazaryerine özel kategori ID
         categoryName: { type: String }, // Pazaryerine özel kategori adı
         categoryPath: [{ type: String }], // Kategori hiyerarşisi
@@ -213,13 +241,33 @@ ProductMappingSchema.methods.updateStockStatus = function() {
     this.stockTracking.isLowStock = availableStock > 0 && availableStock <= this.stockTracking.lowStockThreshold;
 };
 
+/** masterProduct.stock ile stockTracking.totalStock tek kaynak — sapmayı önle */
+ProductMappingSchema.methods.syncMasterStockFields = function() {
+    const total = Number(this.stockTracking?.totalStock);
+    if (Number.isFinite(total)) {
+        if (!this.masterProduct) this.masterProduct = {};
+        this.masterProduct.stock = Math.max(0, Math.round(total));
+    }
+};
+
 // 🛡️ Pazaryerlerine gönderilecek stok = totalStock - reservedStock - safetyStock
 ProductMappingSchema.methods.getMarketplaceStock = function() {
-    const total    = this.stockTracking.totalStock || 0;
-    const reserved = this.stockTracking.reservedStock || 0;
-    const safety   = this.stockTracking.safetyStock || 0;
-    return Math.max(0, total - reserved - safety);
+    const total    = this.stockTracking?.totalStock ?? this.masterProduct?.stock ?? 0;
+    const reserved = this.stockTracking?.reservedStock || 0;
+    const safety   = this.stockTracking?.safetyStock || 0;
+    return Math.max(0, Number(total) - Number(reserved) - Number(safety));
 };
+
+// Kayıt öncesi: master stok alanlarını hizala + durum bayraklarını güncelle
+ProductMappingSchema.pre("save", function(next) {
+    try {
+        this.syncMasterStockFields();
+        this.updateStockStatus();
+    } catch (e) {
+        return next(e);
+    }
+    next();
+});
 
 // Sync geçmişi ekle
 ProductMappingSchema.methods.addSyncLog = function(action, marketplace, oldValue, newValue, status, message) {

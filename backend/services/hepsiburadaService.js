@@ -81,7 +81,7 @@ const normalizeCredentials = (credentials) => {
     return {
         merchantId: merchantId || null,
         secretKey:  secretKey || serviceKey || apiKey || password || apiSecret || null,
-        userAgent:  userAgent || developerUsername || user_agent || "LysiaETIC",
+        userAgent:  userAgent || developerUsername || user_agent || "PazarYonet",
         // Mongo/string "false" truthy'dır — log "SIT" derken getEndpoints PROD seçiyordu (403)
         useSit:     coerceHepsiburadaUseSit(credentials.useSit)
     };
@@ -295,13 +295,15 @@ const loadHepsiburadaListableCategoryIdSet = async (merchantId, secretKey, userA
         `${ep.CATEGORY}/product/api/categories/get-all-categories`
     ];
     const ids = new Set();
-    const TYPES = ["HB", "HX", "HC"];
+    const TYPES = [...HB_CATEGORY_TYPES_PRODUCT];
     const size = 2000;
     let anyTypedFilter400 = false;
     const mid = merchantId ? String(merchantId).trim() : "";
 
-    const addIdsFromCats = (cats) => {
+    const addIdsFromCats = (cats, typeHint = "") => {
         for (const cat of cats) {
+            const row = { ...cat, hbTreeType: cat.type || typeHint };
+            if (isHepsiburadaCampaignOrNonProductCategory(row)) continue;
             const id = cat.categoryId ?? cat.id;
             if (id != null && String(id).trim() !== "") ids.add(String(id).trim());
         }
@@ -341,7 +343,7 @@ const loadHepsiburadaListableCategoryIdSet = async (merchantId, secretKey, userA
                         if (Array.isArray(inner)) cats = inner;
                     }
                     if (cats.length > 0) {
-                        addIdsFromCats(cats);
+                        addIdsFromCats(cats, type);
                         workingUrl = baseUrl;
                         page++;
                         pageSuccess = true;
@@ -407,7 +409,7 @@ const loadHepsiburadaListableCategoryIdSet = async (merchantId, secretKey, userA
 
     hbListableCategoryIdCache.set(cacheKey, { at: Date.now(), ids });
     logger.info(
-        `[HB LISTABLE CAT] ${ids.size} adet (leaf+available+ACTIVE; HB/HX/HC denemesi, ${envKey}) — önbellek ${HB_LISTABLE_CATEGORY_TTL_MS / 60000} dk`
+        `[HB LISTABLE CAT] ${ids.size} adet (leaf+available+ACTIVE; HB+HX katalog, kampanya/HC hariç, ${envKey}) — önbellek ${HB_LISTABLE_CATEGORY_TTL_MS / 60000} dk`
     );
     return ids;
 };
@@ -645,6 +647,94 @@ const updateHepsiburadaPrice = async (merchantId, secretKey, sku, price, userAge
 // 📂 KATEGORİ
 // ═══════════════════════════════════════════════════════════════════════
 
+/** HB API type: HB = katalog, HX = genişletilmiş katalog, HC = kampanya ağacı (ürün listesi için kullanılmaz) */
+const HB_CATEGORY_TYPES_ALL = ["HB", "HX", "HC"];
+const HB_CATEGORY_TYPES_PRODUCT = ["HB", "HX"];
+
+/**
+ * Kampanya / vitrin / promosyon reyonları — path veya adında geçenler ürün kategorisi sayılmaz.
+ * HC ağacı zaten ayrı elenir; HB içinde gömülü kampanya düğümleri için de gerekli.
+ */
+const HB_NON_PRODUCT_CATEGORY_RE =
+    /\b(kampanya|campaign|promosyon|promotion|fırsatlar|firsatlar|özel\s*fırsat|ozel\s*firsat|süper\s*fırsat|super\s*firsat|indirim\s*köşesi|indirim\s*kosesi|vitrin|outlet|sepet\s*indirimi|kupon|flash\s*sale|mega\s*indirim)\b/i;
+
+const categoryPathBlob = (cat) => {
+    const parts = [];
+    const push = (s) => {
+        const t = String(s || "").trim();
+        if (t) parts.push(t);
+    };
+    push(cat.name);
+    push(cat.categoryName);
+    push(cat.displayName);
+    push(cat.pathDisplay);
+    if (Array.isArray(cat.paths)) {
+        for (const p of cat.paths) {
+            if (typeof p === "string") push(p);
+            else if (p && typeof p === "object") push(p.name || p.categoryName || p.title);
+        }
+    } else if (typeof cat.paths === "string") {
+        push(cat.paths);
+    }
+    return parts.join(" ");
+};
+
+/**
+ * Kampanya (HC) veya kampanya benzeri düğüm mü?
+ */
+const isHepsiburadaCampaignOrNonProductCategory = (cat) => {
+    if (!cat || typeof cat !== "object") return true;
+    const treeType = String(cat.hbTreeType || cat.type || cat.categoryType || "").trim().toUpperCase();
+    if (treeType === "HC") return true;
+    if (cat.isCampaign === true || cat.campaign === true || cat.isPromotion === true) return true;
+    const blob = categoryPathBlob(cat);
+    if (blob && HB_NON_PRODUCT_CATEGORY_RE.test(blob)) return true;
+    return false;
+};
+
+/**
+ * Ürün açmaya uygun kategori listesi (Kategori Merkezi, arama, isim haritası).
+ * @param {object[]} categories
+ * @param {{ requireListable?: boolean, includeHx?: boolean }} [opts]
+ */
+const filterHepsiburadaProductCategories = (categories, opts = {}) => {
+    const includeHx = opts.includeHx !== false;
+    const allowedTypes = new Set(includeHx ? HB_CATEGORY_TYPES_PRODUCT : ["HB"]);
+    const requireListable = opts.requireListable === true;
+
+    return (categories || []).filter((cat) => {
+        const treeType = String(cat.hbTreeType || cat.type || cat.categoryType || "HB").trim().toUpperCase();
+        if (treeType === "MIXED") {
+            if (isHepsiburadaCampaignOrNonProductCategory(cat)) return false;
+        } else if (!allowedTypes.has(treeType)) {
+            return false;
+        }
+        if (isHepsiburadaCampaignOrNonProductCategory(cat)) return false;
+
+        if (requireListable) {
+            const leaf = cat.leaf === true || cat.isLeaf === true;
+            const available = cat.available !== false && cat.isAvailable !== false;
+            const status = String(cat.status || "ACTIVE").trim().toUpperCase();
+            if (!leaf || !available || status !== "ACTIVE") return false;
+        }
+        return true;
+    });
+};
+
+const resolveHbCategoryTypesForFetch = (opts = {}) => {
+    if (Array.isArray(opts.types) && opts.types.length > 0) {
+        return opts.types
+            .map((t) => String(t).trim().toUpperCase())
+            .filter((t) => HB_CATEGORY_TYPES_ALL.includes(t));
+    }
+    const includeHc =
+        opts.includeHc === true ||
+        process.env.HB_CATEGORY_INCLUDE_HC === "1" ||
+        process.env.HB_CATEGORY_INCLUDE_HC === "true";
+    if (includeHc) return [...HB_CATEGORY_TYPES_ALL];
+    return [...HB_CATEGORY_TYPES_PRODUCT];
+};
+
 const HB_CATEGORY_TYPE_ORDER = { HB: 0, HX: 1, HC: 2, MIXED: 3, "": 9 };
 
 /**
@@ -737,19 +827,22 @@ const mergeHepsiburadaCategoryRows = (rows) => {
  *
  * v4:
  *   - listing-external host'larında merchantId query (Kategori Merkezi ile aynı)
- *   - Her satıra çekim kaynağı hbTreeType (HB/HX/HC) — aynı ID farklı ağaçta karışmasın
+ *   - Her satıra çekim kaynağı hbTreeType (HB/HX) — HC kampanya ağacı varsayılan kapalı
  *   - Birleştirme anahtarı: hbTreeType|categoryId (yalnızca gerçek API tekrarlarını siler)
+ *   - Kampanya / vitrin adları path filtresi ile elenir
  *
  * @param {string} merchantId - Mağaza ID
  * @param {string} secretKey - Servis Anahtarı
  * @param {string} userAgent - Developer Username
- * @param {object} [opts] - { onlyLeaf: bool, useSit: bool, forUi: bool } — forUi true ise normalizeHepsiburadaCategoriesForUi uygulanır
+ * @param {object} [opts] - { onlyLeaf, useSit, forUi, includeHc, types }
  */
 const fetchHepsiburadaCategories = async (merchantId, secretKey, userAgent, opts = {}) => {
     try {
         const headers = getHeadersForGet(merchantId, secretKey, userAgent);
         const onlyLeaf = opts.onlyLeaf !== false; // varsayılan true (geriye dönük uyumluluk)
         const forUi = opts.forUi === true;
+        const productCategoriesOnly = opts.productCategoriesOnly !== false;
+        const requireListableQuery = forUi || productCategoriesOnly;
 
         // SIT MPOP katalog import, yalnızca SIT listing/MPOP kategori ağacındaki ID’leri kabul eder.
         // opts.useSit === true ise yalnızca -sit host’ları; aksi halde canlı.
@@ -791,6 +884,7 @@ const fetchHepsiburadaCategories = async (merchantId, secretKey, userAgent, opts
                     if (queryOpts.leaf === true) params.set("leaf", "true");
                     if (queryOpts.available === true) params.set("available", "true");
                     if (queryOpts.type) params.set("type", queryOpts.type);
+                    if (queryOpts.status) params.set("status", queryOpts.status);
 
                     const url = `${baseUrl}?${params.toString()}`;
 
@@ -843,17 +937,19 @@ const fetchHepsiburadaCategories = async (merchantId, secretKey, userAgent, opts
         };
 
         // ═══════════════════════════════════════════════════════════════
-        // v4: HER ZAMAN 3 type'ı ayrı ayrı çek
+        // v5: HB + HX katalog (HC kampanya varsayılan kapalı — opts.includeHc ile açılır)
         // ═══════════════════════════════════════════════════════════════
         let allCategories = [];
-        const TYPES = ["HB", "HX", "HC"];
+        const TYPES = resolveHbCategoryTypesForFetch(opts);
+        const listableQuery = { leaf: true, available: true, status: "ACTIVE" };
 
-        const typeHadRows = { HB: false, HX: false, HC: false };
+        const typeHadRows = Object.fromEntries(TYPES.map((t) => [t, false]));
 
         if (onlyLeaf) {
             for (const type of TYPES) {
                 try {
-                    const { categories: cats, typed400FirstPage } = await fetchPaginated({ leaf: true, type }, ` ${type}`);
+                    const pageOpts = requireListableQuery ? { ...listableQuery, type } : { leaf: true, type };
+                    const { categories: cats, typed400FirstPage } = await fetchPaginated(pageOpts, ` ${type}`);
                     if (cats.length > 0) {
                         typeHadRows[type] = true;
                         pushTagged(allCategories, type, cats);
@@ -864,7 +960,8 @@ const fetchHepsiburadaCategories = async (merchantId, secretKey, userAgent, opts
             }
             const emptyTypes = TYPES.filter((t) => !typeHadRows[t]);
             if (emptyTypes.length > 0 && emptyTypes.length < TYPES.length) {
-                const { categories: supplement } = await fetchPaginated({ leaf: true }, " empty-type-supplement");
+                const supOpts = requireListableQuery ? { ...listableQuery } : { leaf: true };
+                const { categories: supplement } = await fetchPaginated(supOpts, " empty-type-supplement");
                 const emptySet = new Set(emptyTypes);
                 const hasKey = (treeType, id) =>
                     allCategories.some(
@@ -882,6 +979,7 @@ const fetchHepsiburadaCategories = async (merchantId, secretKey, userAgent, opts
                     }
                     if (!emptySet.has(t)) continue;
                     if (hasKey(t, id)) continue;
+                    if (isHepsiburadaCampaignOrNonProductCategory({ ...c, hbTreeType: t })) continue;
                     pushTagged(allCategories, t, [c]);
                 }
                 logger.info(
@@ -889,15 +987,17 @@ const fetchHepsiburadaCategories = async (merchantId, secretKey, userAgent, opts
                 );
             }
             if (allCategories.length === 0) {
-                const { categories: fb } = await fetchPaginated({ leaf: true }, " fallback");
+                const fbOpts = requireListableQuery ? { ...listableQuery } : { leaf: true };
+                const { categories: fb } = await fetchPaginated(fbOpts, " fallback");
                 pushTagged(allCategories, "MIXED", fb);
             }
         } else {
             for (const type of TYPES) {
                 try {
-                    const { categories: leafCats } = await fetchPaginated({ leaf: true, type }, ` ${type}-leaf`);
+                    const leafOpts = requireListableQuery ? { ...listableQuery, type } : { leaf: true, type };
+                    const { categories: leafCats } = await fetchPaginated(leafOpts, ` ${type}-leaf`);
                     if (leafCats.length > 0) pushTagged(allCategories, type, leafCats);
-                    const { categories: parentCats } = await fetchPaginated({ leaf: false, type }, ` ${type}-parent`);
+                    const { categories: parentCats } = await fetchPaginated({ leaf: false, available: true, status: "ACTIVE", type }, ` ${type}-parent`);
                     if (parentCats.length > 0) pushTagged(allCategories, type, parentCats);
                 } catch (e) { logger.warn(`[Hepsiburada CAT] ${type} hatası: ${e.message}`); }
             }
@@ -909,10 +1009,23 @@ const fetchHepsiburadaCategories = async (merchantId, secretKey, userAgent, opts
             }
         }
 
-        const merged = mergeHepsiburadaCategoryRows(allCategories);
+        let merged = mergeHepsiburadaCategoryRows(allCategories);
+        const beforeFilter = merged.length;
+        if (productCategoriesOnly) {
+            merged = filterHepsiburadaProductCategories(merged, {
+                requireListable: forUi,
+                includeHx: opts.includeHx !== false
+            });
+        }
+        const removed = beforeFilter - merged.length;
+        if (removed > 0) {
+            logger.info(
+                `[Hepsiburada] ${removed} kampanya/HC veya listelenemez kategori elendi (kalan: ${merged.length})`
+            );
+        }
 
         logger.info(
-            `[Hepsiburada] ${merged.length} birleşik kategori (ham satır: ${allCategories.length}, types: ${TYPES.join("+")})`
+            `[Hepsiburada] ${merged.length} birleşik kategori (ham: ${allCategories.length}, API types: ${TYPES.join("+")})`
         );
         return forUi ? normalizeHepsiburadaCategoriesForUi(merged) : merged;
     } catch (error) {
@@ -3414,6 +3527,8 @@ module.exports = {
     updateHepsiburadaPrice,
     // Kategori
     fetchHepsiburadaCategories,
+    filterHepsiburadaProductCategories,
+    isHepsiburadaCampaignOrNonProductCategory,
     normalizeHepsiburadaCategoriesForUi,
     buildHepsiburadaCategoryNameMap,
     fetchHepsiburadaCategoryAttributes,

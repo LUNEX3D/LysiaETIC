@@ -1,5 +1,5 @@
-/**
- * LysiaRadar — Trendyol pazar istihbaratı (koyu tema).
+﻿/**
+ * PazarYonet Radar — Trendyol pazar istihbaratı (koyu tema).
  * Sekmeler: en çok satanlar, flaş, ürün araştırması, rakip, listeleme, AI içerik, yorum, kelime & fiyat.
  */
 
@@ -179,7 +179,7 @@ export default function RoketfyPanel() {
     const [priceBarcode, setPriceBarcode] = useState("");
     const [priceResult, setPriceResult] = useState(null);
 
-    //  LysiaRadar — liste içi filtre / dışa aktarım
+    //  PazarYonet Radar — liste içi filtre / dışa aktarım
     const [radarListFilter, setRadarListFilter] = useState("");
     const [flashMinDiscount, setFlashMinDiscount] = useState(0);
     const [radarToast, setRadarToast] = useState("");
@@ -835,7 +835,7 @@ export default function RoketfyPanel() {
                             className="rk-csv-btn"
                             disabled={!products.length}
                             onClick={() => {
-                                exportRadarCsv(products, "lysiaradar-en-cok-satanlar");
+                                exportRadarCsv(products, "PazarYonet Radar-en-cok-satanlar");
                                 showRadarToast("CSV dosyası indirildi");
                             }}
                         >
@@ -956,7 +956,7 @@ export default function RoketfyPanel() {
                             className="rk-csv-btn"
                             disabled={!products.length}
                             onClick={() => {
-                                exportRadarCsv(products, "lysiaradar-flas");
+                                exportRadarCsv(products, "PazarYonet Radar-flas");
                                 showRadarToast("CSV dosyası indirildi");
                             }}
                         >
@@ -1867,7 +1867,7 @@ export default function RoketfyPanel() {
                 <div className="rk-header-left">
                     <h1>
                         <FaRocket className="rk-header-icon" />
-                        LysiaRadar
+                        PazarYonet Radar
                     </h1>
                     <p>Pazar istihbaratı: en çok satanlar, flaş fırsatlar, rakip analizi ve fiyat takibi — tek ekranda.</p>
                 </div>

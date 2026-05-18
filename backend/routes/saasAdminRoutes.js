@@ -47,6 +47,10 @@ router.get("/integrations", saas.getAllIntegrations);
 // ─── 6. Kullanım Limitleri ───────────────────────────────────────────────────
 router.get("/usage", saas.getUsageStats);
 
+// ─── 6b. Birim ekonomisi (kullanıcı maliyeti) ─────────────────────────────────
+router.get("/unit-economics", saas.getUnitEconomics);
+router.put("/unit-economics/rates", saas.updateUnitEconomicsRates);
+
 // ─── 7. Global Raporlama ─────────────────────────────────────────────────────
 router.get("/reports", saas.getGlobalReports);
 

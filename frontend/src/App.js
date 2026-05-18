@@ -1,4 +1,4 @@
-/**
+﻿/**
  * App.js
  *
  * Uygulamanın ana componentidir. Tüm sayfaları, routing ve genel tema yönetimini içerir.
@@ -36,10 +36,13 @@ import LoginForm from "./components/LoginForm";
 
 // ─── Legal sayfaları — Public erişim ────────────────────────────────────────────
 import LegalPage from "./pages/LegalPage";
+import SeoHead from "./components/SeoHead";
 
 // ─── Lazy-loİaded sayfalar — Sİadece ziyaret edildiğinde yüklenir ────────────────
 // Public
 const HomePage               = lazy(() => import("./pages/HomePage"));
+const IntegrationLandingPage = lazy(() => import("./pages/IntegrationLandingPage"));
+const BlogPage               = lazy(() => import("./pages/BlogPage"));
 
 // Kullanıcı Paneli
 const UserDashboard          = lazy(() => import("./pages/UserDashboard"));
@@ -70,6 +73,7 @@ const AdminClientErrors      = lazy(() => import("./pages/AdminClientErrors"));
 const AdminAccessControl     = lazy(() => import("./pages/AdminAccessControl"));
 const SaasSystemConfig       = lazy(() => import("./pages/SaasSystemConfig"));
 const SaasPlanManager        = lazy(() => import("./pages/SaasPlanManager"));
+const SaasUnitEconomics      = lazy(() => import("./pages/SaasUnitEconomics"));
 
 // Pazaryeri & Ürün Yönetimi
 const MarketplaceIntegration = lazy(() => import("./pages/MarketplaceIntegration"));
@@ -87,7 +91,7 @@ const PaymentResult          = lazy(() => import("./pages/PaymentResult"));
 // Roketfy — Marketplace Intelligence
 const RoketfyPanel           = lazy(() => import("./pages/RoketfyPanel"));
 
-// LysiaRadar PRO — AI Product Opportunity Engine
+// PazarYonet Radar — AI Product Opportunity Engine
 const RadarProPage           = lazy(() => import("./pages/RadarProPage"));
 
 // LysiaBrain2 — Standalone test page (UserDashboard dışında)
@@ -251,16 +255,35 @@ const AppContent = () => {
     useCapacitorInit(navigate);
 
     const location = useLocation();
+    const integrationRoutes = [
+        "trendyol-entegrasyonu",
+        "hepsiburada-entegrasyonu",
+        "amazon-entegrasyonu",
+        "n11-entegrasyonu",
+        "ciceksepeti-entegrasyonu",
+    ];
     const isAdminRoute = location.pathname.startsWith("/admin");
     const isLysiaBrain2 = location.pathname === "/lysiabrain2";
     const isLegalRoute = ["/privacy", "/terms", "/cookies", "/distance-sales", "/preliminary-info"].includes(location.pathname);
-    const isAuthRoute = ["/" , "/home", "/login", "/login-lunexetic", "/register", "/verify-email", "/payment/success", "/payment/failed", "/subscription"].includes(location.pathname) || isLegalRoute;
+    const isBlogRoute = location.pathname === "/blog" || location.pathname.startsWith("/blog/");
+    const isPublicMarketingRoute =
+        isLegalRoute ||
+        isBlogRoute ||
+        integrationRoutes.some((s) => location.pathname === `/${s}`);
+    const isAuthRoute = ["/" , "/home", "/login", "/login-lunexetic", "/register", "/verify-email", "/payment/success", "/payment/failed", "/subscription"].includes(location.pathname) || isPublicMarketingRoute;
 
     const routes = (
         <Suspense fallback={<LazyFallback />}>
+        <SeoHead />
         <Routes>
             {/* Ana Sayfa — Public landing page */}
             <Route path="/home" element={<HomePage />} />
+            {integrationRoutes.map((slug) => (
+                <Route key={slug} path={`/${slug}`} element={<IntegrationLandingPage />} />
+            ))}
+
+            <Route path="/blog" element={<BlogPage />} />
+            <Route path="/blog/:slug" element={<BlogPage />} />
 
             {/* Auth Sayfaları — Direkt login ekranı karşılar */}
             <Route path="/" element={<LoginForm />} />
@@ -293,6 +316,7 @@ const AppContent = () => {
             <Route path="/admin/plan-manager" element={<ProtectedRoute requiredRoles={["admin","dev"]}><SaasPlanManager /></ProtectedRoute>} />
             <Route path="/admin/subscriptions" element={<ProtectedRoute requiredRoles={["admin","dev"]}><SaasSubscriptions /></ProtectedRoute>} />
             <Route path="/admin/payments" element={<ProtectedRoute requiredRoles={["admin","dev"]}><SaasPayments /></ProtectedRoute>} />
+            <Route path="/admin/unit-economics" element={<ProtectedRoute requiredRoles={["admin","dev"]}><SaasUnitEconomics /></ProtectedRoute>} />
 
             {/* Operasyon */}
             <Route path="/admin/products" element={<ProtectedRoute requiredRoles={["admin","dev"]}><AdminProducts /></ProtectedRoute>} />
@@ -328,7 +352,7 @@ const AppContent = () => {
             {/* Roketfy — Marketplace Intelligence */}
             <Route path="/roketfy" element={<ProtectedRoute><RoketfyPanel /></ProtectedRoute>} />
 
-            {/* LysiaRadar PRO — AI Product Opportunity Engine */}
+            {/* PazarYonet Radar — AI Product Opportunity Engine */}
             <Route path="/radar-pro" element={<ProtectedRoute><RadarProPage /></ProtectedRoute>} />
 
             {/* Abonelik & Ödeme */}

@@ -25,6 +25,7 @@ const StockSyncLogSchema = new mongoose.Schema({
             "product_pending",   // Ürün kuyrukta (N11/Trendyol batch)
             "product_deleted",   // Ürün silme
             "product_synced",    // Ürün senkronizasyonu
+            "product_field_drift", // Master vs platform alan farkı (kritik)
             "order_placed",      // Sipariş verildi
             "auto_sync",         // Otomatik senkronizasyon
             "manual_sync",       // Manuel senkronizasyon

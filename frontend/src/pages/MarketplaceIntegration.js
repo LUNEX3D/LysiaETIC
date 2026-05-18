@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+﻿import React, { useState, useEffect, useCallback } from "react";
 import { FaGlobe, FaKey, FaEdit, FaTrash, FaTimes, FaCheck, FaPlug, FaRocket, FaFlag } from "react-icons/fa";
 import { motion, AnimatePresence } from "framer-motion";
 import API from "../services/api";
@@ -180,7 +180,7 @@ const MarketplaceIntegration = () => {
                     transition={{ duration: 0.7, ease: "easeOut" }}
                 >
                     <div className="mi-brand-logo">
-                        <span className="mi-brand-main">Pazaryönetim</span>
+                        <span className="mi-brand-main">PazarYonet</span>
                         <span className="mi-brand-sub">Platform</span>
                     </div>
                     <p className="mi-brand-tagline">Global Pazaryeri Entegrasyon Merkezi</p>

@@ -3,16 +3,20 @@
  * layout="split" → Lunexetic tarzı bölünmüş giriş sayfası üst çubuğu
  */
 import React from "react";
+import PazarYonetLogo from "../brand/PazarYonetLogo";
+import { BRAND_NAME_UPPER } from "../../constants/brand";
 import {
     HiOutlineHome,
     HiOutlineSparkles,
     HiOutlineTag,
     HiOutlineInformationCircle,
     HiOutlinePhone,
+    HiOutlineBookOpen,
 } from "react-icons/hi";
 
 const TABS = [
     { id: "home", label: "Ana sayfa", Icon: HiOutlineHome },
+    { id: "blog", label: "Blog", Icon: HiOutlineBookOpen },
     { id: "features", label: "Özellikler", Icon: HiOutlineSparkles },
     { id: "pricing", label: "Fiyatlandırma", Icon: HiOutlineTag },
     { id: "about", label: "Hakkımızda", Icon: HiOutlineInformationCircle },
@@ -32,8 +36,8 @@ const AuthNavbar = ({ activeTab, onTabChange, layout = "default" }) => {
                             onTabChange?.("home");
                         }}
                     >
-                        <span className="lx-auth-logo-mark">P</span>
-                        <span className="lx-auth-logo-text">PAZARYÖNETİM</span>
+                        <PazarYonetLogo size={36} />
+                        <span className="lx-auth-logo-text">{BRAND_NAME_UPPER}</span>
                     </a>
                     <nav className="lx-auth-nav" aria-label="Sayfa">
                         {TABS.map((tab) => (
@@ -43,6 +47,10 @@ const AuthNavbar = ({ activeTab, onTabChange, layout = "default" }) => {
                                 className={activeTab === tab.id ? "lx-active" : ""}
                                 onClick={(e) => {
                                     e.preventDefault();
+                                    if (tab.id === "blog") {
+                                        window.location.href = "/blog";
+                                        return;
+                                    }
                                     onTabChange?.(tab.id);
                                 }}
                             >
@@ -67,13 +75,8 @@ const AuthNavbar = ({ activeTab, onTabChange, layout = "default" }) => {
                     onTabChange?.("home");
                 }}
             >
-                <div className="auth-navbar-logo-icon">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
-                        <path d="M12 2C8 2 4.5 5 4 9" />
-                    </svg>
-                </div>
-                <span className="auth-navbar-logo-text">PAZARYONETIM</span>
+                <PazarYonetLogo size={32} variant="light" />
+                <span className="auth-navbar-logo-text">{BRAND_NAME_UPPER}</span>
             </a>
             <div className="auth-navbar-links">
                 {TABS.map((tab) => (
@@ -81,7 +84,13 @@ const AuthNavbar = ({ activeTab, onTabChange, layout = "default" }) => {
                         key={tab.id}
                         type="button"
                         className={`auth-navbar-link${activeTab === tab.id ? " active" : ""}`}
-                        onClick={() => onTabChange?.(tab.id)}
+                        onClick={() => {
+                            if (tab.id === "blog") {
+                                window.location.href = "/blog";
+                                return;
+                            }
+                            onTabChange?.(tab.id);
+                        }}
                     >
                         <tab.Icon /> {tab.label}
                     </button>

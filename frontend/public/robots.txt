@@ -1,0 +1,11 @@
+User-agent: *
+Allow: /
+
+# Uygulama / ödeme / doğrulama — indexlenmesin
+Disallow: /dashboard
+Disallow: /admin
+Disallow: /api/
+Disallow: /verify-email
+Disallow: /payment/
+
+Sitemap: https://pazaryonet.com/sitemap.xml

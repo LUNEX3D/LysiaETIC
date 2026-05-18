@@ -14,6 +14,7 @@ const AuditLog = require("../models/AuditLog");
 const logger = require("../config/logger");
 const { decryptCredentials } = require("../utils/encryption");
 const { processAutoInvoice } = require("../services/autoInvoiceService");
+const { updateStockAfterOrder } = require("../services/stockSyncService");
 const { parseMarketplaceOrderDateToUtcDate, marketplaceOrderDateToIsoString } = require("../utils/helpers");
 
 const getIstanbulTimestamp = () => {
@@ -278,12 +279,16 @@ async function syncOrdersBackground(userId, marketplaceName, rawOrders) {
             let items = rawItems.map(function(item, itemIdx) {
                 const barcode = String(item.barcode || item.sku || item.merchantSku || item.productCode || item.productId || "").trim();
                 const sku = String(item.sku || item.merchantSku || item.productCode || "").trim();
-                
-                // Barcode bos ise fallback olustur (Order modeli barcode required)
-                const finalBarcode = barcode || ("SYNC-" + orderNumber + "-" + itemIdx);
                 const itemName = String(item.productName || item.name || item.title || "").trim().toLowerCase();
                 const productInfo = productMap.get(barcode) || skuMap.get(sku) || skuMap.get(barcode) || productMap.get(sku) || Array.from(products).find(p => String(p.name || "").trim().toLowerCase() === itemName) || {};
-                
+
+                // Gerçek barkod: önce satır, sonra eşleşen ürün kartı (SYNC- sentetik barkodunu azalt)
+                let finalBarcodeResolved = barcode;
+                if (!finalBarcodeResolved && productInfo.barcode) finalBarcodeResolved = String(productInfo.barcode).trim();
+                if (!finalBarcodeResolved && productInfo.sku) finalBarcodeResolved = String(productInfo.sku).trim();
+                if (!finalBarcodeResolved && productInfo.stockCode) finalBarcodeResolved = String(productInfo.stockCode).trim();
+                const finalBarcode = finalBarcodeResolved || ("SYNC-" + orderNumber + "-" + itemIdx);
+
                 // Fiyat: item.price > 0 ise onu kullan, yoksa brüt veya sipariş tutarını kalemlere böl
                 let price = parseFloat(item.price || item.unitPrice || 0);
                 if (price === 0 && allocBase > 0) {
@@ -507,12 +512,20 @@ async function syncOrdersBackground(userId, marketplaceName, rawOrders) {
 
     logger.info("[OrderSync] " + marketplaceName + ": " + synced + " yeni siparis kaydedildi, " + skipped + " atlandi");
 
-    // ── Otomatik Fatura Tetikleme ─────────────────────────────────────────
-    // NOT: Stok güncelleme stockCronService tarafından yapılır (her 5dk).
-    // Burada updateStockAfterOrder çağrılmaz — çünkü cron da aynı siparişi
-    // işleyince çift stok düşürme (double deduction) oluşuyordu.
-    // Yeni kaydedilen siparişler varsa, arka planda otomatik fatura kes
+    // ── Anlık stok + otomatik fatura (arka plan) ───────────────────────────
+    // Stok: processOrderStockLine + makeOrderStockKey ile cron ile aynı anahtar — çift düşüş yok
     if (syncedOrderIds.length > 0 && userId) {
+        for (const oid of syncedOrderIds) {
+            updateStockAfterOrder(oid).then((stockResults) => {
+                const ok = (stockResults || []).filter((r) => r.status === "success" || r.status === "partial").length;
+                if (ok > 0) {
+                    logger.info(`[OrderSync] ${marketplaceName} anlık stok: sipariş ${oid} — ${ok} satır işlendi`);
+                }
+            }).catch((err) => {
+                logger.warn(`[OrderSync] Anlık stok hatası (${oid}): ${err.message}`);
+            });
+        }
+
         processAutoInvoice(userId, marketplaceName, syncedOrderIds).then(invoiceStats => {
             if (invoiceStats.invoiced > 0) {
                 logger.info("[AutoInvoice] " + marketplaceName + ": " + invoiceStats.invoiced + " otomatik fatura kesildi");

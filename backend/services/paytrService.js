@@ -14,6 +14,7 @@
 
 const crypto = require("crypto");
 const logger = require("../config/logger");
+const { APP_URL } = require("../config/domain");
 
 class PayTRService {
     constructor() {
@@ -30,8 +31,8 @@ class PayTRService {
             merchantKey: process.env.PAYTR_MERCHANT_KEY || "",
             merchantSalt: process.env.PAYTR_MERCHANT_SALT || "",
             testMode: process.env.PAYTR_TEST_MODE || (process.env.NODE_ENV === "production" ? "0" : "1"),
-            merchantOkUrl: process.env.PAYTR_OK_URL || "http://localhost:3000/payment/success",
-            merchantFailUrl: process.env.PAYTR_FAIL_URL || "http://localhost:3000/payment/failed",
+            merchantOkUrl: process.env.PAYTR_OK_URL || `${APP_URL}/payment/success`,
+            merchantFailUrl: process.env.PAYTR_FAIL_URL || `${APP_URL}/payment/failed`,
         };
     }
 

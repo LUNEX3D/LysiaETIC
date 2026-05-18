@@ -179,8 +179,11 @@ export const getMarketplaces = async () => {
  * Belirli pazaryerinin kategori ağacını çek (canlı API)
  * @param {string} marketplaceName
  */
-export const getCategoryTree = async (marketplaceName) => {
-    const res = await API.get(`${BASE}/${encodeURIComponent(marketplaceName)}/tree`);
+export const getCategoryTree = async (marketplaceName, options = {}) => {
+    const params = {};
+    if (options.listingOnly) params.listingOnly = "true";
+    if (options.refresh) params.refresh = "true";
+    const res = await API.get(`${BASE}/${encodeURIComponent(marketplaceName)}/tree`, { params });
     return res.data;
 };
 
@@ -189,10 +192,10 @@ export const getCategoryTree = async (marketplaceName) => {
  * @param {string} marketplaceName
  * @param {string} query
  */
-export const searchCategories = async (marketplaceName, query) => {
-    const res = await API.get(`${BASE}/${encodeURIComponent(marketplaceName)}/search`, {
-        params: { q: query }
-    });
+export const searchCategories = async (marketplaceName, query, options = {}) => {
+    const params = { q: query };
+    if (options.listingOnly) params.listingOnly = "true";
+    const res = await API.get(`${BASE}/${encodeURIComponent(marketplaceName)}/search`, { params });
     return res.data;
 };
 

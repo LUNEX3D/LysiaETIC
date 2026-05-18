@@ -29,6 +29,16 @@ const ProductMapping = require("../models/ProductMapping");
 const logger = require("../config/logger");
 const { decryptCredentials } = require("../utils/encryption");
 const { ok, badRequest, notFound, serverError, paginated } = require("../utils/apiResponse");
+const {
+    filterHepsiburadaProductCategories,
+    isHepsiburadaCampaignOrNonProductCategory
+} = require("../services/hepsiburadaService");
+
+/** Cache / ağaç: kampanya (HC) ve promosyon reyonlarını çıkar; üst düğümler kalır */
+const sanitizeHbCategoriesForCache = (categories) => {
+    if (!Array.isArray(categories) || categories.length === 0) return categories || [];
+    return filterHepsiburadaProductCategories(categories, { requireListable: false, includeHx: true });
+};
 
 // ═══════════════════════════════════════════════════════════════
 // 🔧 YARDIMCI: HTML Entity Decode
@@ -159,6 +169,13 @@ const normalizeHBCategory = (cat) => {
     const hbDisplayTitle =
         cat.hbDisplayTitle ||
         (hbTreeType ? `[${hbTreeType}] ${id}${name ? ` — ${name}` : ""}` : name || id);
+    const leaf = cat.leaf === true || cat.leaf === "true";
+    const available = cat.available === true || cat.available === "true";
+    const status = cat.status || "ACTIVE";
+    const canListProduct =
+        cat.canListProduct === true ||
+        (leaf && available && String(status).toUpperCase() === "ACTIVE" &&
+            !isHepsiburadaCampaignOrNonProductCategory(cat));
 
     return {
         nodeKey,
@@ -171,12 +188,13 @@ const normalizeHBCategory = (cat) => {
         displayName: decodeHtmlEntities(cat.displayName || cat.name || cat.categoryName || ""),
         parentCategoryId: parentRaw,
         parentKey,
-        leaf: cat.leaf === true || cat.leaf === "true",
-        available: cat.available === true || cat.available === "true",
-        status: cat.status || "ACTIVE",
+        leaf,
+        available,
+        status,
         type: cat.type || hbTreeType,
         pathDisplay: cat.pathDisplay || "",
-        apiPaths
+        apiPaths,
+        canListProduct
     };
 };
 
@@ -352,7 +370,7 @@ const fetchCiceksepetiCategoryTree = async (credentials) => {
 /**
  * Hepsiburada kategori ağacı — tek kaynak: hepsiburadaService.fetchHepsiburadaCategories
  *
- * - HB + HX + HC ayrı çekilir; satırda hbTreeType ile işaretlenir (karışıklık olmasın).
+ * - HB + HX katalog çekilir (HC kampanya ağacı hariç); satırda hbTreeType ile işaretlenir.
  * - Birleştirme: hbTreeType|categoryId (aynı kaydın API tekrarı elenir; farklı ağaç aynı ID ile çakışırsa ikisi de kalır).
  * - listing-external isteklerinde merchantId query parametresi eklenir.
  * - UI alanları: categoryId (resmi), hbDisplayTitle, pathDisplay, leaf, available
@@ -370,7 +388,7 @@ const fetchHepsiburadaCategoryTree = async (credentials, options = {}) => {
     const onlyLeaf = options.onlyLeaf === true;
 
     logger.info(
-        `[HB CATEGORIES] Ortam: ${useSit ? "SIT" : "Production"}, merchantId: ${merchantId ? String(merchantId).substring(0, 8) + "..." : "YOK"}, onlyLeaf=${onlyLeaf} — HB+HX+HC (birleşik servis)`
+        `[HB CATEGORIES] Ortam: ${useSit ? "SIT" : "Production"}, merchantId: ${merchantId ? String(merchantId).substring(0, 8) + "..." : "YOK"}, onlyLeaf=${onlyLeaf} — HB+HX katalog (kampanya/HC hariç)`
     );
 
     const categories = await hb.fetchHepsiburadaCategories(merchantId, secretKey, userAgent, {
@@ -448,10 +466,14 @@ const getOrFetchCategories = async (userId, marketplace, options = {}) => {
             const fromFile = await readCategoryFileCache(userId, cacheKey);
             if (fromFile) {
                 const ageMs = Date.now() - new Date(fromFile.cachedAt).getTime();
+                const fromFileCats =
+                    normalizedBase.includes("hepsiburada")
+                        ? sanitizeHbCategoriesForCache(fromFile.categories)
+                        : fromFile.categories;
                 logger.info(
-                    `[CATEGORY CACHE] ✅ ${mpName} — dosya cache'den okundu (${fromFile.categories.length} kategori, yaş: ${Math.round(ageMs / 60000)}dk, key=${cacheKey})`
+                    `[CATEGORY CACHE] ✅ ${mpName} — dosya cache'den okundu (${fromFileCats.length} kategori, yaş: ${Math.round(ageMs / 60000)}dk, key=${cacheKey})`
                 );
-                return fromFile.categories;
+                return fromFileCats;
             }
         } catch (err) {
             logger.warn(`[CATEGORY CACHE] Dosya cache kontrolü: ${err.message}`);
@@ -467,7 +489,9 @@ const getOrFetchCategories = async (userId, marketplace, options = {}) => {
                     logger.info(
                         `[CATEGORY CACHE] ✅ ${mpName} — cache'den okundu (${cached.categories.length} kategori, yaş: ${Math.round(ageMs / 60000)}dk, key=${cacheKey})`
                     );
-                    return cached.categories;
+                    return normalizedBase.includes("hepsiburada")
+                        ? sanitizeHbCategoriesForCache(cached.categories)
+                        : cached.categories;
                 }
                 logger.info(`[CATEGORY CACHE] ⏰ ${mpName} — cache süresi dolmuş (${Math.round(ageMs / 3600000)}sa), yenileniyor...`);
             }
@@ -506,6 +530,16 @@ const getOrFetchCategories = async (userId, marketplace, options = {}) => {
 
             // ── 3. HTML entity decode uygula ──
             categories = categories.map((cat) => decodeObjectStrings(cat));
+
+            if (normalizedName.includes("hepsiburada")) {
+                const before = categories.length;
+                categories = sanitizeHbCategoriesForCache(categories);
+                if (before !== categories.length) {
+                    logger.info(
+                        `[CATEGORY CACHE] HB kampanya/HC filtresi: ${before - categories.length} satır elendi (kalan: ${categories.length})`
+                    );
+                }
+            }
 
             // ── 4. Cache'e yaz (büyük listeler Mongo BSON sınırını aşar → disk) ──
             if (categories.length > 0) {
@@ -570,7 +604,8 @@ const findMarketplace = async (userId, marketplaceName) => {
  * HB flat listesini ağaç yapısına dönüştür + istatistik
  */
 const buildHBTreeResponse = (categories, marketplaceName) => {
-    const catMap = buildCategoryMap(categories);
+    const cleaned = sanitizeHbCategoriesForCache(categories);
+    const catMap = buildCategoryMap(cleaned);
     const roots = buildTree(catMap, "subCategories");
     return {
         marketplaceName,
@@ -1280,6 +1315,8 @@ exports.searchCategories = async (req, res) => {
             const parentIds = findParentIds(catMap);
 
             for (const [mapKey, node] of catMap) {
+                if (isHepsiburadaCampaignOrNonProductCategory(node)) continue;
+
                 const pathArr = getPath(mapKey);
                 const pathStr = pathArr.join(" > ");
                 const name = node.name || "";
@@ -1316,6 +1353,11 @@ exports.searchCategories = async (req, res) => {
                 if (aScore !== bScore) return aScore - bScore;
                 return (a.path || "").localeCompare(b.path || "", "tr");
             });
+
+            const listingOnly = req.query.listingOnly !== "false";
+            if (listingOnly) {
+                searchResults = searchResults.filter((r) => r.canListProduct === true);
+            }
         } else {
             // ── Diğer pazaryerleri: nested tree → recursive flatten + gelişmiş arama ──
             const flattenAndSearch = (cats, parentPath = []) => {

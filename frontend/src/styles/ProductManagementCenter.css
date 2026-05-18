@@ -1423,10 +1423,35 @@
     font-size: 10px;
 }
 
-/* ─── Sync Logs ───────────────────────────────────────────── */
+/* ─── Sync Logs / Stok Defteri ────────────────────────────── */
+.ud-pm-stat-mini {
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid var(--ud-pm-glass-border);
+    background: rgba(255, 255, 255, 0.03);
+    text-align: center;
+}
+
+.ud-pm-stat-mini .val {
+    font-size: 18px;
+    font-weight: 800;
+    color: var(--ud-pm-text);
+    line-height: 1.2;
+}
+
+.ud-pm-stat-mini .lbl {
+    font-size: 10px;
+    color: var(--ud-pm-text-dim);
+    margin-top: 4px;
+}
+
 .ud-pm-log-list {
     max-height: 350px;
     overflow-y: auto;
+}
+
+.ud-pm-log-list--journal {
+    max-height: 480px;
 }
 
 .ud-pm-log-item {
@@ -1466,6 +1491,30 @@
     color: var(--ud-pm-text-dim);
     white-space: nowrap;
     font-size: 10px;
+}
+
+.ud-pm-log-item--expandable {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+    cursor: pointer;
+    padding: 10px 0;
+}
+
+.ud-pm-log-item-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.ud-pm-log-item-detail {
+    padding: 8px 12px 8px 20px;
+    font-size: 11px;
+    color: var(--ud-pm-text-dim);
+    border-left: 2px solid var(--ud-pm-border);
+    margin-left: 6px;
+    line-height: 1.6;
 }
 
 /* ─── Bulk Layout ─────────────────────────────────────────── */
