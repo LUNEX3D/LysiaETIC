@@ -59,8 +59,10 @@ router.post("/admin/cleanup-all-ghost-invoices", async (req, res) => {
 });
 
 // Tüm route'lar auth + subscription gerektirir
+const { requirePlanFeature } = require("../middlewares/planFeatureMiddleware");
 router.use(authMiddleware);
 router.use(subscriptionMiddleware);
+router.use(requirePlanFeature("e_invoice"));
 
 // ── Ayar Yönetimi ─────────────────────────────────────────────────────────
 router.get("/config", autoInvoiceController.getConfig);

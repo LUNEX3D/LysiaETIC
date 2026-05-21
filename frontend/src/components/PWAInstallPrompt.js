@@ -140,8 +140,15 @@ const PWAInstallPrompt = () => {
             {/* Chrome/Android: Native PWA Install Banner */}
             {showBanner && (
                 <div className="pwa-install-banner">
+                    <img
+                        className="pwa-install-banner-icon"
+                        src="/icons/icon-48x48.png?v=dashtock1"
+                        alt="Dashtock"
+                        width={40}
+                        height={40}
+                    />
                     <div className="pwa-install-banner-text">
-                        <strong>PazarYonet&apos;i Yükleyin</strong>
+                        <strong>Dashtock&apos;i Yükleyin</strong>
                         <span>
                             Ana ekranınıza ekleyerek daha hızlı erişim sağlayın
                         </span>
@@ -159,7 +166,7 @@ const PWAInstallPrompt = () => {
             {showIOSInstructions && (
                 <div className="pwa-ios-instructions">
                     <div className="pwa-ios-instructions-title">
-                        PazarYonet&apos;i Ana Ekrana Ekleyin
+                        Dashtock&apos;i Ana Ekrana Ekleyin
                     </div>
                     <div className="pwa-ios-step">
                         <span className="pwa-ios-step-num">1</span>

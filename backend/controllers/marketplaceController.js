@@ -4,9 +4,15 @@
  * ✅ FIX H5: Credential şifreleme aktifleştirildi
  */
 const Marketplace = require("../models/Marketplace");
+const { normalizeMarketplaceName } = require("../models/Marketplace");
 const AutoOrderConfig = require("../models/AutoOrderConfig");
 const logger = require("../config/logger");
 const { encryptCredentials, decryptCredentials } = require("../utils/encryption");
+const {
+    isAmazonMarketplaceName,
+    normalizeAmazonCredentials,
+    validateAmazonCredentials
+} = require("../services/amazon/amazonCredentialService");
 
 /** Hepsiburada useSit — DB/string/boolean karışığını tek tip boolean yap (normalizeCredentials ile uyumlu) */
 const coerceHbUseSitIncoming = (val) => {
@@ -117,6 +123,16 @@ exports.getUserMarketplaces = async (req, res) => {
                         };
                     } else if (lowName === "çiçeksepeti" || lowName === "ciceksepeti") {
                         integrationHints = { apiConfigured: !!decrypted.apiKey };
+                    } else if (isAmazonMarketplaceName(mp.marketplaceName)) {
+                        const norm = normalizeAmazonCredentials(decrypted, mp.marketplaceName);
+                        const v = validateAmazonCredentials(norm);
+                        integrationHints = {
+                            apiConfigured: v.valid,
+                            spApi: true,
+                            marketplaceId: norm.marketplaceId,
+                            region: norm.region,
+                            missingFields: v.missing
+                        };
                     }
                 } catch {
                     mpObj.credentials = {};
@@ -130,6 +146,7 @@ exports.getUserMarketplaces = async (req, res) => {
             }
 
             mpObj.integrationHints = integrationHints;
+            mpObj.marketplaceName = normalizeMarketplaceName(mpObj.marketplaceName);
             return mpObj;
         });
 
@@ -146,15 +163,25 @@ exports.getUserMarketplaces = async (req, res) => {
 exports.addMarketplace = async (req, res) => {
     try {
         const userId = req.user._id;
-        const { marketplaceName, credentials } = req.body;
+        const { marketplaceName: rawMarketplaceName, credentials } = req.body;
+        const marketplaceName = normalizeMarketplaceName(rawMarketplaceName);
 
         // **Zorunlu alan kontrolü**
         if (!marketplaceName || !credentials || Object.keys(credentials).length === 0) {
             return res.status(400).json({ message: "❌ Lütfen tüm alanları doldurun! API bilgileri eksik olabilir." });
         }
 
+        if (!Marketplace.schema.path("marketplaceName").enumValues.includes(marketplaceName)) {
+            return res.status(400).json({
+                message: `❌ "${rawMarketplaceName}" desteklenmeyen bir pazaryeri. Geçerli değerler: ${Marketplace.schema.path("marketplaceName").enumValues.join(", ")}`
+            });
+        }
+
         // Aynı kullanıcı ve pazaryeri için mevcut entegrasyon var mı kontrol et
-        const existingMarketplace = await Marketplace.findOne({ userId, marketplaceName });
+        const existingMarketplace = await Marketplace.findOne({
+            userId,
+            marketplaceName: new RegExp(`^${marketplaceName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i"),
+        });
 
         let payloadToEncrypt = credentials;
 
@@ -190,10 +217,22 @@ exports.addMarketplace = async (req, res) => {
             };
         }
 
+        if (isAmazonMarketplaceName(marketplaceName)) {
+            payloadForEncrypt = normalizeAmazonCredentials(payloadForEncrypt, marketplaceName);
+            const validation = validateAmazonCredentials(payloadForEncrypt);
+            if (!validation.valid) {
+                return res.status(400).json({
+                    message: validation.message,
+                    missing: validation.missing
+                });
+            }
+        }
+
         const encryptedCreds = encryptCredentials(payloadForEncrypt);
 
         if (existingMarketplace) {
             // Mevcut entegrasyonu güncelle
+            existingMarketplace.marketplaceName = marketplaceName;
             existingMarketplace.credentials = encryptedCreds;
             existingMarketplace.updatedAt = Date.now();
             await existingMarketplace.save();
@@ -204,6 +243,30 @@ exports.addMarketplace = async (req, res) => {
                 marketplace: existingMarketplace,
                 isUpdate: true
             });
+        }
+
+        const {
+            getEffectivePlan,
+            getLimitsForPlan,
+            isMarketplaceAllowedForPlan,
+            limitDeniedPayload,
+            featureDeniedPayload
+        } = require("../services/planFeatureService");
+
+        const plan = getEffectivePlan(req.user);
+        if (!isMarketplaceAllowedForPlan(plan, marketplaceName)) {
+            return res.status(403).json({
+                ...featureDeniedPayload("products", plan),
+                code: "PLAN_MARKETPLACE_LOCKED",
+                message: `"${marketplaceName}" entegrasyonu mevcut paketinizde (${plan}) kullanılamaz. Profesyonel veya Kurumsal pakete yükseltin.`
+            });
+        }
+
+        const mpCount = await Marketplace.countDocuments({ userId });
+        const limits = await getLimitsForPlan(plan);
+        const maxMp = limits.maxMarketplaces ?? 1;
+        if (mpCount >= maxMp) {
+            return res.status(403).json(limitDeniedPayload("maxMarketplaces", plan, mpCount, maxMp));
         }
 
         // Yeni entegrasyon oluştur
@@ -263,6 +326,17 @@ exports.updateMarketplace = async (req, res) => {
         }
         if (String(existing.marketplaceName || "").trim().toLowerCase() === "hepsiburada") {
             merged = { ...merged, useSit: coerceHbUseSitIncoming(merged.useSit) };
+        }
+
+        if (isAmazonMarketplaceName(existing.marketplaceName)) {
+            merged = normalizeAmazonCredentials(merged, existing.marketplaceName);
+            const validation = validateAmazonCredentials(merged);
+            if (!validation.valid) {
+                return res.status(400).json({
+                    message: validation.message,
+                    missing: validation.missing
+                });
+            }
         }
 
         const encryptedCreds = encryptCredentials(merged);

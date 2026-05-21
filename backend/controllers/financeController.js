@@ -1,6 +1,10 @@
 const logger = require("../config/logger");
 const Marketplace = require("../models/Marketplace");
+const Order = require("../models/Order");
 const { decryptCredentials } = require("../utils/encryption");
+const { getProductProfitAnalysis } = require("../services/financeProfitService");
+const { fetchHepsiburadaOrders } = require("../services/ordersService");
+const ciceksepetiService = require("../services/ciceksepeti/ciceksepetiService");
 const axios = require("axios");
 
 
@@ -15,6 +19,162 @@ const toTimestamp = (val) => {
 };
 
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+const TWO_WEEKS_MS = 14 * 24 * 60 * 60 * 1000;
+
+const isReturnStatus = (status = "") => /cancel|return|refund|iptal|iade/i.test(String(status));
+
+const filterSettlementsInRange = (settlements, start, end) =>
+    settlements.filter((s) => {
+        const t = new Date(s.transactionDate).getTime();
+        return !Number.isNaN(t) && t >= start && t <= end;
+    });
+
+const buildSettlementRow = ({
+    id, orderNumber, transactionDate, barcode, productName,
+    lineTotal, commissionAmount = 0, commissionRate = 0, isReturn = false,
+}) => ({
+    id: String(id),
+    transactionDate,
+    barcode: barcode || "-",
+    transactionType: isReturn ? "Return" : "Sale",
+    description: isReturn ? "Iade" : "Satis",
+    debt: isReturn ? lineTotal : 0,
+    credit: isReturn ? 0 : lineTotal,
+    commissionRate,
+    commissionAmount,
+    sellerRevenue: isReturn ? -(lineTotal - commissionAmount) : (lineTotal - commissionAmount),
+    orderNumber: String(orderNumber || ""),
+    paymentDate: null,
+    productName: productName || "",
+});
+
+const hepsiburadaOrdersToSettlements = (orders = []) => {
+    const settlements = [];
+    orders.forEach((order) => {
+        const orderNum = order.orderNumber || order.id || "hb";
+        const txDate = order.orderDate || order.createdDate;
+        const isReturn = isReturnStatus(order.status);
+        const products = Array.isArray(order.products) ? order.products : [];
+
+        if (products.length === 0) {
+            const lineTotal = Number(order.totalPrice) || 0;
+            if (lineTotal <= 0) return;
+            settlements.push(buildSettlementRow({
+                id: `${orderNum}-0`,
+                orderNumber: orderNum,
+                transactionDate: txDate,
+                lineTotal,
+                isReturn,
+            }));
+            return;
+        }
+
+        products.forEach((p, idx) => {
+            const qty = Number(p.quantity || 1);
+            const unit = Number(p.price) || 0;
+            const lineTotal = unit > 0 && qty > 1 ? unit * qty : (unit || Number(order.totalPrice) || 0);
+            if (lineTotal <= 0) return;
+            const commissionAmount = Number(p.commissionAmount || 0);
+            settlements.push(buildSettlementRow({
+                id: `${orderNum}-${idx}`,
+                orderNumber: orderNum,
+                transactionDate: txDate,
+                barcode: p.barcode || p.sku || "",
+                productName: p.productName || p.name || "",
+                lineTotal,
+                commissionAmount,
+                isReturn,
+            }));
+        });
+    });
+    return settlements;
+};
+
+const cicekSepetiOrderToSettlement = (order) => {
+    const totalPrice = Number(order.totalPrice || order.itemPrice || 0);
+    const itemPrice = Number(order.itemPrice || order.totalPrice || 0);
+    const quantity = Number(order.quantity || 1);
+    const lineTotal = itemPrice * quantity || totalPrice;
+    if (lineTotal <= 0) return null;
+
+    const commissionRate = Number(order.commissionRate || 0);
+    const commissionAmount = commissionRate > 0 ? lineTotal * (commissionRate / 100) : 0;
+    const status = String(order.orderProductStatus || order.status || "");
+    const isReturn = isReturnStatus(status);
+
+    let transactionDate = null;
+    if (order.orderCreateDate && order.orderCreateTime) {
+        const parts = String(order.orderCreateDate).split(/[./]/);
+        if (parts.length === 3) {
+            const pad = (x) => String(x).padStart(2, "0");
+            const tStr = String(order.orderCreateTime).trim();
+            transactionDate = `${parts[2]}-${pad(parts[1])}-${pad(parts[0])}T${tStr.length === 5 ? `${tStr}:00` : tStr}`;
+        } else {
+            transactionDate = `${order.orderCreateDate} ${order.orderCreateTime}`;
+        }
+    } else {
+        transactionDate = order.orderDate || order.orderCreateDate || order.createdDate;
+    }
+
+    return buildSettlementRow({
+        id: order.orderItemId || order.orderId || order.orderNo,
+        orderNumber: order.orderId || order.orderNo || order.orderNumber,
+        transactionDate,
+        barcode: order.barcode || order.productCode || order.code || order.stockCode,
+        productName: order.name || order.productName,
+        lineTotal,
+        commissionRate,
+        commissionAmount,
+        isReturn,
+    });
+};
+
+const settlementsFromDbOrders = async (userId, marketplaceName, start, end) => {
+    const escaped = String(marketplaceName || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const orders = await Order.find({
+        user: userId,
+        marketplaceName: new RegExp(`^${escaped}$`, "i"),
+        orderDate: { $gte: new Date(start), $lte: new Date(end) },
+    })
+        .select("totalPrice orderDate status orderNumber items trackingNumber")
+        .lean();
+
+    const settlements = [];
+    orders.forEach((order) => {
+        const isReturn = isReturnStatus(order.status) || order.isReturned || order.isCancelled;
+        const items = Array.isArray(order.items) ? order.items : [];
+        if (items.length === 0) {
+            const lineTotal = Number(order.totalPrice) || 0;
+            if (lineTotal <= 0) return;
+            settlements.push(buildSettlementRow({
+                id: `${order.orderNumber || order._id}-0`,
+                orderNumber: order.orderNumber || order.trackingNumber,
+                transactionDate: order.orderDate,
+                lineTotal,
+                isReturn,
+            }));
+            return;
+        }
+        items.forEach((item, idx) => {
+            const qty = Number(item.quantity || 1);
+            const lineTotal = (Number(item.price) || 0) * qty;
+            if (lineTotal <= 0) return;
+            settlements.push(buildSettlementRow({
+                id: `${order.orderNumber || order._id}-${idx}`,
+                orderNumber: order.orderNumber,
+                transactionDate: order.orderDate,
+                barcode: item.barcode || item.sku,
+                productName: item.productName,
+                lineTotal,
+                commissionAmount: Number(item.commissionAmount || 0),
+                commissionRate: Number(item.commissionRate || 0),
+                isReturn,
+            }));
+        });
+    });
+    return settlements;
+};
 
 const getMarketplaceDecrypted = async (userId, marketplaceId, marketplaceName) => {
     let mp;
@@ -216,7 +376,39 @@ exports.getTrendyolCargoInvoiceItems = async (req, res) => {
     }
 };
 
-// --- 4. Unified Finance Summary (tek marketplace veya tumu) ---
+// --- 4. Ürün bazlı kâr/zarar (sipariş + maliyet + komisyon + kargo + paketleme) ---
+
+exports.getProductProfitAnalysis = async (req, res) => {
+    try {
+        const userId = req.user._id;
+        const { startDate, endDate, marketplaceId, sortBy, limit } = req.query;
+
+        if (!startDate || !endDate) {
+            return res.status(400).json({ success: false, message: "startDate ve endDate zorunludur." });
+        }
+
+        const start = new Date(Number(startDate) || startDate);
+        const end = new Date(Number(endDate) || endDate);
+        if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+            return res.status(400).json({ success: false, message: "Gecersiz tarih formati." });
+        }
+        end.setHours(23, 59, 59, 999);
+        start.setHours(0, 0, 0, 0);
+
+        const data = await getProductProfitAnalysis(userId, start, end, {
+            marketplaceId,
+            sortBy,
+            limit,
+        });
+
+        res.json({ success: true, data });
+    } catch (err) {
+        logger.error("[Finance] Product profit analysis hatasi:", err.message);
+        res.status(500).json({ success: false, message: err.message });
+    }
+};
+
+// --- 5. Unified Finance Summary (tek marketplace veya tumu) ---
 
 exports.getFinanceSummary = async (req, res) => {
     try {
@@ -269,7 +461,7 @@ exports.getFinanceSummary = async (req, res) => {
                     results[name] = { marketplaceId: mp._id, marketplaceName: name, settlements: allSettlements, otherFinancials: allOthers, supported: true };
 
                 } else if (/hepsiburada/i.test(name)) {
-                    const hbFinance = await fetchHepsiburadaFinance(mp, start, end);
+                    const hbFinance = await fetchHepsiburadaFinance(mp, start, end, userId);
                     results[name] = { marketplaceId: mp._id, marketplaceName: name, ...hbFinance, supported: hbFinance.supported !== false };
 
                 } else if (/n11/i.test(name)) {
@@ -277,7 +469,7 @@ exports.getFinanceSummary = async (req, res) => {
                     results[name] = { marketplaceId: mp._id, marketplaceName: name, ...n11Finance, supported: n11Finance.supported !== false };
 
                 } else if (/[cç]i[cç]eksepeti/i.test(name)) {
-                    const csFinance = await fetchCicekSepetiFinance(mp, start, end);
+                    const csFinance = await fetchCicekSepetiFinance(mp, start, end, userId);
                     results[name] = { marketplaceId: mp._id, marketplaceName: name, ...csFinance, supported: csFinance.supported !== false };
 
                 } else if (/amazon/i.test(name)) {
@@ -308,164 +500,44 @@ exports.getFinanceSummary = async (req, res) => {
 // Credentials: { merchantId, secretKey, userAgent }
 // ═══════════════════════════════════════════════════════════════════════
 
-const fetchHepsiburadaFinance = async (mp, start, end) => {
+const fetchHepsiburadaFinance = async (mp, start, end, userId) => {
     try {
-        const { normalizeCredentials, getHeaders, getEndpoints } = require("../services/hepsiburadaService");
+        const { normalizeCredentials } = require("../services/hepsiburadaService");
         const hbCreds = normalizeCredentials(mp.credentials);
-        const { merchantId, secretKey, userAgent } = hbCreds;
+        const { merchantId, secretKey, userAgent, useSit } = hbCreds;
 
         if (!merchantId || !secretKey) {
             return { settlements: [], otherFinancials: [], supported: false, message: "Hepsiburada API kimlik bilgileri eksik (merchantId + secretKey gerekli)." };
         }
 
-        const moment = require("moment");
-        const formattedStartDate = moment(start).format("YYYY-MM-DD HH:mm:ss");
-        const formattedEndDate = moment(end).format("YYYY-MM-DD HH:mm:ss");
+        let settlements = [];
+        let source = "api";
 
-        const headers = getHeaders(merchantId, secretKey, userAgent);
-        const ep = getEndpoints(hbCreds);
-
-        // SIT/Production ortamına göre dinamik endpoint — OMS üzerinden sipariş çekme
-        // Hepsiburada farklı statüdeki siparişleri farklı endpoint'lerden döner
-        // Orders: limit max 100, Packages: limit max 50
-        const OMS_BASE = ep.OMS;
-
-        let allOrders = [];
-        let apiWorked = false;
-
-        // ── Yardımcı: Bir endpoint'ten pagination ile sipariş çek ──
-        const fetchFinanceEndpoint = async (endpointUrl, label, maxLimit) => {
-            let offset = 0;
-            const limit = maxLimit || 100;
-            let hasMore = true;
-
-            while (hasMore) {
-                try {
-                    const url = endpointUrl.includes('?')
-                        ? `${endpointUrl}&offset=${offset}&limit=${limit}`
-                        : `${endpointUrl}?offset=${offset}&limit=${limit}`;
-
-                    logger.info("[Finance] Hepsiburada " + label + " offset=" + offset);
-
-                    const resp = await axios.get(url, { headers: headers, timeout: 30000 });
-                    const orders = resp.data?.items || resp.data?.orders || resp.data?.data || resp.data?.content || [];
-                    if (!Array.isArray(orders) || orders.length === 0) {
-                        hasMore = false;
-                    } else {
-                        // Packages endpoint: her paket içinde items[] var — düzleştir
-                        orders.forEach(function(order) {
-                            const subItems = order.items || [];
-                            if (subItems.length > 0) {
-                                // Paket bazlı — her sub-item'ı ayrı order satırı olarak ekle
-                                subItems.forEach(function(sub) {
-                                    allOrders.push(Object.assign({}, sub, {
-                                        orderNumber: sub.orderNumber || order.orderNumber || order.id,
-                                        orderDate: sub.orderDate || order.orderDate,
-                                        status: sub.status || order.status || label,
-                                        cargoCompany: order.cargoCompany || '',
-                                        packageNumber: order.packageNumber || ''
-                                    }));
-                                });
-                            } else {
-                                allOrders.push(order);
-                            }
-                        });
-                        apiWorked = true;
-                        if (orders.length < limit) { hasMore = false; } else { offset += orders.length; }
-                        await sleep(300);
-                    }
-                } catch (e) {
-                    if (e.response?.status === 401 || e.response?.status === 403) {
-                        logger.warn("[Finance] Hepsiburada " + label + " auth hatasi: " + e.message);
-                    } else if (e.response?.status !== 404) {
-                        logger.warn("[Finance] Hepsiburada " + label + " hatasi: " + (e.response?.status || e.message));
-                    }
-                    hasMore = false;
-                }
-            }
-        };
-
-        const encStart = encodeURIComponent(formattedStartDate);
-        const encEnd = encodeURIComponent(formattedEndDate);
-
-        // 1) Ödemesi tamamlanmış (Open) — limit max 100
-        await fetchFinanceEndpoint(
-            `${OMS_BASE}/orders/merchantid/${merchantId}?begindate=${encStart}&enddate=${encEnd}`,
-            "Orders", 100
-        );
-
-        // 2) Paketlenmiş — timespan=720 (30 gün saat), limit max 50
-        await fetchFinanceEndpoint(
-            `${OMS_BASE}/packages/merchantid/${merchantId}?timespan=720`,
-            "Packages", 50
-        );
-
-        // 3) Kargoya verilmiş — son 30 gün
-        const shipStart = encodeURIComponent(moment(end).subtract(30, 'days').format("YYYY-MM-DD HH:mm:ss"));
-        const shipEnd = encodeURIComponent(moment(end).format("YYYY-MM-DD HH:mm:ss"));
-        await fetchFinanceEndpoint(
-            `${OMS_BASE}/packages/merchantid/${merchantId}/shipped?begindate=${shipStart}&enddate=${shipEnd}`,
-            "Shipped", 50
-        );
-
-        // 4) Teslim edilmiş — son 30 gün
-        await fetchFinanceEndpoint(
-            `${OMS_BASE}/packages/merchantid/${merchantId}/delivered?begindate=${shipStart}&enddate=${shipEnd}`,
-            "Delivered", 50
-        );
-
-        // 5) İptal edilmiş — son 30 gün
-        await fetchFinanceEndpoint(
-            `${OMS_BASE}/packages/merchantid/${merchantId}/cancelled?begindate=${shipStart}&enddate=${shipEnd}`,
-            "Cancelled", 50
-        );
-
-        if (allOrders.length === 0 && !apiWorked) {
-            logger.warn("[Finance] Hepsiburada: Hic siparis cekilemedi, tum endpoint'ler basarisiz.");
+        try {
+            const orders = await fetchHepsiburadaOrders(
+                merchantId,
+                secretKey,
+                start,
+                end,
+                userAgent,
+                !!useSit
+            );
+            settlements = filterSettlementsInRange(
+                hepsiburadaOrdersToSettlements(orders),
+                start,
+                end
+            );
+        } catch (apiErr) {
+            logger.warn("[Finance] Hepsiburada API: " + apiErr.message);
         }
 
-        // Tekrar eden siparisleri temizle
-        const uniqueMap = new Map();
-        allOrders.forEach(function(order) {
-            const key = order.orderNumber || order.merchantOrderNumber || order.id;
-            if (key && !uniqueMap.has(key)) uniqueMap.set(key, order);
-        });
-        const uniqueOrders = Array.from(uniqueMap.values());
+        if (settlements.length === 0 && userId) {
+            settlements = await settlementsFromDbOrders(userId, mp.marketplaceName || "Hepsiburada", start, end);
+            if (settlements.length > 0) source = "database";
+        }
 
-        // Siparisleri settlement formatina donustur
-        const settlements = [];
-        uniqueOrders.forEach(function(order) {
-            // Hepsiburada siparis yapisi: items veya orderItems array'i icerir
-            const items = order.items || order.orderItems || [order];
-            items.forEach(function(item) {
-                const unitPrice = Number(item.price || item.unitPrice || 0);
-                const quantity = Number(item.quantity || 1);
-                const totalPrice = unitPrice * quantity || Number(order.totalPrice || order.totalAmount || order.grandTotal || 0);
-                const commissionRate = Number(item.commissionRate || order.commissionRate || 0);
-                const commissionAmount = commissionRate > 0 ? totalPrice * (commissionRate / 100) : 0;
-                const status = String(item.status || order.status || "").toUpperCase();
-                const isReturn = /CANCEL|RETURN|REFUND|IPTAL|IADE/i.test(status);
-
-                settlements.push({
-                    id: (order.orderNumber || order.merchantOrderNumber || order.id) + "-" + (item.sku || item.merchantSku || item.id || "0"),
-                    transactionDate: order.orderDate || order.createdDate || order.orderCreatedDate,
-                    barcode: item.sku || item.merchantSku || item.barcode || "-",
-                    transactionType: isReturn ? "Return" : "Sale",
-                    description: isReturn ? "Iade" : "Satis",
-                    debt: isReturn ? totalPrice : 0,
-                    credit: isReturn ? 0 : totalPrice,
-                    commissionRate: commissionRate,
-                    commissionAmount: commissionAmount,
-                    sellerRevenue: isReturn ? -(totalPrice - commissionAmount) : (totalPrice - commissionAmount),
-                    orderNumber: order.orderNumber || order.merchantOrderNumber || order.id,
-                    paymentDate: order.paymentDate || null,
-                    productName: item.productName || item.name || item.title || ""
-                });
-            });
-        });
-
-        logger.info("[Finance] Hepsiburada verileri cekildi - " + settlements.length + " islem (" + uniqueOrders.length + " siparis)");
-        return { settlements: settlements, otherFinancials: [] };
+        logger.info("[Finance] Hepsiburada — " + settlements.length + " islem (kaynak: " + source + ")");
+        return { settlements, otherFinancials: [], source };
     } catch (err) {
         logger.error("[Finance] Hepsiburada finans hatasi: " + err.message);
         return { settlements: [], otherFinancials: [], supported: false, error: err.message };
@@ -633,124 +705,69 @@ const fetchN11Finance = async (mp, start, end) => {
 //   itemPrice, orderProductStatus, name, barcode, quantity, productCode
 // ═══════════════════════════════════════════════════════════════════════
 
-const fetchCicekSepetiFinance = async (mp, start, end) => {
+const fetchCicekSepetiFinance = async (mp, start, end, userId) => {
     try {
-        const { apiKey, sellerId, integratorName } = mp.credentials || {};
+        const { apiKey, sellerId, integratorName, isTestMode } = mp.credentials || {};
 
         if (!apiKey) {
             return { settlements: [], otherFinancials: [], supported: false, message: "CicekSepeti API kimlik bilgileri eksik (apiKey gerekli)." };
         }
 
-        // HTTP header'lari sadece ASCII kabul eder
-        const cleanSellerId = String(sellerId || "").replace(/[^\x00-\x7F]/g, "");
-        const cleanIntegrator = integratorName ? String(integratorName).replace(/[^\x00-\x7F]/g, "") : "";
-        const userAgent = cleanIntegrator ? cleanSellerId + " - " + cleanIntegrator : cleanSellerId;
-
-        const headers = {
-            "x-api-key": apiKey,
-            "user-agent": userAgent || "CicekSepetiIntegration",
-            "Content-Type": "application/json"
-        };
-
-        // CicekSepeti max 2 hafta tarih araligi destekliyor — chunk'la
-        const TWO_WEEKS_MS = 14 * 24 * 60 * 60 * 1000;
+        const creds = { apiKey, sellerId, integratorName, isTestMode: !!isTestMode };
         let allOrders = [];
         let curStart = start;
 
         while (curStart < end) {
             const chunkEnd = Math.min(curStart + TWO_WEEKS_MS, end);
-            const startDateISO = new Date(curStart).toISOString();
-            const endDateISO = new Date(chunkEnd).toISOString();
-
             let page = 0;
             let hasMore = true;
 
             while (hasMore) {
-                try {
-                    const resp = await axios.post("https://apis.ciceksepeti.com/api/v1/Order/GetOrders", {
-                        startDate: startDateISO,
-                        endDate: endDateISO,
-                        pageSize: 100,
-                        page: page
-                    }, {
-                        headers: headers,
-                        timeout: 30000
-                    });
+                const result = await ciceksepetiService.getOrders(creds, {
+                    startDate: new Date(curStart).toISOString(),
+                    endDate: new Date(chunkEnd).toISOString(),
+                    pageSize: 100,
+                    page,
+                });
 
-                    const orders = resp.data?.supplierOrderListWithBranch || [];
-                    if (orders.length === 0) {
-                        hasMore = false;
-                    } else {
-                        allOrders = allOrders.concat(orders);
-                        page++;
-                        if (orders.length < 100) hasMore = false;
-                    }
-                } catch (e) {
-                    if (e.response?.status === 401) {
-                        logger.error("[Finance] CicekSepeti auth hatasi: " + e.message);
+                if (!result.success) {
+                    if (/gecersiz|invalid|401|unauthorized/i.test(String(result.error || ""))) {
                         return { settlements: [], otherFinancials: [], supported: false, message: "CicekSepeti API Key gecersiz." };
                     }
-                    if (e.response?.status === 429) {
-                        logger.warn("[Finance] CicekSepeti rate limit, 60sn bekleniyor...");
-                        await sleep(60000);
-                        continue;
-                    }
-                    logger.warn("[Finance] CicekSepeti siparis cekme hatasi: " + e.message);
+                    logger.warn("[Finance] CicekSepeti: " + (result.error || "bilinmeyen hata"));
                     hasMore = false;
+                    break;
                 }
 
-                // Rate limit: farkli request body ile 5 saniyede 1 kez
-                if (hasMore) await sleep(5000);
+                const orders = result.orders || [];
+                if (orders.length === 0) {
+                    hasMore = false;
+                } else {
+                    allOrders = allOrders.concat(orders);
+                    page += 1;
+                    if (orders.length < 100) hasMore = false;
+                    else await sleep(5000);
+                }
             }
 
             curStart = chunkEnd + 1;
+            if (curStart < end) await sleep(5000);
         }
 
-        // CicekSepeti siparis yapisini settlement formatina donustur
-        // Her siparis bir urun satiri (flat structure)
-        const settlements = allOrders.map(function(order) {
-            const totalPrice = Number(order.totalPrice || order.itemPrice || 0);
-            const itemPrice = Number(order.itemPrice || order.totalPrice || 0);
-            const quantity = Number(order.quantity || 1);
-            const lineTotal = itemPrice * quantity || totalPrice;
-            const commissionRate = Number(order.commissionRate || 0);
-            const commissionAmount = commissionRate > 0 ? lineTotal * (commissionRate / 100) : 0;
-            const status = String(order.orderProductStatus || order.status || "");
-            const isReturn = /iade|iptal|cancel|return|refund/i.test(status);
+        let settlements = filterSettlementsInRange(
+            allOrders.map(cicekSepetiOrderToSettlement).filter(Boolean),
+            start,
+            end
+        );
 
-            // Tarih: orderCreateDate (DD/MM/YYYY) + orderCreateTime (HH:mm)
-            let transactionDate = null;
-            if (order.orderCreateDate && order.orderCreateTime) {
-                // DD/MM/YYYY HH:mm -> ISO
-                const parts = order.orderCreateDate.split("/");
-                if (parts.length === 3) {
-                    transactionDate = parts[2] + "-" + parts[1] + "-" + parts[0] + "T" + order.orderCreateTime + ":00";
-                } else {
-                    transactionDate = order.orderCreateDate + " " + order.orderCreateTime;
-                }
-            } else {
-                transactionDate = order.orderCreateDate || order.orderDate || order.createdDate;
-            }
+        let source = "api";
+        if (settlements.length === 0 && userId) {
+            settlements = await settlementsFromDbOrders(userId, mp.marketplaceName || "ÇiçekSepeti", start, end);
+            if (settlements.length > 0) source = "database";
+        }
 
-            return {
-                id: String(order.orderItemId || order.orderId || order.orderNo || ""),
-                transactionDate: transactionDate,
-                barcode: order.barcode || order.productCode || order.code || order.stockCode || "-",
-                transactionType: isReturn ? "Return" : "Sale",
-                description: isReturn ? "Iade" : "Satis",
-                debt: isReturn ? lineTotal : 0,
-                credit: isReturn ? 0 : lineTotal,
-                commissionRate: commissionRate,
-                commissionAmount: commissionAmount,
-                sellerRevenue: isReturn ? -(lineTotal - commissionAmount) : (lineTotal - commissionAmount),
-                orderNumber: String(order.orderId || order.orderNo || order.orderNumber || ""),
-                paymentDate: null,
-                productName: order.name || order.productName || ""
-            };
-        });
-
-        logger.info("[Finance] CicekSepeti verileri cekildi - " + settlements.length + " islem");
-        return { settlements: settlements, otherFinancials: [] };
+        logger.info("[Finance] CicekSepeti — " + settlements.length + " islem (kaynak: " + source + ")");
+        return { settlements, otherFinancials: [], source };
     } catch (err) {
         logger.error("[Finance] CicekSepeti finans hatasi: " + err.message);
         return { settlements: [], otherFinancials: [], supported: false, error: err.message };
@@ -767,83 +784,36 @@ const fetchCicekSepetiFinance = async (mp, start, end) => {
 const fetchAmazonFinance = async (mp, start, end) => {
     try {
         const {
-            marketplaceId: amzMpId,
-            refreshToken,
-            clientId,
-            clientSecret,
-            accessKeyId,
-            secretAccessKey,
-            sessionToken
-        } = mp.credentials || {};
+            normalizeAmazonCredentials,
+            validateAmazonCredentials
+        } = require("../services/amazon/amazonCredentialService");
+        const amazonSpApi = require("../services/amazon/amazonSpApiService");
 
-        if (!refreshToken || !clientId || !clientSecret || !accessKeyId || !secretAccessKey) {
-            return { settlements: [], otherFinancials: [], supported: false, message: "Amazon API kimlik bilgileri eksik." };
-        }
-
-        // LWA Token al
-        let accessToken;
-        try {
-            const qs = require("querystring");
-            const tokenBody = qs.stringify({
-                grant_type: "refresh_token",
-                refresh_token: refreshToken,
-                client_id: clientId,
-                client_secret: clientSecret
-            });
-            const tokenResp = await axios.post("https://api.amazon.com/auth/o2/token", tokenBody, {
-                headers: { "Content-Type": "application/x-www-form-urlencoded" },
-                timeout: 15000
-            });
-            accessToken = tokenResp.data?.access_token;
-        } catch (tokenErr) {
-            logger.error("[Finance] Amazon LWA token hatasi: " + tokenErr.message);
-            return { settlements: [], otherFinancials: [], supported: false, message: "Amazon token alinamadi: " + tokenErr.message };
-        }
-
-        if (!accessToken) {
-            return { settlements: [], otherFinancials: [], supported: false, message: "Amazon access token alinamadi." };
+        const creds = normalizeAmazonCredentials(mp.credentials, mp.marketplaceName);
+        const validation = validateAmazonCredentials(creds);
+        if (!validation.valid) {
+            return {
+                settlements: [],
+                otherFinancials: [],
+                supported: false,
+                message: validation.message
+            };
         }
 
         const createdAfter = new Date(start).toISOString();
         const createdBefore = new Date(end).toISOString();
-        const mpId = amzMpId || process.env.AMAZON_MARKETPLACE_ID || "A33AVAJ2PDY3EV"; // TR marketplace
-        const host = process.env.AMAZON_API_HOST || "sellingpartnerapi-eu.amazon.com";
-        const region = process.env.AMAZON_REGION || "eu-west-1";
 
-        let aws4;
-        try {
-            aws4 = require("aws4");
-        } catch (e) {
-            logger.warn("[Finance] aws4 modulu bulunamadi, Amazon finans desteklenmiyor.");
-            return { settlements: [], otherFinancials: [], supported: false, message: "Amazon icin aws4 modulu gerekli." };
+        const result = await amazonSpApi.getAllOrders(creds, { createdAfter, createdBefore });
+        if (!result.success) {
+            return {
+                settlements: [],
+                otherFinancials: [],
+                supported: false,
+                message: result.error || "Amazon sipariş verisi alınamadı"
+            };
         }
 
-        const qs = require("querystring");
-        const query = qs.stringify({
-            MarketplaceIds: mpId,
-            CreatedAfter: createdAfter,
-            CreatedBefore: createdBefore
-        });
-        const path = "/orders/v0/orders?" + query;
-
-        const opts = {
-            host: host,
-            path: path,
-            service: "execute-api",
-            region: region,
-            method: "GET",
-            headers: { "x-amz-access-token": accessToken }
-        };
-        const signed = aws4.sign(opts, { accessKeyId, secretAccessKey, sessionToken });
-
-        const result = await axios({
-            url: "https://" + host + path,
-            method: "GET",
-            headers: signed.headers,
-            timeout: 15000
-        });
-
-        const orders = Array.isArray(result.data?.Orders) ? result.data.Orders : [];
+        const orders = Array.isArray(result.orders) ? result.orders : [];
 
         const settlements = orders.map(function(o) {
             const totalPrice = Number(o.OrderTotal?.Amount || 0);
@@ -868,7 +838,7 @@ const fetchAmazonFinance = async (mp, start, end) => {
         });
 
         logger.info("[Finance] Amazon verileri cekildi - " + settlements.length + " islem");
-        return { settlements: settlements, otherFinancials: [] };
+        return { settlements, otherFinancials: [], supported: true };
     } catch (err) {
         logger.error("[Finance] Amazon finans hatasi: " + err.message);
         return { settlements: [], otherFinancials: [], supported: false, error: err.message };

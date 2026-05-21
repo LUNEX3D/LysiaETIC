@@ -103,7 +103,7 @@ const ProductMappingSchema = new mongoose.Schema({
         lastSyncDate: { type: Date },
         syncStatus: {
             type: String,
-            enum: ["pending", "syncing", "synced", "error"],
+            enum: ["pending", "syncing", "synced", "error", "pulled"],
             default: "pending"
         },
         syncError: { type: String },
@@ -263,6 +263,8 @@ ProductMappingSchema.pre("save", function(next) {
     try {
         this.syncMasterStockFields();
         this.updateStockStatus();
+        const { alignAllMarketplaceIdentitiesFromMaster } = require("../utils/productFieldCompare");
+        alignAllMarketplaceIdentitiesFromMaster(this);
     } catch (e) {
         return next(e);
     }

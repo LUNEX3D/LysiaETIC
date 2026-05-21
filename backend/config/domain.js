@@ -1,8 +1,8 @@
 /**
- * PazarYonet — alan adı ve CORS origin merkezi yapılandırması
+ * Dashtock — alan adı ve CORS origin merkezi yapılandırması
  * APP_URL / APP_DOMAIN .env üzerinden override edilebilir
  */
-const APP_DOMAIN = (process.env.APP_DOMAIN || "pazaryonet.com").replace(/^https?:\/\//, "").replace(/\/$/, "");
+const APP_DOMAIN = (process.env.APP_DOMAIN || "dashtock.com").replace(/^https?:\/\//, "").replace(/\/$/, "");
 
 const APP_URL = (process.env.APP_URL || `https://${APP_DOMAIN}`).replace(/\/$/, "");
 
@@ -35,17 +35,10 @@ function buildLocalDevOrigins() {
 
 const LOCAL_DEV_ORIGINS = buildLocalDevOrigins();
 
-/** Eski / geçiş dönemi domain ve sunucu IP */
+/** Sunucu IP (doğrudan API erişimi) — pazaryonet domainleri CORS'ta yok */
 const LEGACY_ORIGINS = [
     "https://13.51.158.124",
     "http://13.51.158.124",
-    ...originsForHost("pazaryonetim.com"),
-    ...originsForHost("pazaryönetim.com"),
-    "https://xn--pazarynetim-wfb.com",
-    "https://www.xn--pazarynetim-wfb.com",
-    "http://xn--pazarynetim-wfb.com",
-    "http://www.xn--pazarynetim-wfb.com",
-    ...originsForHost("lunexetic.com"),
 ];
 
 function getCorsAllowedOrigins() {

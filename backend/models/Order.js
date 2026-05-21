@@ -119,6 +119,7 @@ const OrderSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 OrderSchema.index({ user: 1, orderDate: -1 });
+OrderSchema.index({ user: 1, orderDate: -1, marketplaceName: 1 });
 OrderSchema.index({ user: 1, marketplaceName: 1 });
 OrderSchema.index({ user: 1, status: 1 });
 

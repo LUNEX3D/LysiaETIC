@@ -31,6 +31,7 @@ router.delete("/products/:productId", controller.deleteProduct);
 // ═══════════════════════════════════════════════════════════════
 router.get("/sync/job/:jobId", controller.getSyncJobStatus);
 router.post("/sync/from-marketplace", controller.syncFromMarketplace);
+router.post("/products/import-from-marketplace", controller.importMarketplaceProduct);
 router.post("/sync/distribute", controller.distributeProduct);
 router.post("/sync/bulk-distribute", controller.bulkDistribute);
 router.post("/sync/stock", controller.syncStock);
@@ -43,6 +44,7 @@ router.post("/sync/check-pending",   controller.checkPendingTasks);
 // 🚀 ÜRÜN YÜKLE & DAĞIT
 // ═══════════════════════════════════════════════════════════════
 router.post("/products/create-and-distribute", controller.createAndDistribute);
+router.post("/products/create-variants-and-distribute", controller.createVariantsAndDistribute);
 router.post(
     "/products/upload-image",
     (req, res, next) => {
@@ -77,6 +79,7 @@ router.get("/field-audit",                     controller.getFieldAuditList);
 router.get("/products/:productId/field-audit", controller.getProductFieldAudit);
 router.post("/products/:productId/refresh-field-audit", controller.refreshProductFieldAudit);
 router.post("/products/:productId/apply-platform-field", controller.applyPlatformField);
+router.post("/products/:productId/apply-master-to-platform", controller.applyMasterToPlatformField);
 router.post("/sync/bulk-distribute-selected",  controller.bulkDistributeSelected);
 router.post("/sync/distribute-undistributed",  controller.distributeUndistributed);
 
@@ -129,6 +132,7 @@ router.get("/variant-groups",                      variantGroupController.listVa
 router.get("/variant-groups/:groupId",             variantGroupController.getVariantGroup);
 router.post("/variant-groups",                     variantGroupController.createVariantGroup);
 router.patch("/variant-groups/:groupId",           variantGroupController.updateVariantGroup);
+router.post("/variant-groups/:groupId/apply-product-main-id", variantGroupController.applyVariantGroupProductMainId);
 router.post("/variant-groups/:groupId/members",    variantGroupController.addVariantGroupMembers);
 router.post("/variant-groups/:groupId/members/remove", variantGroupController.removeVariantGroupMembers);
 router.delete("/variant-groups/:groupId",         variantGroupController.deleteVariantGroup);

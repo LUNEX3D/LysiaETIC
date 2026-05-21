@@ -19,6 +19,7 @@ const logger = require("../../config/logger");
 const ProductMapping = require("../../models/ProductMapping");
 const googleTrendsService = require("./googleTrendsService");
 const amazonRadarService = require("./amazonRadarService");
+const { buildBalancedCoreKeywords, classifyNicheCluster } = require("./nicheClusterService");
 
 /** Deterministic shuffle — aynı gün aynı kullanıcıya “tek tip liste” üretmez; SerpAPI çağrısından bağımsız çeşitlilik */
 function hashString32(str) {
@@ -128,10 +129,18 @@ async function extractKeywords(userId, opts = {}) {
             .slice(0, 20)
             .map(([w]) => w);
 
-        // ── 3. Kullanıcı keyword'leri (2-gram) ──
-        const userKeywords = generateNGrams(products.map(p => p.masterProduct?.name || ""), topWords);
+        const dayKey = new Date().toISOString().slice(0, 10);
+        const rotationSlot = Math.floor(Date.now() / (3 * 60 * 60 * 1000));
+        const shuffleSalt = opts.shuffleSalt != null ? String(opts.shuffleSalt) : "";
+        const seed = `${userId}|${dayKey}|slot${rotationSlot}|${shuffleSalt}|radar-kw-v3`;
 
-        // ── 4. Kategori bazlı keyword'ler ──
+        const balanced = buildBalancedCoreKeywords(products, seed, deterministicShuffle);
+        const userKeywords = generateNGrams(
+            products.map((p) => p.masterProduct?.name || ""),
+            topWords
+        );
+
+        // ── 4. Kategori bazlı keyword'ler (tüm katalog) ──
         const categoryKeywords = generateCategoryKeywords([...categories]);
 
         // ── 5. Mevsimsel trend keyword'leri ──
@@ -180,11 +189,14 @@ async function extractKeywords(userId, opts = {}) {
         }
 
         // ── 9. Birleştir: önce kullanıcıya özel çekirdek, sonra harici havuzu kullanıcı+gün+tuz ile karıştır ──
-        const dayKey = new Date().toISOString().slice(0, 10);
-        const shuffleSalt = opts.shuffleSalt != null ? String(opts.shuffleSalt) : "";
-        const seed = `${userId}|${dayKey}|${shuffleSalt}|radar-kw-v2`;
-
-        const prioritizedCore = [...new Set([...userKeywords, ...categoryKeywords])];
+        const corePool = [
+            ...new Set([
+                ...balanced.coreKeywords,
+                ...userKeywords,
+                ...categoryKeywords,
+            ]),
+        ];
+        const prioritizedCore = deterministicShuffle(corePool, `${seed}|core`);
         const exploratoryPool = [...new Set([
             ...trendKeywords,
             ...relevantEvergreen,
@@ -193,19 +205,20 @@ async function extractKeywords(userId, opts = {}) {
         ])].filter(k => k && !prioritizedCore.includes(k));
 
         const exploratoryShuffled = deterministicShuffle(exploratoryPool, seed);
-        const allKeywords = [...new Set([...prioritizedCore, ...exploratoryShuffled])].slice(0, 45);
+        const allKeywords = [...new Set([...prioritizedCore, ...exploratoryShuffled])].slice(0, 50);
 
         logger.info(
             `[KeywordService] User ${String(userId).slice(-6)} — ` +
-            `${userKeywords.length} user, ${categoryKeywords.length} category, ` +
-            `${trendKeywords.length} seasonal, ${relevantEvergreen.length} evergreen, ` +
-            `${googleTrendKeywords.length} google, ${amazonKeywords.length} amazon → ` +
-            `${allKeywords.length} toplam keyword`
+            `niş: ${balanced.nicheBuckets.map((b) => `${b.label}(${b.productCount})`).join(", ") || "yok"} — ` +
+            `${balanced.coreKeywords.length} dengeli, ${userKeywords.length} user, ` +
+            `${googleTrendKeywords.length} google → ${allKeywords.length} keyword`
         );
 
         return {
             userKeywords: userKeywords.slice(0, 10),
             categoryKeywords: categoryKeywords.slice(0, 10),
+            nicheBuckets: balanced.nicheBuckets,
+            productCountByCluster: balanced.productCountByCluster,
             trendKeywords: trendKeywords.slice(0, 10),
             evergreenKeywords: relevantEvergreen.slice(0, 5),
             googleTrendKeywords: googleTrendKeywords.slice(0, 10),
@@ -326,6 +339,9 @@ function generateCategoryKeywords(categories) {
 
 module.exports = {
     extractKeywords,
+    hashString32,
+    deterministicShuffle,
+    classifyNicheCluster,
     SEASONAL_TRENDS,
     EVERGREEN_KEYWORDS,
 };

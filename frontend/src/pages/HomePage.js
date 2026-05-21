@@ -1,5 +1,5 @@
-﻿/**
- * HomePage  PazarYonet Landing Page
+/**
+ * HomePage  Dashtock Landing Page
  *
  * Giriş yapmamış kullanıcılar için ana sayfa.
  * Admin panelden ayarlanan paket fiyatları ve özellikleri burada gösterilir.
@@ -18,6 +18,7 @@ import {
 import axios from "../services/api";
 import MarketplaceBlogSection from "../components/MarketplaceBlogSection";
 import { BRAND_EMAIL } from "../constants/brand";
+import DashtockLogoMark from "../components/brand/DashtockLogoMark";
 
 const HomePage = () => {
     const [plans, setPlans] = useState({});
@@ -72,7 +73,7 @@ const HomePage = () => {
                         Yönetin
                     </h1>
                     <p style={S.heroDesc}>
-                        PazarYonet ile Trendyol, Hepsiburada, N11, Amazon ve daha fazlasını
+                        Dashtock ile Trendyol, Hepsiburada, N11, Amazon ve daha fazlasını
                         tek bir merkezden kontrol edin. Stok, sipariş, fiyat ve raporlarınız
                         her zaman güncel.
                     </p>
@@ -109,7 +110,7 @@ const HomePage = () => {
             {/*  ÖZELLİKLER  */}
             <section style={S.section}>
                 <div style={S.sectionInner}>
-                    <h2 style={S.sectionTitle}>Neden PazarYonet?</h2>
+                    <h2 style={S.sectionTitle}>Neden Dashtock?</h2>
                     <p style={S.sectionDesc}>E-ticaret operasyonlarınızı güçlendiren özellikler</p>
                     <div style={S.featuresGrid}>
                         {platformFeatures.map((f, i) => (
@@ -143,7 +144,7 @@ const HomePage = () => {
                             style={S.toggleBtn(billingCycle === "yearly")}
                             onClick={() => setBillingCycle("yearly")}
                         >
-                            Yıllık <span style={S.saveBadge}>Tasarruf</span>
+                            Yıllık <span style={S.saveBadge}>%17 İndirim</span>
                         </button>
                     </div>
 
@@ -263,8 +264,8 @@ const HomePage = () => {
             <footer style={S.footer}>
                 <div style={S.footerInner}>
                     <div style={S.footerBrand}>
-                        <div style={S.footerLogo}>LE</div>
-                        <span style={S.footerName}>PazarYonet</span>
+                        <DashtockLogoMark size={32} />
+                        <span style={S.footerName}>Dashtock</span>
                     </div>
                     <div style={S.footerLinks}>
                         <a href="/privacy" style={S.footerLink}>Gizlilik Politikası</a>
@@ -272,7 +273,7 @@ const HomePage = () => {
                         <a href="/distance-sales" style={S.footerLink}>Mesafeli Satış Sözleşmesi</a>
                     </div>
                     <div style={S.footerCopy}>
-                        {new Date().getFullYear()} PazarYonet · {BRAND_EMAIL}
+                        {new Date().getFullYear()} Dashtock · {BRAND_EMAIL}
                     </div>
                 </div>
             </footer>

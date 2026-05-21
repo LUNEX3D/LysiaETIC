@@ -58,6 +58,16 @@ export const deleteProduct = async (productId, options = {}) => {
 // 🔄 SENKRONİZASYON & DAĞITIM
 // ═══════════════════════════════════════════════════════════════
 
+/** Trendyol'dan tek ürün — barkod (869…) veya stok kodu (LA-3D-291) */
+export const importMarketplaceProduct = async ({ marketplaceName = "Trendyol", barcode, sku } = {}) => {
+    const res = await API.post(`${BASE}/products/import-from-marketplace`, {
+        marketplaceName,
+        ...(barcode ? { barcode: String(barcode).trim() } : {}),
+        ...(sku ? { sku: String(sku).trim() } : {})
+    });
+    return res.data;
+};
+
 export const syncFromMarketplace = async (marketplaceId, marketplaceName, options = {}) => {
     const payload = { marketplaceId, marketplaceName };
     if (options.async) payload.async = true;
@@ -213,6 +223,18 @@ export const applyPlatformField = async (productId, body) => {
     return res.data;
 };
 
+/** Master barkod/SKU → pazaryeri mapping (yanlış varyanta stok gitmesin) */
+export const applyMasterToPlatformField = async (productId, body) => {
+    const res = await API.post(`${BASE}/products/${productId}/apply-master-to-platform`, body);
+    return res.data;
+};
+
+/** Varyantlı aile — ortak productMainId, her satır ayrı barkod */
+export const createVariantsAndDistribute = async (payload) => {
+    const res = await API.post(`${BASE}/products/create-variants-and-distribute`, payload);
+    return res.data;
+};
+
 /**
  * Seçili ürünleri seçili pazaryerlerine toplu dağıt
  * @param {Array} productIds - Ürün ID'leri
@@ -234,7 +256,7 @@ export const bulkDistributeSelected = async (productIds, targetMarketplaces) => 
  * @param {Array} products - N11 formatında ürün listesi (max 1000)
  * @param {String} integrator - Entegratör firma ismi
  */
-export const n11CreateProduct = async (products, integrator = "PazarYonet") => {
+export const n11CreateProduct = async (products, integrator = "Dashtock") => {
     const res = await API.post(`${BASE}/n11/products`, { products, integrator });
     return res.data;
 };
@@ -253,7 +275,7 @@ export const n11GetProducts = async (params = {}) => {
  * @param {Array} updates - [{ stockCode, quantity, salePrice, listPrice }] (max 1000)
  * @param {String} integrator - Entegratör firma ismi
  */
-export const n11UpdateStock = async (updates, integrator = "PazarYonet") => {
+export const n11UpdateStock = async (updates, integrator = "Dashtock") => {
     const res = await API.post(`${BASE}/n11/stock-update`, { updates, integrator });
     return res.data;
 };
@@ -711,6 +733,12 @@ export const createVariantGroup = async (body) => {
 
 export const updateVariantGroup = async (groupId, body) => {
     const res = await API.patch(`${BASE}/variant-groups/${groupId}`, body);
+    return res.data;
+};
+
+/** Grup model kodunu üyelerin masterProduct.attributes.productMainId alanına yazar */
+export const applyVariantGroupProductMainId = async (groupId, { onlyEmpty = false } = {}) => {
+    const res = await API.post(`${BASE}/variant-groups/${groupId}/apply-product-main-id`, { onlyEmpty });
     return res.data;
 };
 

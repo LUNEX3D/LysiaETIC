@@ -1,4 +1,4 @@
-﻿/**
+/**
  * ═══════════════════════════════════════════════════════════════
  * LYSIA BRAIN v10 — DARK GLASSMORPHISM — FULL FEATURED
  * ═══════════════════════════════════════════════════════════════
@@ -49,8 +49,8 @@ const BrainSelfEval = lazy(() => import("./components/BrainSelfEval"));
 const BrainChat = lazy(() => import("./components/BrainChat"));
 const BrainAutonomy = lazy(() => import("./components/BrainAutonomy"));
 
-const STORAGE_TAB = "pazaryonet_ai_tab";
-const STORAGE_STRATEGY = "pazaryonet_ai_strategy";
+const STORAGE_TAB = "dashtock_ai_tab";
+const STORAGE_STRATEGY = "dashtock_ai_strategy";
 
 /* ═══ VALID TAB IDS — Statik liste, render dışında tanımlı ═══ */
 const VALID_TAB_IDS = new Set([
@@ -374,9 +374,9 @@ const LysiaBrain = () => {
         setShowMobileMenu(false);
         try {
             if (filter && typeof filter === "object" && Object.keys(filter).length > 0) {
-                sessionStorage.setItem(`pazaryonet_ai.tabFilter.${tab}`, JSON.stringify({ filter, ts: Date.now() }));
+                sessionStorage.setItem(`dashtock_ai.tabFilter.${tab}`, JSON.stringify({ filter, ts: Date.now() }));
             } else {
-                sessionStorage.removeItem(`pazaryonet_ai.tabFilter.${tab}`);
+                sessionStorage.removeItem(`dashtock_ai.tabFilter.${tab}`);
             }
         } catch { /* sessionStorage erişim hatası */ }
     }, []);
@@ -447,7 +447,7 @@ const LysiaBrain = () => {
                     fontSize: "2.4rem", boxShadow: T.shadowGlow,
                 }}>🧠</div>
                 <div className="lysia-anim-fade" style={{ textAlign: "center" }}>
-                    <div className="lysia-text-gradient" style={{ fontSize: T.fz.h2, fontWeight: 800, letterSpacing: "-0.03em" }}>PazarYonet AI</div>
+                    <div className="lysia-text-gradient" style={{ fontSize: T.fz.h2, fontWeight: 800, letterSpacing: "-0.03em" }}>Dashtock AI</div>
                     <p style={{ color: T.textSec, fontSize: T.fz.sm, marginTop: "0.5rem", letterSpacing: "0.05em" }}>{t("loading.init")}</p>
                 </div>
             </div>
@@ -482,7 +482,7 @@ const LysiaBrain = () => {
                             }}>🧠</div>
                             {!isMobile && (
                                 <div>
-                                    <div className="lysia-text-gradient" style={{ fontSize: "1.3rem", fontWeight: 900, letterSpacing: "-0.03em" }}>PazarYonet AI</div>
+                                    <div className="lysia-text-gradient" style={{ fontSize: "1.3rem", fontWeight: 900, letterSpacing: "-0.03em" }}>Dashtock AI</div>
                                     <div style={{ fontSize: T.fz.xs, color: T.textMuted, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.1em" }}>Neural Command</div>
                                 </div>
                             )}
@@ -782,7 +782,7 @@ const LysiaBrain = () => {
             {(isMobile || isTablet) && showMobileMenu && (
                 <div style={{ position: "fixed", inset: 0, background: T.bgOverlay, zIndex: 1000, display: "flex", flexDirection: "column" }}>
                     <div style={{ padding: "1.5rem", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: `1px solid ${T.border}` }}>
-                        <div style={{ fontSize: "1.5rem", fontWeight: 900 }}>PazarYonet AI</div>
+                        <div style={{ fontSize: "1.5rem", fontWeight: 900 }}>Dashtock AI</div>
                         <button onClick={() => setShowMobileMenu(false)} style={{ background: "none", border: "none", color: T.text, fontSize: "1.5rem" }}>✕</button>
                     </div>
                     <div style={{ flex: 1, overflowY: "auto", padding: "1rem" }}>

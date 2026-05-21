@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "../services/api";
 import {
@@ -11,7 +11,7 @@ import {
     FaSpinner
 } from "react-icons/fa";
 import "../styles/adminLogin.css";
-import PazarYonetLogoMark from "../components/brand/PazarYonetLogoMark";
+import DashtockLogoMark from "../components/brand/DashtockLogoMark";
 
 const AdminLogin = () => {
     const [formData, setFormData] = useState({ email: "", password: "" });
@@ -116,9 +116,9 @@ const AdminLogin = () => {
                 <div className="al-card">
                     <div className="al-header">
                         <div className="al-logo">
-                            <PazarYonetLogoMark size={56} />
+                            <DashtockLogoMark size={56} />
                         </div>
-                        <h1 className="al-title">PazarYonet</h1>
+                        <h1 className="al-title">Dashtock</h1>
                         <p className="al-subtitle">Yönetim Konsolu</p>
                     </div>
 
@@ -143,7 +143,7 @@ const AdminLogin = () => {
                                     className="al-input"
                                     type="email"
                                     name="email"
-                                    placeholder="admin@pazaryonet.com"
+                                    placeholder="admin@dashtock.com"
                                     value={formData.email}
                                     onChange={handleChange}
                                     required

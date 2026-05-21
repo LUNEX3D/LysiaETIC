@@ -81,7 +81,7 @@ export default function IntegrationLandingPage() {
 
             <MarketplaceBlogSection compact />
             <footer style={S.footer}>
-                <p>© {new Date().getFullYear()} {BRAND_NAME} — https://pazaryonet.com</p>
+                <p>© {new Date().getFullYear()} {BRAND_NAME} — https://dashtock.com</p>
             </footer>
         </div>
     );

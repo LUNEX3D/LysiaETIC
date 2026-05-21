@@ -11,9 +11,14 @@ const masterProductAdapter   = require("./masterProductAdapter");
 const { decryptCredentials } = require("../utils/encryption");
 const { resolveProductBrandName, isPlaceholderBrand } = require("../utils/resolveProductBrandName");
 const { prepareCrossListingProduct } = require("../utils/crossListingCanonicalProduct");
+const { normalizeDistributeCategory } = require("../utils/normalizeDistributeCategory");
 const {
     applyFieldDriftToMarketplaceMapping,
-    alignPlatformSnapshotFromMaster
+    alignPlatformSnapshotFromMaster,
+    mergeMarketplacePullIntoMapping,
+    mappingMatchesPlatformIdentity,
+    alignMarketplaceIdentityFromMaster,
+    reconcileMasterIdentityFromTrendyolPull
 } = require("../utils/productFieldCompare");
 
 /** Kritik alan farkını Stok Defteri'ne yaz */
@@ -102,7 +107,7 @@ const getUserMatchPriority = async (userId) => {
     } catch (e) {
         logger.warn(`[SYNC] Kullanıcı eşleştirme önceliği okunamadı: ${e.message}`);
     }
-    return { primary: "sku", secondary: "barcode", tertiary: "name" };
+    return { primary: "sku", secondary: "barcode", tertiary: null };
 };
 
 /** Barkod/SKU için NFC + trim — Türkçe karakterli SKU’larda (ör. OÇ) çift kayıt / eşleşme hatalarını azaltır */
@@ -161,20 +166,18 @@ const buildMarketplacePullPayload = (product, normalizedMarketplaceName) => {
 const matchProductByPriority = (product, maps, priority) => {
     const fieldMap = {
         sku:     (p) => [
-            p.sku ? maps.mappingBySku.get(p.sku) : null,
-            p.sku ? maps.mappingByBarcode.get(p.sku) : null   // cross-match
+            p.sku ? maps.mappingBySku.get(normalizeSyncLookupKey(p.sku)) : null
         ],
         barcode: (p) => [
-            p.barcode ? maps.mappingByBarcode.get(p.barcode) : null,
-            p.barcode ? maps.mappingBySku.get(p.barcode) : null  // cross-match
+            p.barcode ? maps.mappingByBarcode.get(normalizeSyncLookupKey(p.barcode)) : null
         ],
         name:    (p) => [
             p.name ? maps.mappingByName.get(p.name.trim().toLowerCase()) : null
         ]
     };
 
-    // Öncelik sırasına göre dene
-    for (const level of [priority.primary, priority.secondary, priority.tertiary]) {
+    // Öncelik sırasına göre dene (tertiary null ise ad ile eşleştirme yapılmaz — varyant karışması)
+    for (const level of [priority.primary, priority.secondary, priority.tertiary].filter(Boolean)) {
         const lookups = fieldMap[level]?.(product) || [];
         for (const result of lookups) {
             if (result) return result;
@@ -183,7 +186,7 @@ const matchProductByPriority = (product, maps, priority) => {
 
     // Son çare: MarketplaceProductId
     if (product.marketplaceProductId) {
-        return maps.mappingByMpId.get(product.marketplaceProductId) || null;
+        return maps.mappingByMpId.get(normalizeSyncLookupKey(product.marketplaceProductId)) || null;
     }
 
     return null;
@@ -290,7 +293,8 @@ const fetchTrendyolProducts = async (credentials) => {
                         "User-Agent": `${actualSellerId} - LysiaETIC`,
                         "Content-Type": "application/json"
                     },
-                    params: { page, size: 200, approved: true },
+                    // approved filtresi yok — panelde "Satışta" olan tüm satırlar gelsin (onaysız varyantlar dahil)
+                    params: { page, size: 200 },
                     timeout: 20000
                 }
             );
@@ -334,6 +338,67 @@ const fetchTrendyolProducts = async (credentials) => {
     }
 
     return products;
+};
+
+/** Trendyol'da tek ürün — barkod veya stok kodu ile (liste taraması yapmadan) */
+const fetchTrendyolProductByLookup = async (credentials, { barcode, sku } = {}) => {
+    const { apiKey, apiSecret, supplierId, sellerId } = credentials;
+    const actualSellerId = sellerId || supplierId;
+    if (!apiKey || !apiSecret || !actualSellerId) {
+        throw new Error("Trendyol credentials eksik");
+    }
+    const authHeader = Buffer.from(`${apiKey}:${apiSecret}`).toString("base64");
+    const tyBrandIdMap = await fetchTrendyolBrandIdLookupMap(credentials, actualSellerId);
+
+    const tryFetch = async (params) => {
+        const response = await axios.get(
+            `https://apigw.trendyol.com/integration/product/sellers/${actualSellerId}/products`,
+            {
+                headers: {
+                    Authorization: `Basic ${authHeader}`,
+                    "User-Agent": `${actualSellerId} - LysiaETIC`,
+                    "Content-Type": "application/json"
+                },
+                params: { page: 0, size: 5, ...params },
+                timeout: 20000
+            }
+        );
+        const content = response.data?.content || [];
+        if (!content.length) return null;
+        const raw = content[0];
+        const master = masterProductAdapter.fromTrendyol(raw, tyBrandIdMap);
+        return {
+            marketplaceProductId: master.marketplaceProductId,
+            barcode: master.barcode,
+            sku: master.sku,
+            name: master.title,
+            description: master.description,
+            price: master.price,
+            listPrice: master.listPrice,
+            stock: master.stock,
+            category: master.category,
+            categoryId: master.categoryId != null ? String(master.categoryId).trim() : "",
+            brand: master.brand,
+            images: master.images,
+            attributes: master.attributes,
+            ...(master.garantiSuresi != null ? { garantiSuresi: master.garantiSuresi } : {}),
+            ...(master.vatRate != null ? { vatRate: master.vatRate } : {})
+        };
+    };
+
+    const bc = barcode ? normalizeSyncLookupKey(barcode) : "";
+    const sk = sku ? normalizeSyncLookupKey(sku) : "";
+    if (bc) {
+        const hit = await tryFetch({ barcode: bc });
+        if (hit) return hit;
+        const hitStock = await tryFetch({ stockCode: bc });
+        if (hitStock) return hitStock;
+    }
+    if (sk) {
+        const hit = await tryFetch({ stockCode: sk });
+        if (hit) return hit;
+    }
+    return null;
 };
 
 // Hepsiburada ürünlerini çek
@@ -756,7 +821,16 @@ const syncProductsFromMarketplace = async (userId, marketplaceId, marketplaceNam
                 }
                 if (mp.marketplaceBarcode) {
                     const k = normalizeSyncLookupKey(mp.marketplaceBarcode);
-                    if (k && !mappingByBarcode.has(k)) mappingByBarcode.set(k, m);
+                    const masterBc = normalizeSyncLookupKey(m.masterProduct?.barcode);
+                    if (k && masterBc && k !== masterBc) {
+                        logger.warn(
+                            `[SYNC] Yanlış pazaryeri barkodu düzeltiliyor — ürün: ${m.masterProduct?.name} | ` +
+                            `master=${masterBc} mapping=${k}`
+                        );
+                        alignMarketplaceIdentityFromMaster(mp, m.masterProduct);
+                    } else if (k && !mappingByBarcode.has(k)) {
+                        mappingByBarcode.set(k, m);
+                    }
                 }
             }
         }
@@ -798,9 +872,21 @@ const syncProductsFromMarketplace = async (userId, marketplaceId, marketplaceNam
                     // Öncelik: Kullanıcı ayarından gelir (default: 1) SKU  2) Barkod  3) Ürün Adı)
                     let mapping = matchProductByPriority(product, lookupMaps, matchPriority);
 
+                    if (mapping && !mappingMatchesPlatformIdentity(mapping.masterProduct, product)) {
+                        logger.warn(
+                            `[SYNC] Kimlik uyuşmazlığı — pull bu kayda yazılmadı: platform ` +
+                            `${product.barcode || product.sku} ≠ master ${mapping.masterProduct?.barcode}/${mapping.masterProduct?.sku} ` +
+                            `(${mapping.masterProduct?.name})`
+                        );
+                        mapping = null;
+                    }
+
                     const mpData = buildMarketplacePullPayload(product, normalizedName);
 
                     if (mapping) {
+                        if (normalizedName === "Trendyol") {
+                            reconcileMasterIdentityFromTrendyolPull(mapping, product);
+                        }
                         // Mevcut ürün — pazaryeri mapping'ini güncelle
                         const mpIndex = mapping.marketplaceMappings.findIndex(
                             m => normalizeMarketplaceName(m.marketplaceName) === normalizedName
@@ -808,17 +894,20 @@ const syncProductsFromMarketplace = async (userId, marketplaceId, marketplaceNam
 
                         if (mpIndex >= 0) {
                             const prevMp = mapping.marketplaceMappings[mpIndex];
-                            Object.assign(mapping.marketplaceMappings[mpIndex], mpData, {
-                                // Pull ile gelen pazaryeri stoku yalnızca snapshot — senkron tamamlandı sayma
-                                isSynced: prevMp.isSynced,
-                                syncStatus: prevMp.syncStatus || "pending",
-                            });
+                            const merged = mergeMarketplacePullIntoMapping(
+                                mapping.marketplaceMappings[mpIndex],
+                                mpData,
+                                mapping.masterProduct
+                            );
+                            if (!merged.applied && merged.skippedIdentity) {
+                                logger.warn(`[SYNC] ${merged.reason}`);
+                            }
+                            mapping.marketplaceMappings[mpIndex].isSynced = prevMp.isSynced;
+                            mapping.marketplaceMappings[mpIndex].syncStatus = prevMp.syncStatus || "pending";
                         } else {
-                            mapping.marketplaceMappings.push({
-                                ...mpData,
-                                isSynced: false,
-                                syncStatus: "pulled",
-                            });
+                            const newMp = { ...mpData, isSynced: false, syncStatus: "pulled" };
+                            alignMarketplaceIdentityFromMaster(newMp, mapping.masterProduct);
+                            mapping.marketplaceMappings.push(newMp);
                         }
 
                         const mpTarget =
@@ -899,29 +988,32 @@ const syncProductsFromMarketplace = async (userId, marketplaceId, marketplaceNam
                             userId,
                             $or: [
                                 ...(product.sku ? [{ "masterProduct.sku": product.sku }] : []),
-                                ...(product.barcode ? [{ "masterProduct.barcode": product.barcode }] : []),
-                                ...(product.sku ? [{ "masterProduct.barcode": product.sku }] : []),
-                                ...(product.barcode ? [{ "masterProduct.sku": product.barcode }] : [])
+                                ...(product.barcode ? [{ "masterProduct.barcode": product.barcode }] : [])
                             ]
                         });
 
                         if (finalCheck) {
+                            if (normalizedName === "Trendyol") {
+                                reconcileMasterIdentityFromTrendyolPull(finalCheck, product);
+                            }
                             // DB'de bulundu — güncelle (duplike oluşturma!)
                             const mpIdx = finalCheck.marketplaceMappings.findIndex(
                                 m => normalizeMarketplaceName(m.marketplaceName) === normalizedName
                             );
                             if (mpIdx >= 0) {
                                 const prevMp = finalCheck.marketplaceMappings[mpIdx];
-                                Object.assign(finalCheck.marketplaceMappings[mpIdx], mpData, {
-                                    isSynced: prevMp.isSynced,
-                                    syncStatus: prevMp.syncStatus || "pending",
-                                });
+                                mergeMarketplacePullIntoMapping(
+                                    finalCheck.marketplaceMappings[mpIdx],
+                                    mpData,
+                                    finalCheck.masterProduct
+                                );
+                                finalCheck.marketplaceMappings[mpIdx].isSynced = prevMp.isSynced;
+                                finalCheck.marketplaceMappings[mpIdx].syncStatus =
+                                    prevMp.syncStatus || "pending";
                             } else {
-                                finalCheck.marketplaceMappings.push({
-                                    ...mpData,
-                                    isSynced: false,
-                                    syncStatus: "pulled",
-                                });
+                                const newMp = { ...mpData, isSynced: false, syncStatus: "pulled" };
+                                alignMarketplaceIdentityFromMaster(newMp, finalCheck.masterProduct);
+                                finalCheck.marketplaceMappings.push(newMp);
                             }
                             const fcMp =
                                 mpIdx >= 0
@@ -991,13 +1083,16 @@ const syncProductsFromMarketplace = async (userId, marketplaceId, marketplaceNam
                                 ...(pulledGaranti !== null ? { garantiSuresi: pulledGaranti } : {}),
                                 ...(Number.isFinite(pulledVat) && pulledVat >= 0 ? { vatRate: pulledVat } : {})
                             },
-                            marketplaceMappings: [mpData],
+                            marketplaceMappings: [],
                             stockTracking: {
                                 totalStock: stockVal,
                                 availableStock: stockVal,
                                 lowStockThreshold: 10
                             }
                         });
+                        const pulledMp = { ...mpData, isSynced: false, syncStatus: "pulled" };
+                        alignMarketplaceIdentityFromMaster(pulledMp, newMapping.masterProduct);
+                        newMapping.marketplaceMappings.push(pulledMp);
 
                         newMapping.updateStockStatus();
                         if (newMapping.marketplaceMappings[0]) {
@@ -1042,12 +1137,6 @@ const syncProductsFromMarketplace = async (userId, marketplaceId, marketplaceNam
                                 $or: [
                                     ...(product.barcode ? [{ "masterProduct.barcode": product.barcode }] : []),
                                     ...(product.sku ? [{ "masterProduct.sku": product.sku }] : []),
-                                    ...(product.barcode && product.sku && product.barcode !== product.sku
-                                        ? [
-                                            { "masterProduct.barcode": product.sku },
-                                            { "masterProduct.sku": product.barcode }
-                                        ]
-                                        : [])
                                 ]
                             });
                             if (dupDoc) {
@@ -1055,9 +1144,15 @@ const syncProductsFromMarketplace = async (userId, marketplaceId, marketplaceNam
                                     (m) => normalizeMarketplaceName(m.marketplaceName) === normalizedName
                                 );
                                 if (mpIdx >= 0) {
-                                    Object.assign(dupDoc.marketplaceMappings[mpIdx], mpDataRecover);
+                                    mergeMarketplacePullIntoMapping(
+                                        dupDoc.marketplaceMappings[mpIdx],
+                                        mpDataRecover,
+                                        dupDoc.masterProduct
+                                    );
                                 } else {
-                                    dupDoc.marketplaceMappings.push(mpDataRecover);
+                                    const newMp = { ...mpDataRecover };
+                                    alignMarketplaceIdentityFromMaster(newMp, dupDoc.masterProduct);
+                                    dupDoc.marketplaceMappings.push(newMp);
                                 }
                                 if (product.price) dupDoc.masterProduct.price = product.price;
                                 if (product.listPrice) dupDoc.masterProduct.listPrice = product.listPrice;
@@ -1164,9 +1259,18 @@ const syncProductsFromMarketplace = async (userId, marketplaceId, marketplaceNam
             const liveBarcodes = new Set();
             const liveSkus = new Set();
             for (const mp of marketplaceProducts) {
-                if (mp.barcode) liveBarcodes.add(mp.barcode);
-                if (mp.sku)     liveSkus.add(mp.sku);
-                if (mp.marketplaceProductId) liveBarcodes.add(mp.marketplaceProductId);
+                if (mp.barcode) {
+                    liveBarcodes.add(mp.barcode);
+                    liveBarcodes.add(normalizeSyncLookupKey(mp.barcode));
+                }
+                if (mp.sku) {
+                    liveSkus.add(mp.sku);
+                    liveSkus.add(normalizeSyncLookupKey(mp.sku));
+                }
+                if (mp.marketplaceProductId) {
+                    liveBarcodes.add(mp.marketplaceProductId);
+                    liveBarcodes.add(normalizeSyncLookupKey(mp.marketplaceProductId));
+                }
             }
 
             // DB'de bu pazaryeri mapping'i olan tüm ürünleri bul
@@ -1195,11 +1299,18 @@ const syncProductsFromMarketplace = async (userId, marketplaceId, marketplaceNam
                 const mpPid = mpMapping.marketplaceProductId;
 
                 const existsOnPlatform =
-                    (masterBc && (liveBarcodes.has(masterBc) || liveSkus.has(masterBc))) ||
-                    (masterSku && (liveBarcodes.has(masterSku) || liveSkus.has(masterSku))) ||
-                    (mpBc && liveBarcodes.has(mpBc)) ||
-                    (mpSku && liveSkus.has(mpSku)) ||
-                    (mpPid && liveBarcodes.has(mpPid));
+                    (masterBc && (liveBarcodes.has(masterBc) || liveSkus.has(masterBc) ||
+                        liveBarcodes.has(normalizeSyncLookupKey(masterBc)))) ||
+                    (masterSku && (liveBarcodes.has(masterSku) || liveSkus.has(masterSku) ||
+                        liveSkus.has(normalizeSyncLookupKey(masterSku)))) ||
+                    (mpBc && (liveBarcodes.has(mpBc) || liveBarcodes.has(normalizeSyncLookupKey(mpBc)))) ||
+                    (mpSku && (liveSkus.has(mpSku) || liveSkus.has(normalizeSyncLookupKey(mpSku)))) ||
+                    (mpPid && (liveBarcodes.has(mpPid) || liveBarcodes.has(normalizeSyncLookupKey(mpPid))));
+
+                // Yalnızca daha önce kesin synced olan kayıtları hayalet say (pending/pull yanlış error olmasın)
+                if (!existsOnPlatform && mpMapping.syncStatus !== "synced" && mpMapping.isSynced !== true) {
+                    continue;
+                }
 
                 if (!existsOnPlatform) {
                     // Ürün pazaryerinde artık yok — mapping'i "error" olarak işaretle
@@ -1253,11 +1364,25 @@ const syncProductsFromMarketplace = async (userId, marketplaceId, marketplaceNam
 // distributeOptions.marketplaceExtras — örn. { Trendyol: { brandId, cargoCompanyId, trendyolAttributes: [...] } }
 const distributeProductToMarketplaces = async (userId, productMappingId, targetMarketplaces, category = null, distributeOptions = null) => {
     try {
-        const mapping = await ProductMapping.findOne({ _id: productMappingId, userId });
+        const mongoose = require("mongoose");
+        let mappingOid = productMappingId;
+        if (productMappingId && !(productMappingId instanceof mongoose.Types.ObjectId)) {
+            const idStr =
+                typeof productMappingId === "object" && productMappingId !== null
+                    ? String(productMappingId._id || productMappingId.id || "").trim()
+                    : String(productMappingId).trim();
+            if (!idStr || !mongoose.Types.ObjectId.isValid(idStr)) {
+                throw new Error(`Geçersiz ürün ID: ${idStr || "(boş)"}`);
+            }
+            mappingOid = new mongoose.Types.ObjectId(idStr);
+        }
+
+        const mapping = await ProductMapping.findOne({ _id: mappingOid, userId });
         if (!mapping) {
             throw new Error("Ürün eşleştirmesi bulunamadı");
         }
 
+        const catNorm = normalizeDistributeCategory(category);
         const results = [];
 
         for (const rawMarketplaceName of targetMarketplaces) {
@@ -1283,11 +1408,11 @@ const distributeProductToMarketplaces = async (userId, productMappingId, targetM
                 );
 
                 // Kategori bilgisi geldiyse mapping'e işle (yükleme öncesi)
-                if (category && category.id) {
+                if (catNorm) {
                     const mpDataForUpload = {
-                        categoryId: category.id.toString(),
-                        categoryName: category.name,
-                        categoryPath: category.path ? category.path.split(" > ") : [category.name]
+                        categoryId: catNorm.id,
+                        categoryName: catNorm.name,
+                        categoryPath: Array.isArray(catNorm.path) ? catNorm.path : []
                     };
 
                     if (existingMapping) {
@@ -1372,6 +1497,13 @@ const distributeProductToMarketplaces = async (userId, productMappingId, targetM
                     ...mp,
                     marketplaceMappings: docPlain.marketplaceMappings || []
                 };
+                if (catNorm) {
+                    productWithMappings.categoryId = catNorm.id;
+                    productWithMappings.category = catNorm.name;
+                    productWithMappings.categoryName = catNorm.name;
+                } else if (mpEntry?.categoryId) {
+                    productWithMappings.categoryId = String(mpEntry.categoryId);
+                }
                 const uploadResult = await uploadProductToMarketplace(
                     marketplace,
                     productWithMappings,
@@ -1401,6 +1533,8 @@ const distributeProductToMarketplaces = async (userId, productMappingId, targetM
                             normMp === "Hepsiburada" && uploadResult.hepsiburadaSku
                                 ? uploadResult.hepsiburadaSku
                                 : uploadResult.productId,
+                        marketplaceSku: mapping.masterProduct.sku,
+                        marketplaceBarcode: mapping.masterProduct.barcode,
                         isSynced:             !isPending,
                         lastSyncDate:         new Date(),
                         syncStatus:           isPending ? "pending" : "synced",
@@ -1408,10 +1542,10 @@ const distributeProductToMarketplaces = async (userId, productMappingId, targetM
                     };
 
                     // Kategori bilgisini de kalıcı olarak güncelle (eğer yükleme sırasında geldiyse)
-                    if (category && category.id) {
-                        mpData.categoryId = category.id.toString();
-                        mpData.categoryName = category.name;
-                        mpData.categoryPath = category.path ? category.path.split(" > ") : [category.name];
+                    if (catNorm) {
+                        mpData.categoryId = catNorm.id;
+                        mpData.categoryName = catNorm.name;
+                        mpData.categoryPath = Array.isArray(catNorm.path) ? catNorm.path : [];
                     }
                     // N11 task ID varsa kaydet
                     if (uploadResult.taskId) {
@@ -1525,14 +1659,10 @@ const distributeProductToMarketplaces = async (userId, productMappingId, targetM
                         errBase.n11TaskId = uploadResult.taskId;
                         errBase.n11TaskStatus = uploadResult.status || "FAILED";
                     }
-                    if (category && category.id) {
-                        errBase.categoryId = category.id.toString();
-                        errBase.categoryName = category.name;
-                        errBase.categoryPath = Array.isArray(category.path)
-                            ? category.path
-                            : category.path
-                              ? String(category.path).split(" > ")
-                              : [category.name];
+                    if (catNorm) {
+                        errBase.categoryId = catNorm.id;
+                        errBase.categoryName = catNorm.name;
+                        errBase.categoryPath = Array.isArray(catNorm.path) ? catNorm.path : [];
                     }
                     if (existingMapping) {
                         Object.assign(existingMapping, errBase);
@@ -2080,11 +2210,16 @@ const uploadProductToTrendyol = async (credentials, product) => {
     const vatRateFinal = Number.isNaN(vatParsed) ? 20 : vatParsed;
 
     try {
+        const tyMainId =
+            (product.attributes && product.attributes.productMainId) ||
+            product.productMainId ||
+            product.sku;
+
         const payload = {
             items: [{
                 barcode:          product.barcode,
                 title:            productName,
-                productMainId:    product.sku,
+                productMainId:    String(tyMainId || product.sku || product.barcode).trim(),
                 brandId:          brandId,
                 categoryId:       categoryId,
                 quantity:         parseInt(product.stock) || 0,
@@ -3623,8 +3758,132 @@ const deleteProductFromMarketplaces = async (userId, productMapping, targetPlatf
     return results;
 };
 
+/**
+ * Tek ürünü Trendyol'dan barkod/stok kodu ile içe aktar (liste taraması gerekmez)
+ */
+const importSingleProductFromMarketplace = async (userId, marketplaceName, { barcode, sku } = {}) => {
+    const normalizedName = normalizeMarketplaceName(marketplaceName);
+    if (normalizedName !== "Trendyol") {
+        throw new Error("Tek ürün içe aktarım şu an yalnızca Trendyol için destekleniyor");
+    }
+    const bc = barcode ? normalizeSyncLookupKey(barcode) : "";
+    const sk = sku ? normalizeSyncLookupKey(sku) : "";
+    if (!bc && !sk) {
+        throw new Error("Barkod veya stok kodu gerekli");
+    }
+
+    const marketplace = await Marketplace.findOne({
+        userId,
+        marketplaceName: { $regex: new RegExp(`^${normalizedName}$`, "i") }
+    });
+    if (!marketplace) {
+        throw new Error("Trendyol entegrasyonu bulunamadı");
+    }
+
+    const creds = decryptCredentials(marketplace.credentials);
+    const product = await fetchTrendyolProductByLookup(creds, { barcode: bc, sku: sk });
+    if (!product) {
+        throw new Error(
+            `Trendyol mağazanızda bu ürün API ile bulunamadı (${bc || sk}). ` +
+            `Satıcı panelinde görünüyor olsa bile farklı mağaza hesabı (sellerId) bağlı olabilir.`
+        );
+    }
+
+    const mpData = buildMarketplacePullPayload(product, normalizedName);
+    const orClause = [
+        ...(product.barcode ? [{ "masterProduct.barcode": product.barcode }] : []),
+        ...(product.sku ? [{ "masterProduct.sku": product.sku }] : []),
+        ...(product.barcode ? [{ "marketplaceMappings.marketplaceBarcode": product.barcode }] : []),
+        ...(product.sku ? [{ "marketplaceMappings.marketplaceSku": product.sku }] : [])
+    ];
+
+    let doc = orClause.length
+        ? await ProductMapping.findOne({ userId, $or: orClause })
+        : null;
+
+    if (doc) {
+        reconcileMasterIdentityFromTrendyolPull(doc, product);
+        const mpIdx = doc.marketplaceMappings.findIndex(
+            (m) => normalizeMarketplaceName(m.marketplaceName) === normalizedName
+        );
+        if (mpIdx >= 0) {
+            mergeMarketplacePullIntoMapping(doc.marketplaceMappings[mpIdx], mpData, doc.masterProduct);
+            doc.marketplaceMappings[mpIdx].syncStatus = "synced";
+            doc.marketplaceMappings[mpIdx].isSynced = true;
+        } else {
+            const newMp = { ...mpData, isSynced: true, syncStatus: "synced" };
+            alignMarketplaceIdentityFromMaster(newMp, doc.masterProduct);
+            doc.marketplaceMappings.push(newMp);
+        }
+        applyFieldDriftToMarketplaceMapping(
+            doc.marketplaceMappings[mpIdx >= 0 ? mpIdx : doc.marketplaceMappings.length - 1],
+            doc.masterProduct,
+            product,
+            doc.stockTracking
+        );
+        if (product.price) doc.masterProduct.price = product.price;
+        if (product.listPrice) doc.masterProduct.listPrice = product.listPrice;
+        if (product.name) doc.masterProduct.name = product.name;
+        if (product.images?.length) doc.masterProduct.images = product.images;
+        await saveProductMappingSerialized(doc);
+        return {
+            action: "updated",
+            productId: doc._id,
+            barcode: doc.masterProduct.barcode,
+            sku: doc.masterProduct.sku,
+            name: doc.masterProduct.name
+        };
+    }
+
+    const stockVal = product.stock || 0;
+    const pulledMp = { ...mpData, isSynced: true, syncStatus: "synced" };
+    const newMapping = new ProductMapping({
+        userId,
+        masterProduct: {
+            name: product.name || "İsimsiz Ürün",
+            barcode: product.barcode || product.sku,
+            sku: product.sku || product.barcode,
+            description: product.description || "",
+            images: Array.isArray(product.images) ? product.images : [],
+            price: product.price || 0,
+            listPrice: product.listPrice || product.price || 0,
+            stock: stockVal,
+            category: (product.category || "").trim(),
+            brand: product.brand && !isPlaceholderBrand(product.brand) ? product.brand : "",
+            attributes: product.attributes || {},
+            vatRate: product.vatRate != null ? Number(product.vatRate) : 20
+        },
+        marketplaceMappings: [],
+        stockTracking: {
+            totalStock: stockVal,
+            availableStock: stockVal,
+            lowStockThreshold: 10
+        }
+    });
+    alignMarketplaceIdentityFromMaster(pulledMp, newMapping.masterProduct);
+    newMapping.marketplaceMappings.push(pulledMp);
+    newMapping.updateStockStatus();
+    applyFieldDriftToMarketplaceMapping(
+        newMapping.marketplaceMappings[0],
+        newMapping.masterProduct,
+        product,
+        newMapping.stockTracking
+    );
+    await newMapping.save();
+
+    return {
+        action: "created",
+        productId: newMapping._id,
+        barcode: newMapping.masterProduct.barcode,
+        sku: newMapping.masterProduct.sku,
+        name: newMapping.masterProduct.name
+    };
+};
+
 module.exports = {
     fetchProductsFromMarketplace,
+    fetchTrendyolProductByLookup,
+    importSingleProductFromMarketplace,
     syncProductsFromMarketplace,
     distributeProductToMarketplaces,
     uploadProductToMarketplace,

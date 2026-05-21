@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 
  * LYSIA BRAIN v10  i18n Translation Keys (TR / EN)
  * 
@@ -97,7 +97,7 @@ const tr = {
     //  Dashboard 
     "dash.red_alert": "Kırmızı Alarm",
     "dash.critical": "Kritik",
-    "dash.greeting_default": "PazarYonet AI Komuta Merkezi Aktif",
+    "dash.greeting_default": "Dashtock AI Komuta Merkezi Aktif",
     "dash.ai_analyzing": "İşletmenizin nöral ağları taranıyor, stratejik kararlar hazırlandı.",
     "dash.health_label": "Genel Sağlık",
     "dash.ai_score": "Verimlilik Skoru",
@@ -756,7 +756,7 @@ const en = {
     "dash.red_alert": "Red Alert",
     "dash.critical": "critical",
     "dash.greeting_default": "Hello",
-    "dash.ai_analyzing": "PazarYonet AI is analyzing...",
+    "dash.ai_analyzing": "Dashtock AI is analyzing...",
     "dash.health_label": "Health",
     "dash.ai_score": "AI Score",
     "dash.auto_decide": "Decide For Me",
@@ -1323,7 +1323,7 @@ const en = {
 export const brainTranslations = { tr, en };
 
 /**
- * Hook: useBrainT  returns a translation function for PazarYonet AI
+ * Hook: useBrainT  returns a translation function for Dashtock AI
  * Falls back to TR if key not found in current language
  */
 /**

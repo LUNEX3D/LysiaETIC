@@ -301,6 +301,89 @@ const refreshAllFieldDriftsForMapping = (mapping) => {
 };
 
 /**
+ * Platform satırı bu master kayıtla aynı ürün mü? (varyant karışmasını engelle)
+ */
+const mappingMatchesPlatformIdentity = (masterProduct, platformProduct) => {
+    if (!masterProduct) return true;
+    const pb = normalizeKey(platformProduct?.barcode);
+    const ps = normalizeKey(platformProduct?.sku);
+    const mb = normalizeKey(masterProduct.barcode);
+    const ms = normalizeKey(masterProduct.sku);
+    if (pb && mb && pb !== mb) return false;
+    if (ps && ms && ps !== ms) return false;
+    return true;
+};
+
+/**
+ * Pull payload'ı mapping'e güvenli uygula — kimlik alanları master'dan sapmaz
+ * @returns {{ applied: boolean, skippedIdentity?: boolean, reason?: string }}
+ */
+const mergeMarketplacePullIntoMapping = (mpEntry, pullPayload, masterProduct) => {
+    if (!mpEntry || !pullPayload) return { applied: false, reason: "missing" };
+
+    if (!mappingMatchesPlatformIdentity(masterProduct, {
+        barcode: pullPayload.marketplaceBarcode,
+        sku: pullPayload.marketplaceSku
+    })) {
+        return {
+            applied: false,
+            skippedIdentity: true,
+            reason: `platform barkod/SKU master ile uyuşmuyor (master=${masterProduct?.barcode}/${masterProduct?.sku}, platform=${pullPayload.marketplaceBarcode}/${pullPayload.marketplaceSku})`
+        };
+    }
+
+    const { marketplaceBarcode, marketplaceSku, ...rest } = pullPayload;
+    Object.assign(mpEntry, rest);
+    alignMarketplaceIdentityFromMaster(mpEntry, masterProduct);
+    return { applied: true };
+};
+
+/**
+ * Kayıttaki tüm pazaryeri satırlarında kimlik = master (save öncesi)
+ */
+const alignAllMarketplaceIdentitiesFromMaster = (mappingDoc) => {
+    if (!mappingDoc?.masterProduct) return { fixed: 0 };
+    let fixed = 0;
+    for (const mp of mappingDoc.marketplaceMappings || []) {
+        const r = alignMarketplaceIdentityFromMaster(mp, mappingDoc.masterProduct);
+        if (r.changed) fixed += 1;
+    }
+    return { fixed };
+};
+
+/**
+ * Master barkod/SKU → pazaryeri mapping kimliği (stok/fiyat push öncesi)
+ * @returns {{ changed: boolean, previousBarcode?: string, previousSku?: string }}
+ */
+const alignMarketplaceIdentityFromMaster = (mpEntry, masterProduct) => {
+    if (!mpEntry || !masterProduct) return { changed: false };
+    const masterBc = normalizeKey(masterProduct.barcode);
+    const masterSku = normalizeKey(masterProduct.sku);
+    let changed = false;
+    const prev = { previousBarcode: mpEntry.marketplaceBarcode, previousSku: mpEntry.marketplaceSku };
+
+    if (masterBc && normalizeKey(mpEntry.marketplaceBarcode) !== masterBc) {
+        mpEntry.marketplaceBarcode = masterBc;
+        changed = true;
+    }
+    if (masterSku && normalizeKey(mpEntry.marketplaceSku) !== masterSku) {
+        mpEntry.marketplaceSku = masterSku;
+        changed = true;
+    }
+    return { changed, ...prev };
+};
+
+/**
+ * Trendyol stok/fiyat API için barkod — master öncelikli (yanlış mapping barkodu engeli)
+ */
+const resolveTrendyolListingBarcode = (masterProduct, mpEntry) => {
+    const masterBc = normalizeKey(masterProduct?.barcode);
+    const mpBc = normalizeKey(mpEntry?.marketplaceBarcode);
+    if (masterBc) return masterBc;
+    return mpBc || normalizeKey(mpEntry?.marketplaceSku) || normalizeKey(masterProduct?.sku) || "";
+};
+
+/**
  * Dağıtım / pull sonrası platform snapshot = master (fark kapanır)
  */
 const alignPlatformSnapshotFromMaster = (mpEntry, mapping) => {
@@ -336,6 +419,90 @@ const resolveOrderItemBarcodeForStock = async (userId, item) => {
     return rawBc || rawSku || null;
 };
 
+/**
+ * Sipariş / stok satırı barkodu → doğru ProductMapping (varyant karışmasını engeller)
+ * Önce master barkod/SKU; pazaryeri satırı yalnızca kimlik master ile hizalıysa kabul edilir.
+ */
+/**
+ * Trendyol pull: SKU eşleşiyorsa master barkod platformdan düzeltilir (yanlış varyant barkodu)
+ */
+const reconcileMasterIdentityFromTrendyolPull = (mappingDoc, platformProduct) => {
+    if (!mappingDoc?.masterProduct || !platformProduct) return { changed: false };
+    const pb = normalizeKey(platformProduct.barcode);
+    const ps = normalizeKey(platformProduct.sku);
+    const mb = normalizeKey(mappingDoc.masterProduct.barcode);
+    const ms = normalizeKey(mappingDoc.masterProduct.sku);
+    let changed = false;
+
+    if (pb && ps && ms && ps === ms && pb !== mb) {
+        mappingDoc.masterProduct.barcode = String(platformProduct.barcode).trim();
+        changed = true;
+    }
+    if (ps && pb && mb && pb === mb && ms && ps !== ms) {
+        mappingDoc.masterProduct.sku = String(platformProduct.sku).trim();
+        changed = true;
+    }
+    if (changed) alignAllMarketplaceIdentitiesFromMaster(mappingDoc);
+    return { changed, masterBarcode: mappingDoc.masterProduct.barcode, masterSku: mappingDoc.masterProduct.sku };
+};
+
+/**
+ * Ürün listesi / detay — pazaryeri rozeti (pending, pulled, kuyruk dahil; yalnızca error gizli)
+ */
+const isMarketplaceMappingVisibleForProductUi = (m) => {
+    if (!m || typeof m !== "object") return false;
+    const mpName = String(m.marketplaceName || "");
+    if (/^hepsiburada$/i.test(mpName)) {
+        try {
+            const { isHepsiburadaMappingVisibleForProductUi } = require("../services/hepsiburadaService");
+            return isHepsiburadaMappingVisibleForProductUi(m);
+        } catch {
+            /* fall through */
+        }
+    }
+    if (m.syncStatus === "error" && !m.trendyolBatchRequestId && !m.n11TaskId && !m.hepsiburadaTrackingId) {
+        return false;
+    }
+    if (m.syncStatus === "synced" || m.isSynced === true) return true;
+    if (["pending", "syncing", "pulled"].includes(m.syncStatus)) return true;
+    if (m.marketplaceProductId && String(m.marketplaceProductId).trim()) return true;
+    if (m.trendyolBatchRequestId || m.n11TaskId || m.hepsiburadaTrackingId) return true;
+    return false;
+};
+
+const resolveMappingForOrderBarcode = async (userId, barcode) => {
+    const b = normalizeKey(barcode);
+    if (!b || !userId) return null;
+
+    const byMaster = await ProductMapping.findOne({
+        userId,
+        $or: [{ "masterProduct.barcode": b }, { "masterProduct.sku": b }]
+    });
+    if (byMaster) return byMaster;
+
+    const candidates = await ProductMapping.find({
+        userId,
+        marketplaceMappings: {
+            $elemMatch: {
+                $or: [{ marketplaceBarcode: b }, { marketplaceSku: b }]
+            }
+        }
+    });
+
+    for (const doc of candidates) {
+        const mb = normalizeKey(doc.masterProduct?.barcode);
+        const ms = normalizeKey(doc.masterProduct?.sku);
+        for (const mp of doc.marketplaceMappings || []) {
+            const mpB = normalizeKey(mp.marketplaceBarcode);
+            const mpS = normalizeKey(mp.marketplaceSku);
+            if (mpB !== b && mpS !== b) continue;
+            if ((mpB && mb && mpB === mb) || (mpS && ms && mpS === ms)) return doc;
+        }
+    }
+
+    return null;
+};
+
 module.exports = {
     FIELD_DEFS,
     normalizeKey,
@@ -347,7 +514,15 @@ module.exports = {
     applyFieldDriftToMarketplaceMapping,
     refreshAllFieldDriftsForMapping,
     alignPlatformSnapshotFromMaster,
+    alignMarketplaceIdentityFromMaster,
+    alignAllMarketplaceIdentitiesFromMaster,
+    mergeMarketplacePullIntoMapping,
+    mappingMatchesPlatformIdentity,
+    resolveTrendyolListingBarcode,
     applyPlatformValueToMaster,
     getMasterFieldValue,
-    resolveOrderItemBarcodeForStock
+    resolveOrderItemBarcodeForStock,
+    resolveMappingForOrderBarcode,
+    reconcileMasterIdentityFromTrendyolPull,
+    isMarketplaceMappingVisibleForProductUi
 };

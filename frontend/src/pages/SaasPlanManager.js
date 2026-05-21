@@ -1,4 +1,4 @@
-﻿/**
+/**
  * SaasPlanManager - Admin Paket Yönetimi Sayfası
  *
  * Admin panelden tüm paketlerin fiyatlarını, limitlerini, özelliklerini,
@@ -24,7 +24,7 @@ import {
     FaCogs, FaBrain, FaWarehouse, FaBell, FaKey, FaPencilAlt
 } from "react-icons/fa";
 import AdminLayout from "../components/AdminLayout";
-import { getSystemConfig, updatePlanDefinitions } from "../services/saasAdminApi";
+import { getSystemConfig, updatePlanDefinitions, resetPlanDefinitionsToDefaults } from "../services/saasAdminApi";
 
 /*
    A-Z ÖZELLİK KATALOĞU
@@ -83,7 +83,7 @@ const FEATURE_CATALOG = [
         category: "AI & Otomasyon",
         icon: <FaBrain style={{ fontSize: 11 }} />,
         items: [
-            "AI Asistan (PazarYonet AI)",
+            "AI Asistan (Dashtock AI)",
             "AI destekli analiz",
             "AI fiyat önerileri",
             "AI stok tahmini",
@@ -525,6 +525,27 @@ const SaasPlanManager = () => {
         setEditing(false);
     };
 
+    const handleResetDefaults = async () => {
+        if (!window.confirm(
+            "Paketler varsayılan revizyona sıfırlanacak (Giriş ₺249, Profesyonel ₺699, Kurumsal ₺1699 ve güncel özellik listesi). Devam?"
+        )) return;
+        setSaving(true);
+        setMessage({ text: "", type: "" });
+        try {
+            const res = await resetPlanDefinitionsToDefaults();
+            setMessage({
+                text: res.data?.message || "Varsayılan paketler yüklendi. Ana sayfa ve abonelik sayfası güncellendi.",
+                type: "success"
+            });
+            setEditing(false);
+            loadConfig();
+        } catch (err) {
+            setMessage({ text: err.response?.data?.message || "Sıfırlama başarısız", type: "error" });
+        } finally {
+            setSaving(false);
+        }
+    };
+
     //  Helpers 
     const planColors = { trial: "yellow", basic: "blue", pro: "purple", enterprise: "green" };
     const planIcons = { trial: <FaClock />, basic: <FaBoxOpen />, pro: <FaChartBar />, enterprise: <FaShieldAlt /> };
@@ -585,7 +606,12 @@ const SaasPlanManager = () => {
                                 </div>
                             </div>
                         </div>
-                        <div style={{ display: "flex", gap: 8 }}>
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                            {!editing && (
+                                <button className="ap-btn ap-btn--ghost" onClick={handleResetDefaults} disabled={saving}>
+                                    <FaSync /> Varsayılan Revizyona Sıfırla
+                                </button>
+                            )}
                             {editing ? (
                                 <>
                                     <button className="ap-btn ap-btn--ghost" onClick={handleCancel} disabled={saving}>
@@ -597,7 +623,7 @@ const SaasPlanManager = () => {
                                 </>
                             ) : (
                                 <button className="ap-btn ap-btn--primary" onClick={() => setEditing(true)}>
-                                    <FaEdit /> Paketleri Dzenle
+                                    <FaEdit /> Paketleri Düzenle
                                 </button>
                             )}
                         </div>

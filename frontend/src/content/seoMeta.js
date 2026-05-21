@@ -1,94 +1,155 @@
 import { APP_SITE_URL } from "../constants/domain";
-import { BRAND_NAME } from "../constants/brand";
+import { BRAND_NAME, formatBrandPageTitle } from "../constants/brand";
 
-const DEFAULT_TITLE = `${BRAND_NAME} - Pazaryeri Entegrasyon ve E-Ticaret Yönetim Sistemi`;
+const DEFAULT_TITLE = BRAND_NAME;
 const DEFAULT_DESC =
-    "PazarYonet ile Trendyol, Hepsiburada, Amazon, N11 ve diğer pazaryerlerini tek panelden yönetin. Stok, sipariş, fiyat ve kâr analizi.";
+    "Dashtock ile Trendyol, Hepsiburada, Amazon, N11 ve diğer pazaryerlerinde stok, sipariş, fiyat ve kârınızı tek panelden yönetin.";
 
 /** pathname → { title, description, noindex } */
 export const SEO_BY_PATH = {
     "/": {
-        title: DEFAULT_TITLE,
+        title: formatBrandPageTitle("Giriş"),
         description: DEFAULT_DESC,
     },
     "/home": {
-        title: DEFAULT_TITLE,
+        title: formatBrandPageTitle("Ana Sayfa"),
         description: DEFAULT_DESC,
     },
     "/blog": {
-        title: `Blog | ${BRAND_NAME} — Pazaryeri ve E-Ticaret Rehberleri`,
+        title: formatBrandPageTitle("Blog"),
         description:
             "Trendyol, Hepsiburada, Amazon, N11 entegrasyonu, stok senkronizasyonu, kâr analizi ve e-ticaret ipuçları.",
     },
     "/login": {
-        title: `Giriş | ${BRAND_NAME}`,
-        description: `${BRAND_NAME} hesabınıza giriş yapın. Pazaryeri entegrasyon paneli.`,
+        title: formatBrandPageTitle("Giriş"),
+        description: `${BRAND_NAME} hesabınıza giriş yapın.`,
     },
     "/register": {
-        title: `Ücretsiz Kayıt | ${BRAND_NAME}`,
+        title: formatBrandPageTitle("Kayıt"),
         description: `14 gün ücretsiz deneyin. ${DEFAULT_DESC}`,
     },
     "/verify-email": {
-        title: `E-posta Doğrulama | ${BRAND_NAME}`,
+        title: formatBrandPageTitle("E-posta Doğrulama"),
         description: "Hesap doğrulama sayfası.",
         noindex: true,
     },
     "/privacy": {
-        title: `Gizlilik Politikası | ${BRAND_NAME}`,
+        title: formatBrandPageTitle("Gizlilik Politikası"),
         description: `${BRAND_NAME} gizlilik politikası ve KVKK aydınlatma metni.`,
     },
     "/terms": {
-        title: `Kullanım Şartları | ${BRAND_NAME}`,
+        title: formatBrandPageTitle("Kullanım Şartları"),
         description: `${BRAND_NAME} kullanım şartları.`,
     },
     "/cookies": {
-        title: `Çerez Politikası | ${BRAND_NAME}`,
+        title: formatBrandPageTitle("Çerez Politikası"),
         description: `${BRAND_NAME} çerez politikası.`,
     },
     "/distance-sales": {
-        title: `Mesafeli Satış Sözleşmesi | ${BRAND_NAME}`,
+        title: formatBrandPageTitle("Mesafeli Satış"),
         description: "Mesafeli satış ve cayma hakkı bilgileri.",
     },
     "/preliminary-info": {
-        title: `Ön Bilgilendirme Formu | ${BRAND_NAME}`,
+        title: formatBrandPageTitle("Ön Bilgilendirme"),
         description: "Ön bilgilendirme formu.",
     },
     "/trendyol-entegrasyonu": {
-        title: `Trendyol Entegrasyonu | ${BRAND_NAME}`,
+        title: formatBrandPageTitle("Trendyol Entegrasyonu"),
         description:
-            "Trendyol API entegrasyonu, ürün yükleme, stok ve sipariş senkronizasyonu. Tek panelden Trendyol yönetimi.",
+            "Trendyol API entegrasyonu, ürün yükleme, stok ve sipariş senkronizasyonu.",
     },
     "/hepsiburada-entegrasyonu": {
-        title: `Hepsiburada Entegrasyonu | ${BRAND_NAME}`,
+        title: formatBrandPageTitle("Hepsiburada Entegrasyonu"),
         description:
             "Hepsiburada XML ve API entegrasyonu, kategori eşleme, stok ve fiyat senkronizasyonu.",
     },
     "/amazon-entegrasyonu": {
-        title: `Amazon Türkiye Entegrasyonu | ${BRAND_NAME}`,
+        title: formatBrandPageTitle("Amazon Entegrasyonu"),
         description: "Amazon TR pazaryeri entegrasyonu, sipariş ve envanter yönetimi.",
     },
     "/n11-entegrasyonu": {
-        title: `N11 Entegrasyonu | ${BRAND_NAME}`,
+        title: formatBrandPageTitle("N11 Entegrasyonu"),
         description: "N11 mağaza entegrasyonu, ürün ve sipariş otomasyonu.",
     },
     "/ciceksepeti-entegrasyonu": {
-        title: `ÇiçekSepeti Entegrasyonu | ${BRAND_NAME}`,
+        title: formatBrandPageTitle("ÇiçekSepeti Entegrasyonu"),
         description: "ÇiçekSepeti pazaryeri entegrasyonu ve çoklu kanal yönetimi.",
     },
     "/dashboard": {
-        title: `Yönetim Paneli | ${BRAND_NAME}`,
-        description: "Pazaryeri yönetim paneli.",
+        title: formatBrandPageTitle("Yönetim Paneli"),
+        description: DEFAULT_DESC,
+        noindex: true,
+    },
+    "/marketplace-integration": {
+        title: formatBrandPageTitle("Pazaryeri Entegrasyonu"),
+        description: DEFAULT_DESC,
+        noindex: true,
+    },
+    "/finance": {
+        title: formatBrandPageTitle("Finans"),
+        noindex: true,
+    },
+    "/product-management": {
+        title: formatBrandPageTitle("Ürün Merkezi"),
+        noindex: true,
+    },
+    "/product-upload": {
+        title: formatBrandPageTitle("Ürün Yükle"),
+        noindex: true,
+    },
+    "/radar-pro": {
+        title: formatBrandPageTitle("Fırsat Radarı"),
+        noindex: true,
+    },
+    "/roketfy": {
+        title: formatBrandPageTitle("Ürün Araştırma"),
+        noindex: true,
+    },
+    "/subscription": {
+        title: formatBrandPageTitle("Abonelik"),
+        noindex: true,
+    },
+    "/billing": {
+        title: formatBrandPageTitle("Faturalama"),
+        noindex: true,
+    },
+    "/journal": {
+        title: formatBrandPageTitle("Operasyon Defteri"),
+        noindex: true,
+    },
+    "/lysiabrain2": {
+        title: formatBrandPageTitle("Dashtock AI"),
         noindex: true,
     },
 };
 
+const APP_PANEL_PREFIXES = [
+    "/dashboard",
+    "/finance",
+    "/billing",
+    "/product-management",
+    "/product-upload",
+    "/marketplace-integration",
+    "/radar-pro",
+    "/roketfy",
+    "/subscription",
+    "/journal",
+    "/lysiabrain2",
+    "/admin",
+];
+
 export function getSeoForPath(pathname) {
-    const base = SEO_BY_PATH[pathname] || {
-        title: DEFAULT_TITLE,
+    const exact = SEO_BY_PATH[pathname];
+    const isAppPanel = APP_PANEL_PREFIXES.some(
+        (p) => pathname === p || pathname.startsWith(`${p}/`)
+    );
+    const base = exact || {
+        title: isAppPanel ? formatBrandPageTitle("Yönetim Paneli") : DEFAULT_TITLE,
         description: DEFAULT_DESC,
+        noindex: isAppPanel || pathname.startsWith("/admin"),
     };
     const canonical = `${APP_SITE_URL}${pathname === "/" ? "" : pathname}`;
     return { ...base, canonical };
 }
 
-export { DEFAULT_TITLE, DEFAULT_DESC };
+export { DEFAULT_TITLE, DEFAULT_DESC, formatBrandPageTitle };

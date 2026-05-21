@@ -10,10 +10,11 @@ const express = require("express");
 const router = express.Router();
 const { authMiddleware } = require("../middlewares/authMiddleware");
 const { subscriptionMiddleware } = require("../middlewares/subscriptionMiddleware");
+const { requirePlanFeature } = require("../middlewares/planFeatureMiddleware");
 const controller = require("../controllers/categoryCenterController");
 
-// Tüm route'lara auth + subscription kontrolü uygula
 router.use(authMiddleware, subscriptionMiddleware);
+const requireAutoMatch = requirePlanFeature("category_auto_match");
 
 // ── Master Eşleştirme Tablosu ──
 router.get("/mappings/export", controller.exportMappings);
@@ -28,10 +29,10 @@ router.get("/resolve-for-distribute", controller.resolveForDistribute);
 router.get("/marketplaces", controller.getMarketplaces);
 
 // ── Akıllı Otomatik Eşleştirme ──
-router.post("/auto-match/prepare", controller.autoMatchPrepare);
-router.post("/auto-match/approve", controller.autoMatchApprove);
-router.post("/auto-match/reset", controller.autoMatchReset);
-router.post("/auto-match", controller.autoMatch);
+router.post("/auto-match/prepare", requireAutoMatch, controller.autoMatchPrepare);
+router.post("/auto-match/approve", requireAutoMatch, controller.autoMatchApprove);
+router.post("/auto-match/reset", requireAutoMatch, controller.autoMatchReset);
+router.post("/auto-match", requireAutoMatch, controller.autoMatch);
 
 // ── Hepsiburada Kategori Ağacı (Tree) ──
 router.get("/hepsiburada/categories/export", controller.exportHepsiburadaCategoriesExcel);

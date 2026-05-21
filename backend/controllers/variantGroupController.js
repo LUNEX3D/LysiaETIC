@@ -8,6 +8,76 @@ const logger = require("../config/logger");
 
 const MAX_MEMBERS = 80;
 
+/** Grup trendyolProductMainId → üyelerin masterProduct.attributes.productMainId */
+const syncProductMainIdToMembers = async (userId, group, { onlyEmpty = false } = {}) => {
+    const mainId = String(group.trendyolProductMainId || "").trim();
+    if (!mainId || mainId.length < 2) return { updated: 0, skipped: 0 };
+
+    const memberIds = (group.memberIds || []).map(toObjectId).filter(Boolean);
+    if (memberIds.length === 0) return { updated: 0, skipped: 0 };
+
+    const docs = await ProductMapping.find({ _id: { $in: memberIds }, userId });
+    let updated = 0;
+    let skipped = 0;
+
+    for (const doc of docs) {
+        const attrs = doc.masterProduct?.attributes || {};
+        const current = String(attrs.productMainId || "").trim();
+        if (onlyEmpty && current) {
+            skipped++;
+            continue;
+        }
+        if (current === mainId) {
+            skipped++;
+            continue;
+        }
+        if (!doc.masterProduct) doc.masterProduct = {};
+        if (!doc.masterProduct.attributes || typeof doc.masterProduct.attributes !== "object") {
+            doc.masterProduct.attributes = {};
+        }
+        doc.masterProduct.attributes.productMainId = mainId;
+        doc.markModified("masterProduct");
+        await doc.save();
+        updated++;
+    }
+
+    return { updated, skipped };
+};
+
+const buildMainIdSyncStatus = (group, members) => {
+    const target = String(group?.trendyolProductMainId || "").trim();
+    if (!target) {
+        return { target: "", mismatchCount: 0, emptyCount: 0, mismatches: [] };
+    }
+    const mismatches = [];
+    let emptyCount = 0;
+    for (const m of members || []) {
+        const current = String(m.masterProduct?.attributes?.productMainId || "").trim();
+        if (!current) {
+            emptyCount++;
+            mismatches.push({
+                _id: m._id,
+                name: m.masterProduct?.name || "",
+                sku: m.masterProduct?.sku || "",
+                current: ""
+            });
+        } else if (current !== target) {
+            mismatches.push({
+                _id: m._id,
+                name: m.masterProduct?.name || "",
+                sku: m.masterProduct?.sku || "",
+                current
+            });
+        }
+    }
+    return {
+        target,
+        mismatchCount: mismatches.length,
+        emptyCount,
+        mismatches: mismatches.slice(0, 30)
+    };
+};
+
 const toObjectId = (id) => {
     if (!id) return null;
     if (id instanceof mongoose.Types.ObjectId) return id;
@@ -57,7 +127,9 @@ exports.getVariantGroup = async (req, res) => {
             .select("masterProduct.name masterProduct.sku masterProduct.barcode masterProduct.attributes stockTracking.totalStock marketplaceMappings.marketplaceName")
             .lean();
 
-        return res.json({ success: true, group, members });
+        const mainIdSync = buildMainIdSyncStatus(group, members);
+
+        return res.json({ success: true, group, members, mainIdSync });
     } catch (e) {
         logger.error("[VariantGroup] get:", e.message);
         return res.status(500).json({ success: false, error: e.message });
@@ -69,7 +141,14 @@ exports.createVariantGroup = async (req, res) => {
         const userId = toObjectId(req.user?._id || req.user?.id);
         if (!userId) return res.status(401).json({ success: false, error: "Yetkilendirme hatası" });
 
-        const { name, notes = "", trendyolProductMainId = "", memberIds = [], dimensionHint } = req.body;
+        const {
+            name,
+            notes = "",
+            trendyolProductMainId = "",
+            memberIds = [],
+            dimensionHint,
+            applyProductMainId = true
+        } = req.body;
         const trimmedName = String(name || "").trim();
         if (trimmedName.length < 2) {
             return res.status(400).json({ success: false, error: "Grup adı en az 2 karakter olmalı" });
@@ -112,7 +191,16 @@ exports.createVariantGroup = async (req, res) => {
             );
         }
 
-        return res.status(201).json({ success: true, group: group.toObject() });
+        let productMainIdSync = { updated: 0, skipped: 0 };
+        if (applyProductMainId !== false && group.trendyolProductMainId) {
+            productMainIdSync = await syncProductMainIdToMembers(userId, group, { onlyEmpty: false });
+        }
+
+        return res.status(201).json({
+            success: true,
+            group: group.toObject(),
+            productMainIdSync
+        });
     } catch (e) {
         logger.error("[VariantGroup] create:", e.message);
         return res.status(500).json({ success: false, error: e.message });
@@ -130,7 +218,7 @@ exports.updateVariantGroup = async (req, res) => {
         const group = await VariantGroup.findOne({ _id: gid, userId });
         if (!group) return res.status(404).json({ success: false, error: "Grup bulunamadı" });
 
-        const { name, notes, trendyolProductMainId, dimensionHint } = req.body;
+        const { name, notes, trendyolProductMainId, dimensionHint, applyProductMainId } = req.body;
         if (name !== undefined) {
             const t = String(name).trim();
             if (t.length < 2) return res.status(400).json({ success: false, error: "Grup adı en az 2 karakter" });
@@ -147,7 +235,19 @@ exports.updateVariantGroup = async (req, res) => {
             };
         }
         await group.save();
-        return res.json({ success: true, group: group.toObject() });
+
+        let productMainIdSync = { updated: 0, skipped: 0 };
+        const newMainId = String(group.trendyolProductMainId || "").trim();
+        const shouldSync =
+            applyProductMainId === true ||
+            (applyProductMainId !== false && trendyolProductMainId !== undefined && newMainId.length >= 2);
+        if (shouldSync && newMainId.length >= 2) {
+            productMainIdSync = await syncProductMainIdToMembers(userId, group, {
+                onlyEmpty: applyProductMainId === "emptyOnly"
+            });
+        }
+
+        return res.json({ success: true, group: group.toObject(), productMainIdSync });
     } catch (e) {
         logger.error("[VariantGroup] update:", e.message);
         return res.status(500).json({ success: false, error: e.message });
@@ -197,7 +297,17 @@ exports.addVariantGroupMembers = async (req, res) => {
             { $set: { variantGroupId: group._id } }
         );
 
-        return res.json({ success: true, added: toAdd.length, group: group.toObject() });
+        let productMainIdSync = { updated: 0, skipped: 0 };
+        if (group.trendyolProductMainId) {
+            productMainIdSync = await syncProductMainIdToMembers(userId, group, { onlyEmpty: true });
+        }
+
+        return res.json({
+            success: true,
+            added: toAdd.length,
+            group: group.toObject(),
+            productMainIdSync
+        });
     } catch (e) {
         logger.error("[VariantGroup] add members:", e.message);
         return res.status(500).json({ success: false, error: e.message });
@@ -238,6 +348,44 @@ exports.removeVariantGroupMembers = async (req, res) => {
         return res.json({ success: true, removed: removedCount, group: group.toObject() });
     } catch (e) {
         logger.error("[VariantGroup] remove members:", e.message);
+        return res.status(500).json({ success: false, error: e.message });
+    }
+};
+
+exports.applyVariantGroupProductMainId = async (req, res) => {
+    try {
+        const userId = toObjectId(req.user?._id || req.user?.id);
+        if (!userId) return res.status(401).json({ success: false, error: "Yetkilendirme hatası" });
+
+        const gid = toObjectId(req.params.groupId);
+        if (!gid) return res.status(400).json({ success: false, error: "Geçersiz grup" });
+
+        const group = await VariantGroup.findOne({ _id: gid, userId });
+        if (!group) return res.status(404).json({ success: false, error: "Grup bulunamadı" });
+
+        const mainId = String(group.trendyolProductMainId || "").trim();
+        if (mainId.length < 2) {
+            return res.status(400).json({
+                success: false,
+                error: "Önce grupta Trendyol model kodu (productMainId) tanımlayın"
+            });
+        }
+
+        const onlyEmpty = req.body?.onlyEmpty === true;
+        const productMainIdSync = await syncProductMainIdToMembers(userId, group, { onlyEmpty });
+
+        const members = await ProductMapping.find({ _id: { $in: group.memberIds || [] }, userId })
+            .select("masterProduct.name masterProduct.sku masterProduct.barcode masterProduct.attributes stockTracking.totalStock marketplaceMappings.marketplaceName")
+            .lean();
+
+        return res.json({
+            success: true,
+            productMainIdSync,
+            mainIdSync: buildMainIdSyncStatus(group, members),
+            members
+        });
+    } catch (e) {
+        logger.error("[VariantGroup] apply productMainId:", e.message);
         return res.status(500).json({ success: false, error: e.message });
     }
 };

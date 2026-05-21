@@ -1,4 +1,4 @@
-﻿import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
+import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 
 /* 
    DL SZL
@@ -21,7 +21,7 @@ const translations = {
         "sidebar.analytics": "Analiz & AI",
         "sidebar.advancedAnalytics": "Gelişmiş Analiz",
         "sidebar.aiAssistant": "AI Asistan",
-        "sidebar.roketfy": "PazarYonet Radar",
+        "sidebar.roketfy": "Dashtock Radar",
         "sidebar.radarPro": "Fırsat Radar",
         "sidebar.management": "Yönetim",
         "sidebar.userMgmt": "Kullanıcı Yönetimi",
@@ -216,8 +216,8 @@ const translations = {
 
         // Notifications
         "notif.title": "Bildirimler",
-        "notif.markAllRead": "Tmn Okundu aretle",
-        "notif.clearAll": "Tmn Temizle",
+        "notif.markAllRead": "Tümünü oku",
+        "notif.clearAll": "Tümünü temizle",
         "notif.noNotifications": "Bildirim yok",
 
         // Common
@@ -314,15 +314,15 @@ const translations = {
         // Notifications
         "notif.title": "Bildirimler",
         "notif.new": "yeni",
-        "notif.soundOn": "",
-        "notif.soundOff": "",
-        "notif.markAllRead": "Tmn oku",
-        "notif.all": "Tm",
+        "notif.soundOn": "Ses açık",
+        "notif.soundOff": "Ses kapalı",
+        "notif.markAllRead": "Tümünü oku",
+        "notif.all": "Tümü",
         "notif.orders": "Siparişler",
         "notif.announcements": "Duyurular",
         "notif.ai": "AI",
         "notif.noNotifications": "Henüz bildirim yok",
-        "notif.willAppearHere": "Siparişler, AI nerileri ve duyurular burada grnecek",
+        "notif.willAppearHere": "Siparişler, AI önerileri ve duyurular burada görünecek",
         "notif.order": "Sipariş",
         "notif.announcement": "Duyuru",
         "notif.stock": "Stok",
@@ -332,7 +332,7 @@ const translations = {
         "orders.pageTitle": "Sipariş Yönetimi",
         "orders.pageSubtitle": "Tüm pazaryerlerinden gelen siparişlerİşinizi tek ekrandan yönetin",
         "orders.scopedSubtitle": "Yalnızca bu pazaryeri — varsayılan son 7 gün (tarih aralığını aşağıdan değiştirebilirsiniz)",
-        "orders.all": "Tm",
+        "orders.all": "Tümü",
         "orders.new": "Yeni",
         "orders.processing": "lemde",
         "orders.shipping": "Kargoda",
@@ -472,7 +472,7 @@ const translations = {
         "cargo.delivered": "Teslim Edildi",
         "cargo.returned": "İade",
         "cargo.undelivered": "Teslim Edilemedi",
-        "cargo.all": "Tm",
+        "cargo.all": "Tümü",
         "cargo.deliver": "Teslim",
         "cargo.searchPlaceholder": "Sipariş No, Mteri, Takip No...",
         "cargo.apply": "Uygula",
@@ -626,7 +626,7 @@ const translations = {
 
         // Auth pages
         "auth.loginTitle": "Giriş Yap",
-        "auth.loginSubtitle": "PazarYonet hesabınıza hoş geldiniz.",
+        "auth.loginSubtitle": "Dashtock hesabınıza hoş geldiniz.",
         "auth.registerTitle": "Kayıt Ol",
         "auth.registerSubtitle": "Ücretsiz hesap oluşturun ve hemen başlayın.",
         "auth.emailPlaceholder": "E-posta adresiniz",
@@ -649,7 +649,7 @@ const translations = {
         "auth.heroTitle2": "yönetin,",
         "auth.heroTitle3": "büyütün.",
         "auth.heroDesc1": "Pazaryeri entegrasyonu, stok, sipariş ve daha fazlası.",
-        "auth.heroDesc2": "PazarYonet ile e-ticarette bir adım önde olun.",
+        "auth.heroDesc2": "Dashtock ile e-ticarette bir adım önde olun.",
         "auth.forgotTitle": "Şifremi Unuttum",
         "auth.forgotDesc": "Kayıtlı e-posta adresinizi girin, size bir sıfırlama kodu göndereceğiz.",
         "auth.sendCode": "Kod Gönder",
@@ -697,7 +697,7 @@ const translations = {
         "sidebar.analytics": "Analytics & AI",
         "sidebar.advancedAnalytics": "Advanced Analytics",
         "sidebar.aiAssistant": "AI Assistant",
-        "sidebar.roketfy": "PazarYonet Radar",
+        "sidebar.roketfy": "Dashtock Radar",
         "sidebar.radarPro": "Opportunity Radar",
         "sidebar.management": "Management",
         "sidebar.userMgmt": "User Management",
@@ -1304,7 +1304,7 @@ const translations = {
 
         // Auth pages
         "auth.loginTitle": "Sign In",
-        "auth.loginSubtitle": "Welcome to your PazarYonet account.",
+        "auth.loginSubtitle": "Welcome to your Dashtock account.",
         "auth.registerTitle": "Sign Up",
         "auth.registerSubtitle": "Create a free account and get started.",
         "auth.emailPlaceholder": "Your email address",
@@ -1327,7 +1327,7 @@ const translations = {
         "auth.heroTitle2": "from one panel,",
         "auth.heroTitle3": "grow it.",
         "auth.heroDesc1": "Marketplace integration, stock, orders and more.",
-        "auth.heroDesc2": "Stay ahead in e-commerce with PazarYonet.",
+        "auth.heroDesc2": "Stay ahead in e-commerce with Dashtock.",
         "auth.forgotTitle": "Forgot Password",
         "auth.forgotDesc": "Enter your registered email address and we'll send you a reset code.",
         "auth.sendCode": "Send Code",

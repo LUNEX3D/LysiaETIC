@@ -1,0 +1,23 @@
+<svg width="512" height="512" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Dashtock ikon acik zemin">
+  <defs>
+    <linearGradient id="dtl-bg" x1="16" y1="12" x2="104" y2="108" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#f472b6"/>
+      <stop offset="0.5" stop-color="#818cf8"/>
+      <stop offset="1" stop-color="#312e81"/>
+    </linearGradient>
+    <linearGradient id="dtl-accent" x1="48" y1="36" x2="96" y2="84" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#e0e7ff"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="104" height="104" rx="26" fill="url(#dtl-bg)"/>
+  <rect x="8" y="8" width="104" height="104" rx="26" stroke="#6366f1" stroke-opacity="0.2" stroke-width="1.2"/>
+  <g stroke="url(#dtl-accent)" stroke-width="3.5" stroke-linecap="round" opacity="0.95">
+    <line x1="72" y1="44" x2="92" y2="44"/>
+    <line x1="72" y1="56" x2="88" y2="56"/>
+    <line x1="72" y1="68" x2="84" y2="68"/>
+  </g>
+  <path d="M36 34 V86" stroke="#ffffff" stroke-width="7.5" stroke-linecap="round"/>
+  <path d="M36 34 H52 C72 34 84 48 84 60 C84 72 72 86 52 86 H36" stroke="#ffffff" stroke-width="7.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <path d="M78 76 L92 62 M92 62 H82 M92 62 V72" stroke="#ffffff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

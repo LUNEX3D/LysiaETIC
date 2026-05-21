@@ -37,6 +37,9 @@ const OpportunityResultSchema = new mongoose.Schema({
     keyword: { type: String, required: true },
     category: { type: String, default: "" },
     categoryId: { type: String, default: "" },
+    /** takı / decor_3d / home — çok nişli katalogda denge için */
+    nicheCluster: { type: String, default: "" },
+    nicheLabel: { type: String, default: "" },
     source: {
         type: String,
         enum: ["trend", "marketplace", "user_data", "search_suggest", "social", "ai_discovery"],

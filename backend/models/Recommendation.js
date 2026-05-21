@@ -31,7 +31,9 @@ const RecommendationSchema = new mongoose.Schema({
             "profit_alert",
             "campaign_suggestion",
             "product_launch",
-            "strategy_switch"
+            "strategy_switch",
+            "inventory_pressure",
+            "tax_warning",
         ],
         index: true
     },

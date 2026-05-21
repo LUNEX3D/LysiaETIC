@@ -28,10 +28,10 @@ const express = require("express");
 const router = express.Router();
 const { authMiddleware } = require("../middlewares/authMiddleware");
 const { subscriptionMiddleware } = require("../middlewares/subscriptionMiddleware");
+const { requirePlanFeature } = require("../middlewares/planFeatureMiddleware");
 const ctrl = require("../controllers/radarController");
 
-// ✅ Tüm route'lara auth + subscription kontrolü uygula
-router.use(authMiddleware, subscriptionMiddleware);
+router.use(authMiddleware, subscriptionMiddleware, requirePlanFeature("ai_radar"));
 
 // ── Fırsatlar ──
 router.get("/opportunities",              ctrl.getOpportunities);

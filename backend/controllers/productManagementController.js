@@ -10,6 +10,7 @@ const Marketplace = require("../models/Marketplace");
 const logger = require("../config/logger");
 const {
     syncProductsFromMarketplace,
+    importSingleProductFromMarketplace,
     distributeProductToMarketplaces,
     checkPendingN11Tasks,
     checkPendingHepsiburadaUploads,
@@ -27,13 +28,19 @@ const multer = require("multer");
 const fs = require("fs");
 const path = require("path");
 const duplicateGuard = require("../utils/productDuplicateGuard");
+const VariantGroup = require("../models/VariantGroup");
 const {
     extractPlatformSnapshotFromMp,
     applyPlatformValueToMaster,
     applyFieldDriftToMarketplaceMapping,
     refreshAllFieldDriftsForMapping,
+    alignMarketplaceIdentityFromMaster,
+    alignPlatformSnapshotFromMaster,
+    resolveTrendyolListingBarcode,
+    isMarketplaceMappingVisibleForProductUi,
     FIELD_DEFS
 } = require("../utils/productFieldCompare");
+const { normalizeDistributeCategory } = require("../utils/normalizeDistributeCategory");
 const {
     isHepsiburadaMappingListedForUi,
     isHepsiburadaMappingVisibleForProductUi,
@@ -235,9 +242,13 @@ exports.getProducts = async (req, res) => {
         const userId = toObjectId(req.user?._id || req.user?.id);
         if (!userId) return res.status(401).json({ error: "Yetkilendirme hatası" });
 
-        const { page = 0, limit = 20, search, category, marketplace, stockStatus, mpFilter, mpFilterStatus } = req.query;
+        const { page = 0, limit = 20, search, category, marketplace, stockStatus, mpFilter, mpFilterStatus, ungroupedOnly } = req.query;
 
         const filter = { userId };
+
+        if (ungroupedOnly === "1" || ungroupedOnly === "true") {
+            filter.variantGroupId = null;
+        }
 
         // Arama filtresi
         if (search) {
@@ -246,7 +257,11 @@ exports.getProducts = async (req, res) => {
             filter.$or = [
                 { "masterProduct.name": { $regex: escapedSearch, $options: "i" } },
                 { "masterProduct.barcode": { $regex: escapedSearch, $options: "i" } },
-                { "masterProduct.sku": { $regex: escapedSearch, $options: "i" } }
+                { "masterProduct.sku": { $regex: escapedSearch, $options: "i" } },
+                { "marketplaceMappings.marketplaceBarcode": { $regex: escapedSearch, $options: "i" } },
+                { "marketplaceMappings.marketplaceSku": { $regex: escapedSearch, $options: "i" } },
+                { "masterProduct.attributes.model": { $regex: escapedSearch, $options: "i" } },
+                { "masterProduct.attributes.productMainId": { $regex: escapedSearch, $options: "i" } }
             ];
         }
 
@@ -309,8 +324,31 @@ exports.getProducts = async (req, res) => {
         for (const p of products) {
             if (p.marketplaceMappings && p.marketplaceMappings.length > 0) {
                 p.marketplaceMappings = p.marketplaceMappings.filter(
-                    (m) => m && isHepsiburadaMappingVisibleForProductUi(m)
+                    (m) => m && isMarketplaceMappingVisibleForProductUi(m)
                 );
+            }
+        }
+
+        const groupIds = [...new Set(products.map((p) => p.variantGroupId).filter(Boolean).map(String))];
+        if (groupIds.length > 0) {
+            const VariantGroup = require("../models/VariantGroup");
+            const groupOids = groupIds.map((id) => toObjectId(id)).filter(Boolean);
+            const groups = await VariantGroup.find({
+                userId,
+                _id: { $in: groupOids }
+            }).select("name trendyolProductMainId").lean();
+            const groupMap = Object.fromEntries(groups.map((g) => [String(g._id), g]));
+            for (const p of products) {
+                if (p.variantGroupId) {
+                    const g = groupMap[String(p.variantGroupId)];
+                    if (g) {
+                        p.variantGroup = {
+                            _id: g._id,
+                            name: g.name,
+                            trendyolProductMainId: g.trendyolProductMainId || ""
+                        };
+                    }
+                }
             }
         }
 
@@ -359,7 +397,7 @@ exports.getProductDetail = async (req, res) => {
         // ✅ YENİ (DOĞRU): Cross-reference KALDIRILDI. Her ürün SADECE kendi marketplaceMappings'ini gösterir.
         let visibleMappings = productDoc.marketplaceMappings || [];
         if (visibleMappings.length > 0) {
-            visibleMappings = visibleMappings.filter((m) => m && isHepsiburadaMappingVisibleForProductUi(m));
+            visibleMappings = visibleMappings.filter((m) => m && isMarketplaceMappingVisibleForProductUi(m));
         }
 
         const fieldAuditSummary = {
@@ -727,6 +765,33 @@ exports.getSyncJobStatus = async (req, res) => {
 /**
  * Pazaryerinden ürünleri çek ve eşleştir
  */
+/**
+ * Trendyol'dan tek ürün içe aktar (barkod veya stok kodu) — listede görünmeyen ürünler için
+ */
+exports.importMarketplaceProduct = async (req, res) => {
+    try {
+        const userId = toObjectId(req.user?._id || req.user?.id);
+        if (!userId) return res.status(401).json({ error: "Yetkilendirme hatası" });
+
+        const { marketplaceName = "Trendyol", barcode, sku } = req.body || {};
+        const result = await importSingleProductFromMarketplace(userId, marketplaceName, { barcode, sku });
+
+        return res.status(200).json({
+            success: true,
+            message:
+                result.action === "created"
+                    ? "Ürün Trendyol'dan içe aktarıldı"
+                    : "Ürün güncellendi ve barkod hizalandı",
+            ...result
+        });
+    } catch (error) {
+        logger.error("[IMPORT MARKETPLACE PRODUCT]", error.message);
+        return res.status(400).json({
+            error: error.message || "İçe aktarım başarısız"
+        });
+    }
+};
+
 exports.syncFromMarketplace = async (req, res) => {
     try {
         const userId = toObjectId(req.user?._id || req.user?.id);
@@ -782,49 +847,54 @@ exports.distributeProduct = async (req, res) => {
         if (!userId) return res.status(401).json({ error: "Yetkilendirme hatası" });
 
         const { productMappingId, targetMarketplaces, category, categoryData } = req.body;
-        const normalizedCategory = category || (categoryData
-            ? {
-                id: categoryData.id || categoryData.categoryId || categoryData.externalCategoryId,
-                name: categoryData.name || categoryData.categoryName || categoryData.externalCategoryName,
-                path: categoryData.path || categoryData.categoryPath || categoryData.externalCategoryPath
-            }
-            : null);
+        const normalizedCategory =
+            normalizeDistributeCategory(category) ||
+            normalizeDistributeCategory(categoryData);
 
         if (!productMappingId || !targetMarketplaces || targetMarketplaces.length === 0) {
             return res.status(400).json({ error: "Ürün ID ve hedef pazaryerleri gerekli" });
         }
 
         const hbTarget = (targetMarketplaces || []).some((t) => /hepsiburada/i.test(String(t || "")));
-        const hbCategoryId = normalizedCategory?.id != null ? String(normalizedCategory.id).trim() : "";
+        const hbCategoryId = normalizedCategory?.id ? String(normalizedCategory.id).trim() : "";
         if (hbTarget && hbCategoryId) {
-            const hbMp = await Marketplace.findOne({
-                userId,
-                marketplaceName: { $regex: /^hepsiburada$/i }
-            }).lean();
-            if (hbMp) {
-                const hbCreds = normalizeHbCredentials(decryptCredentials(hbMp.credentials));
-                const hbVal = validateHbCredentials(hbCreds, "kategori doğrulama");
-                if (hbVal.valid) {
-                    const useSit = getHbEndpoints(hbCreds).MPOP === HB_SIT_ENDPOINTS.MPOP;
-                    const listableIds = await loadHepsiburadaListableCategoryIdSet(
-                        hbCreds.merchantId,
-                        hbCreds.secretKey,
-                        hbCreds.userAgent,
-                        useSit
-                    );
-                    if (listableIds.size > 0 && !listableIds.has(hbCategoryId)) {
-                        return res.status(400).json({
-                            error: "Hepsiburada kategori geçersiz",
-                            details:
-                                `Kategori ID ${hbCategoryId} ürün listelemeye uygun değil (kampanya reyonu veya kapalı kategori). ` +
-                                "Kategori aramasında yaprak (listelenebilir) bir katalog kategorisi seçin."
-                        });
+            try {
+                const hbMp = await Marketplace.findOne({
+                    userId,
+                    marketplaceName: { $regex: /^hepsiburada$/i }
+                }).lean();
+                if (hbMp) {
+                    const hbCreds = normalizeHbCredentials(decryptCredentials(hbMp.credentials));
+                    const hbVal = validateHbCredentials(hbCreds, "kategori doğrulama");
+                    if (hbVal.valid && typeof loadHepsiburadaListableCategoryIdSet === "function") {
+                        const useSit = getHbEndpoints(hbCreds).MPOP === HB_SIT_ENDPOINTS.MPOP;
+                        const listableIds = await loadHepsiburadaListableCategoryIdSet(
+                            hbCreds.merchantId,
+                            hbCreds.secretKey,
+                            hbCreds.userAgent,
+                            useSit
+                        );
+                        if (listableIds instanceof Set && listableIds.size > 0 && !listableIds.has(hbCategoryId)) {
+                            return res.status(400).json({
+                                error: "Hepsiburada kategori geçersiz",
+                                details:
+                                    `Kategori ID ${hbCategoryId} ürün listelemeye uygun değil (kampanya reyonu veya kapalı kategori). ` +
+                                    "Kategori aramasında yaprak (listelenebilir) bir katalog kategorisi seçin."
+                            });
+                        }
                     }
                 }
+            } catch (hbPreErr) {
+                logger.warn(`[DISTRIBUTE] HB kategori ön kontrolü atlandı: ${hbPreErr?.message || hbPreErr}`);
             }
         }
 
-        const results = await distributeProductToMarketplaces(userId, productMappingId, targetMarketplaces, normalizedCategory);
+        const mappingOid = toObjectId(productMappingId);
+        if (!mappingOid) {
+            return res.status(400).json({ error: "Geçersiz ürün ID", details: String(productMappingId || "") });
+        }
+
+        const results = await distributeProductToMarketplaces(userId, mappingOid, targetMarketplaces, normalizedCategory);
 
         return res.status(200).json({
             success: true,
@@ -833,8 +903,16 @@ exports.distributeProduct = async (req, res) => {
         });
 
     } catch (error) {
-        logger.error("[DISTRIBUTE] Hata:", error.message);
-        return res.status(500).json({ error: "Dağıtım başarısız", details: error.message });
+        const errMsg =
+            error?.message ||
+            (typeof error === "string" ? error : "") ||
+            error?.toString?.() ||
+            "Bilinmeyen dağıtım hatası";
+        logger.error(`[DISTRIBUTE] Hata: ${errMsg}`);
+        if (error?.stack) {
+            logger.error(`[DISTRIBUTE] Stack: ${error.stack}`);
+        }
+        return res.status(500).json({ error: "Dağıtım başarısız", details: errMsg });
     }
 };
 
@@ -1073,9 +1151,15 @@ exports.syncPrice = async (req, res) => {
             // Doğru productId belirle
             let productIdForMP;
             switch (mpName) {
-                case "Trendyol":
-                    productIdForMP = mpMapping.marketplaceBarcode || mpMapping.marketplaceSku || mapping.masterProduct.barcode || mapping.masterProduct.sku;
+                case "Trendyol": {
+                    const masterBc = String(mapping.masterProduct?.barcode || "").trim();
+                    const mpBc = String(mpMapping.marketplaceBarcode || "").trim();
+                    if (masterBc && mpBc && masterBc !== mpBc) {
+                        alignMarketplaceIdentityFromMaster(mpMapping, mapping.masterProduct);
+                    }
+                    productIdForMP = resolveTrendyolListingBarcode(mapping.masterProduct, mpMapping) || mapping.masterProduct.sku;
                     break;
+                }
                 case "N11":
                     productIdForMP = mpMapping.marketplaceSku || mpMapping.marketplaceBarcode || mapping.masterProduct.sku || mapping.masterProduct.barcode;
                     break;
@@ -2631,7 +2715,10 @@ exports.basePriceSync = async (req, res) => {
                         let productIdForMP;
                         switch (targetMP) {
                             case "Trendyol":
-                                productIdForMP = mpMapping.marketplaceBarcode || mpMapping.marketplaceSku || product.masterProduct.barcode;
+                                productIdForMP = resolveTrendyolListingBarcode(
+                                    product.masterProduct,
+                                    mpMapping
+                                ) || mpMapping.marketplaceSku || product.masterProduct.barcode;
                                 break;
                             case "N11":
                                 productIdForMP = mpMapping.marketplaceSku || mpMapping.marketplaceBarcode || product.masterProduct.sku;
@@ -2976,6 +3063,12 @@ exports.applyPlatformField = async (req, res) => {
         if (!marketplaceName || !field) {
             return res.status(400).json({ error: "marketplaceName ve field gerekli" });
         }
+        if (field === "barcode" || field === "sku") {
+            return res.status(400).json({
+                error: "Barkod ve stok kodu platformdan master'a kopyalanamaz (yanlış varyanta bağlanır). " +
+                    "Bunun yerine «Master'ı platforma uygula» kullanın."
+            });
+        }
 
         const product = await ProductMapping.findOne({ _id: req.params.productId, userId });
         if (!product) return res.status(404).json({ error: "Ürün bulunamadı" });
@@ -3028,6 +3121,64 @@ exports.applyPlatformField = async (req, res) => {
     } catch (error) {
         logger.error("[APPLY PLATFORM FIELD] Hata:", error.message);
         return res.status(500).json({ error: "Alan uygulanamadı", details: error.message });
+    }
+};
+
+/**
+ * Master barkod/SKU → pazaryeri mapping (stok/fiyat yanlış ürüne gitmesin)
+ * POST /product-management/products/:productId/apply-master-to-platform
+ * Body: { marketplaceName, fields?: ["barcode","sku"] }
+ */
+exports.applyMasterToPlatformField = async (req, res) => {
+    try {
+        const userId = toObjectId(req.user?._id || req.user?.id);
+        if (!userId) return res.status(401).json({ error: "Yetkilendirme hatası" });
+
+        const { marketplaceName, fields } = req.body;
+        if (!marketplaceName) {
+            return res.status(400).json({ error: "marketplaceName gerekli" });
+        }
+
+        const product = await ProductMapping.findOne({ _id: req.params.productId, userId });
+        if (!product) return res.status(404).json({ error: "Ürün bulunamadı" });
+
+        const norm = normalizeMarketplaceName(marketplaceName);
+        const mpIdx = (product.marketplaceMappings || []).findIndex(
+            (m) => normalizeMarketplaceName(m.marketplaceName) === norm
+        );
+        if (mpIdx < 0) {
+            return res.status(404).json({ error: "Bu pazaryeri eşleştirmesi bulunamadı" });
+        }
+
+        const mp = product.marketplaceMappings[mpIdx];
+        const allowed = Array.isArray(fields) && fields.length > 0
+            ? fields.filter((f) => f === "barcode" || f === "sku")
+            : ["barcode", "sku"];
+        const align = alignMarketplaceIdentityFromMaster(mp, product.masterProduct);
+        if (!align.changed && allowed.length > 0) {
+            return res.status(200).json({
+                success: true,
+                message: "Kimlik alanları zaten master ile uyumlu",
+                fieldDrift: mp.fieldDrift
+            });
+        }
+
+        alignPlatformSnapshotFromMaster(mp, product);
+        product.markModified("marketplaceMappings");
+        await product.save();
+
+        return res.status(200).json({
+            success: true,
+            message: `${norm}: master barkod/SKU pazaryeri kaydına uygulandı`,
+            previousBarcode: align.previousBarcode,
+            previousSku: align.previousSku,
+            marketplaceBarcode: mp.marketplaceBarcode,
+            marketplaceSku: mp.marketplaceSku,
+            fieldDrift: mp.fieldDrift
+        });
+    } catch (error) {
+        logger.error("[APPLY MASTER TO PLATFORM] Hata:", error.message);
+        return res.status(500).json({ error: "Master platforma uygulanamadı", details: error.message });
     }
 };
 
@@ -4317,7 +4468,7 @@ exports.createAndDistribute = async (req, res) => {
             price, listPrice, stock, category, brand,
             attributes, targetMarketplaces, platformCategories,
             vatRate, dimensionalWeight, marketplaceExtras,
-            n11ShipmentTemplate
+            n11ShipmentTemplate, productMainId
         } = req.body;
 
         const n11ShipTpl =
@@ -4353,6 +4504,10 @@ exports.createAndDistribute = async (req, res) => {
             const dw = Number(dimensionalWeight);
             if (!Number.isNaN(dw)) attrObj.weight = dw;
         }
+        const mainIdTrim = productMainId != null && String(productMainId).trim() !== ""
+            ? String(productMainId).trim()
+            : "";
+        if (mainIdTrim) attrObj.productMainId = mainIdTrim;
 
         const productMapping = new ProductMapping({
             userId,
@@ -4517,6 +4672,209 @@ exports.createAndDistribute = async (req, res) => {
     } catch (error) {
         logger.error("[PRODUCT CREATE & DISTRIBUTE] Hata:", error.message);
         return res.status(500).json({ error: "Ürün oluşturulamadı", details: error.message });
+    }
+};
+
+/**
+ * Varyantlı ürün ailesi — ortak productMainId, her satır ayrı barkod/SKU
+ * POST /product-management/products/create-variants-and-distribute
+ */
+exports.createVariantsAndDistribute = async (req, res) => {
+    try {
+        const userId = toObjectId(req.user?._id || req.user?.id);
+        if (!userId) return res.status(401).json({ error: "Yetkilendirme hatası" });
+
+        const {
+            productMainId,
+            baseName,
+            description = "",
+            images = [],
+            brand = "",
+            variants = [],
+            targetMarketplaces,
+            platformCategories,
+            marketplaceExtras,
+            vatRate,
+            dimensionalWeight,
+            n11ShipmentTemplate,
+            createVariantGroup = true,
+            variantGroupName
+        } = req.body;
+
+        const mainId = String(productMainId || "").trim();
+        const base = String(baseName || "").trim();
+        if (!mainId || mainId.length < 2) {
+            return res.status(400).json({ error: "Ortak model kodu (productMainId) zorunludur — tüm varyantlar Trendyol'da aynı sayfada görünür" });
+        }
+        if (!base) {
+            return res.status(400).json({ error: "baseName (ürün ailesi adı) zorunludur" });
+        }
+        if (!Array.isArray(variants) || variants.length < 2) {
+            return res.status(400).json({ error: "En az 2 varyant satırı gerekir (renk/beden)" });
+        }
+
+        const variantResults = [];
+        const memberIds = [];
+
+        for (let i = 0; i < variants.length; i++) {
+            const v = variants[i] || {};
+            const barcode = String(v.barcode || "").trim();
+            const sku = String(v.sku || "").trim();
+            const priceNum = Number(v.price);
+            if (!barcode || !sku) {
+                return res.status(400).json({ error: `Varyant ${i + 1}: barkod ve stok kodu (SKU) zorunlu` });
+            }
+            if (Number.isNaN(priceNum) || priceNum <= 0) {
+                return res.status(400).json({ error: `Varyant ${i + 1}: geçerli fiyat gerekli` });
+            }
+
+            const suffix = [v.color, v.size, v.nameSuffix].filter(Boolean).join(" ");
+            const name = String(v.name || "").trim() || (suffix ? `${base} — ${suffix}` : `${base} — Varyant ${i + 1}`);
+
+            const duplicateCheck = await duplicateGuard.checkDuplicates(userId, { barcode, sku, name });
+            if (!duplicateCheck.isValid) {
+                return res.status(409).json({
+                    error: `Varyant ${i + 1}: ${duplicateCheck.message}`,
+                    type: duplicateCheck.type,
+                    conflicts: duplicateCheck.conflicts
+                });
+            }
+
+            const stockVal = Number(v.stock) || 0;
+            const listPriceNum = v.listPrice != null && v.listPrice !== "" ? Number(v.listPrice) : priceNum;
+            const attrObj = {
+                productMainId: mainId,
+                ...(v.color ? { color: String(v.color).trim(), webColor: String(v.color).trim() } : {}),
+                ...(v.size ? { size: String(v.size).trim() } : {})
+            };
+            if (dimensionalWeight != null && dimensionalWeight !== "") {
+                const dw = Number(dimensionalWeight);
+                if (!Number.isNaN(dw)) attrObj.weight = dw;
+            }
+
+            const productMapping = new ProductMapping({
+                userId,
+                masterProduct: {
+                    name,
+                    barcode,
+                    sku,
+                    description: description || "",
+                    images: Array.isArray(v.images) && v.images.length > 0 ? v.images : images || [],
+                    price: priceNum,
+                    listPrice: !Number.isNaN(listPriceNum) && listPriceNum > 0 ? listPriceNum : priceNum,
+                    stock: stockVal,
+                    vatRate: vatRate != null && vatRate !== "" ? Number(vatRate) : 20,
+                    category: "",
+                    brand: brand || "",
+                    attributes: attrObj
+                },
+                marketplaceMappings: [],
+                stockTracking: {
+                    totalStock: stockVal,
+                    availableStock: stockVal,
+                    lowStockThreshold: 10
+                }
+            });
+            productMapping.updateStockStatus();
+            if (n11ShipmentTemplate) {
+                productMapping.masterProduct.shipmentTemplate = String(n11ShipmentTemplate).trim();
+                productMapping.markModified("masterProduct");
+            }
+            await productMapping.save();
+            memberIds.push(productMapping._id);
+
+            const distributeResults = [];
+            const rawTargets = Array.isArray(targetMarketplaces) ? targetMarketplaces : [];
+            let targets = [...new Set(rawTargets.map((t) => String(t || "").trim()).filter(Boolean))];
+            if (targets.length === 0) {
+                const integrations = await Marketplace.find({ userId, isActive: { $ne: false } })
+                    .select("marketplaceName")
+                    .lean();
+                targets = [...new Set(integrations.map((r) => r.marketplaceName).filter(Boolean))];
+            }
+            const uploadSupported = new Set(["Trendyol", "Hepsiburada", "N11", "ÇiçekSepeti"]);
+            targets = targets.filter((t) => uploadSupported.has(String(t || "").trim()));
+
+            for (const target of targets) {
+                try {
+                    const rawCategory = (() => {
+                        if (!platformCategories || typeof platformCategories !== "object") return null;
+                        if (platformCategories[target]) return platformCategories[target];
+                        const wanted = String(target || "").trim().toLowerCase();
+                        const matchedKey = Object.keys(platformCategories).find(
+                            (k) => String(k || "").trim().toLowerCase() === wanted
+                        );
+                        return matchedKey ? platformCategories[matchedKey] : null;
+                    })();
+                    const normalizedCategory = rawCategory && (rawCategory.categoryId || rawCategory.id)
+                        ? {
+                            id: String(rawCategory.categoryId || rawCategory.id),
+                            name: rawCategory.categoryName || rawCategory.name || "",
+                            path: rawCategory.categoryPath || rawCategory.path || rawCategory.categoryName || rawCategory.name || ""
+                        }
+                        : null;
+
+                    const distResult = await distributeProductToMarketplaces(
+                        userId,
+                        productMapping._id,
+                        [target],
+                        normalizedCategory,
+                        marketplaceExtras && typeof marketplaceExtras === "object"
+                            ? { marketplaceExtras }
+                            : null
+                    );
+                    const items = Array.isArray(distResult) ? distResult : [];
+                    const errItem = items.find((item) => item.status === "error");
+                    distributeResults.push({
+                        marketplace: target,
+                        success: items.length > 0 && !errItem,
+                        error: errItem ? (errItem.message || "Yükleme başarısız") : undefined
+                    });
+                } catch (distErr) {
+                    distributeResults.push({
+                        marketplace: target,
+                        success: false,
+                        error: distErr.message
+                    });
+                }
+            }
+
+            variantResults.push({
+                index: i,
+                productMappingId: productMapping._id,
+                name,
+                barcode,
+                sku,
+                distributeResults
+            });
+        }
+
+        let group = null;
+        if (createVariantGroup !== false && memberIds.length > 0) {
+            group = await VariantGroup.create({
+                userId,
+                name: String(variantGroupName || base).trim().slice(0, 200),
+                trendyolProductMainId: mainId,
+                memberIds,
+                notes: "Sihirbaz — varyantlı yükleme",
+                dimensionHint: { colorLabel: "Renk", sizeLabel: "Beden" }
+            });
+            await ProductMapping.updateMany(
+                { _id: { $in: memberIds }, userId },
+                { $set: { variantGroupId: group._id } }
+            );
+        }
+
+        return res.status(201).json({
+            success: true,
+            message: `${variantResults.length} varyant oluşturuldu (ortak model: ${mainId})`,
+            productMainId: mainId,
+            variants: variantResults,
+            variantGroup: group
+        });
+    } catch (error) {
+        logger.error("[VARIANT CREATE & DISTRIBUTE] Hata:", error.message);
+        return res.status(500).json({ error: "Varyantlı yükleme başarısız", details: error.message });
     }
 };
 

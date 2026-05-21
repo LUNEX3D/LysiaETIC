@@ -1,4 +1,4 @@
-﻿/**
+/**
  * AuthShared — Shared Auth Components
  * ✅ FIX E6: LoginForm ve RegisterForm'daki ortak bileşenler tek dosyada
  */
@@ -26,7 +26,7 @@ export const GoogleIcon = () => (
 
 export const AuthFooter = () => (
     <div className="auth-footer">
-        <span>© {new Date().getFullYear()} PazarYonet. Tüm hakları saklıdır.</span>
+        <span>© {new Date().getFullYear()} Dashtock. Tüm hakları saklıdır.</span>
         <span className="auth-footer-dot" />
         <a href="/privacy" target="_blank" rel="noopener noreferrer">Gizlilik Politikası</a>
         <span className="auth-footer-dot" />

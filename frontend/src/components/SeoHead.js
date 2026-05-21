@@ -65,7 +65,7 @@ export default function SeoHead({ title, description, noindex, canonical }) {
 
 /** JSON-LD — index.html ile birlikte; SPA route değişiminde güncellenmez (statik yeterli) */
 export function injectOrganizationSchema() {
-    const id = "pazaryonet-org-schema";
+    const id = "dashtock-org-schema";
     if (document.getElementById(id)) return;
     const script = document.createElement("script");
     script.id = id;
@@ -77,8 +77,8 @@ export function injectOrganizationSchema() {
                 "@type": "Organization",
                 name: BRAND_NAME,
                 url: APP_SITE_URL,
-                logo: `${APP_SITE_URL}/brand/pazaryonet-logo.svg`,
-                email: "info@pazaryonet.com",
+                logo: `${APP_SITE_URL}/brand/dashtock-logo.svg`,
+                email: "info@dashtock.com",
                 sameAs: [],
             },
             {

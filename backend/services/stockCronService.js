@@ -38,6 +38,10 @@ let _cronRunning = false;
 let _cronTick = 0;
 const STOCK_CRON_MS = Math.max(60_000, parseInt(process.env.STOCK_ORDER_CRON_MS || "120000", 10) || 120_000);
 const STOCK_PUSH_EVERY_N_CYCLES = Math.max(1, parseInt(process.env.STOCK_PUSH_EVERY_N_CYCLES || "3", 10) || 3);
+const IDENTITY_REPAIR_EVERY_N_CYCLES = Math.max(
+    5,
+    parseInt(process.env.IDENTITY_REPAIR_EVERY_N_CYCLES || "15", 10) || 15
+);
 
 /**
  * Cron sipariş satırı — merkezi processOrderStockLine + in-memory işaretleme
@@ -677,6 +681,24 @@ const runStockSync = async () => {
         }
 
         // ═══════════════════════════════════════════════════════
+        // ADIM 0b: KİMLİK ONARIMI (tüm kullanıcılar — periyodik parti)
+        // ═══════════════════════════════════════════════════════
+        _cronTick += 1;
+        if (_cronTick % IDENTITY_REPAIR_EVERY_N_CYCLES === 0) {
+            try {
+                const { runIdentityRepairBatch } = require("./productIdentityGuardService");
+                const ig = await runIdentityRepairBatch();
+                if (ig.repaired > 0) {
+                    logger.info(
+                        `[STOCK CRON] 🛡️ Kimlik onarımı — taranan: ${ig.scanned}, düzeltilen: ${ig.repaired}`
+                    );
+                }
+            } catch (igErr) {
+                logger.warn(`[STOCK CRON] Kimlik onarım hatası: ${igErr.message}`);
+            }
+        }
+
+        // ═══════════════════════════════════════════════════════
         // ADIM 1: SİPARİŞ KONTROLÜ (mevcut mantık)
         // ═══════════════════════════════════════════════════════
         const marketplaces = await Marketplace.find({}).lean();
@@ -728,7 +750,6 @@ const runStockSync = async () => {
         // ═══════════════════════════════════════════════════════
         // ADIM 2: MASTER STOK EŞİTLEME (her N döngüde — varsayılan ~6 dk)
         // ═══════════════════════════════════════════════════════
-        _cronTick += 1;
         if (_cronTick % STOCK_PUSH_EVERY_N_CYCLES === 0) {
             const pushResult = await pushMasterStockToMarketplaces();
             if (pushResult.synced > 0 || pushResult.errors > 0) {

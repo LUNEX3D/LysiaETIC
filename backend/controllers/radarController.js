@@ -45,8 +45,11 @@ exports.getOpportunities = async (req, res) => {
         });
 
         const ttlMs = opportunityEngine.CACHE_TTL_MS || 6 * 60 * 60 * 1000;
+        const rotationMeta = opportunityEngine.getDisplayRotationMeta?.() || {};
         let meta = {
             cacheTtlMs: ttlMs,
+            displayRotationMs: opportunityEngine.DISPLAY_ROTATION_MS,
+            ...rotationMeta,
             newestFreshness: null,
             oldestFreshness: null,
             isStale: false,
@@ -63,6 +66,16 @@ exports.getOpportunities = async (req, res) => {
                 meta.oldestFreshness = new Date(oldest).toISOString();
                 meta.isStale = Date.now() - newest > ttlMs;
             }
+        }
+
+        if (meta.isStale && opportunities.length > 0) {
+            opportunityEngine
+                .analyzeOpportunities(userId, {
+                    forceRefresh: true,
+                    shuffleSalt: `stale-${Date.now()}`,
+                    maxKeywords: 20,
+                })
+                .catch((err) => logger.warn(`[Radar] Stale yenileme: ${err.message}`));
         }
 
         // Cache boşsa ve hiç fırsat yoksa, ilk kez analiz başlat
@@ -113,7 +126,11 @@ exports.refreshOpportunities = async (req, res) => {
     try {
         const userId = uid(req);
 
-        const resultPromise = opportunityEngine.analyzeOpportunities(userId, { forceRefresh: true });
+        const resultPromise = opportunityEngine.analyzeOpportunities(userId, {
+            forceRefresh: true,
+            shuffleSalt: `manual-${Date.now()}`,
+            maxKeywords: 24,
+        });
 
         const timeoutPromise = new Promise((resolve) => {
             setTimeout(() => resolve({ timeout: true }), 30000);

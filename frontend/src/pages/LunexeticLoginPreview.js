@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Giriş ekranı UI önizlemesi — tamamen kod/CSS, harici görsel yok.
  * /login-lunexetic — gerçek giriş: /login
  */
@@ -47,7 +47,7 @@ const LunexeticLoginPreview = () => {
                 <div className="lx-auth-header-inner">
                     <Link to="/home" className="lx-auth-logo">
                         <span className="lx-auth-logo-mark">P</span>
-                        <span className="lx-auth-logo-text">PazarYonet</span>
+                        <span className="lx-auth-logo-text">Dashtock</span>
                     </Link>
                     <nav className="lx-auth-nav" aria-label="Menü">
                         <a className="lx-active" href="#">
@@ -188,7 +188,7 @@ const LunexeticLoginPreview = () => {
             </div>
 
             <footer className="lx-page-foot">
-                <span>© {new Date().getFullYear()} PazarYonet. Tüm hakları saklıdır.</span>
+                <span>© {new Date().getFullYear()} Dashtock. Tüm hakları saklıdır.</span>
                 <Link to="/privacy">Gizlilik Politikası</Link>
                 <Link to="/terms">Kullanım Şartları</Link>
             </footer>

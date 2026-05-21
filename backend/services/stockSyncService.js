@@ -26,7 +26,7 @@ const normalizeMarketplaceName = (name) => {
     if (n === "trendyol") return "Trendyol";
     if (n === "hepsiburada") return "Hepsiburada";
     if (n === "n11") return "N11";
-    if (n === "amazon") return "Amazon";
+    if (n === "amazon" || n.startsWith("amazon")) return name.trim();
     if (n === "çiçeksepeti" || n === "ciceksepeti") return "ÇiçekSepeti";
     return name.trim();
 };
@@ -63,17 +63,18 @@ const normalizeMarketplaceName = (name) => {
  * @returns {Object} { success, mapping, oldStock, newStock, marketplaceStock }
  */
 const reserveStock = async (userId, barcode, quantity) => {
-    // Atomic: totalStock düşür + reservedStock artır (tek DB operasyonu)
+    const { resolveMappingForOrderBarcode } = require("../utils/productFieldCompare");
+    const resolved = await resolveMappingForOrderBarcode(userId, barcode);
+    if (!resolved) {
+        return { success: false, error: "Ürün bulunamadı", barcode };
+    }
+
+    // Atomic: totalStock düşür (tek DB operasyonu) — yalnızca kimliği doğrulanmış kayıt
     const mapping = await ProductMapping.findOneAndUpdate(
         {
+            _id: resolved._id,
             userId,
-            $or: [
-                { "masterProduct.barcode": barcode },
-                { "masterProduct.sku": barcode },
-                { "marketplaceMappings.marketplaceSku": barcode },
-                { "marketplaceMappings.marketplaceBarcode": barcode }
-            ],
-            "stockTracking.totalStock": { $gte: quantity } // Yeterli stok var mı?
+            "stockTracking.totalStock": { $gte: quantity }
         },
         {
             $inc: {
@@ -139,15 +140,16 @@ const reserveStock = async (userId, barcode, quantity) => {
  * Stok serbest bırak (iptal/iade durumunda) — MongoDB atomic $inc
  */
 const releaseStock = async (userId, barcode, quantity) => {
+    const { resolveMappingForOrderBarcode } = require("../utils/productFieldCompare");
+    const resolved = await resolveMappingForOrderBarcode(userId, barcode);
+    if (!resolved) {
+        return { success: false, error: "Ürün bulunamadı", barcode };
+    }
+
     const mapping = await ProductMapping.findOneAndUpdate(
         {
-            userId,
-            $or: [
-                { "masterProduct.barcode": barcode },
-                { "masterProduct.sku": barcode },
-                { "marketplaceMappings.marketplaceSku": barcode },
-                { "marketplaceMappings.marketplaceBarcode": barcode }
-            ]
+            _id: resolved._id,
+            userId
         },
         {
             $inc: {
@@ -192,15 +194,8 @@ const makeOrderStockKey = (marketplaceName, orderNumber, barcode) => {
 
 const resolveStockBarcodes = async (userId, barcode) => {
     const codes = new Set([String(barcode || "").trim()].filter(Boolean));
-    const mapping = await ProductMapping.findOne({
-        userId,
-        $or: [
-            { "masterProduct.barcode": barcode },
-            { "masterProduct.sku": barcode },
-            { "marketplaceMappings.marketplaceSku": barcode },
-            { "marketplaceMappings.marketplaceBarcode": barcode }
-        ]
-    }).select("masterProduct.barcode masterProduct.sku").lean();
+    const { resolveMappingForOrderBarcode } = require("../utils/productFieldCompare");
+    const mapping = await resolveMappingForOrderBarcode(userId, barcode);
     if (mapping?.masterProduct?.barcode) codes.add(String(mapping.masterProduct.barcode).trim());
     if (mapping?.masterProduct?.sku) codes.add(String(mapping.masterProduct.sku).trim());
     return [...codes];
@@ -586,6 +581,15 @@ const syncStockToAllMarketplaces = async (userId, productMapping, newStock, excl
     const masterBarcode = productMapping.masterProduct?.barcode || "";
     const masterSku     = productMapping.masterProduct?.sku || "";
 
+    const { alignAllMarketplaceIdentitiesFromMaster } = require("../utils/productFieldCompare");
+    const idAlign = alignAllMarketplaceIdentitiesFromMaster(productMapping);
+    if (idAlign.fixed > 0) {
+        logger.warn(
+            `[STOCK SYNC] Kimlik hizalaması — ${productMapping.masterProduct?.name} | ` +
+            `${idAlign.fixed} pazaryeri satırı master barkod/SKU ile eşitlendi`
+        );
+    }
+
     for (const marketplaceMapping of productMapping.marketplaceMappings) {
         const mpName = normalizeMarketplaceName(marketplaceMapping.marketplaceName);
         const excludeName = excludeMarketplace ? normalizeMarketplaceName(excludeMarketplace) : null;
@@ -622,14 +626,24 @@ const syncStockToAllMarketplaces = async (userId, productMapping, newStock, excl
             // ÇiçekSepeti → stockCode ile çalışır (PUT /api/v1/Products/price-and-stock)
             let productIdForMarketplace;
             switch (mpName) {
-                case "Trendyol":
-                    // Trendyol: önce marketplace-specific barcode, sonra master barcode
-                    productIdForMarketplace =
-                        marketplaceMapping.marketplaceBarcode ||
-                        marketplaceMapping.marketplaceSku ||
-                        masterBarcode ||
-                        masterSku;
+                case "Trendyol": {
+                    const { alignMarketplaceIdentityFromMaster, resolveTrendyolListingBarcode } =
+                        require("../utils/productFieldCompare");
+                    const masterBc = String(masterBarcode || "").trim();
+                    const mpBc = String(marketplaceMapping.marketplaceBarcode || "").trim();
+                    if (masterBc && mpBc && masterBc !== mpBc) {
+                        logger.warn(
+                            `[STOCK SYNC] Trendyol barkod uyumsuzluğu — ürün: ${productMapping.masterProduct?.name} | ` +
+                            `master=${masterBc} mapping=${mpBc}; master barkod kullanılıyor ve mapping düzeltiliyor`
+                        );
+                        alignMarketplaceIdentityFromMaster(marketplaceMapping, productMapping.masterProduct);
+                    }
+                    productIdForMarketplace = resolveTrendyolListingBarcode(
+                        productMapping.masterProduct,
+                        marketplaceMapping
+                    ) || masterSku;
                     break;
+                }
                 case "N11":
                     // N11: stockCode = sku
                     productIdForMarketplace =
@@ -779,6 +793,17 @@ const updateStockOnMarketplace = async (marketplace, productId, newStock, priceU
     const credentials = decryptCredentials(marketplace.credentials);
 
     try {
+        const lowMp = (marketplaceName || "").toLowerCase();
+        if (lowMp.startsWith("amazon")) {
+            return await updateAmazonStock(
+                credentials,
+                productId,
+                newStock,
+                priceUpdate,
+                marketplace.marketplaceName
+            );
+        }
+
         switch (marketplaceName) {
             case "Trendyol":
                 return await updateTrendyolStock(credentials, productId, newStock, priceUpdate, options);
@@ -788,15 +813,18 @@ const updateStockOnMarketplace = async (marketplace, productId, newStock, priceU
                 return await updateN11Stock(credentials, productId, newStock, priceUpdate);
             case "ÇiçekSepeti":
                 return await updateCicekSepetiStock(credentials, productId, newStock, priceUpdate);
-            case "Amazon":
-                return await updateAmazonStock(credentials, productId, newStock, priceUpdate);
             case "Noon":
                 return await updateNoonStock(credentials, productId, newStock, priceUpdate);
             case "AliExpress":
                 return await updateAliexpressStock(credentials, productId, newStock, priceUpdate);
             default:
                 logger.warn(`[STOCK UPDATE] ${marketplaceName} için stok güncelleme API'si henüz eklenmedi`);
-                return { success: true, simulated: true, message: `${marketplaceName} stok güncelleme simüle edildi` };
+                return {
+                    success: true,
+                    simulated: true,
+                    warning: true,
+                    message: `${marketplaceName} için stok API entegrasyonu yok — simüle edildi (platformda güncellenmedi)`
+                };
         }
     } catch (error) {
         logger.error(`[STOCK UPDATE] ${marketplaceName} hatası:`, error.message);
@@ -1201,6 +1229,18 @@ const updateN11Stock = async (credentials, productId, newStock, priceUpdate = nu
             "LysiaETIC"
         );
 
+        if (result.skipped && (result.status === "IN_QUEUE" || result.errorCode === "TASK_ERR_010")) {
+            logger.info(
+                `[N11 STOCK] Kuyruk/atlandı — stockCode: ${productId} (${result.message || result.errorCode})`
+            );
+            return {
+                success: true,
+                skipped: true,
+                taskId: result.taskId,
+                message: result.message || "N11 görevi zaten kuyrukta",
+            };
+        }
+
         if (!result.success) {
             logger.error(`[N11 STOCK] Güncelleme başarısız: ${result.error}`);
             return { success: false, error: result.error || "N11 stok güncelleme başarısız" };
@@ -1358,15 +1398,23 @@ const updateCicekSepetiStock = async (credentials, stockCode, newStock, priceUpd
             /limit aşım|limit aşımı|kalan süre|aynı anda istek|5 saniyede 1|30 dakikada 1|farklı istekleri/i.test(errMsg);
 
         if (isRateLimited) {
-            const m = errMsg.match(/Kalan Süre:\s*(\d+)/i);
-            let sec = m ? parseInt(m[1], 10) : NaN;
-            if (!Number.isFinite(sec) || sec <= 0) {
-                if (/30 dakikada 1 kez|aynı isteği 30/i.test(errMsg)) sec = 1800;
-                else if (/5 saniyede 1 kez|farklı istekleri/i.test(errMsg)) sec = 8;
-                else if (/aynı anda istek/i.test(errMsg)) sec = 25;
-                else sec = 60;
+            let sec = 8;
+            if (/30\s*dakika|30\s*dk|dakikada\s*1/i.test(errMsg)) {
+                sec = 1800;
+            } else if (/5\s*saniye|farklı istekleri/i.test(errMsg)) {
+                sec = 8;
+            } else if (/aynı anda istek/i.test(errMsg)) {
+                sec = 25;
+            } else {
+                const m = errMsg.match(/Kalan\s*Süre:\s*(\d+)/i);
+                const parsed = m ? parseInt(m[1], 10) : NaN;
+                if (Number.isFinite(parsed) && parsed > 0 && parsed <= 120) {
+                    sec = parsed;
+                } else if (Number.isFinite(parsed) && parsed > 120 && parsed <= 600) {
+                    sec = 60;
+                }
             }
-            const cooldownMs = Math.max(5, sec) * 1000;
+            const cooldownMs = Math.min(Math.max(5, sec) * 1000, 30 * 60 * 1000);
             const sid = credentials.sellerId || credentials.supplierId || credentials.apiKey || "cs";
             const ck = `${sid}:${String(stockCode || "").trim()}`;
             _csStockCooldownMap.set(ck, Date.now() + cooldownMs);
@@ -1392,21 +1440,21 @@ const updateCicekSepetiStock = async (credentials, stockCode, newStock, priceUpd
 // YENİ: amazonSpApiService.updateListingStock() ile gerçek PATCH isteği
 // ═══════════════════════════════════════════════════════════════
 
-const updateAmazonStock = async (credentials, sku, newStock, priceUpdate = null) => {
+const updateAmazonStock = async (credentials, sku, newStock, priceUpdate = null, marketplaceName = "Amazon") => {
     try {
         if (!amazonSpApiService) {
             logger.warn(`[AMAZON STOCK] ⚠️ Amazon SP-API servisi yüklenemedi — stok güncelleme simüle edildi (sku: ${sku})`);
             return { success: true, simulated: true, message: "Amazon SP-API servisi mevcut değil" };
         }
 
-        const { sellerId, clientId, clientSecret, refreshToken, accessKeyId, secretAccessKey } = credentials;
+        const { normalizeAmazonCredentials, validateAmazonCredentials } = require("./amazon/amazonCredentialService");
+        const creds = normalizeAmazonCredentials(credentials, marketplaceName);
+        const validation = validateAmazonCredentials(creds);
+        if (!validation.valid) {
+            return { success: false, error: validation.message };
+        }
 
-        if (!sellerId || !clientId || !refreshToken) {
-            return { success: false, error: "Amazon credentials eksik: sellerId, clientId, refreshToken gerekli" };
-        }
-        if (!accessKeyId || !secretAccessKey) {
-            return { success: false, error: "Amazon AWS credentials eksik: accessKeyId, secretAccessKey gerekli" };
-        }
+        const { sellerId } = creds;
         if (!sku) {
             return { success: false, error: "Amazon stok güncelleme: SKU gerekli" };
         }
@@ -1417,7 +1465,7 @@ const updateAmazonStock = async (credentials, sku, newStock, priceUpdate = null)
 
         // ✅ Amazon Listings API — PATCH /listings/2021-08-01/items/{sellerId}/{sku}
         // fulfillment_availability attribute'unu günceller
-        const stockResult = await amazonSpApiService.updateListingStock(credentials, sku, stockQty);
+        const stockResult = await amazonSpApiService.updateListingStock(creds, sku, stockQty);
 
         if (!stockResult.success) {
             logger.error(`[AMAZON STOCK] ❌ Stok güncelleme başarısız — sku: ${sku}, error: ${stockResult.error}`);
@@ -1430,7 +1478,7 @@ const updateAmazonStock = async (credentials, sku, newStock, priceUpdate = null)
         if (priceUpdate?.salePrice) {
             try {
                 const priceResult = await amazonSpApiService.updateListingPrice(
-                    credentials,
+                    creds,
                     sku,
                     parseFloat(priceUpdate.salePrice)
                 );
@@ -1514,6 +1562,15 @@ const manualStockSync = async (userId, productMappingId, newStock, priceUpdate =
 
         // 🛡️ Güvenlik stoğu düşülmüş stoku hesapla
         const marketplaceStock = mapping.getMarketplaceStock();
+
+        const { alignAllMarketplaceIdentitiesFromMaster } = require("../utils/productFieldCompare");
+        const idFix = alignAllMarketplaceIdentitiesFromMaster(mapping);
+        if (idFix.fixed > 0) {
+            logger.warn(
+                `[MANUAL SYNC] ${idFix.fixed} pazaryeri kimlik alanı master ile hizalandı — ` +
+                `${mapping.masterProduct?.name} (${mapping.masterProduct?.barcode})`
+            );
+        }
 
         // Tüm pazaryerlerinde stok + fiyat senkronize et
         const syncResults = await syncStockToAllMarketplaces(userId, mapping, marketplaceStock, null, priceUpdate);

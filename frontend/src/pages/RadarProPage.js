@@ -1,6 +1,6 @@
-﻿/**
+/**
  * 
- * PazarYonet Radar  AI ürün Fırsat Motoru
+ * Dashtock Radar  AI ürün Fırsat Motoru
  * 
  *
  * Kullanıcıya zel ürün frsatlar:
@@ -130,6 +130,16 @@ const OpportunityCard = ({ opp, C, isDark, onSimulate, onDismiss, onDetail, inde
                     }}>
                         {exp.icon} {exp.text}
                     </span>
+                    {(opp.nicheLabel || opp.nicheCluster) && (
+                        <span style={{
+                            color: opp.nicheCluster === "decor_3d" ? "#a78bfa" : opp.nicheCluster === "jewelry" ? "#f472b6" : "#94a3b8",
+                            fontSize: "0.58rem", fontWeight: 700,
+                            background: isDark ? "rgba(139,92,246,0.12)" : "rgba(139,92,246,0.08)",
+                            padding: "0.12rem 0.4rem", borderRadius: 4,
+                        }}>
+                            {opp.nicheLabel || opp.nicheCluster}
+                        </span>
+                    )}
                     {opp.category && (
                         <span style={{
                             color: C.dim || "#64748b", fontSize: "0.6rem",
@@ -852,7 +862,8 @@ export default function RadarProPage({ userId }) {
     const handleDismiss = async (id) => {
         try {
             await recordOpportunityAction(id, "dismissed");
-            setOpportunities(prev => prev.filter(o => o._id !== id));
+            setOpportunities((prev) => prev.filter((o) => o._id !== id));
+            setTimeout(() => loadOpportunities(FILTER_OPTIONS.find((f) => f.key === activeFilter)?.sortBy), 400);
         } catch { /* ignore */ }
     };
 
@@ -895,6 +906,15 @@ export default function RadarProPage({ userId }) {
                                 })}
                                 {radarMeta.isStale && " — veriler hedef tazelik süresini aştı; Yeni Analiz önerilir."}
                                 {radarMeta.serpConfigured === false && " — Google trend katmanı için SerpAPI anahtarı yok."}
+                            </p>
+                        )}
+                        {mainTab === "opportunities" && radarMeta?.nextRotationAt && !loading && (
+                            <p style={{ color: "#64748b", fontSize: "0.65rem", margin: "0.2rem 0 0" }}>
+                                Liste her 3 saatte otomatik değişir — sonraki karışım:{" "}
+                                {new Date(radarMeta.nextRotationAt).toLocaleString("tr-TR", {
+                                    dateStyle: "short",
+                                    timeStyle: "short",
+                                })}
                             </p>
                         )}
                     </div>

@@ -107,12 +107,12 @@ const BrainRecommendations = ({ recommendations, recSummary, refreshing, onAppro
     // Dashboard'dan "Fix Now" CTA ile gelinmişse ön-filtre uygula
     useEffect(() => {
         try {
-            const raw = sessionStorage.getItem("pazaryonet_ai.tabFilter.recommendations");
+            const raw = sessionStorage.getItem("dashtock_ai.tabFilter.recommendations");
             if (!raw) return;
             const parsed = JSON.parse(raw);
             // 5 dakikadan eskiyse yok say
             if (!parsed?.ts || Date.now() - parsed.ts > 5 * 60 * 1000) {
-                sessionStorage.removeItem("pazaryonet_ai.tabFilter.recommendations");
+                sessionStorage.removeItem("dashtock_ai.tabFilter.recommendations");
                 return;
             }
             const f = parsed.filter || {};
@@ -124,7 +124,7 @@ const BrainRecommendations = ({ recommendations, recSummary, refreshing, onAppro
                 else if (types.some(t => stockTypes.has(t))) setKindFilter("stock");
                 setCtaHint(`Dashboard yönlendirmesi: ${types.join(", ")}`);
             }
-            sessionStorage.removeItem("pazaryonet_ai.tabFilter.recommendations");
+            sessionStorage.removeItem("dashtock_ai.tabFilter.recommendations");
         } catch { /* sessionStorage yok */ }
     }, []);
 

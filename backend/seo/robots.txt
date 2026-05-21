@@ -7,4 +7,4 @@ Disallow: /api/
 Disallow: /verify-email
 Disallow: /payment/
 
-Sitemap: https://pazaryonet.com/sitemap.xml
+Sitemap: https://dashtock.com/sitemap.xml

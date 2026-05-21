@@ -37,7 +37,8 @@ const { subscriptionMiddleware } = require("../middlewares/subscriptionMiddlewar
 const ctrl = require("../controllers/roketfyController");
 
 // ✅ Tüm route'lara auth + subscription kontrolü uygula
-router.use(authMiddleware, subscriptionMiddleware);
+const { requirePlanFeature } = require("../middlewares/planFeatureMiddleware");
+router.use(authMiddleware, subscriptionMiddleware, requirePlanFeature("roketfy"));
 
 // ── Dashboard & Genel ──
 router.get("/dashboard",              ctrl.getDashboard);

@@ -12,6 +12,29 @@ const { resolveProductBrandName } = require("../utils/resolveProductBrandName");
 
 const N11_BASE_URL = "https://api.n11.com";
 
+/** Aynı SKU için üst üste task — TASK_ERR_010 önleme */
+const _n11SkuPending = new Map();
+const N11_SKU_PENDING_MS = 120_000;
+const _n11UpdateChains = new Map();
+
+const runN11Serialized = (apiKey, fn) => {
+    const key = cleanAscii(apiKey) || "n11";
+    const prev = _n11UpdateChains.get(key) || Promise.resolve();
+    const run = prev.then(() => fn());
+    _n11UpdateChains.set(key, run.catch(() => {}));
+    return run;
+};
+
+const n11SkuKey = (apiKey, stockCode) => `${cleanAscii(apiKey)}:${String(stockCode || "").trim()}`;
+
+const skuPayloadSignature = (skus) =>
+    skus
+        .map(
+            (s) =>
+                `${s.stockCode}|${s.quantity}|${s.salePrice ?? ""}|${s.listPrice ?? ""}`
+        )
+        .join(";");
+
 // ═══════════════════════════════════════════════════════════════
 // 🔧 YARDIMCI FONKSİYONLAR
 // ═══════════════════════════════════════════════════════════════
@@ -350,52 +373,133 @@ const createProduct = async (credentials, products, integrator = "LysiaETIC") =>
  * @param {String} integrator - Entegratör firma ismi
  */
 const updateProductPriceAndStock = async (credentials, updates, integrator = "LysiaETIC") => {
+    const { apiKey, secretKey } = credentials || {};
+    if (!apiKey || !secretKey) {
+        return { success: false, error: "N11 credentials eksik: apiKey ve secretKey gerekli" };
+    }
+    return runN11Serialized(apiKey, () =>
+        updateProductPriceAndStockInner(credentials, updates, integrator)
+    );
+};
+
+const updateProductPriceAndStockInner = async (credentials, updates, integrator = "LysiaETIC") => {
     try {
         const { apiKey, secretKey } = credentials;
 
-        if (!apiKey || !secretKey) {
-            return { success: false, error: "N11 credentials eksik: apiKey ve secretKey gerekli" };
-        }
         if (!updates || updates.length === 0) {
             return { success: false, error: "Güncelleme listesi boş" };
         }
 
-        const skus = updates.map(item => {
+        const skus = updates.map((item) => {
             const sku = {
                 stockCode: item.stockCode || item.sku || "",
-                quantity:  parseInt(item.quantity !== undefined ? item.quantity : item.stock) || 0
+                quantity:
+                    parseInt(
+                        item.quantity !== undefined ? item.quantity : item.stock,
+                        10
+                    ) || 0,
             };
-            // Fiyat güncelleme opsiyonel
-            if (item.salePrice !== undefined)  sku.salePrice  = parseFloat(item.salePrice  || item.price) || 0;
-            if (item.listPrice !== undefined)  sku.listPrice  = parseFloat(item.listPrice  || item.salePrice || item.price) || 0;
+            if (item.salePrice !== undefined) {
+                sku.salePrice = parseFloat(item.salePrice || item.price) || 0;
+            }
+            if (item.listPrice !== undefined) {
+                sku.listPrice =
+                    parseFloat(item.listPrice || item.salePrice || item.price) || 0;
+            }
             return sku;
         });
+
+        const sig = skuPayloadSignature(skus);
+        const now = Date.now();
+
+        for (const sku of skus) {
+            const k = n11SkuKey(apiKey, sku.stockCode);
+            const pending = _n11SkuPending.get(k);
+            if (pending && pending.until > now && pending.signature === sig) {
+                logger.info(
+                    `[N11 UPDATE STOCK] ⏭ Bekleyen görev — stockCode: ${sku.stockCode}, taskId: ${pending.taskId || "—"}`
+                );
+                return {
+                    success: true,
+                    skipped: true,
+                    taskId: pending.taskId,
+                    status: "IN_QUEUE",
+                    message: "N11: Bu SKU için güncelleme zaten kuyrukta",
+                };
+            }
+        }
 
         const payload = { payload: { integrator, skus } };
 
         logger.info(`[N11 UPDATE STOCK] ${skus.length} SKU güncelleniyor...`);
 
         const response = await axios.post(
-            `${N11_BASE_URL}/ms/product/tasks/price-stock-update`,  // ✅ Doğru endpoint (dokümantasyon)
+            `${N11_BASE_URL}/ms/product/tasks/price-stock-update`,
             payload,
             {
                 headers: getN11Headers(apiKey, secretKey),
-                timeout: 20000
+                timeout: 20000,
             }
         );
 
-        logger.info(`[N11 UPDATE STOCK] Task oluşturuldu — id: ${response.data?.id}, status: ${response.data?.status}`);
+        logger.info(
+            `[N11 UPDATE STOCK] Task oluşturuldu — id: ${response.data?.id}, status: ${response.data?.status}`
+        );
+
+        for (const sku of skus) {
+            _n11SkuPending.set(n11SkuKey(apiKey, sku.stockCode), {
+                until: Date.now() + N11_SKU_PENDING_MS,
+                taskId: response.data?.id,
+                signature: sig,
+            });
+        }
 
         return {
             success: true,
-            taskId:  response.data?.id,
-            type:    response.data?.type,
-            status:  response.data?.status,
+            taskId: response.data?.id,
+            type: response.data?.type,
+            status: response.data?.status,
             reasons: response.data?.reasons || [],
-            data:    response.data
+            data: response.data,
         };
-
     } catch (error) {
+        const errorData = error.response?.data;
+        const errCode = errorData?.errorCode || errorData?.code || "";
+        if (errCode === "TASK_ERR_010") {
+            const { apiKey } = credentials;
+            const sig = skuPayloadSignature(
+                (updates || []).map((item) => ({
+                    stockCode: item.stockCode || item.sku || "",
+                    quantity:
+                        parseInt(
+                            item.quantity !== undefined ? item.quantity : item.stock,
+                            10
+                        ) || 0,
+                    salePrice: item.salePrice,
+                    listPrice: item.listPrice,
+                }))
+            );
+            for (const item of updates || []) {
+                const sc = item.stockCode || item.sku || "";
+                _n11SkuPending.set(n11SkuKey(apiKey, sc), {
+                    until: Date.now() + N11_SKU_PENDING_MS,
+                    taskId: null,
+                    signature: sig,
+                });
+            }
+            logger.warn(
+                `[N11 UPDATE STOCK] TASK_ERR_010 — aynı içerikli görev devam ediyor (${(updates || []).length} SKU)`
+            );
+            return {
+                success: true,
+                skipped: true,
+                status: "IN_QUEUE",
+                errorCode: "TASK_ERR_010",
+                message:
+                    errorData?.errorMessage ||
+                    "Aynı talep içeriği ile devam eden süreç bulunmaktadır.",
+            };
+        }
         return handleN11Error(error, "Fiyat-Stok Güncelleme");
     }
 };

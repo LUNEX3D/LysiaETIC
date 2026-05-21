@@ -2,19 +2,33 @@
 <html lang="tr">
 <head>
     <meta charset="UTF-8" />
+    <script>
+        (function () {
+            var legacy = {
+                "pazaryonet.com": 1, "www.pazaryonet.com": 1,
+                "pazaryonetim.com": 1, "www.pazaryonetim.com": 1,
+                "pazaryönetim.com": 1, "www.pazaryönetim.com": 1,
+                "xn--pazarynetim-wfb.com": 1, "www.xn--pazarynetim-wfb.com": 1
+            };
+            var h = (location.hostname || "").toLowerCase();
+            if (legacy[h]) {
+                location.replace("https://dashtock.com" + location.pathname + location.search + location.hash);
+            }
+        })();
+    </script>
     <!-- ✅ WEB APP FIRST: viewport-fit=cover for notched devices (iPhone X+, Android punch-hole) -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover" />
     <meta http-equiv="X-UA-Compatible" content="IE=edge" />
-    <title>PazarYonet - Pazaryeri Entegrasyon ve E-Ticaret Yönetim Sistemi</title>
-    <meta name="description" content="PazarYonet ile Trendyol, Hepsiburada, Amazon ve diğer pazaryerlerini tek panelden yönetin. Stok, sipariş, fiyat ve kâr analizi." />
+    <title>Dashtock</title>
+    <meta name="description" content="Dashtock ile Trendyol, Hepsiburada, Amazon ve diğer pazaryerlerinde stok, sipariş, fiyat ve kârınızı tek dashboard'dan yönetin." />
     <meta name="robots" content="index, follow" />
-    <link rel="canonical" href="https://pazaryonet.com/" />
-    <meta property="og:url" content="https://pazaryonet.com/" />
-    <meta property="og:site_name" content="PazarYonet" />
-    <meta property="og:title" content="PazarYonet - Pazaryeri Entegrasyon ve E-Ticaret Yönetim Sistemi" />
-    <meta property="og:description" content="PazarYonet ile Trendyol, Hepsiburada, Amazon ve diğer pazaryerlerini tek panelden yönetin." />
+    <link rel="canonical" href="https://dashtock.com/" />
+    <meta property="og:url" content="https://dashtock.com/" />
+    <meta property="og:site_name" content="Dashtock" />
+    <meta property="og:title" content="Dashtock — Stok ve satış dashboard'u" />
+    <meta property="og:description" content="Dashtock ile Trendyol, Hepsiburada, Amazon ve diğer pazaryerlerini tek panelden yönetin." />
     <script type="application/ld+json">
-    {"@context":"https://schema.org","@graph":[{"@type":"Organization","name":"PazarYonet","url":"https://pazaryonet.com","email":"info@pazaryonetim.com","logo":"https://pazaryonet.com/brand/pazaryonet-logo.svg"},{"@type":"SoftwareApplication","name":"PazarYonet","applicationCategory":"BusinessApplication","operatingSystem":"Web","description":"Pazaryeri entegrasyonu ve e-ticaret yönetim SaaS platformu"}]}
+    {"@context":"https://schema.org","@graph":[{"@type":"Organization","name":"Dashtock","url":"https://dashtock.com","email":"info@dashtock.com","logo":"https://dashtock.com/brand/dashtock-logo.svg"},{"@type":"SoftwareApplication","name":"Dashtock","applicationCategory":"BusinessApplication","operatingSystem":"Web","description":"Pazaryeri entegrasyonu ve e-ticaret yönetim SaaS platformu"}]}
     </script>
 
     <!-- ✅ PWA Meta Tags — Full cross-platform support -->
@@ -24,8 +38,8 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="PazarYonet" />
-    <meta name="application-name" content="PazarYonet" />
+    <meta name="apple-mobile-web-app-title" content="Dashtock" />
+    <meta name="application-name" content="Dashtock" />
     <meta name="msapplication-TileColor" content="#0f766e" />
     <meta name="msapplication-TileImage" content="/icons/icon-144x144.png" />
     <meta name="msapplication-starturl" content="/" />
@@ -38,13 +52,13 @@
     <!-- ✅ PWA Manifest -->
     <link rel="manifest" href="/manifest.json" crossorigin="use-credentials" />
 
-    <!-- ✅ Favicons — PazarYonet marka logosu (LE placeholder kaldırıldı) -->
-    <link rel="icon" href="/brand/pazaryonet-logo.svg" type="image/svg+xml" />
-    <link rel="icon" type="image/png" sizes="32x32" href="/icons/icon-32x32.png" />
-    <link rel="icon" type="image/png" sizes="16x16" href="/icons/icon-16x16.png" />
-    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192x192.png" />
-    <link rel="shortcut icon" href="/favicon.png" type="image/png" />
-    <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
+    <!-- ✅ Favicons — Dashtock (PNG öncelikli; sekme + "Uygulamada aç" chip) -->
+    <link rel="icon" type="image/png" sizes="32x32" href="/icons/icon-32x32.png?v=dashtock3" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/icons/icon-16x16.png?v=dashtock3" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192x192.png?v=dashtock3" />
+    <link rel="shortcut icon" href="/favicon.png?v=dashtock3" type="image/png" />
+    <link rel="icon" href="/brand/dashtock-logo.svg?v=dashtock3" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icons/icon-192x192.png?v=dashtock3" />
     <link rel="apple-touch-icon" sizes="120x120" href="/icons/icon-128x128.png" />
     <link rel="apple-touch-icon" sizes="152x152" href="/icons/icon-152x152.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/icons/icon-192x192.png" />
@@ -112,7 +126,7 @@
     </style>
 </head>
 <body>
-    <noscript>PazarYonet'i kullanabilmek için JavaScript'i etkinleştirmeniz gerekmektedir.</noscript>
+    <noscript>Dashtock'i kullanabilmek için JavaScript'i etkinleştirmeniz gerekmektedir.</noscript>
     <div id="root"></div>
 </body>
 </html>

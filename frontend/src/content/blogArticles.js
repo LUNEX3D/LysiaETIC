@@ -1,5 +1,5 @@
 /**
- * PazarYonet Blog — makale verisi (SEO + rehber içerik)
+ * Dashtock Blog — makale verisi (SEO + rehber içerik)
  */
 import { MARKETPLACE_BLOG_SECTIONS } from "./marketplaceBlog";
 
@@ -16,7 +16,7 @@ export const BLOG_ARTICLES = [
         categoryId: "trendyol",
         title: "Trendyol API Entegrasyonu Nasıl Yapılır? Adım Adım Rehber",
         excerpt:
-            "Trendyol satıcı panelinden API bilgilerinizi alıp PazarYonet'e bağlayarak ürün, stok ve siparişleri tek merkezden yönetin.",
+            "Trendyol satıcı panelinden API bilgilerinizi alıp Dashtock'e bağlayarak ürün, stok ve siparişleri tek merkezden yönetin.",
         readTime: 9,
         date: "2025-11-12",
         tags: ["Trendyol", "API", "Entegrasyon"],
@@ -44,11 +44,11 @@ export const BLOG_ARTICLES = [
             },
             {
                 type: "h2",
-                text: "2. PazarYonet'te mağazayı bağlayın",
+                text: "2. Dashtock'te mağazayı bağlayın",
             },
             {
                 type: "p",
-                text: "PazarYonet panelinde Pazaryeri Entegrasyonu menüsüne girin, Trendyol'u seçin ve API alanlarını kaydedin. Bağlantı testi başarılı olduğunda sipariş senkronu ve ürün eşleştirme adımlarına geçebilirsiniz.",
+                text: "Dashtock panelinde Pazaryeri Entegrasyonu menüsüne girin, Trendyol'u seçin ve API alanlarını kaydedin. Bağlantı testi başarılı olduğunda sipariş senkronu ve ürün eşleştirme adımlarına geçebilirsiniz.",
             },
             {
                 type: "tip",
@@ -151,7 +151,7 @@ export const BLOG_ARTICLES = [
             },
             {
                 type: "h2",
-                text: "PazarYonet ile dağıtım",
+                text: "Dashtock ile dağıtım",
             },
             {
                 type: "p",
@@ -359,7 +359,7 @@ export const BLOG_ARTICLES = [
             },
             {
                 type: "tip",
-                text: "PazarYonet Gelişmiş Analiz → Kar/Zarar sekmesinde ürün bazlı tabloyu kullanın; maliyet girilmemiş ürünleri önce tamamlayın.",
+                text: "Dashtock Gelişmiş Analiz → Kar/Zarar sekmesinde ürün bazlı tabloyu kullanın; maliyet girilmemiş ürünleri önce tamamlayın.",
             },
         ],
     },

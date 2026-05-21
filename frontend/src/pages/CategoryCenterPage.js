@@ -550,6 +550,9 @@ const CategoryCenterPage = ({ userId }) => {
     const [wizardSelectedAlt, setWizardSelectedAlt] = useState(null);
     const wizardSearchTimer = useRef(null);
     const [showAutoMatchMenu, setShowAutoMatchMenu] = useState(false);
+    const [bulkRunning, setBulkRunning] = useState(false);
+    const [bulkResult, setBulkResult] = useState(null);
+    const [bulkProgress, setBulkProgress] = useState(null);
 
     // Auto-match dropdown dışına tıklayınca kapat
     useEffect(() => {
@@ -783,11 +786,67 @@ const CategoryCenterPage = ({ userId }) => {
         getMappingStats().then(r => setStats(r?.data || null)).catch(() => {});
     }, [page, searchQuery, loadMappings]);
 
+    const runBulkAutoMatch = useCallback(async (platformKeys = []) => {
+        setShowAutoMatchMenu(false);
+        const scope = platformKeys.length === 0
+            ? "N11, ÇiçekSepeti ve Hepsiburada"
+            : platformKeys.map((pk) => PLATFORMS.find((p) => p.key === pk)?.label || pk).join(", ");
+        const okConfirm = window.confirm(
+            `Boş kategori hücreleri akıllı eşleştirme ile doldurulsun mu?\n\n` +
+            `Kapsam: ${scope}\n\n` +
+            `Master yaprak adındaki tüm kelimeler hedef platformda da aranır ` +
+            `(ör. "Çelik Küpe" → çelik ve küpe içeren yaprak). Belirsiz veya düşük skorlu eşleşmeler atlanır; mevcut dolu hücreler değişmez.\n\n` +
+            `Not: Çok sayıda kategori varsa işlem birkaç dakika sürebilir; lütfen sayfayı kapatmayın.`
+        );
+        if (!okConfirm) return;
+
+        setBulkRunning(true);
+        setBulkResult(null);
+        const keys = platformKeys.length === 0
+            ? ["n11", "ciceksepeti", "hepsiburada"]
+            : platformKeys;
+        const merged = {
+            results: {},
+            summary: {
+                totalUpdated: 0,
+                totalSkipped: 0,
+                totalNoMatch: 0,
+                totalAmbiguous: 0
+            }
+        };
+        try {
+            for (let i = 0; i < keys.length; i++) {
+                const pk = keys[i];
+                const label = PLATFORMS.find((p) => p.key === pk)?.label || pk;
+                setBulkProgress({ step: i + 1, total: keys.length, label });
+                const res = await autoMatch([pk], { timeout: 600000 });
+                const data = res?.data || res;
+                if (data?.results) Object.assign(merged.results, data.results);
+                const s = data?.summary || {};
+                merged.summary.totalUpdated += s.totalUpdated ?? s.totalWouldUpdate ?? 0;
+                merged.summary.totalSkipped += s.totalSkipped ?? 0;
+                merged.summary.totalNoMatch += s.totalNoMatch ?? 0;
+                merged.summary.totalAmbiguous += s.totalAmbiguous ?? 0;
+            }
+            setBulkResult(merged);
+            loadMappings(page, searchQuery);
+            getMappingStats().then((r) => setStats(r?.data || null)).catch(() => {});
+        } catch (err) {
+            setBulkResult({
+                error: err?.response?.data?.message || err.message || "Eşleştirme başarısız",
+                partial: merged
+            });
+        } finally {
+            setBulkRunning(false);
+            setBulkProgress(null);
+        }
+    }, [page, searchQuery, loadMappings]);
+
     // Hücre render
     const renderCell = (mapping, platform) => {
         const id = mapping[platform.idField];
         const path = mapping[platform.pathField] || "";
-        const hasValue = id !== null && id !== undefined;
+        const hasValue = id != null && id !== "" && id !== 0 && id !== "0";
 
         // Trendyol = master, sadece göster
         if (platform.key === "trendyol") {
@@ -970,7 +1029,7 @@ const CategoryCenterPage = ({ userId }) => {
                             whileHover={{ scale: 1.04 }}
                             whileTap={{ scale: 0.96 }}
                             onClick={() => setShowAutoMatchMenu(!showAutoMatchMenu)}
-                            disabled={wizardOpen}
+                            disabled={wizardOpen || bulkRunning}
                             style={{
                                 background: "linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)",
                                 border: "none", borderRadius: 8,
@@ -982,8 +1041,12 @@ const CategoryCenterPage = ({ userId }) => {
                                 boxShadow: "0 2px 8px rgba(99,102,241,0.3)",
                             }}
                         >
-                            <FaMagic />
-                            Otomatik Eşleştir
+                            {bulkRunning ? <FaSpinner style={{ animation: "cc-spin 1s linear infinite" }} /> : <FaMagic />}
+                            {bulkRunning
+                                ? (bulkProgress
+                                    ? `${bulkProgress.label} (${bulkProgress.step}/${bulkProgress.total})…`
+                                    : "Eşleştiriliyor…")
+                                : "Otomatik Eşleştir"}
                         </motion.button>
 
                         {/* Dropdown Menü */}
@@ -997,7 +1060,43 @@ const CategoryCenterPage = ({ userId }) => {
                                 zIndex: 100, minWidth: 240,
                             }}>
                                 <div style={{ padding: "0.3rem 0.5rem", color: C.dim, fontSize: "0.62rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                                    Tek Tek Onayla (Sihirbaz)
+                                    Akıllı toplu doldur
+                                </div>
+                                <button
+                                    onClick={() => runBulkAutoMatch([])}
+                                    disabled={bulkRunning}
+                                    style={{
+                                        width: "100%", textAlign: "left", background: "rgba(34,197,94,0.08)", border: "none",
+                                        padding: "0.45rem 0.5rem", borderRadius: 6, cursor: bulkRunning ? "wait" : "pointer",
+                                        color: C.text, fontSize: "0.76rem", fontWeight: 600,
+                                        display: "flex", alignItems: "center", gap: "0.35rem", marginBottom: "0.25rem",
+                                    }}
+                                >
+                                    <FaCheck style={{ color: "#22c55e", fontSize: "0.7rem" }} />
+                                    Tüm platformlar (boş hücreler)
+                                </button>
+                                {["n11", "ciceksepeti", "hepsiburada"].map((pk) => {
+                                    const pf = PLATFORMS.find((p) => p.key === pk);
+                                    return (
+                                        <button
+                                            key={`bulk-${pk}`}
+                                            onClick={() => runBulkAutoMatch([pk])}
+                                            disabled={bulkRunning}
+                                            style={{
+                                                width: "100%", textAlign: "left", background: "transparent", border: "none",
+                                                padding: "0.35rem 0.5rem", borderRadius: 6, cursor: bulkRunning ? "wait" : "pointer",
+                                                color: C.text, fontSize: "0.74rem", fontWeight: 500,
+                                                display: "flex", alignItems: "center", gap: "0.35rem",
+                                            }}
+                                        >
+                                            <span style={{ fontSize: "0.8rem" }}>{pf?.icon}</span>
+                                            Toplu — {pf?.label}
+                                        </button>
+                                    );
+                                })}
+                                <div style={{ height: 1, background: C.border, margin: "0.35rem 0" }} />
+                                <div style={{ padding: "0.3rem 0.5rem", color: C.dim, fontSize: "0.62rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                                    Tek tek onayla (sihirbaz)
                                 </div>
                                 <button onClick={() => startWizard([])} style={{
                                     width: "100%", textAlign: "left", background: "transparent", border: "none",
@@ -1018,7 +1117,7 @@ const CategoryCenterPage = ({ userId }) => {
                                             display: "flex", alignItems: "center", gap: "0.35rem",
                                         }}>
                                             <span style={{ fontSize: "0.8rem" }}>{pf?.icon}</span>
-                                            Sİadece {pf?.label}
+                                            Sadece {pf?.label}
                                         </button>
                                     );
                                 })}
@@ -1518,6 +1617,78 @@ const CategoryCenterPage = ({ userId }) => {
                     )}
                 </div>
             )}
+
+            {/* Toplu eşleştirme sonuç özeti */}
+            <AnimatePresence>
+                {bulkResult && (
+                    <motion.div
+                        key="bulk-result-overlay"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        onClick={() => setBulkResult(null)}
+                        style={{
+                            position: "fixed", inset: 0, zIndex: 10001,
+                            background: "rgba(0,0,0,0.55)", backdropFilter: "blur(4px)",
+                            display: "flex", alignItems: "center", justifyContent: "center", padding: "1rem",
+                        }}
+                    >
+                        <motion.div
+                            initial={{ scale: 0.95, y: 12 }}
+                            animate={{ scale: 1, y: 0 }}
+                            exit={{ scale: 0.95 }}
+                            onClick={(e) => e.stopPropagation()}
+                            style={{
+                                background: isDark ? C.card : "#fff",
+                                border: `1px solid ${C.border}`,
+                                borderRadius: 12, maxWidth: 520, width: "100%",
+                                padding: "1rem 1.1rem", boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
+                            }}
+                        >
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.6rem" }}>
+                                <span style={{ fontWeight: 800, color: C.text, fontSize: "0.95rem" }}>
+                                    {bulkResult.error ? "Eşleştirme hatası" : "Toplu eşleştirme tamamlandı"}
+                                </span>
+                                <button type="button" onClick={() => setBulkResult(null)} style={{ background: "transparent", border: "none", cursor: "pointer", color: C.dim }}>
+                                    <FaTimes />
+                                </button>
+                            </div>
+                            {bulkResult.error ? (
+                                <p style={{ color: "#ef4444", fontSize: "0.8rem", margin: 0 }}>{bulkResult.error}</p>
+                            ) : (
+                                <>
+                                    <p style={{ color: C.dim, fontSize: "0.75rem", margin: "0 0 0.6rem" }}>
+                                        Güncellenen: <strong style={{ color: "#22c55e" }}>{bulkResult.summary?.totalUpdated ?? bulkResult.summary?.totalWouldUpdate ?? 0}</strong>
+                                        {" · "}Atlanan (zaten dolu): {bulkResult.summary?.totalSkipped ?? 0}
+                                        {" · "}Eşleşmeyen: {bulkResult.summary?.totalNoMatch ?? 0}
+                                        {" · "}Belirsiz: {bulkResult.summary?.totalAmbiguous ?? 0}
+                                    </p>
+                                    {(bulkResult.summary?.totalUpdated ?? 0) === 0 && (
+                                        <p style={{ color: "#f59e0b", fontSize: "0.72rem", margin: "0 0 0.5rem" }}>
+                                            Hiç hücre dolmadıysa: pazaryeri entegrasyonu ve kategori cache’ini kontrol edin; kalan satırlar için sihirbazı kullanın.
+                                        </p>
+                                    )}
+                                    {bulkResult.results && Object.entries(bulkResult.results).map(([key, r]) => (
+                                        <div key={key} style={{
+                                            fontSize: "0.72rem", color: C.text, padding: "0.35rem 0",
+                                            borderTop: `1px solid ${C.border}`,
+                                        }}>
+                                            <strong>{PLATFORMS.find((p) => p.key === key)?.label || key}</strong>
+                                            {r.status === "skipped" || r.status === "error" ? (
+                                                <span style={{ color: C.dim }}> — {r.reason || r.status}</span>
+                                            ) : (
+                                                <span style={{ color: C.dim }}>
+                                                    {" "}— eşleşen: {r.matched}, atlanan: {r.skipped}, eşleşmeyen: {r.noMatch}, belirsiz: {r.ambiguous}
+                                                </span>
+                                            )}
+                                        </div>
+                                    ))}
+                                </>
+                            )}
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
 
             {/* ── POPUP ── */}
             <AnimatePresence>

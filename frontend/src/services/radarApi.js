@@ -1,6 +1,6 @@
-﻿/**
+/**
  * ═══════════════════════════════════════════════════════════════════════════════
- * RADAR API SERVICE — PazarYonet Radar Frontend
+ * RADAR API SERVICE — Dashtock Radar Frontend
  * ═══════════════════════════════════════════════════════════════════════════════
  *
  * Backend /api/radar endpoint'leri ile iletişim.

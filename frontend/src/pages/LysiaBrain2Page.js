@@ -1,9 +1,9 @@
-﻿/**
+/**
  * ═══════════════════════════════════════════════════════════════
  * LysiaBrain2Page v9 — Standalone full-screen wrapper
  * ═══════════════════════════════════════════════════════════════
  * UserDashboard'dan tamamen bağımsız — hiçbir parent CSS yok
- * /PazarYonet AI2 route'unda çalışır — deep space dark bg
+ * /Dashtock AI2 route'unda çalışır — deep space dark bg
  * ═══════════════════════════════════════════════════════════════
  */
 import React from "react";

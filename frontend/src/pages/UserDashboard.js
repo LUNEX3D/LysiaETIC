@@ -1,4 +1,5 @@
 ﻿import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import ReactDOM from "react-dom";
 import { getUserMarketplaces, fetchDashboardData } from "../services/marketplaceApi";
 import { getProductManagementDashboard } from "../services/productManagementApi";
 import { getNotifications, markNotificationAsRead, dismissNotification as apiDismissNotif, createBulkOrderNotifications } from "../services/notificationApi";
@@ -12,9 +13,11 @@ import CargoTrackingPage from "../pages/CargoTrackingPage";
 import UserProfilePage from "../pages/UserProfilePage";
 import AdvancedAnalytics from "../pages/AdvancedAnalytics";
 import LysiaBrain from "../pages/lysiabrain/LysiaBrain";
-import PazarYonetLogo from "../components/brand/PazarYonetLogo";
-import { BRAND_NAME } from "../constants/brand";
+import DashtockLogo from "../components/brand/DashtockLogo";
+import { BRAND_NAME, BRAND_PANEL_SUB, formatBrandPageTitle } from "../constants/brand";
 import AIChatWidget from "../components/AIChatWidget";
+import { PageHelpProvider } from "../context/PageHelpContext";
+import PageHelpButton, { PageHelpFloating } from "../components/help/PageHelpButton";
 import ProductManagementCenter from "../pages/ProductManagementCenter";
 import CategoryCenterPage from "../pages/CategoryCenterPage";
 import SettingsPage from "../pages/SettingsPage";
@@ -32,15 +35,26 @@ import {
     FaChevronDown, FaBox, FaCrown,
     FaBrain, FaChartBar, FaBell, FaRocket, FaCrosshairs,
     FaCubes, FaSitemap, FaSignOutAlt, FaUserShield,
-    FaCloudUploadAlt, FaHeadset, FaBug, FaBookOpen
+    FaCloudUploadAlt, FaHeadset, FaBug, FaBookOpen, FaLock, FaArrowRight
 } from "react-icons/fa";
 import { motion, AnimatePresence } from "framer-motion";
 import Particles from "react-tsparticles";
 import { loadSlim } from "tsparticles-slim";
 import { classifyOrderStatus, getOrderStatusLabelTr, parseOrderDateForDisplay, formatOrderNumberForDisplay } from "../utils/orderStatus";
 import useMobileShell from "../utils/useMobileShell";
-import { GlassCard, KpiCard, Pill, SectionTitle } from "../components/dashboard/DashboardUI";
+import usePlanEntitlements from "../hooks/usePlanEntitlements";
+import { MENU_FEATURE_MAP } from "../constants/planFeatures";
+import PlanFeatureGate from "../components/PlanFeatureGate";
+import { KpiCard, Pill } from "../components/dashboard/DashboardUI";
+import {
+    DashboardHero,
+    DashboardSpotlight,
+    DashboardMarketplaceGrid,
+    DashboardTrendChart,
+    DashboardOrderTimeline
+} from "../components/dashboard/DashboardHomeParts";
 import "../styles/userDashboard.css";
+import "../styles/dashboardHome.css";
 
 /* ═══════════════════════════════════════════════════════════
    YARDIMCI FONKSİYONLAR
@@ -68,6 +82,43 @@ const getGreetingKey = () => {
 };
 
 const DASHBOARD_PANEL_STORAGE_KEY = "dashboardActivePanel";
+
+const PANEL_DOC_TITLE = {
+    dashboard: "Yönetim Paneli",
+    integration: "Pazaryeri Entegrasyonu",
+    orders: "Siparişler",
+    inventory: "Stok",
+    shipping: "Kargo",
+    finance: "Finans",
+    "pm-center": "Ürün Merkezi",
+    "product-upload": "Ürün Yükle",
+    "category-center": "Kategori Merkezi",
+    "advanced-analytics": "Gelişmiş Analitik",
+    "lysia-brain": "Dashtock AI",
+    roketfy: "Ürün Araştırma",
+    "radar-pro": "Fırsat Radarı",
+    users: "Kullanıcılar",
+    billing: "Faturalama",
+    subscription: "Abonelik",
+    "error-center": "Operasyon Defteri",
+    support: "Destek",
+    settings: "Ayarlar",
+    "admin-panel": "Admin",
+};
+
+function resolveDashboardDocumentTitle(activePanel, marketplaces) {
+    if (!activePanel) return formatBrandPageTitle(BRAND_PANEL_SUB);
+    const dash = activePanel.indexOf("-");
+    if (dash > 0) {
+        const type = activePanel.slice(0, dash);
+        const mpId = activePanel.slice(dash + 1);
+        const base = PANEL_DOC_TITLE[type] || BRAND_PANEL_SUB;
+        const mp = (marketplaces || []).find((m) => m._id === mpId);
+        if (mp?.name) return formatBrandPageTitle(`${base} · ${mp.name}`);
+        return formatBrandPageTitle(base);
+    }
+    return formatBrandPageTitle(PANEL_DOC_TITLE[activePanel] || BRAND_PANEL_SUB);
+}
 
 const getInitialDashboardPanel = () => {
     try {
@@ -117,8 +168,21 @@ const playNotificationSound = () => {
 /* ═══════════════════════════════════════════════════════════
    ANA BİLEŞEN
    ═══════════════════════════════════════════════════════════ */
+const resolvePanelFeatureId = (panelId) => {
+    if (!panelId) return null;
+    if (MENU_FEATURE_MAP[panelId]) return MENU_FEATURE_MAP[panelId];
+    const base = String(panelId).split("-")[0];
+    return MENU_FEATURE_MAP[base] || null;
+};
+
 const UserDashboard = () => {
     const { theme: C, t, language, resolvedTheme } = useApp();
+    const {
+        loading: entitlementsLoading,
+        canAccess,
+        planDisplayName,
+        upgradeHint
+    } = usePlanEntitlements();
     const isDark = resolvedTheme === "dark";
     const [menuOpen, setMenuOpen] = useState(true);
     const [activePanel, setActivePanel] = useState(getInitialDashboardPanel);
@@ -152,6 +216,10 @@ const UserDashboard = () => {
     const [showNotifPanel, setShowNotifPanel] = useState(false);
     const [notifSoundEnabled, setNotifSoundEnabled] = useState(true);
     const [notifFilter, setNotifFilter] = useState("all"); // all, order, admin, ai
+    /** Sağ alt toast — 10 sn sonra gizlenir (zil panelinde okunmamış kalabilir) */
+    const [toastHiddenIds, setToastHiddenIds] = useState(() => new Set());
+    const toastAutoHideTimers = useRef(new Map());
+    const TOAST_AUTO_HIDE_MS = 10000;
 
     const lastCheckRef = useRef(null);
 
@@ -201,9 +269,19 @@ const UserDashboard = () => {
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     const handlePanelChange = useCallback((panelId) => {
+        const featureId = resolvePanelFeatureId(panelId);
+        if (featureId && !entitlementsLoading && !canAccess(featureId)) {
+            setActivePanel("subscription");
+            if (isMobile) setMenuOpen(false);
+            return;
+        }
         setActivePanel(panelId);
         if (isMobile) setMenuOpen(false);
-    }, [isMobile]);
+    }, [isMobile, entitlementsLoading, canAccess]);
+
+    useEffect(() => {
+        document.title = resolveDashboardDocumentTitle(activePanel, marketplaces);
+    }, [activePanel, marketplaces]);
 
     // Refresh sonrası aynı panelde kalması için activePanel'i sakla
     useEffect(() => {
@@ -340,6 +418,46 @@ const UserDashboard = () => {
         return () => clearInterval(iv);
     }, [userId, loadNotifications]);
 
+    const hideToastNotif = useCallback((id) => {
+        const sid = String(id);
+        const timer = toastAutoHideTimers.current.get(sid);
+        if (timer) {
+            clearTimeout(timer);
+            toastAutoHideTimers.current.delete(sid);
+        }
+        setToastHiddenIds((prev) => {
+            if (prev.has(sid)) return prev;
+            const next = new Set(prev);
+            next.add(sid);
+            return next;
+        });
+    }, []);
+
+    useEffect(() => {
+        const visibleIds = notifications
+            .filter((n) => !n.isRead && !toastHiddenIds.has(String(n._id)))
+            .slice(0, isMobile ? 2 : 3)
+            .map((n) => String(n._id));
+
+        visibleIds.forEach((id) => {
+            if (toastAutoHideTimers.current.has(id)) return;
+            const timer = setTimeout(() => hideToastNotif(id), TOAST_AUTO_HIDE_MS);
+            toastAutoHideTimers.current.set(id, timer);
+        });
+
+        for (const [id, timer] of [...toastAutoHideTimers.current.entries()]) {
+            if (!visibleIds.includes(id)) {
+                clearTimeout(timer);
+                toastAutoHideTimers.current.delete(id);
+            }
+        }
+    }, [notifications, toastHiddenIds, isMobile, hideToastNotif]);
+
+    useEffect(() => () => {
+        toastAutoHideTimers.current.forEach((t) => clearTimeout(t));
+        toastAutoHideTimers.current.clear();
+    }, []);
+
     // ── Ürün Yönetimi Dashboard (gerçek) ──
     useEffect(() => {
         if (!userId) return;
@@ -364,6 +482,7 @@ const UserDashboard = () => {
         } catch { /* sessiz */ }
     };
     const dismissNotif = async (id) => {
+        hideToastNotif(id);
         try {
             await apiDismissNotif(id);
             setNotifications(prev => prev.filter(n => n._id !== id));
@@ -435,7 +554,25 @@ const UserDashboard = () => {
     const trendRevenueTotal = trends.revenueTotals.reduce((s, v) => s + v, 0);
     const orderTrendMax = Math.max(...trends.orderCounts, 1);
     const revenueTrendMax = Math.max(...trends.revenueTotals, 1);
-    const avgOrderValue = allOrders.total > 0 ? (summary.todayRevenue || 0) / allOrders.total : 0;
+    const orders24h = summary.orders24h ?? summary.todayOrders ?? 0;
+    const revenue24h = summary.revenue24h ?? summary.todayRevenue ?? 0;
+    const avgOrderValue = orders24h > 0 ? revenue24h / orders24h : 0;
+    const revenueBreakdown = useMemo(() => {
+        const day = summary.revenueDay ?? 0;
+        const month = summary.revenueMonth ?? 0;
+        const year = summary.revenueYear ?? 0;
+        return language === "en"
+            ? [
+                { label: "Daily", value: fmtCurrency(day, language) },
+                { label: "Monthly", value: fmtCurrency(month, language) },
+                { label: "Yearly", value: fmtCurrency(year, language) },
+            ]
+            : [
+                { label: "Günlük", value: fmtCurrency(day, language) },
+                { label: "Aylık", value: fmtCurrency(month, language) },
+                { label: "Yıllık", value: fmtCurrency(year, language) },
+            ];
+    }, [summary.revenueDay, summary.revenueMonth, summary.revenueYear, language]);
 
     const formatOrderDate = (orderDate) => {
         const d = parseOrderDateForDisplay(orderDate);
@@ -466,217 +603,62 @@ const UserDashboard = () => {
         const now = new Date();
         const loc = language === "en" ? "en-US" : "tr-TR";
         const timeStr = now.toLocaleTimeString(loc, { hour: "2-digit", minute: "2-digit" });
-        const dateStr = now.toLocaleDateString(loc, { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+        const dateStr = now.toLocaleDateString(loc, { weekday: "long", day: "numeric", month: "long" });
+        const userName = (localStorage.getItem("userName") || "").trim();
+        const displayName = userName ? userName.split(" ")[0] : (language === "en" ? "there" : "");
+        const greeting = displayName
+            ? `${t(getGreetingKey())}, ${displayName}`
+            : t(getGreetingKey());
+
+        const quickActions = [
+            { label: t("dashboard.orderManagement"), icon: <FaClipboardList />, panel: "orders", color: C.accent },
+            { label: t("dashboard.productCenter"), icon: <FaCubes />, panel: "pm-center", color: C.purple },
+            { label: t("dashboard.integrations"), icon: <FaPlug />, panel: "integration", color: C.blue },
+            { label: t("dashboard.finance"), icon: <FaMoneyBillWave />, panel: "finance", color: C.green },
+            { label: t("sidebar.advancedAnalytics"), icon: <FaChartBar />, panel: "advanced-analytics", color: C.yellow },
+            { label: t("sidebar.categoryCenter"), icon: <FaSitemap />, panel: "category-center", color: C.pink || "#ec4899" },
+        ];
+
+        const healthItems = [
+            { label: t("dashboard.activeChannels"), value: summary.activeMarketplaces || 0, color: C.green },
+            { label: t("dashboard.error"), value: diagnostics.errorCount || 0, color: (diagnostics.errorCount || 0) > 0 ? C.red : C.green },
+            { label: t("dashboard.pendingSync"), value: summary.pendingSync || 0, color: (summary.pendingSync || 0) > 0 ? C.yellow : C.green },
+            { label: t("dashboard.stockMismatch"), value: summary.stockMismatchCount || 0, color: (summary.stockMismatchCount || 0) > 0 ? C.yellow : C.green },
+            { label: t("dashboard.lastUpdate"), value: summary.lastIntegrationUpdate ? new Date(summary.lastIntegrationUpdate).toLocaleTimeString(loc, { hour: "2-digit", minute: "2-digit" }) : "—", color: C.accent },
+        ];
+
+        const opsScore = Math.max(
+            28,
+            Math.min(
+                100,
+                100
+                    - Math.min(40, (diagnostics.errorCount || 0) * 10)
+                    - Math.min(25, (summary.pendingSync || 0) * 5)
+                    - Math.min(20, (summary.stockMismatchCount || 0) * 4)
+            )
+        );
 
         return (
-            <div style={{ width: "100%", minHeight: "100vh", background: C.bg, padding: 0, margin: 0 }}>
+            <div className={`dashboard-home-layout${isDark ? "" : " dashboard-home-layout--light"}`} style={{ background: C.bg }}>
 
-                {/* ── HEADER ── */}
-                <div style={{
-                    background: isDark ? "linear-gradient(135deg, #1a1f35 0%, #0f1419 100%)" : "linear-gradient(135deg, #ffffff 0%, #f0f2f5 100%)",
-                    borderBottom: `1px solid ${C.border}`,
-                    position: "sticky", top: 0, zIndex: 100,
-                    backdropFilter: "blur(12px)",
-                    padding: isMobile ? "0.75rem 0.75rem" : "1.25rem clamp(0.75rem, 2vw, 1.5rem)",
-                }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: isMobile ? "0.5rem" : "1rem" }}>
-                        {/* Sol: Karşılama */}
-                        <div style={{ minWidth: 0, flex: 1 }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: "0.6rem", marginBottom: "0.25rem" }}>
-                                <h1 style={{
-                                    background: `linear-gradient(135deg, ${C.accent} 0%, ${C.purple} 100%)`,
-                                    WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
-                                    fontSize: isMobile ? "1.1rem" : "clamp(1.2rem, 2.5vw, 1.6rem)", fontWeight: 800, margin: 0,
-                                }}>
-                                    {t(getGreetingKey())} 👋
-                                </h1>
-                                {dashboardLoading && (
-                                    <div style={{ width: 16, height: 16, border: `2px solid ${C.accent}30`, borderTop: `2px solid ${C.accent}`, borderRadius: "50%", animation: "spin 1s linear infinite" }} />
-                                )}
-                            </div>
-                            <p style={{ color: C.dim, fontSize: isMobile ? "0.7rem" : "0.78rem", margin: 0, display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
-                                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: isMobile ? "nowrap" : "normal" }}>{dateStr}</span>
-                                <span style={{ color: C.accent, fontWeight: 700, fontFamily: "monospace" }}>{timeStr}</span>
-                                {!isMobile && <span style={{ width: 4, height: 4, borderRadius: "50%", background: C.dim, display: "inline-block" }} />}
-                                {!isMobile && <span>{summary.activeMarketplaces || 0} {t("dashboard.activeChannels").toLowerCase()}</span>}
-                            </p>
-                        </div>
+                <DashboardHero
+                    BRAND_NAME={BRAND_NAME}
+                    greeting={greeting}
+                    dateStr={dateStr}
+                    timeStr={timeStr}
+                    activeChannels={summary.activeMarketplaces || 0}
+                    planDisplayName={planDisplayName}
+                    opsScore={opsScore}
+                    dashboardLoading={dashboardLoading}
+                    isDark={isDark}
+                    isMobile={isMobile}
+                    C={C}
+                    unreadCount={unreadCount}
+                    onNotifToggle={() => setShowNotifPanel(!showNotifPanel)}
+                    language={language}
+                />
 
-                        {/* Sağ: Bildirim Zili */}
-                        <div style={{ position: "relative" }}>
-                            <motion.button
-                                whileHover={{ scale: 1.08 }}
-                                whileTap={{ scale: 0.92 }}
-                                onClick={() => setShowNotifPanel(!showNotifPanel)}
-                                style={{
-                                    background: unreadCount > 0 ? `${C.accent}15` : C.glass,
-                                    border: `1px solid ${unreadCount > 0 ? C.accent + "40" : C.glassBr}`,
-                                    borderRadius: 12, padding: "0.65rem", cursor: "pointer",
-                                    display: "flex", alignItems: "center", justifyContent: "center",
-                                    color: unreadCount > 0 ? C.accent : C.muted, fontSize: "1.15rem",
-                                    position: "relative",
-                                }}
-                            >
-                                <FaBell />
-                                {unreadCount > 0 && (
-                                    <motion.span
-                                        initial={{ scale: 0 }} animate={{ scale: 1 }}
-                                        style={{
-                                            position: "absolute", top: -4, right: -4,
-                                            background: C.red, color: "#fff",
-                                            fontSize: "0.6rem", fontWeight: 800,
-                                            width: 18, height: 18, borderRadius: "50%",
-                                            display: "flex", alignItems: "center", justifyContent: "center",
-                                            boxShadow: `0 2px 8px ${C.red}60`,
-                                            animation: "pulse 2s infinite",
-                                        }}
-                                    >
-                                        {unreadCount > 9 ? "9+" : unreadCount}
-                                    </motion.span>
-                                )}
-                            </motion.button>
-
-                            {/* Bildirim Paneli */}
-                            <AnimatePresence>
-                                {showNotifPanel && (
-                                    <motion.div
-                                        initial={{ opacity: 0, y: -8, scale: 0.95 }}
-                                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                                        exit={{ opacity: 0, y: -8, scale: 0.95 }}
-                                        transition={{ duration: 0.2 }}
-                                        style={{
-                                            position: isMobile ? "fixed" : "absolute",
-                                            top: isMobile ? "60px" : "calc(100% + 8px)",
-                                            right: isMobile ? "12px" : 0,
-                                            left: isMobile ? "12px" : "auto",
-                                            width: isMobile ? "auto" : 400,
-                                            maxWidth: isMobile ? "100%" : 400,
-                                            maxHeight: isMobile ? "calc(100dvh - 80px)" : 520,
-                                            background: isDark ? "linear-gradient(135deg, #1a1f35 0%, #0f1419 100%)" : "linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)",
-                                            border: `1px solid ${C.border}`,
-                                            borderRadius: 16, overflow: "hidden",
-                                            boxShadow: "0 20px 60px rgba(0,0,0,0.6)",
-                                            zIndex: 9999,
-                                        }}
-                                    >
-                                        {/* Panel Header */}
-                                        <div style={{ padding: "0.85rem 1.25rem", borderBottom: `1px solid ${C.glassBr}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                                                <FaBell style={{ color: C.accent, fontSize: "0.9rem" }} />
-                                                <span style={{ color: C.text, fontSize: "0.9rem", fontWeight: 700 }}>{t("notif.title")}</span>
-                                                {unreadCount > 0 && <Pill color={C.red}>{unreadCount} {t("notif.new")}</Pill>}
-                                            </div>
-                                            <div style={{ display: "flex", gap: "0.4rem" }}>
-                                                <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
-                                                    onClick={() => setNotifSoundEnabled(!notifSoundEnabled)}
-                                                    title={notifSoundEnabled ? t("notif.soundOn") : t("notif.soundOff")}
-                                                    style={{ background: C.glass, border: `1px solid ${C.glassBr}`, borderRadius: 8, padding: "0.3rem 0.5rem", cursor: "pointer", color: notifSoundEnabled ? C.accent : C.dim, fontSize: "0.75rem" }}>
-                                                    {notifSoundEnabled ? "🔔" : "🔕"}
-                                                </motion.button>
-                                                {unreadCount > 0 && (
-                                                    <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
-                                                        onClick={markAllRead}
-                                                        style={{ background: C.glass, border: `1px solid ${C.glassBr}`, borderRadius: 8, padding: "0.3rem 0.6rem", cursor: "pointer", color: C.muted, fontSize: "0.7rem", fontWeight: 600 }}>
-                                                        {t("notif.markAllRead")}
-                                                    </motion.button>
-                                                )}
-                                            </div>
-                                        </div>
-
-                                        {/* Filtre Tabları */}
-                                        <div style={{ display: "flex", gap: "0.25rem", padding: "0.5rem 0.75rem", borderBottom: `1px solid ${C.glassBr}`, overflowX: "auto" }}>
-                                            {[
-                                                { key: "all", label: t("notif.all"), icon: "📋", count: notifCounts.total },
-                                                { key: "order", label: t("notif.orders"), icon: "🛒", count: notifCounts.order },
-                                                { key: "admin", label: t("notif.announcements"), icon: "📢", count: notifCounts.admin },
-                                                { key: "ai", label: t("notif.ai"), icon: "🧠", count: notifCounts.ai },
-                                            ].map(tab => (
-                                                <motion.button key={tab.key} whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
-                                                    onClick={() => { setNotifFilter(tab.key); lastCheckRef.current = null; loadNotifications(); }}
-                                                    style={{
-                                                        background: notifFilter === tab.key ? `${C.accent}20` : "transparent",
-                                                        border: `1px solid ${notifFilter === tab.key ? C.accent + "40" : "transparent"}`,
-                                                        borderRadius: 8, padding: "0.3rem 0.6rem", cursor: "pointer",
-                                                        color: notifFilter === tab.key ? C.accent : C.muted,
-                                                        fontSize: "0.7rem", fontWeight: 600, whiteSpace: "nowrap",
-                                                        display: "flex", alignItems: "center", gap: "0.3rem",
-                                                    }}>
-                                                    <span>{tab.icon}</span> {tab.label}
-                                                    {tab.count > 0 && <span style={{ background: C.red, color: "#fff", fontSize: "0.55rem", fontWeight: 800, borderRadius: 6, padding: "0.1rem 0.3rem", minWidth: 16, textAlign: "center" }}>{tab.count}</span>}
-                                                </motion.button>
-                                            ))}
-                                        </div>
-
-                                        {/* Bildirim Listesi */}
-                                        <div style={{ maxHeight: 360, overflowY: "auto", padding: "0.5rem" }}>
-                                            {filteredNotifs.length > 0 ? filteredNotifs.slice(0, 30).map((n, i) => {
-                                                const iconMap = { order: "🛒", admin: "📢", ai: "🧠", stock: "📦", system: "⚙️" };
-                                                const gradMap = { order: `linear-gradient(135deg, ${C.green}, #059669)`, admin: `linear-gradient(135deg, ${C.purple}, #6d28d9)`, ai: `linear-gradient(135deg, ${C.blue}, #0284c7)`, stock: `linear-gradient(135deg, ${C.yellow}, #d97706)`, system: `linear-gradient(135deg, ${C.accent}, #44a08d)` };
-                                                const priorityDot = { critical: C.red, high: C.yellow, medium: C.blue, low: C.dim };
-                                                return (
-                                                    <motion.div key={n._id}
-                                                        initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.02 }}
-                                                        style={{
-                                                            background: n.isRead ? "transparent" : `${C.accent}08`,
-                                                            border: `1px solid ${n.isRead ? "transparent" : C.accent + "15"}`,
-                                                            borderRadius: 10, padding: "0.7rem 0.85rem", marginBottom: "0.3rem",
-                                                            display: "flex", alignItems: "flex-start", gap: "0.6rem",
-                                                            cursor: "pointer", transition: "all 0.2s",
-                                                        }}
-                                                        onClick={() => handleNotifClick(n)}
-                                                        whileHover={{ background: `${C.accent}10` }}
-                                                    >
-                                                        <div style={{
-                                                            width: 32, height: 32, borderRadius: 8, flexShrink: 0,
-                                                            background: gradMap[n.type] || gradMap.system,
-                                                            display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.9rem",
-                                                        }}>
-                                                            {n.icon || iconMap[n.type] || "🔔"}
-                                                        </div>
-                                                        <div style={{ flex: 1, minWidth: 0 }}>
-                                                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.15rem" }}>
-                                                                <span style={{ color: C.text, fontSize: "0.8rem", fontWeight: 700 }}>{n.title}</span>
-                                                                <div style={{ display: "flex", alignItems: "center", gap: "0.3rem", flexShrink: 0 }}>
-                                                                    {n.priority && n.priority !== "medium" && <div style={{ width: 6, height: 6, borderRadius: "50%", background: priorityDot[n.priority] || C.dim }} title={n.priority} />}
-                                                                    {!n.isRead && <div style={{ width: 6, height: 6, borderRadius: "50%", background: C.accent }} />}
-                                                                </div>
-                                                            </div>
-                                                            <p style={{ color: C.muted, fontSize: "0.73rem", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{n.message}</p>
-                                                            <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginTop: "0.15rem" }}>
-                                                                <span style={{ color: C.dim, fontSize: "0.6rem", background: `${C.glass}`, border: `1px solid ${C.glassBr}`, borderRadius: 4, padding: "0.05rem 0.3rem" }}>
-                                                                    {n.type === "order" ? t("notif.order") : n.type === "admin" ? t("notif.announcement") : n.type === "ai" ? "AI" : n.type === "stock" ? t("notif.stock") : t("notif.system")}
-                                                                </span>
-                                                                <span style={{ color: C.dim, fontSize: "0.62rem" }}>
-                                                                    {n.createdAt ? new Date(n.createdAt).toLocaleString(language === "en" ? "en-US" : "tr-TR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : ""}
-                                                                </span>
-                                                            </div>
-                                                        </div>
-                                                        <motion.button whileHover={{ scale: 1.2 }} whileTap={{ scale: 0.8 }}
-                                                            onClick={(e) => { e.stopPropagation(); dismissNotif(n._id); }}
-                                                            style={{ background: "none", border: "none", color: C.dim, cursor: "pointer", fontSize: "0.7rem", padding: "0.2rem", flexShrink: 0 }}>
-                                                            ✕
-                                                        </motion.button>
-                                                    </motion.div>
-                                                );
-                                            }) : (
-                                                <div style={{ textAlign: "center", padding: "2.5rem 1rem", color: C.dim }}>
-                                                    <span style={{ fontSize: "2rem", display: "block", marginBottom: "0.5rem" }}>🔔</span>
-                                                    <p style={{ fontSize: "0.85rem", margin: 0 }}>{t("notif.noNotifications")}</p>
-                                                    <p style={{ fontSize: "0.73rem", margin: "0.25rem 0 0", color: C.dim }}>{t("notif.willAppearHere")}</p>
-                                                </div>
-                                            )}
-                                        </div>
-                                    </motion.div>
-                                )}
-                            </AnimatePresence>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Bildirim paneli dışına tıklayınca kapat */}
-                {showNotifPanel && (
-                    <div style={{ position: "fixed", inset: 0, zIndex: 99 }} onClick={() => setShowNotifPanel(false)} />
-                )}
+                <div className="dashboard-home-body">
 
                 {/* ✅ Abonelik / Trial / Suspended uyarısı — code'a göre farklılaşır */}
                 {subscriptionExpired && (() => {
@@ -684,7 +666,7 @@ const UserDashboard = () => {
                     const presets = {
                         TRIAL_ENDED: {
                             icon: "⏳", title: "Demo Süreniz Doldu",
-                            desc: subscriptionMessage || "Demo sürenizin sonuna geldiniz. PazarYonet AI'i kullanmaya devam etmek için bir paket seçin.",
+                            desc: subscriptionMessage || "Demo sürenizin sonuna geldiniz. Dashtock AI'i kullanmaya devam etmek için bir paket seçin.",
                             cta: "🚀 Paketleri İncele", border: C.yellow,
                         },
                         SUBSCRIPTION_EXPIRED: {
@@ -820,221 +802,138 @@ const UserDashboard = () => {
                     </div>
                 )}
 
-                {/* ── İÇERİK ── */}
-                <div style={{ padding: isMobile ? "0.75rem" : "clamp(1rem, 2.5vw, 1.5rem) clamp(0.75rem, 2vw, 1.25rem)", overflowX: "hidden" }}>
+                    {/* Hızlı erişim */}
+                    <motion.div className="dh-quick" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }}>
+                        {quickActions.map((a, i) => (
+                            <motion.button
+                                key={a.panel}
+                                type="button"
+                                className="dh-quick__btn"
+                                initial={{ opacity: 0, y: 8 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ delay: 0.05 + i * 0.04 }}
+                                whileHover={{ y: -2 }}
+                                whileTap={{ scale: 0.98 }}
+                                onClick={() => handlePanelChange(a.panel)}
+                            >
+                                <div className="dh-quick__icon" style={{ background: `${a.color}22`, color: a.color }}>{a.icon}</div>
+                                <span className="dh-quick__label">{a.label}</span>
+                            </motion.button>
+                        ))}
+                    </motion.div>
 
-                    {/* ── DURUM ÇUBUĞU (Compact) ── */}
-                    <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}
-                        style={{
-                            display: "flex", gap: isMobile ? "0.35rem" : "0.5rem", flexWrap: "wrap", marginBottom: "1.25rem",
-                            padding: isMobile ? "0.5rem 0.6rem" : "0.75rem 1rem", borderRadius: 12,
-                            background: `linear-gradient(135deg, ${C.accent}08, ${C.purple}08)`,
-                            border: `1px solid ${C.accent}15`,
-                            overflowX: "auto", WebkitOverflowScrolling: "touch",
-                        }}>
-                        {[
-                            { label: t("dashboard.activeChannels"), value: summary.activeMarketplaces || 0, color: C.green, icon: "🟢" },
-                            { label: t("dashboard.error"), value: diagnostics.errorCount || 0, color: (diagnostics.errorCount || 0) > 0 ? C.red : C.green, icon: (diagnostics.errorCount || 0) > 0 ? "🔴" : "🟢" },
-                            { label: t("dashboard.pendingSync"), value: summary.pendingSync || 0, color: (summary.pendingSync || 0) > 0 ? C.yellow : C.green, icon: "🔄" },
-                            { label: t("dashboard.stockMismatch"), value: summary.stockMismatchCount || 0, color: (summary.stockMismatchCount || 0) > 0 ? C.yellow : C.green, icon: "📦" },
-                            { label: t("dashboard.lastUpdate"), value: summary.lastIntegrationUpdate ? new Date(summary.lastIntegrationUpdate).toLocaleTimeString(language === "en" ? "en-US" : "tr-TR", { hour: "2-digit", minute: "2-digit" }) : "—", color: C.accent, icon: "🕐" },
-                        ].map((s, i) => (
-                            <div key={s.label} style={{ display: "flex", alignItems: "center", gap: "0.35rem", padding: isMobile ? "0.15rem 0.4rem" : "0.2rem 0.6rem", borderRadius: 8, background: `${s.color}08`, flexShrink: 0, whiteSpace: "nowrap" }}>
-                                <span style={{ fontSize: isMobile ? "0.6rem" : "0.7rem" }}>{s.icon}</span>
-                                <span style={{ color: C.muted, fontSize: isMobile ? "0.6rem" : "0.7rem", fontWeight: 600 }}>{s.label}:</span>
-                                <span style={{ color: s.color, fontSize: isMobile ? "0.65rem" : "0.75rem", fontWeight: 800 }}>{s.value}</span>
+                    {/* Sistem durumu */}
+                    <motion.div className="dh-health" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.15 }}>
+                        {healthItems.map((s) => (
+                            <div key={s.label} className="dh-health__item">
+                                <div className="dh-health__dot" style={{ background: s.color, boxShadow: `0 0 8px ${s.color}80` }} />
+                                <div>
+                                    <p className="dh-health__label">{s.label}</p>
+                                    <p className="dh-health__value" style={{ color: s.color }}>{s.value}</p>
+                                </div>
                             </div>
                         ))}
                     </motion.div>
 
-                    {/* ── KPI KARTLARI ── */}
-                    <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr 1fr" : "repeat(auto-fill, minmax(210px, 1fr))", gap: isMobile ? "0.5rem" : "1rem", marginBottom: "1.5rem" }}>
-                        <KpiCard C={C} icon="📦" label={t("dashboard.totalOrders")} value={fmtNum(allOrders.total, language)}
-                            sub={`🆕 ${allOrders.statusCounts.new} ${t("dashboard.new")} · ⚙️ ${allOrders.statusCounts.processing} ${t("dashboard.processing")} · 🚚 ${allOrders.statusCounts.shipping} ${t("dashboard.shipping")}`}
-                            color={C.accent} delay={0.05} onClick={() => setShowOrderDetailsModal(true)} />
-                        <KpiCard C={C} icon="💰" label={t("dashboard.totalRevenue")} value={fmtCurrency(summary.todayRevenue, language)}
-                            sub={`${t("dashboard.avgBasket")}: ${fmtCurrency(avgOrderValue, language)}`}
+                    <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.18 }}>
+                        <DashboardSpotlight
+                            revenue={fmtCurrency(revenue24h, language)}
+                            revenueSub={`${t("dashboard.avgBasket")}: ${fmtCurrency(avgOrderValue, language)} · ${orders24h} ${language === "en" ? "orders" : "sipariş"}`}
+                            revenueBreakdown={revenueBreakdown}
+                            orders={fmtNum(orders24h, language)}
+                            ordersSub={`${allOrders.statusCounts.new} ${t("dashboard.new")} · ${allOrders.statusCounts.processing} ${t("dashboard.processing")}`}
+                            products={fmtNum(summary.totalProducts || pmProducts.total || 0, language)}
+                            productsSub={`${fmtNum(pmProducts.lowStock || 0, language)} ${t("dashboard.lowStockAlert").toLowerCase()}`}
+                            onFinance={() => handlePanelChange("finance")}
+                            onOrders={() => setShowOrderDetailsModal(true)}
+                            onProducts={() => handlePanelChange("pm-center")}
+                            language={language}
+                        />
+                    </motion.div>
+
+                    {/* Detay KPI */}
+                    <div className="dh-kpi-grid">
+                        <KpiCard C={C} icon="📈" label={t("dashboard.weeklyOrders")} value={fmtNum(trendOrderTotal, language)}
+                            sub={fmtCurrency(trendRevenueTotal, language)}
+                            color={C.blue} delay={0.05} />
+                        <KpiCard C={C} icon="✅" label={t("dashboard.delivered")} value={fmtNum(allOrders.statusCounts.delivered, language)}
+                            sub={`${allOrders.statusCounts.cancelled} ${t("dashboard.cancelledOrders").toLowerCase()}`}
                             color={C.green} delay={0.1} />
-                        <KpiCard C={C} icon="📊" label={t("dashboard.productCount")} value={fmtNum(summary.totalProducts || pmProducts.total || 0, language)}
-                            sub={`✅ ${fmtNum(summary.activeProducts || pmProducts.healthy || 0, language)} ${t("dashboard.active").toLowerCase()} · ⏸️ ${fmtNum(summary.passiveProducts || pmProducts.outOfStock || 0, language)} ${t("dashboard.passive").toLowerCase()}`}
-                            color={C.purple} delay={0.15} />
                         <KpiCard C={C} icon="⚠️" label={t("dashboard.lowStockAlert")} value={fmtNum(pmProducts.lowStock || 0, language)}
                             sub={`${t("dashboard.outOfStock")}: ${fmtNum(pmProducts.outOfStock || 0, language)}`}
-                            color={(pmProducts.lowStock || 0) > 0 ? C.yellow : C.green} delay={0.2} />
-                        <KpiCard C={C} icon="📈" label={t("dashboard.weeklyOrders")} value={fmtNum(trendOrderTotal, language)}
-                            sub={`${t("dashboard.totalRevenue")}: ${fmtCurrency(trendRevenueTotal, language)}`}
-                            color={C.blue} delay={0.25} />
-                        <KpiCard C={C} icon="✅" label={t("dashboard.delivered")} value={fmtNum(allOrders.statusCounts.delivered, language)}
-                            sub={`❌ ${allOrders.statusCounts.cancelled} ${t("dashboard.cancelledOrders").toLowerCase()} · ↩️ ${allOrders.statusCounts.returned} ${t("dashboard.returnedOrders").toLowerCase()}`}
-                            color={C.green} delay={0.3} />
+                            color={(pmProducts.lowStock || 0) > 0 ? C.yellow : C.green} delay={0.15} />
+                        <KpiCard C={C} icon="🔄" label={t("dashboard.pendingSync")} value={fmtNum(summary.pendingSync || 0, language)}
+                            sub={t("dashboard.lastUpdate")}
+                            color={C.accent} delay={0.2} />
                     </div>
 
-                    {/* ── PAZARYERI TABLOSU + CANLI SİPARİŞ AKIŞI ── */}
-                    <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "2fr 1fr", gap: isMobile ? "0.75rem" : "1.5rem", marginBottom: "1.5rem" }}>
-
-                        {/* Pazaryeri Durumu */}
-                        {marketplaceEntries.length > 0 && (
-                            <GlassCard C={C} style={isMobile ? { padding: "1rem" } : {}}>
-                                <SectionTitle C={C} icon="🏪" title={t("dashboard.marketplaceStatus")} badge={`${marketplaceEntries.length} ${t("dashboard.channel")}`} />
-                                <div style={{ overflowX: "auto", WebkitOverflowScrolling: "touch", margin: isMobile ? "0 -0.5rem" : 0, padding: isMobile ? "0 0.5rem" : 0 }}>
-                                    <table style={{ width: "100%", minWidth: isMobile ? 480 : 500, borderCollapse: "separate", borderSpacing: "0 0.35rem" }}>
-                                        <thead>
-                                            <tr style={{ color: C.muted, fontSize: isMobile ? "0.6rem" : "0.68rem", fontWeight: 600, textTransform: "uppercase" }}>
-                                                <th style={{ textAlign: "left", padding: isMobile ? "0.3rem 0.5rem" : "0.4rem 0.8rem" }}>{t("dashboard.channel")}</th>
-                                                <th style={{ textAlign: "center", padding: isMobile ? "0.3rem" : "0.4rem" }}>{t("dashboard.status")}</th>
-                                                <th style={{ textAlign: "center", padding: isMobile ? "0.3rem" : "0.4rem" }}>{t("dashboard.orders")}</th>
-                                                <th style={{ textAlign: "center", padding: isMobile ? "0.3rem" : "0.4rem" }}>{t("dashboard.revenue")}</th>
-                                                <th style={{ textAlign: "center", padding: isMobile ? "0.3rem" : "0.4rem" }}>{t("dashboard.errors")}</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {marketplaceEntries.map(([name, mp], idx) => (
-                                                <motion.tr key={name}
-                                                    initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}
-                                                    transition={{ delay: 0.2 + idx * 0.04 }}
-                                                    whileHover={{ backgroundColor: `${C.accent}06` }}
-                                                    style={{ background: C.glass, borderRadius: 8 }}>
-                                                    <td style={{ padding: "0.7rem 0.8rem", borderRadius: "8px 0 0 8px" }}>
-                                                        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                                                            <div style={{ width: 8, height: 8, borderRadius: "50%", background: statusColor(mp.status, C), boxShadow: `0 0 6px ${statusColor(mp.status, C)}60` }} />
-                                                            <div>
-                                                                <p style={{ color: C.text, fontWeight: 600, margin: 0, fontSize: "0.82rem" }}>{name}</p>
-                                                                <p style={{ color: C.dim, fontSize: "0.6rem", margin: 0 }}>
-                                                                    {mp.updatedAt ? new Date(mp.updatedAt).toLocaleTimeString(language === "en" ? "en-US" : "tr-TR", { hour: "2-digit", minute: "2-digit" }) : "—"}
-                                                                </p>
-                                                            </div>
-                                                        </div>
-                                                    </td>
-                                                    <td style={{ textAlign: "center", padding: "0.4rem" }}>
-                                                        <Pill color={statusColor(mp.status, C)}>{statusLabel(mp.status, t)}</Pill>
-                                                    </td>
-                                                    <td style={{ textAlign: "center", padding: "0.4rem" }}>
-                                                        <span style={{ color: C.accent, fontWeight: 700, fontSize: "0.9rem" }}>{mp.orders || 0}</span>
-                                                    </td>
-                                                    <td style={{ textAlign: "center", padding: "0.4rem" }}>
-                                                        <span style={{ color: C.green, fontWeight: 700, fontSize: "0.82rem" }}>{fmtCurrency(mp.revenue || 0, language)}</span>
-                                                    </td>
-                                                    <td style={{ textAlign: "center", padding: "0.4rem", borderRadius: "0 8px 8px 0" }}>
-                                                        <Pill color={(mp.errors || 0) > 0 ? C.red : C.green}>{mp.errors || 0}</Pill>
-                                                    </td>
-                                                </motion.tr>
-                                            ))}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </GlassCard>
-                        )}
-
-                        {/* Canlı Sipariş Akışı */}
-                        <GlassCard C={C}>
-                            <SectionTitle C={C} icon="🔴" title={t("dashboard.recentOrders")}
-                                action={
-                                    <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
-                                        onClick={() => handlePanelChange("orders")}
-                                        style={{ background: C.glass, border: `1px solid ${C.glassBr}`, borderRadius: 8, padding: "0.3rem 0.6rem", cursor: "pointer", color: C.accent, fontSize: "0.7rem", fontWeight: 600 }}>
-                                        {t("dashboard.viewAll")}
-                                    </motion.button>
-                                }
+                    {/* Bento: pazaryeri + grafik | canlı siparişler */}
+                    <div className="dh-bento">
+                        <div className="dh-bento__main">
+                            <DashboardMarketplaceGrid
+                                entries={marketplaceEntries}
+                                fmtCurrency={fmtCurrency}
+                                language={language}
+                                statusColor={statusColor}
+                                statusLabel={statusLabel}
+                                t={t}
+                                C={C}
                             />
-                            <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-                                {recentOrdersFeed.length > 0 ? recentOrdersFeed.map((o, i) => (
-                                    <motion.div key={`${o.orderNumber}-${i}`}
-                                        initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.2 + i * 0.04 }}
-                                        style={{ background: C.glass, border: `1px solid ${C.glassBr}`, borderRadius: 10, padding: "0.65rem 0.8rem" }}>
-                                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.25rem" }}>
-                                            <span style={{ color: C.accent, fontSize: "0.75rem", fontWeight: 700 }}>{o.marketplace}</span>
-                                            <span style={{ color: C.green, fontSize: "0.8rem", fontWeight: 800 }}>{fmtCurrency(o.totalPrice || 0, language)}</span>
-                                        </div>
-                                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                            <span style={{ color: C.dim, fontSize: "0.68rem", fontFamily: "monospace" }}>#{o.orderNumber || "—"}</span>
-                                            <span style={{ color: C.dim, fontSize: "0.65rem" }}>
-                                                {o.orderDate ? new Date(o.orderDate).toLocaleString(language === "en" ? "en-US" : "tr-TR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : ""}
-                                            </span>
-                                        </div>
-                                    </motion.div>
-                                )) : (
-                                    <div style={{ textAlign: "center", padding: "2rem 0", color: C.dim, fontSize: "0.8rem" }}>
-                                        <span style={{ fontSize: "1.5rem", display: "block", marginBottom: "0.3rem" }}>📭</span>
-                                        {t("dashboard.noOrders")}
-                                    </div>
-                                )}
-                            </div>
-                        </GlassCard>
+                            <DashboardTrendChart
+                                trends={trends}
+                                orderTrendMax={orderTrendMax}
+                                revenueTrendMax={revenueTrendMax}
+                                trendOrderTotal={trendOrderTotal}
+                                trendRevenueTotal={trendRevenueTotal}
+                                fmtCurrency={fmtCurrency}
+                                fmtNum={fmtNum}
+                                language={language}
+                                t={t}
+                                C={C}
+                                isMobile={isMobile}
+                            />
+                        </div>
+                        <div className="dh-bento__side">
+                            <DashboardOrderTimeline
+                                orders={recentOrdersFeed}
+                                fmtCurrency={fmtCurrency}
+                                language={language}
+                                onViewAll={() => handlePanelChange("orders")}
+                                t={t}
+                                C={C}
+                            />
+                        </div>
                     </div>
 
-                    {/* ── TREND + ÜRÜN SAĞLIĞI ── */}
-                    <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: isMobile ? "0.75rem" : "1.5rem", marginBottom: "1.5rem" }}>
-                        {/* 7 Günlük Trend */}
-                        <GlassCard C={C}>
-                            <SectionTitle C={C} icon="📈" title={t("dashboard.weeklyTrend")} badge={`${fmtNum(trendOrderTotal, language)} ${t("dashboard.orders").toLowerCase()} · ${fmtCurrency(trendRevenueTotal, language)}`} />
-                            {trends.labels.length > 0 ? (
-                                <>
-                                    <div style={{ display: "flex", gap: "1rem", marginBottom: "0.75rem" }}>
-                                        <div style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
-                                            <div style={{ width: 8, height: 8, borderRadius: 2, background: C.accent }} />
-                                            <span style={{ color: C.muted, fontSize: "0.68rem" }}>{t("dashboard.orders")}</span>
-                                        </div>
-                                        <div style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
-                                            <div style={{ width: 8, height: 8, borderRadius: 2, background: C.green }} />
-                                            <span style={{ color: C.muted, fontSize: "0.68rem" }}>{t("dashboard.revenue")}</span>
-                                        </div>
-                                    </div>
-                                    <div style={{ display: "flex", gap: isMobile ? "0.2rem" : "0.35rem", height: isMobile ? 130 : 180, alignItems: "flex-end" }}>
-                                        {trends.labels.map((label, i) => {
-                                            const oH = Math.max((trends.orderCounts[i] || 0) / orderTrendMax * 100, 4);
-                                            const rH = Math.max((trends.revenueTotals[i] || 0) / revenueTrendMax * 100, 4);
-                                            return (
-                                                <div key={`${label}-${i}`} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: "0.2rem", minWidth: 0 }}>
-                                                    <div style={{ width: "100%", display: "flex", gap: isMobile ? 1 : 2, alignItems: "flex-end", height: isMobile ? 100 : 150 }}>
-                                                        <motion.div initial={{ height: 0 }} animate={{ height: `${rH}%` }} transition={{ delay: 0.3 + i * 0.04, duration: 0.4 }}
-                                                            style={{ flex: 1, background: `linear-gradient(180deg, ${C.green}, #059669)`, borderRadius: "3px 3px 0 0", cursor: "pointer" }}
-                                                            title={`${t("dashboard.revenue")}: ${fmtCurrency(trends.revenueTotals[i] || 0, language)}`} />
-                                                        <motion.div initial={{ height: 0 }} animate={{ height: `${oH}%` }} transition={{ delay: 0.3 + i * 0.04, duration: 0.4 }}
-                                                            style={{ flex: 1, background: `linear-gradient(180deg, ${C.accent}, #44a08d)`, borderRadius: "3px 3px 0 0", cursor: "pointer" }}
-                                                            title={`${t("dashboard.orders")}: ${trends.orderCounts[i] || 0}`} />
-                                                    </div>
-                                                    <span style={{ color: C.dim, fontSize: isMobile ? "0.5rem" : "0.6rem", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%" }}>{label}</span>
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                </>
-                            ) : (
-                                <div style={{ textAlign: "center", padding: "2.5rem 0", color: C.dim }}>
-                                    <span style={{ fontSize: "2rem" }}>📭</span>
-                                    <p style={{ margin: "0.4rem 0 0", fontSize: "0.8rem" }}>{t("dashboard.noData")}</p>
+                    <div className="dh-bottom-grid">
+                        <div className="dh-panel">
+                            <div className="dh-panel__head">
+                                <div className="dh-panel__title">
+                                    <span className="dh-panel__title-icon"><FaBoxOpen /></span>
+                                    {t("dashboard.productHealth")}
                                 </div>
-                            )}
-                        </GlassCard>
-
-                        {/* Ürün & Stok Sağlığı */}
-                        <GlassCard C={C}>
-                            <SectionTitle C={C} icon="📦" title={t("dashboard.productHealth")} />
+                            </div>
                             <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
                                 {[
-                                    { label: t("dashboard.totalProducts"), value: fmtNum(summary.totalProducts || pmProducts.total || 0, language), color: C.accent, icon: "📊" },
-                                    { label: t("dashboard.activeProducts"), value: fmtNum(summary.activeProducts || pmProducts.healthy || 0, language), color: C.green, icon: "✅" },
-                                    { label: t("dashboard.outOfStock"), value: fmtNum(pmProducts.outOfStock || summary.passiveProducts || 0, language), color: C.red, icon: "🚫" },
-                                    { label: t("dashboard.lowStock"), value: fmtNum(pmProducts.lowStock || 0, language), color: C.yellow, icon: "⚠️" },
-                                    { label: t("dashboard.stockMismatchCount"), value: fmtNum(summary.stockMismatchCount || 0, language), color: (summary.stockMismatchCount || 0) > 0 ? C.red : C.green, icon: "📉" },
-
+                                    { label: t("dashboard.totalProducts"), value: fmtNum(summary.totalProducts || pmProducts.total || 0, language), color: C.accent },
+                                    { label: t("dashboard.activeProducts"), value: fmtNum(summary.activeProducts || pmProducts.healthy || 0, language), color: C.green },
+                                    { label: t("dashboard.outOfStock"), value: fmtNum(pmProducts.outOfStock || summary.passiveProducts || 0, language), color: C.red },
+                                    { label: t("dashboard.lowStock"), value: fmtNum(pmProducts.lowStock || 0, language), color: C.yellow },
+                                    { label: t("dashboard.stockMismatchCount"), value: fmtNum(summary.stockMismatchCount || 0, language), color: (summary.stockMismatchCount || 0) > 0 ? C.red : C.green },
                                 ].map((s, i) => (
-                                    <motion.div key={s.label} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.2 + i * 0.03 }}
-                                        style={{ background: C.glass, border: `1px solid ${C.glassBr}`, borderRadius: 8, padding: isMobile ? "0.45rem 0.6rem" : "0.55rem 0.75rem", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.5rem" }}>
-                                        <div style={{ display: "flex", alignItems: "center", gap: isMobile ? "0.35rem" : "0.5rem", minWidth: 0, flex: 1 }}>
-                                            <span style={{ fontSize: isMobile ? "0.85rem" : "1rem", flexShrink: 0 }}>{s.icon}</span>
-                                            <span style={{ color: C.muted, fontSize: isMobile ? "0.7rem" : "0.78rem", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.label}</span>
-                                        </div>
-                                        <span style={{ color: s.color, fontSize: isMobile ? "0.85rem" : "1rem", fontWeight: 800, flexShrink: 0 }}>{s.value}</span>
+                                    <motion.div key={s.label} initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.1 + i * 0.03 }}
+                                        style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(255,255,255,0.06)", borderRadius: 10, padding: "0.55rem 0.75rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                        <span style={{ color: C.muted, fontSize: "0.78rem", fontWeight: 600 }}>{s.label}</span>
+                                        <span style={{ color: s.color, fontWeight: 800 }}>{s.value}</span>
                                     </motion.div>
                                 ))}
                             </div>
                             {pmMarketplaces.length > 0 && (
-                                <div style={{ marginTop: "0.75rem", paddingTop: "0.75rem", borderTop: `1px solid ${C.glassBr}` }}>
-                                    <p style={{ color: C.muted, fontSize: "0.7rem", fontWeight: 600, marginBottom: "0.4rem" }}>{t("dashboard.marketplaceDistribution")}</p>
+                                <div style={{ marginTop: "0.85rem", paddingTop: "0.85rem", borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+                                    <p style={{ color: C.muted, fontSize: "0.7rem", fontWeight: 600, marginBottom: "0.45rem" }}>{t("dashboard.marketplaceDistribution")}</p>
                                     {pmMarketplaces.map(pm => (
-                                        <div key={pm.name} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.25rem 0", gap: "0.5rem", flexWrap: isMobile ? "wrap" : "nowrap" }}>
-                                            <span style={{ color: C.text, fontSize: isMobile ? "0.7rem" : "0.75rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pm.name}</span>
+                                        <div key={pm.name} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.3rem 0", gap: "0.5rem" }}>
+                                            <span style={{ color: C.text, fontSize: "0.75rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pm.name}</span>
                                             <div style={{ display: "flex", gap: "0.3rem", flexShrink: 0 }}>
                                                 <Pill color={C.green}>{pm.syncedProducts || 0} {t("dashboard.synced")}</Pill>
                                                 {(pm.errorProducts || 0) > 0 && <Pill color={C.red}>{pm.errorProducts} {t("dashboard.errorProducts")}</Pill>}
@@ -1043,15 +942,13 @@ const UserDashboard = () => {
                                     ))}
                                 </div>
                             )}
-                        </GlassCard>
-                    </div>
+                        </div>
 
-                    {/* ── UYARILAR + CİRO DAĞILIMI + HIZLI AKSİYONLAR ── */}
-                    <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr", gap: isMobile ? "0.75rem" : "1.5rem", marginBottom: "1.5rem" }}>
-
-                        {/* Uyarılar */}
-                        <GlassCard C={C}>
-                            <SectionTitle C={C} icon="🚨" title={t("dashboard.alerts")} badge={alerts.length > 0 ? `${alerts.length}` : null} />
+                        <div className="dh-panel">
+                            <div className="dh-panel__head">
+                                <div className="dh-panel__title">{t("dashboard.alerts")}</div>
+                                {alerts.length > 0 && <span className="dh-panel__badge">{alerts.length}</span>}
+                            </div>
                             <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
                                 {alerts.length > 0 ? alerts.slice(0, 5).map((alert, i) => (
                                     <motion.div key={i} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 + i * 0.03 }}
@@ -1071,11 +968,16 @@ const UserDashboard = () => {
                                     </div>
                                 )}
                             </div>
-                        </GlassCard>
+                        </div>
 
-                        {/* Kanal Bazlı Ciro */}
-                        <GlassCard C={C}>
-                            <SectionTitle C={C} icon="💰" title={t("dashboard.channelRevenue")} badge={fmtCurrency(summary.todayRevenue || 0, language)} />
+                        <div className="dh-panel">
+                            <div className="dh-panel__head">
+                                <div className="dh-panel__title">
+                                    <span className="dh-panel__title-icon"><FaMoneyBillWave /></span>
+                                    {t("dashboard.channelRevenue")}
+                                </div>
+                                <span className="dh-panel__badge">{fmtCurrency(revenue24h, language)}</span>
+                            </div>
                             {todayBreakdown.length > 0 ? (
                                 <div style={{ display: "flex", flexDirection: "column", gap: "0.65rem" }}>
                                     {todayBreakdown.map((b, i) => {
@@ -1096,48 +998,59 @@ const UserDashboard = () => {
                                     })}
                                 </div>
                             ) : (
-                                <div style={{ textAlign: "center", padding: "1.5rem 0", color: C.dim, fontSize: "0.8rem" }}>📭 {t("dashboard.noData")}</div>
+                                <div className="dh-empty dh-empty--sm"><p>{t("dashboard.noData")}</p></div>
                             )}
-                        </GlassCard>
+                        </div>
 
-                        {/* Hızlı Aksiyonlar */}
-                        <GlassCard C={C}>
-                            <SectionTitle C={C} icon="⚡" title={t("dashboard.quickActions")} />
-                            <div style={{ display: "flex", flexDirection: "column", gap: "0.4rem" }}>
+                        <div className="dh-panel">
+                            <div className="dh-panel__head">
+                                <div className="dh-panel__title">{language === "en" ? "Shortcuts" : "Kısayollar"}</div>
+                            </div>
+                            <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                                <button
+                                    type="button"
+                                    onClick={() => handlePanelChange("subscription")}
+                                    style={{
+                                        width: "100%", padding: "0.85rem 1rem", borderRadius: 12, border: "none", cursor: "pointer",
+                                        background: `linear-gradient(135deg, ${C.accent}, ${C.purple})`, color: "#fff",
+                                        fontWeight: 700, fontSize: "0.82rem", display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                                    }}
+                                >
+                                    <FaCrown /> {language === "en" ? "Plans & billing" : "Paketler & faturalandırma"}
+                                </button>
                                 {[
-                                    { label: t("dashboard.orderManagement"), icon: <FaClipboardList />, panel: "orders", color: C.accent },
                                     { label: t("dashboard.stockManagement"), icon: <FaBoxOpen />, panel: "inventory", color: C.green },
-                                    { label: t("dashboard.productCenter"), icon: <FaCubes />, panel: "pm-center", color: C.purple },
-                                    { label: t("dashboard.integrations"), icon: <FaPlug />, panel: "integration", color: C.blue },
-                                    { label: t("dashboard.finance"), icon: <FaMoneyBillWave />, panel: "finance", color: C.yellow },
-                                    { label: t("sidebar.shipping"), icon: <FaTruck />, panel: "shipping", color: C.pink },
-                                ].map((a, i) => (
-                                    <motion.button key={a.panel}
-                                        initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 + i * 0.03 }}
-                                        whileHover={{ x: 4, background: `${a.color}15` }} whileTap={{ scale: 0.97 }}
+                                    { label: t("sidebar.shipping"), icon: <FaTruck />, panel: "shipping", color: C.pink || "#ec4899" },
+                                    { label: t("sidebar.support"), icon: <FaHeadset />, panel: "support", color: C.blue },
+                                ].map((a) => (
+                                    <button
+                                        key={a.panel}
+                                        type="button"
                                         onClick={() => handlePanelChange(a.panel)}
-                                        style={{ background: C.glass, border: `1px solid ${C.glassBr}`, borderRadius: 8, padding: "0.55rem 0.7rem", cursor: "pointer", display: "flex", alignItems: "center", gap: "0.5rem", transition: "all 0.15s" }}>
-                                        <div style={{ color: a.color, fontSize: "0.85rem", display: "flex" }}>{a.icon}</div>
-                                        <span style={{ color: C.text, fontSize: "0.78rem", fontWeight: 600, flex: 1, textAlign: "left" }}>{a.label}</span>
-                                        <span style={{ color: C.dim, fontSize: "0.7rem" }}>→</span>
-                                    </motion.button>
+                                        className="dh-quick__btn"
+                                        style={{ flexDirection: "row", alignItems: "center", width: "100%" }}
+                                    >
+                                        <div className="dh-quick__icon" style={{ background: `${a.color}22`, color: a.color, width: 32, height: 32 }}>{a.icon}</div>
+                                        <span className="dh-quick__label" style={{ flex: 1 }}>{a.label}</span>
+                                        <FaArrowRight style={{ color: C.dim, fontSize: 12 }} />
+                                    </button>
                                 ))}
                             </div>
-                        </GlassCard>
+                        </div>
                     </div>
 
-                    {/* ── SON İŞLEMLER ── */}
-                    <GlassCard C={C}>
-                        <SectionTitle C={C} icon="📋" title={t("dashboard.operationLogs")}
-                            action={
-                                <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
-                                    onClick={() => handlePanelChange("orders")}
-                                    style={{ background: C.glass, border: `1px solid ${C.glassBr}`, borderRadius: 8, padding: "0.3rem 0.6rem", cursor: "pointer", color: C.accent, fontSize: "0.7rem", fontWeight: 600 }}>
-                                    {t("dashboard.viewAllLogs")}
-                                </motion.button>
-                            }
-                        />
-                        <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fill, minmax(300px, 1fr))", gap: isMobile ? "0.35rem" : "0.4rem" }}>
+                    <div className="dh-logs-wrap">
+                    <div className="dh-panel">
+                        <div className="dh-panel__head">
+                            <div className="dh-panel__title">
+                                <span className="dh-panel__title-icon"><FaClipboardList /></span>
+                                {t("dashboard.operationLogs")}
+                            </div>
+                            <button type="button" className="dh-panel__link" onClick={() => handlePanelChange("orders")}>
+                                {t("dashboard.viewAllLogs")} <FaArrowRight />
+                            </button>
+                        </div>
+                        <div className="dh-logs-grid">
                             {logs.length > 0 ? logs.slice(0, 8).map((log, i) => (
                                 <motion.div key={log.id || i} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 + i * 0.02 }}
                                     style={{ background: C.glass, border: `1px solid ${C.glassBr}`, borderRadius: 8, padding: "0.55rem 0.75rem", display: "flex", justifyContent: "space-between", alignItems: "center", gap: "0.4rem" }}>
@@ -1157,7 +1070,8 @@ const UserDashboard = () => {
                                 </div>
                             )}
                         </div>
-                    </GlassCard>
+                    </div>
+                    </div>
                 </div>
 
                 {/* ── SİPARİŞ DETAY MODAL ── */}
@@ -1297,7 +1211,7 @@ const UserDashboard = () => {
                 {/* ── TOAST BİLDİRİMLER (Sağ alt köşe) ── */}
                 <div style={{ position: "fixed", bottom: isMobile ? 12 : 20, right: isMobile ? 12 : 20, left: isMobile ? 12 : "auto", zIndex: 9998, display: "flex", flexDirection: "column", gap: "0.5rem", pointerEvents: "none" }}>
                     <AnimatePresence>
-                        {notifications.filter(n => !n.isRead).slice(0, isMobile ? 2 : 3).map((n, i) => {
+                        {notifications.filter(n => !n.isRead && !toastHiddenIds.has(String(n._id))).slice(0, isMobile ? 2 : 3).map((n, i) => {
                             const toastColor = n.type === "order" ? C.green : n.type === "admin" ? C.purple : n.type === "ai" ? C.blue : C.accent;
                             const toastIcon = n.icon || (n.type === "order" ? "🛒" : n.type === "admin" ? "📢" : n.type === "ai" ? "🧠" : "🔔");
                             return (
@@ -1339,6 +1253,146 @@ const UserDashboard = () => {
                     </AnimatePresence>
                 </div>
 
+                {showNotifPanel && typeof document !== "undefined" && ReactDOM.createPortal(
+                    <AnimatePresence>
+                        <motion.div
+                            key="notif-backdrop"
+                            className="dashboard-notif-backdrop"
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            onClick={() => setShowNotifPanel(false)}
+                        />
+                        <motion.div
+                            key="notif-panel"
+                            className="dashboard-notif-panel"
+                            role="dialog"
+                            aria-label={t("notif.title")}
+                            initial={{ opacity: 0, y: -8, scale: 0.96 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            exit={{ opacity: 0, y: -8, scale: 0.96 }}
+                            transition={{ duration: 0.2 }}
+                            onClick={(e) => e.stopPropagation()}
+                            style={{
+                                background: isDark ? "linear-gradient(135deg, #1a1f35 0%, #0f1419 100%)" : "linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%)",
+                                border: `1px solid ${C.border}`,
+                                boxShadow: "0 20px 60px rgba(0,0,0,0.6)",
+                            }}
+                        >
+                            <div className="dashboard-notif-panel-header" style={{ borderBottom: `1px solid ${C.glassBr}` }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", minWidth: 0 }}>
+                                    <FaBell style={{ color: C.accent, fontSize: "0.9rem", flexShrink: 0 }} />
+                                    <span style={{ color: C.text, fontSize: "0.9rem", fontWeight: 700 }}>{t("notif.title")}</span>
+                                    {unreadCount > 0 && <Pill color={C.red}>{unreadCount} {t("notif.new")}</Pill>}
+                                </div>
+                                <div className="dashboard-notif-panel-actions">
+                                    <motion.button type="button" whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+                                        onClick={() => setNotifSoundEnabled(!notifSoundEnabled)}
+                                        title={notifSoundEnabled ? t("notif.soundOn") : t("notif.soundOff")}
+                                        style={{ background: C.glass, border: `1px solid ${C.glassBr}`, borderRadius: 8, padding: "0.35rem 0.55rem", cursor: "pointer", color: notifSoundEnabled ? C.accent : C.dim, fontSize: "0.8rem" }}>
+                                        {notifSoundEnabled ? "🔔" : "🔕"}
+                                    </motion.button>
+                                    {unreadCount > 0 && (
+                                        <motion.button type="button" whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+                                            onClick={markAllRead}
+                                            style={{ background: C.glass, border: `1px solid ${C.glassBr}`, borderRadius: 8, padding: "0.35rem 0.65rem", cursor: "pointer", color: C.muted, fontSize: "0.72rem", fontWeight: 600, whiteSpace: "nowrap" }}>
+                                            {t("notif.markAllRead")}
+                                        </motion.button>
+                                    )}
+                                </div>
+                            </div>
+
+                            <div className="dashboard-notif-tabs" style={{ borderBottom: `1px solid ${C.glassBr}` }}>
+                                {[
+                                    { key: "all", label: t("notif.all"), icon: "📋", count: notifCounts.total },
+                                    { key: "order", label: t("notif.orders"), icon: "🛒", count: notifCounts.order },
+                                    { key: "admin", label: t("notif.announcements"), icon: "📢", count: notifCounts.admin },
+                                    { key: "ai", label: t("notif.ai"), icon: "🧠", count: notifCounts.ai },
+                                ].map(tab => (
+                                    <motion.button type="button" key={tab.key} whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+                                        onClick={() => { setNotifFilter(tab.key); lastCheckRef.current = null; loadNotifications(); }}
+                                        style={{
+                                            background: notifFilter === tab.key ? `${C.accent}20` : "transparent",
+                                            border: `1px solid ${notifFilter === tab.key ? C.accent + "40" : "transparent"}`,
+                                            borderRadius: 8, padding: "0.35rem 0.65rem", cursor: "pointer",
+                                            color: notifFilter === tab.key ? C.accent : C.muted,
+                                            fontSize: "0.72rem", fontWeight: 600, whiteSpace: "nowrap",
+                                            display: "inline-flex", alignItems: "center", gap: "0.35rem", flexShrink: 0,
+                                        }}>
+                                        <span aria-hidden>{tab.icon}</span>
+                                        <span>{tab.label}</span>
+                                        {tab.count > 0 && (
+                                            <span style={{ background: C.red, color: "#fff", fontSize: "0.55rem", fontWeight: 800, borderRadius: 6, padding: "0.1rem 0.35rem", minWidth: 16, textAlign: "center" }}>
+                                                {tab.count}
+                                            </span>
+                                        )}
+                                    </motion.button>
+                                ))}
+                            </div>
+
+                            <div className="dashboard-notif-list">
+                                {filteredNotifs.length > 0 ? filteredNotifs.slice(0, 30).map((n, i) => {
+                                    const iconMap = { order: "🛒", admin: "📢", ai: "🧠", stock: "📦", system: "⚙️" };
+                                    const gradMap = { order: `linear-gradient(135deg, ${C.green}, #059669)`, admin: `linear-gradient(135deg, ${C.purple}, #6d28d9)`, ai: `linear-gradient(135deg, ${C.blue}, #0284c7)`, stock: `linear-gradient(135deg, ${C.yellow}, #d97706)`, system: `linear-gradient(135deg, ${C.accent}, #44a08d)` };
+                                    const priorityDot = { critical: C.red, high: C.yellow, medium: C.blue, low: C.dim };
+                                    return (
+                                        <motion.div key={n._id} role="button" tabIndex={0}
+                                            initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.02 }}
+                                            className="dashboard-notif-item"
+                                            style={{
+                                                background: n.isRead ? "transparent" : `${C.accent}08`,
+                                                border: `1px solid ${n.isRead ? "transparent" : C.accent + "15"}`,
+                                            }}
+                                            onClick={() => handleNotifClick(n)}
+                                            onKeyDown={(e) => { if (e.key === "Enter") handleNotifClick(n); }}
+                                            whileHover={{ background: `${C.accent}10` }}
+                                        >
+                                            <div style={{
+                                                width: 32, height: 32, borderRadius: 8, flexShrink: 0,
+                                                background: gradMap[n.type] || gradMap.system,
+                                                display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.9rem",
+                                            }}>
+                                                {n.icon || iconMap[n.type] || "🔔"}
+                                            </div>
+                                            <div className="dashboard-notif-item-body">
+                                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.4rem", marginBottom: "0.15rem" }}>
+                                                    <span style={{ color: C.text, fontSize: "0.8rem", fontWeight: 700, lineHeight: 1.3 }}>{n.title}</span>
+                                                    <div style={{ display: "flex", alignItems: "center", gap: "0.3rem", flexShrink: 0 }}>
+                                                        {n.priority && n.priority !== "medium" && <div style={{ width: 6, height: 6, borderRadius: "50%", background: priorityDot[n.priority] || C.dim }} title={n.priority} />}
+                                                        {!n.isRead && <div style={{ width: 6, height: 6, borderRadius: "50%", background: C.accent }} />}
+                                                    </div>
+                                                </div>
+                                                <p className="dashboard-notif-item-msg">{n.message}</p>
+                                                <div style={{ display: "flex", alignItems: "center", gap: "0.4rem", marginTop: "0.2rem", flexWrap: "wrap" }}>
+                                                    <span style={{ color: C.dim, fontSize: "0.6rem", background: C.glass, border: `1px solid ${C.glassBr}`, borderRadius: 4, padding: "0.05rem 0.35rem" }}>
+                                                        {n.type === "order" ? t("notif.order") : n.type === "admin" ? t("notif.announcement") : n.type === "ai" ? "AI" : n.type === "stock" ? t("notif.stock") : t("notif.system")}
+                                                    </span>
+                                                    <span style={{ color: C.dim, fontSize: "0.62rem" }}>
+                                                        {n.createdAt ? new Date(n.createdAt).toLocaleString(language === "en" ? "en-US" : "tr-TR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : ""}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                            <motion.button type="button" whileHover={{ scale: 1.15 }} whileTap={{ scale: 0.85 }}
+                                                onClick={(e) => { e.stopPropagation(); dismissNotif(n._id); }}
+                                                aria-label="Bildirimi kapat"
+                                                style={{ background: "none", border: "none", color: C.dim, cursor: "pointer", fontSize: "0.85rem", padding: "0.25rem", flexShrink: 0, lineHeight: 1 }}>
+                                                ✕
+                                            </motion.button>
+                                        </motion.div>
+                                    );
+                                }) : (
+                                    <div style={{ textAlign: "center", padding: "2.5rem 1rem", color: C.dim }}>
+                                        <span style={{ fontSize: "2rem", display: "block", marginBottom: "0.5rem" }}>🔔</span>
+                                        <p style={{ fontSize: "0.85rem", margin: 0 }}>{t("notif.noNotifications")}</p>
+                                        <p style={{ fontSize: "0.73rem", margin: "0.25rem 0 0", color: C.dim }}>{t("notif.willAppearHere")}</p>
+                                    </div>
+                                )}
+                            </div>
+                        </motion.div>
+                    </AnimatePresence>,
+                    document.body
+                )}
+
                 <style>{`
                     @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
                     @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
@@ -1367,7 +1421,7 @@ const UserDashboard = () => {
 
         { type: "divider", label: t("sidebar.analytics") },
         { id: "advanced-analytics", icon: <FaChartBar />, text: t("sidebar.advancedAnalytics") },
-        { id: "lysia-brain", icon: <FaBrain />, text: "PazarYonet AI" },
+        { id: "lysia-brain", icon: <FaBrain />, text: "Dashtock AI" },
         { id: "roketfy", icon: <FaRocket />, text: t("sidebar.roketfy") },
         { id: "radar-pro", icon: <FaCrosshairs />, text: t("sidebar.radarPro") },
         { type: "divider", label: t("sidebar.management") },
@@ -1472,8 +1526,16 @@ const UserDashboard = () => {
             case "finance": return <FinancePage userId={userId} marketplaces={marketplaces} />;
             case "integration": return <MarketplaceIntegration userId={userId} />;
             case "users": return <UserProfilePage userId={userId} marketplaces={marketplaces} />;
-            case "advanced-analytics": return <AdvancedAnalytics userId={userId} />;
-            case "lysia-brain": return <LysiaBrain userId={userId} />;
+            case "advanced-analytics": return (
+                <PlanFeatureGate featureId="profit_analytics" canAccess={canAccess} planDisplayName={planDisplayName} upgradeHint={upgradeHint} onUpgrade={() => handlePanelChange("subscription")}>
+                    <AdvancedAnalytics userId={userId} />
+                </PlanFeatureGate>
+            );
+            case "lysia-brain": return (
+                <PlanFeatureGate featureId="ai_assistant" canAccess={canAccess} planDisplayName={planDisplayName} upgradeHint={upgradeHint} onUpgrade={() => handlePanelChange("subscription")}>
+                    <LysiaBrain userId={userId} />
+                </PlanFeatureGate>
+            );
             case "pm-center": return <ProductManagementCenter userId={userId} initialTab="products" />;
             case "product-upload": return <ProductManagementCenter userId={userId} initialTab="newProduct" />;
             case "category-center": return <CategoryCenterPage userId={userId} />;
@@ -1482,8 +1544,16 @@ const UserDashboard = () => {
             case "subscription": return <SubscriptionPage />;
             case "error-center": return <ErrorCenterPage />;
             case "support": return <SupportTicketsPage />;
-            case "roketfy": return <RoketfyPanel />;
-            case "radar-pro": return <RadarProPage userId={userId} />;
+            case "roketfy": return (
+                <PlanFeatureGate featureId="roketfy" canAccess={canAccess} planDisplayName={planDisplayName} upgradeHint={upgradeHint} onUpgrade={() => handlePanelChange("subscription")}>
+                    <RoketfyPanel />
+                </PlanFeatureGate>
+            );
+            case "radar-pro": return (
+                <PlanFeatureGate featureId="ai_radar" canAccess={canAccess} planDisplayName={planDisplayName} upgradeHint={upgradeHint} onUpgrade={() => handlePanelChange("subscription")}>
+                    <RadarProPage userId={userId} />
+                </PlanFeatureGate>
+            );
             case "admin-panel": return isAdmin ? <AdminPanelPage userId={userId} /> : null;
             case "dashboard": return renderDashboard();
             default: return null;
@@ -1491,6 +1561,7 @@ const UserDashboard = () => {
     };
 
     return (
+        <PageHelpProvider activePanel={activePanel}>
         <div className={`dashboard-container${isMobile ? " dashboard-container--mobile" : ""}`}>
             {isImpersonating && (
                 <div style={{ position: "fixed", top: 8, left: "50%", transform: "translateX(-50%)", zIndex: 12000, background: "rgba(99,102,241,0.95)", color: "#fff", border: "1px solid rgba(165,180,252,0.45)", borderRadius: 999, padding: "8px 14px", display: "flex", alignItems: "center", gap: 10, fontSize: 12 }}>
@@ -1536,7 +1607,7 @@ const UserDashboard = () => {
             >
                 <div className="sidebar-header">
                     <div className="logo-container" style={{ display: "flex", alignItems: "center", gap: 10, minHeight: 44 }}>
-                        <PazarYonetLogo size={menuOpen ? 34 : 30} />
+                        <DashtockLogo size={menuOpen ? 34 : 30} />
                         {menuOpen && (
                             <h1 className="logo" style={{ margin: 0 }}>
                                 <span className="logo-main">{BRAND_NAME}</span>
@@ -1561,11 +1632,13 @@ const UserDashboard = () => {
 
                         const hasSubmenu = !!item.hasSubmenu;
                         const isSubmenuOpen = openSubmenu === item.id;
+                        const featureId = resolvePanelFeatureId(item.id);
+                        const isLocked = featureId && !entitlementsLoading && !canAccess(featureId);
 
                         return (
                             <React.Fragment key={item.id}>
                                 <div
-                                    className={`menu-item ${activePanel === item.id || activePanel.startsWith(item.id + "-") ? "active" : ""} ${hasSubmenu && isSubmenuOpen ? "submenu-open" : ""}`}
+                                    className={`menu-item ${activePanel === item.id || activePanel.startsWith(item.id + "-") ? "active" : ""} ${hasSubmenu && isSubmenuOpen ? "submenu-open" : ""} ${isLocked ? "menu-item--locked" : ""}`}
                                     onClick={() => {
                                         if (hasSubmenu) {
                                             setOpenSubmenu(isSubmenuOpen ? null : item.id);
@@ -1577,6 +1650,9 @@ const UserDashboard = () => {
                                 >
                                     <div className="icon-wrapper">{item.icon}</div>
                                     <span className="menu-text">{item.text}</span>
+                                    {isLocked && (
+                                        <FaLock style={{ fontSize: 10, opacity: 0.55, marginLeft: 4 }} title="Paket yükseltmesi gerekli" />
+                                    )}
                                     {hasSubmenu && (
                                         <span className={`menu-chevron ${isSubmenuOpen ? "menu-chevron--open" : ""}`}>
                                             <FaChevronDown />
@@ -1676,8 +1752,12 @@ const UserDashboard = () => {
             </AnimatePresence>
 
             {/* AI Operatör Chat Widget — Her sayfada görünür */}
-            <AIChatWidget />
+            {canAccess("ai_assistant") && <AIChatWidget />}
+
+            {/* Sayfa yardımı — tüm panel sayfalarında (i) */}
+            <PageHelpFloating />
         </div>
+        </PageHelpProvider>
     );
 };
 

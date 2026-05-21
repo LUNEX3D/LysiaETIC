@@ -16,9 +16,10 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "../services/api";
+import { validateCoupon } from "../services/couponApi";
 import {
     FaCheckCircle, FaExclamationTriangle,
-    FaHistory, FaInfoCircle, FaCreditCard, FaLock
+    FaHistory, FaInfoCircle, FaCreditCard, FaLock, FaTag
 } from "react-icons/fa";
 
 const SubscriptionPage = () => {
@@ -28,6 +29,11 @@ const SubscriptionPage = () => {
     const [plans, setPlans] = useState({});
     const [selectedPlan, setSelectedPlan] = useState(null);
     const [billingCycle, setBillingCycle] = useState("monthly");
+    const [couponInput, setCouponInput] = useState("");
+    const [appliedCoupon, setAppliedCoupon] = useState(null);
+    const [couponLoading, setCouponLoading] = useState(false);
+    const [couponMessage, setCouponMessage] = useState("");
+    const [paymentCoupon, setPaymentCoupon] = useState(null);
     const [showPaymentModal, setShowPaymentModal] = useState(false);
     const [paymentLoading, setPaymentLoading] = useState(false);
     const [error, setError] = useState("");
@@ -108,6 +114,89 @@ const SubscriptionPage = () => {
             }
         }, 2000);
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+    useEffect(() => {
+        setAppliedCoupon(null);
+        setCouponMessage("");
+        setPaymentCoupon(null);
+    }, [billingCycle]);
+
+    const getPlanBaseAmount = (planKey) => {
+        const plan = plans[planKey];
+        if (!plan) return 0;
+        const monthlyPrice = Number(plan.monthlyPrice ?? plan.price ?? 0);
+        const yearlyPrice = Number(plan.yearlyPrice ?? Math.round(monthlyPrice * 10));
+        return billingCycle === "yearly" ? yearlyPrice : monthlyPrice;
+    };
+
+    const handleApplyCoupon = async () => {
+        const code = couponInput.trim();
+        if (!code) {
+            setCouponMessage("Kupon kodu girin");
+            return;
+        }
+        if (orderedPlanKeys.length === 0) {
+            setCouponMessage("Paketler yüklenene kadar bekleyin");
+            return;
+        }
+
+        setCouponLoading(true);
+        setCouponMessage("");
+        setAppliedCoupon(null);
+        setPaymentCoupon(null);
+
+        try {
+            const results = await Promise.all(
+                orderedPlanKeys.map(async (planKey) => {
+                    const baseAmount = getPlanBaseAmount(planKey);
+                    try {
+                        const data = await validateCoupon(code, planKey, billingCycle, baseAmount);
+                        if (data.success) {
+                            return {
+                                planKey,
+                                discountAmount: data.discountAmount,
+                                finalAmount: data.finalAmount,
+                                originalAmount: data.originalAmount,
+                                name: data.coupon?.name || data.coupon?.code
+                            };
+                        }
+                    } catch {
+                        return null;
+                    }
+                    return null;
+                })
+            );
+
+            const planDiscounts = {};
+            results.filter(Boolean).forEach((r) => {
+                planDiscounts[r.planKey] = r;
+            });
+
+            if (Object.keys(planDiscounts).length === 0) {
+                setCouponMessage("Kupon geçersiz veya seçili periyot/paketler için uygun değil");
+                return;
+            }
+
+            setAppliedCoupon({ code: code.toUpperCase(), planDiscounts });
+            const count = Object.keys(planDiscounts).length;
+            setCouponMessage(
+                count === orderedPlanKeys.length
+                    ? `"${code.toUpperCase()}" tüm paketlerde geçerli — indirimli fiyatlar gösteriliyor`
+                    : `"${code.toUpperCase()}" ${count} pakette geçerli`
+            );
+        } catch (err) {
+            setCouponMessage(err.response?.data?.message || "Kupon doğrulanamadı");
+        } finally {
+            setCouponLoading(false);
+        }
+    };
+
+    const clearCoupon = () => {
+        setAppliedCoupon(null);
+        setCouponInput("");
+        setCouponMessage("");
+        setPaymentCoupon(null);
+    };
 
     const loadAll = async () => {
         setLoading(true);
@@ -202,30 +291,44 @@ const SubscriptionPage = () => {
             .trim();
     };
 
+    const formatLimit = (n) => (n >= 999999 || n >= 999 ? "Sınırsız" : Number(n || 0).toLocaleString("tr-TR"));
+
     const normalizePlanFeatures = (plan) => {
+        const lim = plan?.limits || {};
+        const limitSummary = [
+            `${formatLimit(lim.maxProducts)} ürün kapasitesi`,
+            `${formatLimit(lim.maxOrders)} sipariş/ay`,
+            `${formatLimit(lim.maxMarketplaces)} pazaryeri bağlantısı`,
+            `${formatLimit(lim.maxUsers)} kullanıcı hesabı`,
+        ];
+
         if (Array.isArray(plan?.features) && plan.features.length > 0) {
             const mapped = plan.features
                 .map(normalizeFeatureText)
                 .filter(Boolean);
-            return [...new Set(mapped)];
+            return [...new Set([...limitSummary, ...mapped])];
         }
-        const lim = plan?.limits || {};
-        return [
-            `${lim.maxProducts === -1 ? "Sınırsız" : (lim.maxProducts || 0)} ürün`,
-            `${lim.maxOrders === -1 ? "Sınırsız" : (lim.maxOrders || 0)} sipariş/ay`,
-            `${lim.maxMarketplaces === -1 ? "Sınırsız" : (lim.maxMarketplaces || 0)} pazaryeri`,
-            `${lim.maxUsers === -1 ? "Sınırsız" : (lim.maxUsers || 0)} kullanıcı`,
-        ];
+        return limitSummary;
     };
 
     const categorizeFeature = (feature) => {
         const l = feature.toLowerCase();
-        if (l.includes("dashboard") || l.includes("rapor") || l.includes("analitik")) return "Raporlama & Analitik";
-        if (l.includes("sipariş") || l.includes("kargo")) return "Sipariş & Lojistik";
-        if (l.includes("ürün") || l.includes("pazaryeri") || l.includes("stok")) return "Ürün & Pazaryeri";
+        if (l.includes("kapasite") || l.includes("bağlantı") || l.includes("hesabı") || l.includes("sipariş/ay")) {
+            return "Paket Limitleri";
+        }
+        if (l.includes("dashboard") || l.includes("rapor") || l.includes("analitik") || l.includes("metrik")) {
+            return "Raporlama & Analitik";
+        }
+        if (l.includes("sipariş") || l.includes("kargo") || l.includes("teslimat")) return "Sipariş & Lojistik";
+        if (l.includes("ürün") || l.includes("pazaryeri") || l.includes("entegrasyon") || l.includes("trendyol") || l.includes("hepsiburada") || l.includes("amazon") || l.includes("n11")) {
+            return "Ürün & Pazaryeri";
+        }
         if (l.includes("ai") || l.includes("radar") || l.includes("otomatik")) return "AI & Otomasyon";
-        if (l.includes("fatura")) return "Finans & Faturalama";
-        if (l.includes("api") || l.includes("kullanıcı") || l.includes("sınırsız")) return "Altyapı & Limitler";
+        if (l.includes("fatura") || l.includes("finans") || l.includes("gelir")) return "Finans & Faturalama";
+        if (l.includes("destek") || l.includes("sla") || l.includes("chat")) return "Destek & SLA";
+        if (l.includes("api") || l.includes("kullanıcı") || l.includes("sınırsız") || l.includes("white-label") || l.includes("2fa")) {
+            return "Altyapı & Kurumsal";
+        }
         return "Genel Özellikler";
     };
 
@@ -247,15 +350,21 @@ const SubscriptionPage = () => {
         setSuccessMessage("");
 
         try {
+            const useCoupon = appliedCoupon?.planDiscounts?.[planId]
+                ? appliedCoupon.code
+                : undefined;
+
             const res = await axios.post("/paytr/create-payment", {
                 plan: planId,
-                billingCycle
+                billingCycle,
+                ...(useCoupon ? { couponCode: useCoupon } : {})
             });
 
             if (res.data.success && res.data.formData) {
                 // Direkt API — form verilerini kaydet ve kart formu modal'ını aç
                 setPaytrFormData(res.data.formData);
                 setPaytrPaymentUrl(res.data.paymentUrl);
+                setPaymentCoupon(res.data.coupon || null);
                 paymentFlowStartedRef.current = false;
                 setCardForm({ cc_owner: "", card_number: "", expiry_month: "", expiry_year: "", cvv: "" });
                 setShowPaymentModal(true);
@@ -429,6 +538,47 @@ const SubscriptionPage = () => {
                     </button>
                 </div>
 
+                <div style={S.couponBox}>
+                    <div style={S.couponTitle}>
+                        <FaTag style={{ color: "#818cf8" }} /> İndirim Kuponu
+                    </div>
+                    <p style={S.couponHint}>
+                        Satın alma öncesi kupon kodunuzu girin. Geçerli paketlerde indirimli fiyat otomatik gösterilir.
+                    </p>
+                    <div style={S.couponRow}>
+                        <input
+                            type="text"
+                            style={S.couponInput}
+                            placeholder="Örn. YAZ2026"
+                            value={couponInput}
+                            onChange={(e) => setCouponInput(e.target.value.toUpperCase())}
+                            onKeyDown={(e) => e.key === "Enter" && handleApplyCoupon()}
+                        />
+                        <button
+                            type="button"
+                            style={S.couponApplyBtn}
+                            onClick={handleApplyCoupon}
+                            disabled={couponLoading || !couponInput.trim()}
+                        >
+                            {couponLoading ? "Kontrol…" : "Uygula"}
+                        </button>
+                        {appliedCoupon && (
+                            <button type="button" style={S.couponClearBtn} onClick={clearCoupon}>
+                                Kaldır
+                            </button>
+                        )}
+                    </div>
+                    {couponMessage && (
+                        <div style={{
+                            marginTop: 8,
+                            fontSize: 12,
+                            color: appliedCoupon ? "#34d399" : "#f87171"
+                        }}>
+                            {couponMessage}
+                        </div>
+                    )}
+                </div>
+
                 <div style={S.plansGrid}>
                     {Object.keys(plans).length === 0 ? (
                         <div style={{ gridColumn: "1 / -1", textAlign: "center", padding: "40px 20px", color: "#64748b" }}>
@@ -439,6 +589,7 @@ const SubscriptionPage = () => {
                         const monthlyPrice = Number(plan.monthlyPrice ?? plan.price ?? 0);
                         const yearlyPrice = Number(plan.yearlyPrice ?? Math.round(monthlyPrice * 10));
                         const price = billingCycle === "yearly" ? yearlyPrice : monthlyPrice;
+                        const discount = appliedCoupon?.planDiscounts?.[key];
                         const features = normalizePlanFeatures(plan);
                         const featureGroups = buildFeatureGroups(features);
                         const isExpanded = !!expandedFeaturesByPlan[key];
@@ -469,9 +620,21 @@ const SubscriptionPage = () => {
                                     </div>
                                 )}
                                 <div style={S.planPrice}>
-                                    ₺{fmtPrice(price)}
+                                    {discount ? (
+                                        <>
+                                            <span style={S.planPriceOld}>₺{fmtPrice(price)}</span>
+                                            <span style={{ color: "#34d399" }}>₺{fmtPrice(discount.finalAmount)}</span>
+                                        </>
+                                    ) : (
+                                        <>₺{fmtPrice(price)}</>
+                                    )}
                                     <span style={S.planPeriod}>/{billingCycle === "yearly" ? "yıl" : "ay"}</span>
                                 </div>
+                                {discount && (
+                                    <div style={S.couponBadge}>
+                                        −₺{fmtPrice(discount.discountAmount)} ({appliedCoupon.code})
+                                    </div>
+                                )}
                                 <div style={{ ...S.planFeatures, listStyle: "none", padding: 0 }}>
                                     <button
                                         type="button"
@@ -577,14 +740,26 @@ const SubscriptionPage = () => {
                         <div style={{
                             padding: "12px 16px", margin: "12px 24px 0",
                             background: "rgba(99,102,241,0.08)", border: "1px solid rgba(99,102,241,0.15)",
-                            borderRadius: "10px", display: "flex", justifyContent: "space-between", alignItems: "center",
+                            borderRadius: "10px",
                         }}>
-                            <span style={{ color: "#94a3b8", fontSize: "13px" }}>
-                                {paytrFormData.user_basket ? "Ödeme Tutarı" : "Tutar"}
-                            </span>
-                            <span style={{ color: "#fff", fontSize: "20px", fontWeight: 800 }}>
-                                ₺{paytrFormData.payment_amount}
-                            </span>
+                            {paymentCoupon && (
+                                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#94a3b8", marginBottom: 6 }}>
+                                    <span>Liste fiyatı</span>
+                                    <span style={{ textDecoration: "line-through" }}>₺{fmtPrice(paymentCoupon.originalAmount)}</span>
+                                </div>
+                            )}
+                            {paymentCoupon && (
+                                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#34d399", marginBottom: 8 }}>
+                                    <span>Kupon ({paymentCoupon.code})</span>
+                                    <span>−₺{fmtPrice(paymentCoupon.discountAmount)}</span>
+                                </div>
+                            )}
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                <span style={{ color: "#94a3b8", fontSize: "13px" }}>Ödenecek tutar</span>
+                                <span style={{ color: "#fff", fontSize: "20px", fontWeight: 800 }}>
+                                    ₺{paytrFormData.payment_amount}
+                                </span>
+                            </div>
                         </div>
 
                         {/* Kart formu — PayTR'a POST edilecek hidden form */}
@@ -909,6 +1084,80 @@ const S = {
         borderRadius: "6px",
         fontSize: "11px",
         color: "#34d399",
+    },
+    couponBox: {
+        maxWidth: 560,
+        margin: "0 auto 28px",
+        padding: "18px 20px",
+        background: "rgba(15,23,42,0.55)",
+        border: "1px solid rgba(99,102,241,0.2)",
+        borderRadius: "14px",
+    },
+    couponTitle: {
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        fontSize: 15,
+        fontWeight: 700,
+        color: "#e2e8f0",
+        marginBottom: 6,
+    },
+    couponHint: {
+        fontSize: 12,
+        color: "#94a3b8",
+        margin: "0 0 12px",
+        lineHeight: 1.5,
+    },
+    couponRow: {
+        display: "flex",
+        gap: 8,
+        flexWrap: "wrap",
+    },
+    couponInput: {
+        flex: "1 1 180px",
+        padding: "12px 14px",
+        background: "rgba(30,41,59,0.8)",
+        border: "1px solid rgba(99,102,241,0.25)",
+        borderRadius: 10,
+        color: "#fff",
+        fontSize: 14,
+        fontFamily: "inherit",
+        letterSpacing: "0.06em",
+    },
+    couponApplyBtn: {
+        padding: "12px 20px",
+        background: "linear-gradient(135deg, #6366f1, #7c3aed)",
+        border: "none",
+        borderRadius: 10,
+        color: "#fff",
+        fontWeight: 700,
+        fontSize: 13,
+        cursor: "pointer",
+        fontFamily: "inherit",
+    },
+    couponClearBtn: {
+        padding: "12px 16px",
+        background: "transparent",
+        border: "1px solid rgba(148,163,184,0.35)",
+        borderRadius: 10,
+        color: "#94a3b8",
+        fontSize: 13,
+        cursor: "pointer",
+        fontFamily: "inherit",
+    },
+    planPriceOld: {
+        textDecoration: "line-through",
+        color: "#64748b",
+        fontSize: 16,
+        marginRight: 8,
+        fontWeight: 500,
+    },
+    couponBadge: {
+        fontSize: 11,
+        color: "#34d399",
+        marginTop: 4,
+        marginBottom: 8,
+        fontWeight: 600,
     },
     plansGrid: {
         display: "grid",

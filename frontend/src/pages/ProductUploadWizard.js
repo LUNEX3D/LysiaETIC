@@ -19,7 +19,7 @@ import {
     FaSitemap, FaGlobe, FaExclamationTriangle, FaCubes
 } from "react-icons/fa";
 import {
-    createAndDistribute, suggestCodes, generateDescription, uploadProductImage,
+    createAndDistribute, createVariantsAndDistribute, suggestCodes, generateDescription, uploadProductImage,
     getTrendyolCategoryAttributes, searchTrendyolBrands
 } from "../services/productManagementApi";
 import { getUserMarketplaces } from "../services/marketplaceApi";
@@ -301,7 +301,7 @@ const fmt = (v) => {
 /* ═══════════════════════════════════════════════════════════════
    ANA BİLEŞEN
    ═══════════════════════════════════════════════════════════════ */
-const ProductUploadWizard = ({ userId }) => {
+const ProductUploadWizard = ({ userId, embedded = false }) => {
     // ── Wizard Step ──
     const [step, setStep] = useState(1);
 
@@ -346,6 +346,14 @@ const ProductUploadWizard = ({ userId }) => {
 
     // ── Upload Result ──
     const [uploadResult, setUploadResult] = useState(null);
+
+    /** single = tek ürün | variants = renk/beden ailesi (ortak productMainId) */
+    const [uploadMode, setUploadMode] = useState("single");
+    const [productMainId, setProductMainId] = useState("");
+    const [variantRows, setVariantRows] = useState([
+        { barcode: "", sku: "", stock: "0", price: "", listPrice: "", color: "", size: "" },
+        { barcode: "", sku: "", stock: "0", price: "", listPrice: "", color: "", size: "" }
+    ]);
 
     /** Trendyol marka araması (Adım 1) */
     const [tyBrandSuggest, setTyBrandSuggest] = useState({ loading: false, list: [], open: false });
@@ -810,7 +818,19 @@ const ProductUploadWizard = ({ userId }) => {
             logUiClientError("product_upload", String(msg), { path: "/product-upload" });
             showToast(msg, "error");
         };
-        if (!uf.name || !uf.barcode || !uf.sku || !uf.price) {
+        if (uploadMode === "variants") {
+            const mainId = productMainId.trim();
+            if (!uf.name.trim()) { toastErr("Ürün ailesi adı zorunlu"); return; }
+            if (!mainId || mainId.length < 2) {
+                toastErr("Ortak model kodu (productMainId) zorunlu — tüm varyantlar Trendyol'da tek sayfada görünür");
+                return;
+            }
+            const validRows = variantRows.filter((r) => r.barcode?.trim() && r.sku?.trim() && r.price);
+            if (validRows.length < 2) {
+                toastErr("En az 2 varyant satırı (barkod, stok kodu, fiyat) doldurun");
+                return;
+            }
+        } else if (!uf.name || !uf.barcode || !uf.sku || !uf.price) {
             toastErr("Ad, barkod, SKU ve fiyat zorunlu");
             return;
         }
@@ -931,17 +951,7 @@ const ProductUploadWizard = ({ userId }) => {
                 if (tyAttrs.length > 0) marketplaceExtras.Trendyol.trendyolAttributes = tyAttrs;
             }
 
-            const r = await createAndDistribute({
-                name: uf.name.trim(),
-                barcode: uf.barcode.trim(),
-                sku: uf.sku.trim(),
-                description: uf.description.trim(),
-                price: Number(uf.price),
-                listPrice: uf.listPrice ? Number(uf.listPrice) : Number(uf.price),
-                stock: Number(uf.stock) || 0,
-                brand: uf.brand.trim(),
-                images: imgs,
-                targetMarketplaces: uf.targetMarketplaces,
+            const distributePayloadExtras = {
                 platformCategories,
                 vatRate: uf.vatRate !== "" ? Number(uf.vatRate) : 20,
                 dimensionalWeight: uf.dimensionalWeight !== "" ? Number(uf.dimensionalWeight) : undefined,
@@ -949,6 +959,51 @@ const ProductUploadWizard = ({ userId }) => {
                 n11ShipmentTemplate: uf.targetMarketplaces.includes("N11")
                     ? String(uf.n11ShipmentTemplate || "").trim()
                     : ""
+            };
+
+            if (uploadMode === "variants") {
+                const mainId = productMainId.trim();
+                const variants = variantRows
+                    .filter((r) => r.barcode?.trim() && r.sku?.trim() && r.price)
+                    .map((r) => ({
+                        barcode: r.barcode.trim(),
+                        sku: r.sku.trim(),
+                        stock: Number(r.stock) || 0,
+                        price: Number(r.price),
+                        listPrice: r.listPrice ? Number(r.listPrice) : Number(r.price),
+                        color: r.color?.trim() || "",
+                        size: r.size?.trim() || ""
+                    }));
+                const r = await createVariantsAndDistribute({
+                    productMainId: mainId,
+                    baseName: uf.name.trim(),
+                    description: uf.description.trim(),
+                    images: imgs,
+                    brand: uf.brand.trim(),
+                    variants,
+                    targetMarketplaces: uf.targetMarketplaces,
+                    ...distributePayloadExtras
+                });
+                setUploadResult({ success: true, message: r.message || `${variants.length} varyant oluşturuldu` });
+                showToast(r.message || "Varyantlar oluşturuldu", "success");
+                logUserActivity("product_upload", "Varyantlı yükleme", `${variants.length} satır, model ${mainId}`, "success");
+                setUploadLoading(false);
+                return;
+            }
+
+            const r = await createAndDistribute({
+                name: uf.name.trim(),
+                barcode: uf.barcode.trim(),
+                sku: uf.sku.trim(),
+                productMainId: productMainId.trim() || undefined,
+                description: uf.description.trim(),
+                price: Number(uf.price),
+                listPrice: uf.listPrice ? Number(uf.listPrice) : Number(uf.price),
+                stock: Number(uf.stock) || 0,
+                brand: uf.brand.trim(),
+                images: imgs,
+                targetMarketplaces: uf.targetMarketplaces,
+                ...distributePayloadExtras
             });
 
             const dist = r.distributeResults || [];
@@ -1053,7 +1108,11 @@ const ProductUploadWizard = ({ userId }) => {
        COMPUTED
        ═══════════════════════════════════════════════════════════ */
     const totalImgs = uf.imageUrls.length + imgFiles.length;
-    const canSubmit = uf.name && uf.barcode && uf.sku && uf.price;
+    const variantsReady = uploadMode === "variants" && uf.name && productMainId.trim().length >= 2
+        && variantRows.filter((r) => r.barcode?.trim() && r.sku?.trim() && r.price).length >= 2;
+    const canSubmit = uploadMode === "variants"
+        ? variantsReady
+        : (uf.name && uf.barcode && uf.sku && uf.price);
     const selectedPlatforms = uf.targetMarketplaces;
     const missingCategories = selectedPlatforms.filter((pName) => !catState[pName]?.selected);
     /** Dağıtım yoksa yalnızca ürün kaydı; dağıtım varsa kategori + platform kuralları. */
@@ -1085,10 +1144,15 @@ const ProductUploadWizard = ({ userId }) => {
         { num: 4, label: "Kategori & Gönder", icon: <FaRocket />, desc: "Platform kategorileri seçin" },
     ];
 
+    const stepLayoutClass = embedded
+        ? "puw-step-content puw-step-content--stacked"
+        : "puw-step-content puw-step-content--wide-split";
+    const activeStepMeta = steps.find((s) => s.num === step);
+
     return (
-        <div className="puw-root">
+        <div className={embedded ? "puw-root puw-root--embedded" : "puw-root"}>
             <div className="puw-shell">
-            {/* Header */}
+            {!embedded && (
             <header className="puw-header">
                 <div className="puw-header-inner">
                     <div>
@@ -1098,8 +1162,24 @@ const ProductUploadWizard = ({ userId }) => {
                     <span className="puw-hero-badge">Sihirbaz · 4 adım</span>
                 </div>
             </header>
+            )}
 
-            {/* Steps Bar */}
+            {embedded ? (
+                <nav className="puw-steps-compact" aria-label="Ürün yükleme adımları">
+                    {steps.map((s) => (
+                        <button
+                            key={s.num}
+                            type="button"
+                            className={`puw-steps-compact-item ${step === s.num ? "active" : ""} ${step > s.num ? "done" : ""}`}
+                            onClick={() => setStep(s.num)}
+                            aria-current={step === s.num ? "step" : undefined}
+                        >
+                            <span className="puw-steps-compact-num">{step > s.num ? <FaCheck /> : s.num}</span>
+                            <span className="puw-steps-compact-label">{s.label}</span>
+                        </button>
+                    ))}
+                </nav>
+            ) : (
             <div className="puw-steps-wrap">
                 <div className="puw-steps" role="tablist" aria-label="Ürün yükleme adımları">
                     {steps.map(s => (
@@ -1123,6 +1203,10 @@ const ProductUploadWizard = ({ userId }) => {
                     ))}
                 </div>
             </div>
+            )}
+            {embedded && activeStepMeta && (
+                <p className="puw-step-hint">{activeStepMeta.desc}</p>
+            )}
 
             {/* Step Content */}
             <AnimatePresence mode="wait">
@@ -1132,7 +1216,78 @@ const ProductUploadWizard = ({ userId }) => {
                         ADIM 1: TEMEL BİLGİLER
                         ═══════════════════════════════════════════ */}
                     {step === 1 && (
-                        <div className="puw-step-content puw-step-content--wide-split">
+                        <div className={stepLayoutClass}>
+                            <div className="puw-card">
+                                <div className="puw-card-header">
+                                    <span className="icon"><FaCubes /></span>
+                                    <div style={{ flex: 1 }}>
+                                        <div className="title">Yükleme modu</div>
+                                        <div className="subtitle">Tek ürün veya renk/beden varyant ailesi (Trendyol tek sayfa)</div>
+                                    </div>
+                                </div>
+                                <div className="puw-segmented" role="group" aria-label="Yükleme modu">
+                                    <button type="button" className={uploadMode === "single" ? "active" : ""}
+                                        onClick={() => setUploadMode("single")}>Tek ürün</button>
+                                    <button type="button" className={uploadMode === "variants" ? "active" : ""}
+                                        onClick={() => setUploadMode("variants")}>Varyantlı aile</button>
+                                </div>
+                                {uploadMode === "variants" && (
+                                    <>
+                                        <div className="puw-field full" style={{ marginBottom: 12 }}>
+                                            <label>Ortak model kodu (productMainId) <span className="required">*</span></label>
+                                            <input value={productMainId} onChange={(e) => setProductMainId(e.target.value)}
+                                                placeholder="Örn. HSKI-1106 — tüm renk/bedenlerde aynı" />
+                                            <div style={{ fontSize: 11, color: "var(--puw-text-dim)", marginTop: 6 }}>
+                                                Trendyol&apos;da müşteri tek ürün sayfasında renk/beden seçer; her satırın barkodu farklı olmalı.
+                                            </div>
+                                        </div>
+                                        <div style={{ overflowX: "auto" }}>
+                                            <table className="puw-variant-table" style={{ width: "100%", fontSize: 12, borderCollapse: "collapse" }}>
+                                                <thead>
+                                                    <tr style={{ textAlign: "left", color: "var(--puw-text-dim)" }}>
+                                                        <th style={{ padding: 6 }}>Barkod</th>
+                                                        <th style={{ padding: 6 }}>Stok kodu</th>
+                                                        <th style={{ padding: 6 }}>Renk</th>
+                                                        <th style={{ padding: 6 }}>Beden</th>
+                                                        <th style={{ padding: 6 }}>Stok</th>
+                                                        <th style={{ padding: 6 }}>Fiyat</th>
+                                                        <th style={{ padding: 6 }}></th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {variantRows.map((row, idx) => (
+                                                        <tr key={idx}>
+                                                            <td style={{ padding: 4 }}><input className="puw-input" value={row.barcode}
+                                                                onChange={(e) => setVariantRows((prev) => prev.map((r, i) => i === idx ? { ...r, barcode: e.target.value } : r))} placeholder="Barkod" /></td>
+                                                            <td style={{ padding: 4 }}><input className="puw-input" value={row.sku}
+                                                                onChange={(e) => setVariantRows((prev) => prev.map((r, i) => i === idx ? { ...r, sku: e.target.value } : r))} placeholder="SKU" /></td>
+                                                            <td style={{ padding: 4 }}><input className="puw-input" value={row.color}
+                                                                onChange={(e) => setVariantRows((prev) => prev.map((r, i) => i === idx ? { ...r, color: e.target.value } : r))} placeholder="Mavi" /></td>
+                                                            <td style={{ padding: 4 }}><input className="puw-input" value={row.size}
+                                                                onChange={(e) => setVariantRows((prev) => prev.map((r, i) => i === idx ? { ...r, size: e.target.value } : r))} placeholder="M" /></td>
+                                                            <td style={{ padding: 4 }}><input className="puw-input" type="number" value={row.stock}
+                                                                onChange={(e) => setVariantRows((prev) => prev.map((r, i) => i === idx ? { ...r, stock: e.target.value } : r))} /></td>
+                                                            <td style={{ padding: 4 }}><input className="puw-input" type="number" value={row.price}
+                                                                onChange={(e) => setVariantRows((prev) => prev.map((r, i) => i === idx ? { ...r, price: e.target.value } : r))} /></td>
+                                                            <td style={{ padding: 4 }}>
+                                                                {variantRows.length > 2 && (
+                                                                    <button type="button" className="puw-btn sm muted"
+                                                                        onClick={() => setVariantRows((prev) => prev.filter((_, i) => i !== idx))}><FaTimes /></button>
+                                                                )}
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                        <button type="button" className="puw-btn sm outline" style={{ marginTop: 8 }}
+                                            onClick={() => setVariantRows((prev) => [...prev, { barcode: "", sku: "", stock: "0", price: "", listPrice: "", color: "", size: "" }])}>
+                                            <FaPlus /> Varyant satırı ekle
+                                        </button>
+                                    </>
+                                )}
+                            </div>
+
                             <div className="puw-card">
                                 <div className="puw-card-header">
                                     <span className="icon"><FaEdit /></span>
@@ -1307,7 +1462,7 @@ const ProductUploadWizard = ({ userId }) => {
                         ADIM 2: GÖRSELLER & AÇIKLAMA
                         ═══════════════════════════════════════════ */}
                     {step === 2 && (
-                        <div className="puw-step-content puw-step-content--wide-split">
+                        <div className={stepLayoutClass}>
                             <div className="puw-card">
                                 <div className="puw-card-header">
                                     <span className="icon"><FaImage /></span>

@@ -31,8 +31,21 @@ const { decryptCredentials } = require("../utils/encryption");
 const { ok, badRequest, notFound, serverError, paginated } = require("../utils/apiResponse");
 const {
     filterHepsiburadaProductCategories,
-    isHepsiburadaCampaignOrNonProductCategory
+    isHepsiburadaCampaignOrNonProductCategory,
+    loadHepsiburadaListableCategoryIdSet,
+    normalizeCredentials: normalizeHbCredentials,
+    validateCredentials: validateHbCredentials,
+    getEndpoints: getHbEndpoints,
+    HB_SIT_ENDPOINTS
 } = require("../services/hepsiburadaService");
+const {
+    getMasterPathText,
+    findBestMatches,
+    buildTargetIndex,
+    isPlatformMappingEmpty,
+    coerceCategoryId,
+    DEFAULT_MATCH_OPTIONS
+} = require("../services/categoryAutoMatchService");
 
 /** Cache / ağaç: kampanya (HC) ve promosyon reyonlarını çıkar; üst düğümler kalır */
 const sanitizeHbCategoriesForCache = (categories) => {
@@ -364,7 +377,20 @@ const fetchCiceksepetiCategoryTree = async (credentials) => {
             timeout: 30000
         }
     );
-    return response.data?.categories || [];
+    const data = response.data;
+    const categories =
+        data?.categories ||
+        data?.data?.categories ||
+        data?.data ||
+        (Array.isArray(data) ? data : []);
+    if (!Array.isArray(categories) || categories.length === 0) {
+        const msg = data?.message || data?.error || response.statusText || "boş yanıt";
+        throw new Error(
+            `ÇiçekSepeti kategori listesi alınamadı (${msg}). ` +
+            `Entegrasyonda API anahtarı, Satıcı ID ve User-Agent (integrator) alanlarını kontrol edin.`
+        );
+    }
+    return categories;
 };
 
 /**
@@ -403,9 +429,35 @@ const fetchHepsiburadaCategoryTree = async (credentials, options = {}) => {
     return categories;
 };
 
-const fetchAmazonCategoryTree = async () => {
-    // Amazon SP-API henüz desteklenmiyor
-    return [];
+const fetchAmazonCategoryTree = async (credentials) => {
+    try {
+        const {
+            normalizeAmazonCredentials,
+            validateAmazonCredentials
+        } = require("../services/amazon/amazonCredentialService");
+        const amazonSpApi = require("../services/amazon/amazonSpApiService");
+
+        const creds = normalizeAmazonCredentials(credentials);
+        const validation = validateAmazonCredentials(creds);
+        if (!validation.valid) {
+            logger.warn(`[Amazon CAT] Credential eksik: ${validation.message}`);
+            return [];
+        }
+
+        const result = await amazonSpApi.searchProductTypes(creds, " ");
+        const types = result?.productTypes || [];
+        return types.map((pt) => ({
+            id: pt.name,
+            categoryId: pt.name,
+            name: pt.displayName || pt.name,
+            categoryName: pt.displayName || pt.name,
+            leaf: true,
+            available: true
+        }));
+    } catch (err) {
+        logger.warn(`[Amazon CAT] Ürün tipi listesi alınamadı: ${err.message}`);
+        return [];
+    }
 };
 
 // ═══════════════════════════════════════════════════════════════
@@ -985,6 +1037,18 @@ exports.getCategoryTree = async (req, res) => {
         }
 
         const forceRefresh = req.query.refresh === "true";
+        const searchOnly = req.query.searchOnly === "true" || req.query.mode === "search";
+
+        // Hızlı mod: tam ağaç çekme — arama endpoint'i cache'i doldurur
+        if (searchOnly) {
+            return ok(res, `${marketplaceName} — kategori araması için hazır`, {
+                marketplaceName: marketplace.marketplaceName,
+                categories: [],
+                searchOnly: true,
+                hint: "Kategori seçmek için en az 2 karakter yazarak arama kutusunu kullanın. Tam ağaç: ?refresh=true parametresi ile /tree çağrısı."
+            });
+        }
+
         const categories = await getOrFetchCategories(userId, marketplace, { forceRefresh, onlyLeaf: false });
 
         // HB: flat → tree dönüşümü
@@ -1357,6 +1421,26 @@ exports.searchCategories = async (req, res) => {
             const listingOnly = req.query.listingOnly !== "false";
             if (listingOnly) {
                 searchResults = searchResults.filter((r) => r.canListProduct === true);
+                try {
+                    const hbCreds = normalizeHbCredentials(decryptCredentials(marketplace.credentials));
+                    const hbVal = validateHbCredentials(hbCreds, "kategori arama");
+                    if (hbVal.valid && typeof loadHepsiburadaListableCategoryIdSet === "function") {
+                        const useSit = getHbEndpoints(hbCreds).MPOP === HB_SIT_ENDPOINTS.MPOP;
+                        const listableIds = await loadHepsiburadaListableCategoryIdSet(
+                            hbCreds.merchantId,
+                            hbCreds.secretKey,
+                            hbCreds.userAgent,
+                            useSit
+                        );
+                        if (listableIds instanceof Set && listableIds.size > 0) {
+                            searchResults = searchResults.filter((r) =>
+                                listableIds.has(String(r.id || r.categoryId || "").trim())
+                            );
+                        }
+                    }
+                } catch (hbListErr) {
+                    logger.warn(`[CATEGORY SEARCH] HB listelenebilir filtre atlandı: ${hbListErr?.message || hbListErr}`);
+                }
             }
         } else {
             // ── Diğer pazaryerleri: nested tree → recursive flatten + gelişmiş arama ──
@@ -1432,60 +1516,9 @@ exports.searchCategories = async (req, res) => {
  *   target1: "Giyim > Kadın > Elbise"       → 1000 (tam eşleşme)
  *   target2: "Moda > Kadın > Elbise"         → 50+20+5 = 75
  *   target3: "Ev > Tekstil > Elbise"         → 50+5 = 55
- *   target4: "Motosiklet > Aksesuar"          → 0 (son segment farklı)
+ *   target4: "Motosiklet > Aksesuar"          → 0 (yaprak kelimeleri uyuşmaz)
+ * Skorlama: services/categoryAutoMatchService.js (kelime bazlı yaprak zorunluluğu)
  */
-const segmentSimilarityScore = (masterPath, targetPath) => {
-    if (!masterPath || !targetPath) return 0;
-
-    const normalize = (p) => normalizeTurkish(
-        decodeHtmlEntities(p).replace(/\s*>\s*/g, ">").replace(/\s+/g, " ").trim()
-    );
-
-    const mp = normalize(masterPath);
-    const tp = normalize(targetPath);
-
-    // Tam eşleşme
-    if (mp === tp) return 1000;
-
-    const mParts = mp.split(">").map(s => s.trim()).filter(Boolean);
-    const tParts = tp.split(">").map(s => s.trim()).filter(Boolean);
-
-    if (mParts.length === 0 || tParts.length === 0) return 0;
-
-    let score = 0;
-
-    // Son segment (yaprak isim) eşleşmesi — EN ÖNEMLİ
-    const mLast = mParts[mParts.length - 1];
-    const tLast = tParts[tParts.length - 1];
-
-    if (mLast === tLast) {
-        score += 50;
-    } else if (mLast.includes(tLast) || tLast.includes(mLast)) {
-        score += 25;
-    } else {
-        // Son segment hiç eşleşmiyorsa bu eşleşme geçersiz
-        return 0;
-    }
-
-    // Üst segmentleri karşılaştır (sondan başa)
-    const minLen = Math.min(mParts.length, tParts.length);
-    for (let i = 2; i <= minLen; i++) {
-        const mSeg = mParts[mParts.length - i];
-        const tSeg = tParts[tParts.length - i];
-        if (mSeg === tSeg) {
-            score += 20;
-        } else if (mSeg && tSeg && (mSeg.includes(tSeg) || tSeg.includes(mSeg))) {
-            score += 5;
-        }
-    }
-
-    // Segment sayısı benzerliği
-    const depthDiff = Math.abs(mParts.length - tParts.length);
-    if (depthDiff === 0) score += 5;
-    else if (depthDiff === 1) score += 2;
-
-    return score;
-};
 
 /**
  * Canlı API'den çekilen kategorileri flat listeye dönüştür (path ile)
@@ -1556,6 +1589,209 @@ const filterListingEligibleTargets = (flatList, isFlatHb) => {
     return flatList.filter((t) => t.leaf === true);
 };
 
+/** Otomatik eşleştirme: sadece listelenebilir yapraklar (HB'de tüm ağacı düzleştirme) */
+const flattenEligibleTargetsForAutoMatch = (categories, isFlatHb) => {
+    if (!Array.isArray(categories) || categories.length === 0) return [];
+
+    if (isFlatHb) {
+        const catMap = buildCategoryMap(categories);
+        const getPath = createPathResolver(catMap);
+        const result = [];
+        for (const [nodeKey, node] of catMap) {
+            if (node.canListProduct !== true) continue;
+            let pathStr = (node.pathDisplay && String(node.pathDisplay).trim()) || "";
+            if (!pathStr) {
+                const pathArr = getPath(nodeKey);
+                pathStr = pathArr.length ? pathArr.join(" > ") : (node.name || "");
+            }
+            if (!pathStr) continue;
+            result.push({
+                id: node.id,
+                name: node.name,
+                path: pathStr,
+                leaf: true,
+                available: true,
+                canListProduct: true
+            });
+        }
+        return result;
+    }
+
+    const flat = flattenCategoriesWithPath(categories, false);
+    return filterListingEligibleTargets(flat, false);
+};
+
+const AUTO_MATCH_BULK_CHUNK = 400;
+
+const bulkWriteMappingOpsChunked = async (bulkOps) => {
+    if (!bulkOps.length) return;
+    for (let i = 0; i < bulkOps.length; i += AUTO_MATCH_BULK_CHUNK) {
+        await MasterCategoryMapping.bulkWrite(bulkOps.slice(i, i + AUTO_MATCH_BULK_CHUNK), { ordered: false });
+    }
+};
+
+const AUTO_MATCH_PLATFORM_CONFIGS = [
+    { key: "n11", name: "N11", idField: "n11Id", pathField: "n11Path", isFlat: false },
+    { key: "ciceksepeti", name: "ÇiçekSepeti", idField: "ciceksepetiId", pathField: "ciceksepetiPath", isFlat: false },
+    { key: "hepsiburada", name: "Hepsiburada", idField: "hepsiburadaId", pathField: "hepsiburadaPath", isFlat: true }
+];
+
+const runAutoMatchForPlatform = async ({
+    userId,
+    platform,
+    allMappings,
+    minScore,
+    minGap,
+    dryRun
+}) => {
+    const marketplace = await Marketplace.findOne({
+        userId,
+        marketplaceName: { $regex: new RegExp(platform.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i") }
+    });
+
+    if (!marketplace) {
+        return {
+            key: platform.key,
+            matched: 0,
+            skipped: 0,
+            noMatch: 0,
+            ambiguous: 0,
+            result: { status: "skipped", reason: "Entegrasyon bulunamadı" }
+        };
+    }
+
+    let categories;
+    try {
+        categories = await getOrFetchCategories(userId, marketplace, {
+            onlyLeaf: false
+        });
+    } catch (fetchErr) {
+        return {
+            key: platform.key,
+            matched: 0,
+            skipped: 0,
+            noMatch: 0,
+            ambiguous: 0,
+            result: { status: "error", reason: fetchErr.message }
+        };
+    }
+
+    if (!categories || categories.length === 0) {
+        return {
+            key: platform.key,
+            matched: 0,
+            skipped: 0,
+            noMatch: 0,
+            ambiguous: 0,
+            result: { status: "skipped", reason: "Kategori listesi boş" }
+        };
+    }
+
+    const eligibleTargets = flattenEligibleTargetsForAutoMatch(categories, platform.isFlat);
+    logger.info(
+        `[AUTO-MATCH] ${platform.name} — ${categories.length} kaynak düğüm, ` +
+        `${eligibleTargets.length} listelenebilir yaprak`
+    );
+
+    if (eligibleTargets.length === 0) {
+        return {
+            key: platform.key,
+            matched: 0,
+            skipped: 0,
+            noMatch: 0,
+            ambiguous: 0,
+            result: { status: "skipped", reason: "Listelenebilir yaprak kategori yok" }
+        };
+    }
+
+    const targetIndex = buildTargetIndex(eligibleTargets);
+    const matchOpts = { minScore, minGap, _index: targetIndex };
+
+    let matched = 0;
+    let skipped = 0;
+    let noMatch = 0;
+    let ambiguous = 0;
+    const bulkOps = [];
+    const samples = [];
+
+    for (const mapping of allMappings) {
+        if (!isPlatformMappingEmpty(mapping, platform.idField)) {
+            skipped++;
+            continue;
+        }
+
+        const masterPath = getMasterPathText(mapping);
+        if (!masterPath) {
+            noMatch++;
+            continue;
+        }
+
+        const matchResult = findBestMatches(masterPath, eligibleTargets, {
+            ...matchOpts,
+            bestEffort: true
+        });
+        if (!matchResult.best) {
+            if (matchResult.ambiguous) ambiguous++;
+            noMatch++;
+            continue;
+        }
+
+        const bestMatch = matchResult.best;
+        const categoryId = coerceCategoryId(bestMatch.id);
+        if (!categoryId) {
+            noMatch++;
+            continue;
+        }
+
+        if (samples.length < 8) {
+            samples.push({
+                masterPath,
+                targetPath: bestMatch.path,
+                score: bestMatch.score,
+                confidence: matchResult.confidence
+            });
+        }
+
+        bulkOps.push({
+            updateOne: {
+                filter: { _id: mapping._id },
+                update: {
+                    $set: {
+                        [platform.idField]: categoryId,
+                        [platform.pathField]: bestMatch.path || bestMatch.name || ""
+                    }
+                }
+            }
+        });
+        matched++;
+    }
+
+    if (!dryRun && bulkOps.length > 0) {
+        await bulkWriteMappingOpsChunked(bulkOps);
+    }
+
+    return {
+        key: platform.key,
+        matched,
+        skipped,
+        noMatch,
+        ambiguous,
+        result: {
+            status: dryRun ? "preview" : "completed",
+            sourceCategories: categories.length,
+            listingEligible: eligibleTargets.length,
+            matched,
+            skipped,
+            noMatch,
+            ambiguous,
+            minScore,
+            minGap,
+            wouldWrite: bulkOps.length,
+            samples
+        }
+    };
+};
+
 /**
  * Manuel Onaylı Otomatik Eşleştirme — Tek tek eşleştirme önerileri sun
  * POST /api/category-center/auto-match/prepare
@@ -1583,7 +1819,8 @@ exports.autoMatchPrepare = async (req, res) => {
         if (!userId) return badRequest(res, "Yetkilendirme hatası");
 
         const requestedPlatforms = req.body?.platforms || [];
-        const MIN_SCORE = 50;
+        const minScore = Number(req.body?.minScore) || DEFAULT_MATCH_OPTIONS.minScore;
+        const minGap = Number(req.body?.minGap) || DEFAULT_MATCH_OPTIONS.minGap;
 
         // ── 1. Tüm master eşleştirmeleri çek ──
         const allMappings = await MasterCategoryMapping.find({}).lean();
@@ -1593,35 +1830,15 @@ exports.autoMatchPrepare = async (req, res) => {
 
         logger.info(`[AUTO-MATCH PREPARE] Başlatılıyor — ${allMappings.length} master kategori`);
 
-        // ── 2. Platform konfigürasyonu ──
-        const platformConfigs = [
-            {
-                key: "n11", name: "N11",
-                idField: "n11Id", pathField: "n11Path",
-                isFlat: false
-            },
-            {
-                key: "ciceksepeti", name: "ÇiçekSepeti",
-                idField: "ciceksepetiId", pathField: "ciceksepetiPath",
-                isFlat: false
-            },
-            {
-                key: "hepsiburada", name: "Hepsiburada",
-                idField: "hepsiburadaId", pathField: "hepsiburadaPath",
-                isFlat: true
-            }
-        ];
-
         const activePlatforms = requestedPlatforms.length > 0
-            ? platformConfigs.filter(p => requestedPlatforms.includes(p.key))
-            : platformConfigs;
+            ? AUTO_MATCH_PLATFORM_CONFIGS.filter((p) => requestedPlatforms.includes(p.key))
+            : AUTO_MATCH_PLATFORM_CONFIGS;
 
         const allSuggestions = [];
 
-        for (const platform of activePlatforms) {
+        await Promise.all(activePlatforms.map(async (platform) => {
             logger.info(`[AUTO-MATCH PREPARE] ${platform.name} işleniyor...`);
 
-            // ── 3. Marketplace bul ──
             const marketplace = await Marketplace.findOne({
                 userId,
                 marketplaceName: { $regex: new RegExp(platform.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i") }
@@ -1629,65 +1846,55 @@ exports.autoMatchPrepare = async (req, res) => {
 
             if (!marketplace) {
                 logger.warn(`[AUTO-MATCH PREPARE] ${platform.name} — entegrasyon bulunamadı, atlanıyor`);
-                continue;
+                return;
             }
 
-            // ── 4. Canlı kategorileri çek ──
             let categories;
             try {
                 categories = await getOrFetchCategories(userId, marketplace, { onlyLeaf: false });
             } catch (fetchErr) {
                 logger.error(`[AUTO-MATCH PREPARE] ${platform.name} — kategori çekme hatası: ${fetchErr.message}`);
-                continue;
+                return;
             }
 
-            if (!categories || categories.length === 0) continue;
+            if (!categories || categories.length === 0) return;
 
-            // ── 5. Flat listeye dönüştür ──
-            const flatCategories = flattenCategoriesWithPath(categories, platform.isFlat);
-            const eligibleTargets = filterListingEligibleTargets(flatCategories, platform.isFlat);
+            const eligibleTargets = flattenEligibleTargetsForAutoMatch(categories, platform.isFlat);
             logger.info(
-                `[AUTO-MATCH PREPARE] ${platform.name} — ${flatCategories.length} düğüm, ` +
-                `${eligibleTargets.length} ürün listelenebilir yaprak`
+                `[AUTO-MATCH PREPARE] ${platform.name} — ${eligibleTargets.length} listelenebilir yaprak`
             );
 
-            if (eligibleTargets.length === 0) {
-                logger.warn(`[AUTO-MATCH PREPARE] ${platform.name} — listelenebilir yaprak yok, atlanıyor`);
-                continue;
-            }
+            if (eligibleTargets.length === 0) return;
 
-            // ── 6. Her boş eşleştirme için öneri bul ──
+            const targetIndex = buildTargetIndex(eligibleTargets);
+            const matchOpts = { minScore, minGap, topN: 5, _index: targetIndex };
+
             for (const mapping of allMappings) {
-                // Zaten eşleştirilmiş mi?
-                if (mapping[platform.idField]) continue;
+                if (!isPlatformMappingEmpty(mapping, platform.idField)) continue;
 
-                const masterPath = mapping.masterPath || mapping.trendyolPath || "";
+                const masterPath = getMasterPathText(mapping);
                 if (!masterPath) continue;
 
-                // En iyi 5 eşleşmeyi bul
-                const scored = eligibleTargets.map(target => ({
-                    ...target,
-                    score: segmentSimilarityScore(masterPath, target.path)
-                })).filter(s => s.score >= MIN_SCORE)
-                  .sort((a, b) => b.score - a.score)
-                  .slice(0, 5);
+                const result = findBestMatches(masterPath, eligibleTargets, matchOpts);
+                const pick = result.best || (result.scored?.length === 1 ? result.scored[0] : null);
+                if (!pick) continue;
 
-                if (scored.length > 0) {
-                    allSuggestions.push({
-                        mappingId: mapping._id,
-                        masterId: mapping.masterId,
-                        masterName: mapping.masterName,
-                        masterPath: mapping.masterPath,
-                        platform: platform.key,
-                        platformLabel: platform.label || platform.name,
-                        idField: platform.idField,
-                        pathField: platform.pathField,
-                        suggestion: scored[0], // En iyi eşleşme
-                        alternatives: scored.slice(1) // Alternatifler
-                    });
-                }
+                allSuggestions.push({
+                    mappingId: mapping._id,
+                    masterId: mapping.masterId,
+                    masterName: mapping.masterName,
+                    masterPath: mapping.masterPath || masterPath,
+                    platform: platform.key,
+                    platformLabel: platform.name,
+                    idField: platform.idField,
+                    pathField: platform.pathField,
+                    suggestion: pick,
+                    alternatives: (result.scored || []).filter((s) => s.id !== pick.id),
+                    confidence: result.confidence || (result.ambiguous ? "review" : "medium"),
+                    ambiguous: !!result.ambiguous
+                });
             }
-        }
+        }));
 
         logger.info(`[AUTO-MATCH PREPARE] Tamamlandı — ${allSuggestions.length} öneri hazırlandı`);
 
@@ -1775,7 +1982,9 @@ exports.autoMatch = async (req, res) => {
         if (!userId) return badRequest(res, "Yetkilendirme hatası");
 
         const requestedPlatforms = req.body?.platforms || [];
-        const MIN_SCORE = 50; // Minimum benzerlik skoru
+        const minScore = Number(req.body?.minScore) || DEFAULT_MATCH_OPTIONS.minScore;
+        const minGap = Number(req.body?.minGap) || DEFAULT_MATCH_OPTIONS.minGap;
+        const dryRun = req.body?.dryRun === true;
 
         // ── 1. Tüm master eşleştirmeleri çek ──
         const allMappings = await MasterCategoryMapping.find({}).lean();
@@ -1783,31 +1992,11 @@ exports.autoMatch = async (req, res) => {
             return badRequest(res, "Master eşleştirme tablosu boş. Önce Excel import yapın.");
         }
 
-        logger.info(`[AUTO-MATCH] Başlatılıyor — ${allMappings.length} master kategori`);
+        logger.info(`[AUTO-MATCH] Başlatılıyor — ${allMappings.length} master kategori${dryRun ? " (önizleme)" : ""}`);
 
-        // ── 2. Platform konfigürasyonu ──
-        const platformConfigs = [
-            {
-                key: "n11", name: "N11",
-                idField: "n11Id", pathField: "n11Path",
-                isFlat: false
-            },
-            {
-                key: "ciceksepeti", name: "ÇiçekSepeti",
-                idField: "ciceksepetiId", pathField: "ciceksepetiPath",
-                isFlat: false
-            },
-            {
-                key: "hepsiburada", name: "Hepsiburada",
-                idField: "hepsiburadaId", pathField: "hepsiburadaPath",
-                isFlat: true
-            }
-        ];
-
-        // Filtreleme: sadece istenen platformlar
         const activePlatforms = requestedPlatforms.length > 0
-            ? platformConfigs.filter(p => requestedPlatforms.includes(p.key))
-            : platformConfigs;
+            ? AUTO_MATCH_PLATFORM_CONFIGS.filter((p) => requestedPlatforms.includes(p.key))
+            : AUTO_MATCH_PLATFORM_CONFIGS;
 
         const results = {};
         let totalUpdated = 0;
@@ -1815,133 +2004,32 @@ exports.autoMatch = async (req, res) => {
         let totalNoMatch = 0;
         let totalAmbiguous = 0;
 
-        for (const platform of activePlatforms) {
-            logger.info(`[AUTO-MATCH] ${platform.name} işleniyor...`);
+        const platformRuns = await Promise.all(
+            activePlatforms.map((platform) =>
+                runAutoMatchForPlatform({
+                    userId,
+                    platform,
+                    allMappings,
+                    minScore,
+                    minGap,
+                    dryRun
+                })
+            )
+        );
 
-            // ── 3. Marketplace bul ──
-            const marketplace = await Marketplace.findOne({
-                userId,
-                marketplaceName: { $regex: new RegExp(platform.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i") }
-            });
+        for (const run of platformRuns) {
+            results[run.key] = run.result;
+            totalUpdated += run.matched;
+            totalSkipped += run.skipped;
+            totalNoMatch += run.noMatch;
+            totalAmbiguous += run.ambiguous;
 
-            if (!marketplace) {
-                results[platform.key] = { status: "skipped", reason: "Entegrasyon bulunamadı" };
-                logger.warn(`[AUTO-MATCH] ${platform.name} — entegrasyon bulunamadı, atlanıyor`);
-                continue;
+            if (run.result.status === "completed" || run.result.status === "preview") {
+                logger.info(
+                    `[AUTO-MATCH] ${run.key} ✅ — eşleşen: ${run.matched}, atlanan: ${run.skipped}, ` +
+                    `eşleşmeyen: ${run.noMatch}, belirsiz: ${run.ambiguous}`
+                );
             }
-
-            // ── 4. Canlı kategorileri çek (cache'den) ──
-            let categories;
-            try {
-                categories = await getOrFetchCategories(userId, marketplace, { onlyLeaf: false });
-            } catch (fetchErr) {
-                results[platform.key] = { status: "error", reason: fetchErr.message };
-                logger.error(`[AUTO-MATCH] ${platform.name} — kategori çekme hatası: ${fetchErr.message}`);
-                continue;
-            }
-
-            if (!categories || categories.length === 0) {
-                results[platform.key] = { status: "skipped", reason: "Kategori listesi boş" };
-                continue;
-            }
-
-            // ── 5. Flat listeye dönüştür ──
-            const flatCategories = flattenCategoriesWithPath(categories, platform.isFlat);
-            const eligibleTargets = filterListingEligibleTargets(flatCategories, platform.isFlat);
-            logger.info(
-                `[AUTO-MATCH] ${platform.name} — ${flatCategories.length} düğüm, ` +
-                `${eligibleTargets.length} listelenebilir yaprak`
-            );
-
-            if (eligibleTargets.length === 0) {
-                results[platform.key] = { status: "skipped", reason: "Listelenebilir yaprak kategori yok" };
-                continue;
-            }
-
-            // ── 6. Her master kategori için en iyi eşleşmeyi bul ──
-            let matched = 0;
-            let skipped = 0;
-            let noMatch = 0;
-            let ambiguous = 0;
-            const bulkOps = [];
-
-            for (const mapping of allMappings) {
-                // Zaten eşleştirilmiş mi?
-                if (mapping[platform.idField]) {
-                    skipped++;
-                    continue;
-                }
-
-                const masterPath = mapping.masterPath || mapping.trendyolPath || "";
-                if (!masterPath) {
-                    noMatch++;
-                    continue;
-                }
-
-                let bestScore = 0;
-                const ties = [];
-                for (const target of eligibleTargets) {
-                    const score = segmentSimilarityScore(masterPath, target.path);
-                    if (score > bestScore) {
-                        bestScore = score;
-                        ties.length = 0;
-                        ties.push(target);
-                    } else if (score === bestScore && score > 0) {
-                        ties.push(target);
-                    }
-                }
-
-                if (ties.length === 0 || bestScore < MIN_SCORE) {
-                    noMatch++;
-                    continue;
-                }
-                if (ties.length > 1) {
-                    ambiguous++;
-                    noMatch++;
-                    continue;
-                }
-
-                const bestMatch = ties[0];
-
-                bulkOps.push({
-                    updateOne: {
-                        filter: { _id: mapping._id },
-                        update: {
-                            $set: {
-                                [platform.idField]: Number(bestMatch.id) || bestMatch.id,
-                                [platform.pathField]: bestMatch.path
-                            }
-                        }
-                    }
-                });
-                matched++;
-            }
-
-            // ── 7. Toplu güncelleme ──
-            if (bulkOps.length > 0) {
-                await MasterCategoryMapping.bulkWrite(bulkOps);
-            }
-
-            results[platform.key] = {
-                status: "completed",
-                totalCategories: flatCategories.length,
-                listingEligible: eligibleTargets.length,
-                matched,
-                skipped,
-                noMatch,
-                ambiguous,
-                minScore: MIN_SCORE
-            };
-
-            totalUpdated += matched;
-            totalSkipped += skipped;
-            totalNoMatch += noMatch;
-            totalAmbiguous += ambiguous;
-
-            logger.info(
-                `[AUTO-MATCH] ${platform.name} ✅ — eşleşen: ${matched}, atlanan: ${skipped}, ` +
-                `eşleşmeyen: ${noMatch}, belirsiz (eşit skor): ${ambiguous}`
-            );
         }
 
         logger.info(
@@ -1949,14 +2037,17 @@ exports.autoMatch = async (req, res) => {
             `eşleşmeyen: ${totalNoMatch}, belirsiz: ${totalAmbiguous}`
         );
 
-        return ok(res, "Otomatik eşleştirme tamamlandı", {
+        return ok(res, dryRun ? "Önizleme hazır" : "Otomatik eşleştirme tamamlandı", {
+            dryRun,
             results,
             summary: {
-                totalUpdated,
+                totalUpdated: dryRun ? 0 : totalUpdated,
+                totalWouldUpdate: totalUpdated,
                 totalSkipped,
                 totalNoMatch,
                 totalAmbiguous,
-                minScore: MIN_SCORE
+                minScore,
+                minGap
             }
         });
     } catch (error) {

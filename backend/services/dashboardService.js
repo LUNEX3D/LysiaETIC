@@ -9,6 +9,7 @@ const logger = require("../config/logger");
 const { decryptCredentials } = require("../utils/encryption");
 const { extractTrendyolPackageMoney, fetchHepsiburadaOrders: fetchHepsiburadaOrdersFull } = require("./ordersService");
 const { marketplaceOrderDateToIsoString } = require("../utils/helpers");
+const { getTurkeyYmd, getTurkeyTodayStart } = require("../utils/turkeyTime");
 const { isHbInternalId } = require("./hepsiburadaService");
 
 const REQUEST_TIMEOUT_MS = 15000; // 15 saniye timeout
@@ -22,13 +23,58 @@ const cache = new Map();
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 const normalizeName = (name = "") => name.toLowerCase().trim();
 
-const todayWindow = () => {
-    const now = new Date();
-    const start = new Date(now);
-    // 1.5 hafta = 10.5 gün geriye git
-    start.setDate(start.getDate() - 10);
-    start.setHours(0, 0, 0, 0);
-    return { start: start.getTime(), end: now.getTime() };
+/** Son 24 saat (kayan pencere) — ana sayfa ciro kartı */
+const rolling24hWindow = () => {
+    const end = Date.now();
+    return { start: end - 24 * 60 * 60 * 1000, end };
+};
+
+const startOfCalendarDay = (ref = new Date()) => {
+    const d = new Date(ref);
+    d.setHours(0, 0, 0, 0);
+    return d;
+};
+
+const startOfCalendarMonth = (ref = new Date()) =>
+    new Date(ref.getFullYear(), ref.getMonth(), 1, 0, 0, 0, 0);
+
+const startOfCalendarYear = (ref = new Date()) =>
+    new Date(ref.getFullYear(), 0, 1, 0, 0, 0, 0);
+
+const computeRevenuePeriods = (orders = [], now = new Date()) => {
+    const endMs = now.getTime();
+    const win24 = endMs - 24 * 60 * 60 * 1000;
+    const dayStart = startOfCalendarDay(now).getTime();
+    const monthStart = startOfCalendarMonth(now).getTime();
+    const yearStart = startOfCalendarYear(now).getTime();
+
+    let revenue24h = 0;
+    let orders24h = 0;
+    let revenueDay = 0;
+    let revenueMonth = 0;
+    let revenueYear = 0;
+
+    orders.forEach((o) => {
+        const amount = Number(o.totalPrice || 0);
+        if (!amount) return;
+        const t = new Date(o.orderDate).getTime();
+        if (Number.isNaN(t)) return;
+        if (t >= win24 && t <= endMs) {
+            revenue24h += amount;
+            orders24h += 1;
+        }
+        if (t >= dayStart && t <= endMs) revenueDay += amount;
+        if (t >= monthStart && t <= endMs) revenueMonth += amount;
+        if (t >= yearStart && t <= endMs) revenueYear += amount;
+    });
+
+    return {
+        revenue24h: Math.round(revenue24h * 100) / 100,
+        orders24h,
+        revenueDay: Math.round(revenueDay * 100) / 100,
+        revenueMonth: Math.round(revenueMonth * 100) / 100,
+        revenueYear: Math.round(revenueYear * 100) / 100,
+    };
 };
 
 const shouldRetry = (error) => {
@@ -702,12 +748,17 @@ const collectMarketplaceMetrics = async (marketplace, windowStart, windowEnd, pr
     }
 };
 
+const toTurkeyDateKey = (date) => {
+    const { y, m, d } = getTurkeyYmd(date instanceof Date ? date : new Date(date));
+    return `${y}-${m}-${d}`;
+};
+
 const buildTrendsFromDb = (orders, days = 7) => {
     const byDay = new Map();
     orders.forEach(order => {
         const orderDate = order.orderDate ? new Date(order.orderDate) : null;
         if (!orderDate || Number.isNaN(orderDate.getTime())) return;
-        const key = orderDate.toISOString().slice(0, 10);
+        const key = toTurkeyDateKey(orderDate);
         const current = byDay.get(key) || { count: 0, revenue: 0 };
         current.count += 1;
         current.revenue += Number(order.totalPrice || 0);
@@ -717,20 +768,27 @@ const buildTrendsFromDb = (orders, days = 7) => {
     const labels = [];
     const orderCounts = [];
     const revenueTotals = [];
-    const today = new Date();
+    const todayStart = getTurkeyTodayStart();
 
     for (let offset = days - 1; offset >= 0; offset -= 1) {
-        const day = new Date(today);
-        day.setHours(0, 0, 0, 0);
-        day.setDate(day.getDate() - offset);
-        const key = day.toISOString().slice(0, 10);
+        const dayStart = new Date(todayStart.getTime() - offset * 24 * 60 * 60 * 1000);
+        const key = toTurkeyDateKey(dayStart);
         const metrics = byDay.get(key) || { count: 0, revenue: 0 };
-        labels.push(day.toLocaleDateString("tr-TR", { day: "2-digit", month: "short" }));
+        labels.push(dayStart.toLocaleDateString("tr-TR", {
+            timeZone: "Europe/Istanbul",
+            day: "2-digit",
+            month: "short",
+        }));
         orderCounts.push(metrics.count);
         revenueTotals.push(metrics.revenue);
     }
 
     return { labels, orderCounts, revenueTotals };
+};
+
+const trendWindowStart = (days = 7) => {
+    const todayStart = getTurkeyTodayStart();
+    return new Date(todayStart.getTime() - (days - 1) * 24 * 60 * 60 * 1000);
 };
 
 // Main entry
@@ -740,13 +798,22 @@ exports.getDashboardData = async (userId) => {
         return cached.data;
     }
 
-    const { start, end } = todayWindow();
+    const { start, end } = rolling24hWindow();
+    const now = new Date();
+    const yearStart = startOfCalendarYear(now);
 
     const marketplaces = await Marketplace.find({ userId }).lean();
 
-    const ordersFromDb = await Order.find({ user: userId, orderDate: { $gte: new Date(start), $lte: new Date(end) } })
-        .select("trackingNumber marketplaceName totalPrice status orderDate")
-        .lean();
+    const [ordersFromDb, ordersForRevenue] = await Promise.all([
+        Order.find({ user: userId, orderDate: { $gte: new Date(start), $lte: new Date(end) } })
+            .select("trackingNumber marketplaceName totalPrice status orderDate")
+            .lean(),
+        Order.find({ user: userId, orderDate: { $gte: yearStart, $lte: now } })
+            .select("totalPrice orderDate")
+            .lean(),
+    ]);
+
+    const revenuePeriods = computeRevenuePeriods(ordersForRevenue, now);
 
     const products = await Product.find({ userId }).select("barcode stock").lean();
 
@@ -828,14 +895,18 @@ exports.getDashboardData = async (userId) => {
     mergeMarketplaceStatusWithDbOrders(marketplaceStatus, ordersFromDb);
 
     const mergedTodayOrders = Object.values(marketplaceStatus).reduce((sum, m) => sum + (m.orders || 0), 0);
-    const mergedTodayRevenue = Object.values(marketplaceStatus).reduce((sum, m) => sum + (m.revenue || 0), 0);
 
     const summary = {
         totalProducts,
         activeProducts,
         passiveProducts: Math.max(totalProducts - activeProducts, 0),
-        todayOrders: mergedTodayOrders,
-        todayRevenue: mergedTodayRevenue,
+        todayOrders: revenuePeriods.orders24h || mergedTodayOrders,
+        todayRevenue: revenuePeriods.revenue24h,
+        revenue24h: revenuePeriods.revenue24h,
+        revenueDay: revenuePeriods.revenueDay,
+        revenueMonth: revenuePeriods.revenueMonth,
+        revenueYear: revenuePeriods.revenueYear,
+        orders24h: revenuePeriods.orders24h,
         pendingSync,
         errorCount,
         stockMismatchCount,
@@ -871,8 +942,11 @@ exports.getDashboardData = async (userId) => {
         };
     });
 
+    const trendStart = trendWindowStart(7);
     const trends = buildTrendsFromDb(
-        await Order.find({ user: userId }).select("totalPrice status orderDate").lean(),
+        await Order.find({ user: userId, orderDate: { $gte: trendStart } })
+            .select("totalPrice orderDate")
+            .lean(),
         7
     );
 
@@ -896,8 +970,13 @@ exports.getDashboardData = async (userId) => {
         // Structure required by spec
         totalProducts,
         activeProducts,
-        todayOrders: mergedTodayOrders,
-        todayRevenue: mergedTodayRevenue,
+        todayOrders: summary.todayOrders,
+        todayRevenue: summary.todayRevenue,
+        revenue24h: summary.revenue24h,
+        revenueDay: summary.revenueDay,
+        revenueMonth: summary.revenueMonth,
+        revenueYear: summary.revenueYear,
+        orders24h: summary.orders24h,
         pendingSync,
         errorCount,
         stockMismatchCount,

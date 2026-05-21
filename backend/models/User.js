@@ -198,7 +198,14 @@ const UserSchema = new mongoose.Schema({
         autoRenew: { type: Boolean, default: false },
         grantedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" }, // admin tarafından verildi mi
         grantedAt: Date,
-        grantNote: String
+        grantNote: String,
+        limits: {
+            maxProducts: { type: Number },
+            maxOrders: { type: Number },
+            maxMarketplaces: { type: Number },
+            maxApiCalls: { type: Number },
+            maxUsers: { type: Number }
+        }
     },
 
     // ✅ LEGAL: Yasal belge onay kaydı — KVKK/GDPR uyumlu

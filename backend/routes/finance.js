@@ -9,6 +9,7 @@ router.use(authMiddleware, subscriptionMiddleware);
 
 // ─── Unified Finance Summary (tek marketplace veya tumu — marketplaceId opsiyonel) ──
 router.get("/summary", financeController.getFinanceSummary);
+router.get("/product-profit-analysis", financeController.getProductProfitAnalysis);
 
 // ─── Trendyol Financial Integrations ─────────────────────────────────────────
 router.get("/trendyol/settlements", financeController.getTrendyolSettlements);

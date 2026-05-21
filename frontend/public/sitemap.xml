@@ -1,137 +1,137 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
-    <loc>https://pazaryonet.com/</loc>
+    <loc>https://dashtock.com/</loc>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
   </url>
   <url>
-    <loc>https://pazaryonet.com/home</loc>
+    <loc>https://dashtock.com/home</loc>
     <changefreq>weekly</changefreq>
     <priority>0.95</priority>
   </url>
   <url>
-    <loc>https://pazaryonet.com/register</loc>
+    <loc>https://dashtock.com/register</loc>
     <changefreq>monthly</changefreq>
     <priority>0.85</priority>
   </url>
   <url>
-    <loc>https://pazaryonet.com/login</loc>
+    <loc>https://dashtock.com/login</loc>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
-    <loc>https://pazaryonet.com/blog</loc>
+    <loc>https://dashtock.com/blog</loc>
     <changefreq>weekly</changefreq>
     <priority>0.88</priority>
   </url>
   <url>
-    <loc>https://pazaryonet.com/blog/trendyol-api-entegrasyonu-nasil-yapilir</loc>
+    <loc>https://dashtock.com/blog/trendyol-api-entegrasyonu-nasil-yapilir</loc>
     <changefreq>monthly</changefreq>
     <priority>0.75</priority>
   </url>
   <url>
-    <loc>https://pazaryonet.com/blog/trendyol-stok-ve-fiyat-senkronizasyonu</loc>
+    <loc>https://dashtock.com/blog/trendyol-stok-ve-fiyat-senkronizasyonu</loc>
     <changefreq>monthly</changefreq>
     <priority>0.75</priority>
   </url>
   <url>
-    <loc>https://pazaryonet.com/blog/hepsiburada-xml-urun-yukleme-rehberi</loc>
+    <loc>https://dashtock.com/blog/hepsiburada-xml-urun-yukleme-rehberi</loc>
     <changefreq>monthly</changefreq>
     <priority>0.75</priority>
   </url>
   <url>
-    <loc>https://pazaryonet.com/blog/hepsiburada-siparis-ve-kargo-yonetimi</loc>
+    <loc>https://dashtock.com/blog/hepsiburada-siparis-ve-kargo-yonetimi</loc>
     <changefreq>monthly</changefreq>
     <priority>0.75</priority>
   </url>
   <url>
-    <loc>https://pazaryonet.com/blog/amazon-turkiye-seller-entegrasyonu</loc>
+    <loc>https://dashtock.com/blog/amazon-turkiye-seller-entegrasyonu</loc>
     <changefreq>monthly</changefreq>
     <priority>0.75</priority>
   </url>
   <url>
-    <loc>https://pazaryonet.com/blog/n11-api-ve-magaza-baglanti</loc>
+    <loc>https://dashtock.com/blog/n11-api-ve-magaza-baglanti</loc>
     <changefreq>monthly</changefreq>
     <priority>0.75</priority>
   </url>
   <url>
-    <loc>https://pazaryonet.com/blog/ciceksepeti-entegrasyon-ve-sezon-planlama</loc>
+    <loc>https://dashtock.com/blog/ciceksepeti-entegrasyon-ve-sezon-planlama</loc>
     <changefreq>monthly</changefreq>
     <priority>0.75</priority>
   </url>
   <url>
-    <loc>https://pazaryonet.com/blog/pazaryeri-entegrasyonu-nedir</loc>
+    <loc>https://dashtock.com/blog/pazaryeri-entegrasyonu-nedir</loc>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://pazaryonet.com/blog/coklu-pazaryeri-stok-yonetimi</loc>
+    <loc>https://dashtock.com/blog/coklu-pazaryeri-stok-yonetimi</loc>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://pazaryonet.com/blog/pazaryeri-kar-zarar-analizi</loc>
+    <loc>https://dashtock.com/blog/pazaryeri-kar-zarar-analizi</loc>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://pazaryonet.com/blog/e-ticaret-otomasyonu-ipuclari</loc>
+    <loc>https://dashtock.com/blog/e-ticaret-otomasyonu-ipuclari</loc>
     <changefreq>monthly</changefreq>
     <priority>0.75</priority>
   </url>
   <url>
-    <loc>https://pazaryonet.com/blog/overselling-nasil-onlenir</loc>
+    <loc>https://dashtock.com/blog/overselling-nasil-onlenir</loc>
     <changefreq>monthly</changefreq>
     <priority>0.75</priority>
   </url>
   <url>
-    <loc>https://pazaryonet.com/trendyol-entegrasyonu</loc>
+    <loc>https://dashtock.com/trendyol-entegrasyonu</loc>
     <changefreq>weekly</changefreq>
     <priority>0.9</priority>
   </url>
   <url>
-    <loc>https://pazaryonet.com/hepsiburada-entegrasyonu</loc>
+    <loc>https://dashtock.com/hepsiburada-entegrasyonu</loc>
     <changefreq>weekly</changefreq>
     <priority>0.9</priority>
   </url>
   <url>
-    <loc>https://pazaryonet.com/amazon-entegrasyonu</loc>
+    <loc>https://dashtock.com/amazon-entegrasyonu</loc>
     <changefreq>weekly</changefreq>
     <priority>0.9</priority>
   </url>
   <url>
-    <loc>https://pazaryonet.com/n11-entegrasyonu</loc>
+    <loc>https://dashtock.com/n11-entegrasyonu</loc>
     <changefreq>weekly</changefreq>
     <priority>0.9</priority>
   </url>
   <url>
-    <loc>https://pazaryonet.com/ciceksepeti-entegrasyonu</loc>
+    <loc>https://dashtock.com/ciceksepeti-entegrasyonu</loc>
     <changefreq>weekly</changefreq>
     <priority>0.85</priority>
   </url>
   <url>
-    <loc>https://pazaryonet.com/privacy</loc>
+    <loc>https://dashtock.com/privacy</loc>
     <changefreq>yearly</changefreq>
     <priority>0.4</priority>
   </url>
   <url>
-    <loc>https://pazaryonet.com/terms</loc>
+    <loc>https://dashtock.com/terms</loc>
     <changefreq>yearly</changefreq>
     <priority>0.4</priority>
   </url>
   <url>
-    <loc>https://pazaryonet.com/cookies</loc>
+    <loc>https://dashtock.com/cookies</loc>
     <changefreq>yearly</changefreq>
     <priority>0.3</priority>
   </url>
   <url>
-    <loc>https://pazaryonet.com/distance-sales</loc>
+    <loc>https://dashtock.com/distance-sales</loc>
     <changefreq>yearly</changefreq>
     <priority>0.3</priority>
   </url>
   <url>
-    <loc>https://pazaryonet.com/preliminary-info</loc>
+    <loc>https://dashtock.com/preliminary-info</loc>
     <changefreq>yearly</changefreq>
     <priority>0.3</priority>
   </url>

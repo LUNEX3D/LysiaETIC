@@ -1,4 +1,4 @@
-﻿/**
+/**
  * ═══════════════════════════════════════════════════════════════════════════
  * 📋 Operasyon Defteri (Operations Journal) — Unified Activity Feed
  * ───────────────────────────────────────────────────────────────────────────
@@ -64,7 +64,7 @@ const SEVERITY_COLOR = {
 
 const ACTOR_META = {
     user: { icon: <FaUser />, label: "Ben", color: COLORS.blue },
-    ai: { icon: <FaRobot />, label: "AI / PazarYonet AI", color: COLORS.purple },
+    ai: { icon: <FaRobot />, label: "AI / Dashtock AI", color: COLORS.purple },
     admin: { icon: <FaUserShield />, label: "Admin", color: COLORS.yellow },
     system: { icon: <FaInfoCircle />, label: "Sistem", color: COLORS.cyan },
 };
@@ -202,7 +202,7 @@ const getEntryNarrative = (item) => {
             headline,
             detail,
             meaning:
-                "PazarYonet AI (AI) bu kayıtta otomatik bir aksiyon almıştır. Tetikleyici, önce/sonra değerleri ve guardrail " +
+                "Dashtock AI (AI) bu kayıtta otomatik bir aksiyon almıştır. Tetikleyici, önce/sonra değerleri ve guardrail " +
                 "notları geri alma ile birlikte şeffaflık sağlar; sistem kuralı uygulandıysa sarı notta görürsünüz.",
             hint: "Sonucu beğenmiyorsanız ürün sayfasından manuel düzeltme yapabilir veya otonomi ayarlarını gözden geçirebilirsiniz.",
         };
@@ -481,7 +481,7 @@ const PageHero = ({ total, byActor, byKind, bySeverity, onRefresh, onExport, onS
                 </div>
                 <p style={{ margin: "4px 0 0", color: COLORS.textDim, fontSize: 13, maxWidth: 780, lineHeight: 1.55 }}>
                     İşletmende olan biten her şeyin <b>tek defteri</b>: <b>senin yaptığın işlemler</b>,
-                    <b> karşılaşılan hatalar</b> ve <b>AI / PazarYonet AI'in aldığı kararlar + uyguladığı aksiyonlar</b>
+                    <b> karşılaşılan hatalar</b> ve <b>AI / Dashtock AI'in aldığı kararlar + uyguladığı aksiyonlar</b>
                     {" "}kronolojik olarak yer alır. Her satırda <b>okunaklı başlık ve açıklama</b> görürsün; satıra tıklayınca <b>«Bu kayıt ne anlama geliyor?»</b> ve teknik detaylar (önce/sonra, kural izi, rollback) açılır.
                 </p>
             </div>
@@ -503,7 +503,7 @@ const PageHero = ({ total, byActor, byKind, bySeverity, onRefresh, onExport, onS
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 8, marginTop: 16 }}>
             <KPIBadge label="Toplam Kayıt" value={total} color={COLORS.accent} icon="📊" />
             <KPIBadge label="Ben" value={byActor?.user || 0} color={ACTOR_META.user.color} icon={<FaUser />} />
-            <KPIBadge label="AI / PazarYonet AI" value={byActor?.ai || ((byKind?.ai_action || 0) + (byKind?.ai_decision || 0))} color={ACTOR_META.ai.color} icon={<FaRobot />} />
+            <KPIBadge label="AI / Dashtock AI" value={byActor?.ai || ((byKind?.ai_action || 0) + (byKind?.ai_decision || 0))} color={ACTOR_META.ai.color} icon={<FaRobot />} />
             <KPIBadge label="Hatalar" value={byKind?.error || 0} color={COLORS.red} icon="⚠️" />
             <KPIBadge label="AI Aksiyonları" value={byKind?.ai_action || 0} color={COLORS.cyan} icon="⚡" />
             <KPIBadge label="AI Kararları" value={byKind?.ai_decision || 0} color={COLORS.purple} icon="🤖" />

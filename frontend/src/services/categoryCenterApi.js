@@ -151,8 +151,13 @@ export const autoMatchApprove = async (mappingId, platform, categoryId, category
  * Otomatik eşleştirme başlat — toplu (boş olanları doldurur)
  * @param {string[]} platforms - ["n11", "ciceksepeti", "hepsiburada"]
  */
-export const autoMatch = async (platforms = []) => {
-    const res = await API.post(`${BASE}/auto-match`, { platforms });
+export const autoMatch = async (platforms = [], options = {}) => {
+    const { timeout = 600000, ...body } = options;
+    const res = await API.post(
+        `${BASE}/auto-match`,
+        { platforms, ...body },
+        { timeout }
+    );
     return res.data;
 };
 

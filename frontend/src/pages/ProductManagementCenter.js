@@ -25,6 +25,7 @@ import {
 } from "react-icons/fa";
 import {
     getProducts, getProductDetail, updateProduct, deleteProduct,
+    importMarketplaceProduct,
     syncFromMarketplace, distributeProduct, bulkDistribute,
     syncStock, syncPrice, triggerAutoSync, getSyncLogs, getSyncJobStatus,
     getProductManagementDashboard, syncAllMarketplaces,
@@ -41,14 +42,20 @@ import {
     addVariantGroupMembers,
     removeVariantGroupMembers,
     deleteVariantGroup,
+    applyVariantGroupProductMainId,
     getFieldAuditList,
     applyPlatformField,
+    applyMasterToPlatformField,
     refreshProductFieldAudit,
 } from "../services/productManagementApi";
 import { searchCategories, getCategoryTree, resolveForDistribute } from "../services/categoryCenterApi";
 import { getUserMarketplaces } from "../services/marketplaceApi";
 import { logUserActivity } from "../services/errorCenterLog";
 import ProductUploadWizard from "./ProductUploadWizard";
+import UploadMarketplaceTab from "../components/pm/UploadMarketplaceTab";
+import { usePageHelp } from "../context/PageHelpContext";
+import PageHelpButton from "../components/help/PageHelpButton";
+import ChannelPricesTab from "../components/pm/ChannelPricesTab";
 import "../styles/ProductManagementCenter.css";
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -99,8 +106,12 @@ const vgProductThumb = (p) => {
     const u = Array.isArray(imgs) && imgs.length ? (typeof imgs[0] === "string" ? imgs[0] : imgs[0]?.url) : null;
     return u && String(u).startsWith("http") ? u : null;
 };
-// ⚠️ FIX: syncStatus: "error" = platformda yok/kaldırılmış — bu mapping'ler gösterilmez
-const getPlMap = (p, name) => (p.marketplaceMappings || []).find(m => normMP(m.marketplaceName) === normMP(name) && m.syncStatus !== "error");
+// error = platformda yok; pending/pulled/synced = aktif veya kuyrukta
+const getPlMap = (p, name) => (p.marketplaceMappings || []).find(m => {
+    if (normMP(m.marketplaceName) !== normMP(name)) return false;
+    if (m.syncStatus === "error") return false;
+    return m.syncStatus === "synced" || m.isSynced || ["pending", "syncing", "pulled"].includes(m.syncStatus) || m.marketplaceProductId;
+});
 /** syncStatus fark etmeksizin eşleşme (pazaryeri fiyat sekmesi) */
 const getPlMappingAny = (p, name) => (p.marketplaceMappings || []).find(m => normMP(m.marketplaceName) === normMP(name));
 const getPlStatus = (p, name) => { const m = getPlMap(p, name); if (!m) return { exists: false }; return { exists: true, status: m.syncStatus || (m.isActive !== false ? "active" : "inactive"), price: m.price, stock: m.stock, lastSync: m.lastSyncDate }; };
@@ -134,6 +145,7 @@ const MP_LOGO = {
 const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
     // ── Core State ──
     const [tab, setTab] = useState(initialTab);
+    const { setHelpPageId } = usePageHelp();
     const [uploadMpProduct, setUploadMpProduct] = useState(null);
     const [uploadMpSearch, setUploadMpSearch] = useState("");
     const [uploadMpPage, setUploadMpPage] = useState(0);
@@ -252,6 +264,8 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
     const [vgCreateStep, setVgCreateStep] = useState(1);
     const [vgListSearch, setVgListSearch] = useState("");
     const [vgListLoading, setVgListLoading] = useState(false);
+    const [vgMainIdSync, setVgMainIdSync] = useState(null);
+    const [vgApplyLoading, setVgApplyLoading] = useState(false);
 
     // ── Category Tab State ──
     const [catTab, setCatTab] = useState("browse"); // "browse" | "mapping" | "products"
@@ -413,6 +427,51 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
             setActionLoading("");
         }
     };
+
+    const handleApplyMasterToPlatform = async (productId, marketplaceName) => {
+        const key = `fa-m-${productId}-${marketplaceName}`;
+        setActionLoading(key);
+        try {
+            await applyMasterToPlatformField(productId, { marketplaceName });
+            showToast("Master barkod/SKU pazaryeri kaydına uygulandı");
+            loadProducts(page);
+            await loadFieldAudit(faPage);
+            if (detail?._id === productId) {
+                const r = await getProductDetail(productId);
+                setDetail(r.product);
+            }
+        } catch (e) {
+            showToast(e?.response?.data?.error || "Uygulanamadı", "error");
+        } finally {
+            setActionLoading("");
+        }
+    };
+
+    const renderDriftFieldAction = (productId, marketplaceName, d) => {
+        const isIdentity = d.field === "barcode" || d.field === "sku";
+        if (isIdentity) {
+            return (
+                <button type="button" className="ud-pm-btn sm green"
+                    title="Stok/fiyat bu ürünün barkoduna gitsin (önerilen)"
+                    disabled={actionLoading === `fa-m-${productId}-${marketplaceName}`}
+                    onClick={() => handleApplyMasterToPlatform(productId, marketplaceName)}>
+                    Master&apos;ı uygula
+                </button>
+            );
+        }
+        return (
+            <button type="button" className="ud-pm-btn sm accent outline"
+                disabled={actionLoading === `fa-${productId}-${d.field}`}
+                onClick={() => handleApplyPlatformField(productId, marketplaceName, d.field)}>
+                Platformu al
+            </button>
+        );
+    };
+
+    const productHasBarcodeDrift = (p) =>
+        (p?.fieldAuditSummary?.platforms || []).some((pl) =>
+            (pl.drifts || []).some((d) => d.field === "barcode" && d.severity === "critical")
+        );
 
     const handleRefreshFieldAuditOne = async (productId) => {
         setActionLoading(`fa-refresh-${productId}`);
@@ -732,7 +791,7 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
         setDistResults([]);
         setDistExpanded(new Set());
         setDistUi((u) => (u ? { ...u, phase: "search" } : u));
-        loadDistCategoryTree(pl);
+        setDistTree([]);
     };
 
     const handleDistSearchChange = (val) => {
@@ -847,9 +906,13 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
                 setDetail(r.product);
             }
             loadProducts(page);
+            if (tab === "uploadMp") {
+                loadUploadMpProducts(uploadMpPage, uploadMpSearch, uploadMpFilterPl, uploadMpFilterType);
+            }
         } catch (e) {
             const err = e?.response?.data;
-            showToast(err?.details || err?.error || err?.message || "Dağıtım hatası", "error");
+            const msg = err?.details || err?.error || err?.message || e?.message || "Dağıtım hatası";
+            showToast(typeof msg === "string" ? msg : "Dağıtım hatası", "error");
         } finally {
             setDistActionLoading(false);
         }
@@ -924,6 +987,15 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
             setVgLoading(false);
         }
     }, [showToast]);
+
+    useEffect(() => {
+        if (vgDetailOpen) {
+            setHelpPageId("pm-variants.editModal");
+        } else {
+            setHelpPageId(`pm-center.${tab}`);
+        }
+        return () => setHelpPageId(null);
+    }, [tab, vgDetailOpen, setHelpPageId]);
 
     useEffect(() => {
         if (tab === "sync") loadLogs();
@@ -1130,6 +1202,26 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
             else showToast("Sunucu iş kimliği döndürmedi", "error");
         } catch (e) {
             showToast(e.response?.data?.error || "Toplu senkron başlatılamadı", "error");
+        }
+    };
+
+    const handleImportFromSearch = async () => {
+        const q = String(search || "").trim();
+        if (!q) return;
+        const isBarcode = /^\d{8,14}$/.test(q);
+        setActionLoading("ty-import");
+        try {
+            const r = await importMarketplaceProduct({
+                marketplaceName: "Trendyol",
+                ...(isBarcode ? { barcode: q } : { sku: q })
+            });
+            showToast(`${r.name || "Ürün"} Trendyol'dan içe aktarıldı (${r.barcode})`);
+            await loadProducts(0, r.barcode || r.sku || q);
+            setSearch(r.barcode || r.sku || q);
+        } catch (e) {
+            showToast(e?.response?.data?.error || e.message || "İçe aktarılamadı", "error");
+        } finally {
+            setActionLoading("");
         }
     };
 
@@ -1436,11 +1528,7 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
                                                             <span style={{ color: driftSeverityColor(d.severity) }}>{d.label}</span>
                                                             <span style={{ wordBreak: "break-all" }} title="Master">{d.masterValue || "—"}</span>
                                                             <span style={{ wordBreak: "break-all" }} title="Platform">{d.platformValue || "—"}</span>
-                                                            <button type="button" className="ud-pm-btn sm accent outline"
-                                                                disabled={actionLoading === `fa-${item._id}-${d.field}`}
-                                                                onClick={() => handleApplyPlatformField(item._id, pl.marketplaceName, d.field)}>
-                                                                Platformu al
-                                                            </button>
+                                                            {renderDriftFieldAction(item._id, pl.marketplaceName, d)}
                                                         </div>
                                                     ))}
                                                 </div>
@@ -1460,174 +1548,34 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
     /* ═══════════════════════════════════════════════════════════════
        TAB: PAZARYERİ BAZLI FİYATLAR
        ═══════════════════════════════════════════════════════════════ */
-    const renderChannelPrices = () => {
-        const chPages = Math.max(1, Math.ceil(chTabTotal / LIMIT));
-        const colSpan = 2 + PLATFORMS.length * 2 + 1;
-        return (
-            <motion.div className="ud-pm-chpr-root ud-pm-chpr-root--list">
-                <div className="ud-pm-toolbar ud-pm-toolbar--card ud-pm-chpr-toolbar">
-                    <div className="ud-pm-search-wrap">
-                        <span className="icon"><FaSearch /></span>
-                        <input
-                            className="ud-pm-search"
-                            value={chTabSearch}
-                            onChange={(e) => setChTabSearch(e.target.value)}
-                            placeholder="Ürün adı, barkod veya SKU…"
-                            aria-label="Pazaryeri fiyatlarında ara"
-                        />
-                    </div>
-                    <div className="ud-pm-spacer" />
-                    <Pill color="var(--ud-pm-accent)">{chTabTotal} ürün</Pill>
-                </div>
-                <p className="ud-pm-chpr-list-hint">
-                    <FaInfoCircle /> Satırda fiyatları düzenleyin. <strong>Kaydet</strong> panel veritabanını günceller; <strong>Gönder</strong> ilgili pazaryerine canlı iletir.
-                </p>
-                <div className="ud-pm-table-wrap ud-pm-chpr-table-wrap">
-                    <div className="ud-pm-table-scroll">
-                        <table className="ud-pm-table ud-pm-chpr-table">
-                            <thead>
-                                <tr className="ud-pm-chpr-head-main">
-                                    <th rowSpan={2} className="ud-pm-chpr-sticky-col">Ürün</th>
-                                    <th rowSpan={2} className="right ud-pm-chpr-sticky-master">Master</th>
-                                    {PLATFORMS.map((pl) => (
-                                        <th key={pl} colSpan={2} className="center ud-pm-chpr-pl-head" style={{ "--pl-color": PL_COLOR[pl] }}>
-                                            <span className="ud-pm-chpr-pl-label">{MP_LOGO[pl]} {PL_SHORT[pl]}</span>
-                                        </th>
-                                    ))}
-                                    <th rowSpan={2} className="center ud-pm-chpr-sticky-actions">Satır</th>
-                                </tr>
-                                <tr className="ud-pm-chpr-head-sub">
-                                    {PLATFORMS.map((pl) => (
-                                        <React.Fragment key={`${pl}-sub`}>
-                                            <th className="center ud-pm-chpr-sub-th">Satış</th>
-                                            <th className="center ud-pm-chpr-sub-th">Liste</th>
-                                        </React.Fragment>
-                                    ))}
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {chTabLoading ? (
-                                    <tr><td colSpan={colSpan}><Loading /></td></tr>
-                                ) : chTabProducts.length === 0 ? (
-                                    <tr><td colSpan={colSpan}><Empty icon={FaPercentage} title="Ürün bulunamadı" desc="Aramayı değiştirin veya ürün ekleyin." /></td></tr>
-                                ) : chTabProducts.map((p) => {
-                                    const mp = p.masterProduct || {};
-                                    const draft = getChRowDraft(p);
-                                    const nListed = PLATFORMS.filter((pl) => getPlMappingAny(p, pl)).length;
-                                    return (
-                                        <tr key={p._id}>
-                                            <td className="ud-pm-chpr-sticky-col">
-                                                <div className="product-cell">
-                                                    {mp.images?.[0] ? (
-                                                        <img src={mp.images[0]} alt="" className="product-img" />
-                                                    ) : (
-                                                        <div className="product-img-placeholder"><FaBox /></div>
-                                                    )}
-                                                    <div style={{ minWidth: 0, flex: 1 }}>
-                                                        <div className="product-name ps-product-name" title={mp.name}>{mp.name || "İsimsiz"}</div>
-                                                        <div className="mono-dim">{mp.barcode || "—"}</div>
-                                                        <span className="ud-pm-chpr-row-channels">{nListed}/{PLATFORMS.length} kanal</span>
-                                                    </div>
-                                                </div>
-                                            </td>
-                                            <td className="right ud-pm-chpr-sticky-master">
-                                                <div className="ud-pm-chpr-master-cell">
-                                                    <strong>{fmt(mp.price)}</strong>
-                                                    {mp.listPrice != null && mp.listPrice !== mp.price && (
-                                                        <small>Liste {fmt(mp.listPrice)}</small>
-                                                    )}
-                                                </div>
-                                            </td>
-                                            {PLATFORMS.map((pl) => {
-                                                const m = getPlMappingAny(p, pl);
-                                                const listed = !!m;
-                                                const d = draft[pl] || { sale: "", list: "" };
-                                                const busyLocal = chRowAction === `${p._id}-${pl}-local`;
-                                                const busyPush = chRowAction === `${p._id}-${pl}-push`;
-                                                if (!listed) {
-                                                    return (
-                                                        <React.Fragment key={pl}>
-                                                            <td colSpan={2} className="center ud-pm-chpr-cell-off">—</td>
-                                                        </React.Fragment>
-                                                    );
-                                                }
-                                                return (
-                                                    <React.Fragment key={pl}>
-                                                        <td className="center ud-pm-chpr-price-td">
-                                                            <input
-                                                                type="text"
-                                                                className="ud-pm-inline-input ud-pm-chpr-mini-input"
-                                                                value={d.sale}
-                                                                onChange={(e) => setChEditField(p._id, pl, "sale", e.target.value)}
-                                                                inputMode="decimal"
-                                                                placeholder="Satış"
-                                                                aria-label={`${pl} satış fiyatı`}
-                                                            />
-                                                            <div className="ud-pm-chpr-cell-actions">
-                                                                <button
-                                                                    type="button"
-                                                                    className="ud-pm-chpr-icon-btn"
-                                                                    title="Panelde kaydet"
-                                                                    disabled={!!chRowAction}
-                                                                    onClick={() => saveChLocal(p._id, pl)}
-                                                                >
-                                                                    {busyLocal ? <span className="spinner" /> : <FaSave />}
-                                                                </button>
-                                                                <button
-                                                                    type="button"
-                                                                    className="ud-pm-chpr-icon-btn ud-pm-chpr-icon-btn--mp"
-                                                                    title="Pazaryerine gönder"
-                                                                    disabled={!!chRowAction}
-                                                                    onClick={() => pushChPrice(p._id, pl)}
-                                                                >
-                                                                    {busyPush ? <span className="spinner" /> : <FaGlobe />}
-                                                                </button>
-                                                            </div>
-                                                        </td>
-                                                        <td className="center ud-pm-chpr-price-td">
-                                                            <input
-                                                                type="text"
-                                                                className="ud-pm-inline-input ud-pm-chpr-mini-input"
-                                                                value={d.list}
-                                                                onChange={(e) => setChEditField(p._id, pl, "list", e.target.value)}
-                                                                inputMode="decimal"
-                                                                placeholder="Liste"
-                                                                aria-label={`${pl} liste fiyatı`}
-                                                            />
-                                                            {m.price != null && (
-                                                                <div className="ud-pm-chpr-saved-hint" title="Kayıtlı fiyat">
-                                                                    {fmt(m.price)}
-                                                                </div>
-                                                            )}
-                                                        </td>
-                                                    </React.Fragment>
-                                                );
-                                            })}
-                                            <td className="center ud-pm-chpr-sticky-actions">
-                                                <div className="ud-pm-chpr-row-btns">
-                                                    <button type="button" className="ud-pm-btn sm accent outline" onClick={() => fillChRowFromMaster(p._id)} disabled={nListed === 0} title="Master fiyatıyla doldur">
-                                                        <FaBolt />
-                                                    </button>
-                                                    <button type="button" className="ud-pm-btn sm muted" onClick={() => resetChRowDraft(p._id)} title="Sıfırla">
-                                                        <FaUndo />
-                                                    </button>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    );
-                                })}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-                <Pagination currentPage={chTabPage} totalPages={chPages} total={chTabTotal} onPageChange={(pg) => loadChTabProducts(pg)} />
-            </motion.div>
-        );
-    };
+    const renderChannelPrices = () => (
+        <ChannelPricesTab
+            products={chTabProducts}
+            total={chTabTotal}
+            page={chTabPage}
+            limit={LIMIT}
+            loading={chTabLoading}
+            search={chTabSearch}
+            onSearchChange={setChTabSearch}
+            onPageChange={loadChTabProducts}
+            platforms={PLATFORMS}
+            plShort={PL_SHORT}
+            plColor={PL_COLOR}
+            fmt={fmt}
+            getPlMappingAny={getPlMappingAny}
+            getChRowDraft={getChRowDraft}
+            setChEditField={setChEditField}
+            saveChLocal={saveChLocal}
+            pushChPrice={pushChPrice}
+            fillChRowFromMaster={fillChRowFromMaster}
+            resetChRowDraft={resetChRowDraft}
+            chRowAction={chRowAction}
+            Loading={Loading}
+            Empty={Empty}
+            Pagination={Pagination}
+        />
+    );
 
-    /* ═══════════════════════════════════════════════════════════════
-       TAB 1: ÜRÜN LİSTESİ
-       ═══════════════════════════════════════════════════════════════ */
     const renderProducts = () => (
         <div>
             {/* Toolbar */}
@@ -1668,7 +1616,27 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
                     {loading ? (
                         <div className="ud-pm-product-list-loading"><Loading /></div>
                     ) : products.length === 0 ? (
-                        <Empty icon={FaBox} title="Ürün bulunamadı" desc="Pazaryerlerinden çekin veya yeni ekleyin" />
+                        <motion.div className="ud-pm-empty" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                            <motion.div className="icon"><FaBox /></motion.div>
+                            <motion.div className="title" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>Ürün bulunamadı</motion.div>
+                            <motion.div className="desc" initial={{ opacity: 0 }} animate={{ opacity: 1, transition: { delay: 0.05 } }}>
+                                {search.trim()
+                                    ? "Bu kod veritabanında yok. Trendyol'da satışta olsa bile önce içe aktarılmalı."
+                                    : "Pazaryerlerinden çekin veya yeni ekleyin"}
+                            </motion.div>
+                            {search.trim().length >= 3 && (
+                                <button
+                                    type="button"
+                                    className="ud-pm-btn sm accent"
+                                    style={{ marginTop: 14 }}
+                                    disabled={actionLoading === "ty-import"}
+                                    onClick={handleImportFromSearch}
+                                >
+                                    {actionLoading === "ty-import" ? <span className="spinner" /> : <FaCloudUploadAlt />}
+                                    Trendyol&apos;dan içe aktar: {search.trim()}
+                                </button>
+                            )}
+                        </motion.div>
                     ) : products.map((p, i) => {
                         const mp = p.masterProduct || {};
                         const st = p.stockTracking || {};
@@ -1699,6 +1667,16 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
                                             <span className="mono">{mp.barcode || "—"}</span>
                                             <span className="mono-dim">{mp.sku || "—"}</span>
                                         </div>
+                                        {p.variantGroup?.name && (
+                                            <button
+                                                type="button"
+                                                className="ud-pm-vg-badge"
+                                                title={p.variantGroup.trendyolProductMainId ? `TY model: ${p.variantGroup.trendyolProductMainId}` : "Varyant grubu"}
+                                                onClick={(e) => { e.stopPropagation(); vgOpenDetail(p.variantGroup._id); }}
+                                            >
+                                                <FaObjectGroup /> {p.variantGroup.name}
+                                            </button>
+                                        )}
                                     </div>
                                 </div>
                                 <div className="ud-pm-product-list-item-stats">
@@ -1762,16 +1740,8 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
        TAB: YENİ ÜRÜN & DAĞIT (sihirbaz — createAndDistribute)
        ═══════════════════════════════════════════════════════════════ */
     const renderNewProductWizard = () => (
-        <div className="ud-pm-wizard-tab">
-            <div className="ud-pm-wizard-tab-intro ud-pm-card" role="note">
-                <p className="ud-pm-wizard-tab-desc">
-                    Pazaryeri seçtiyseniz 4. adımda her platform için kategori seçin. Görseller: pazaryerine aktarım için en az bir <strong>https://</strong> görsel URL gerekir.
-                    Zaten kayıtlı bir ürünü yüklemek için <strong>Ürünleri Yükle</strong> sekmesine geçin.
-                </p>
-            </div>
-            <div className="ud-pm-card ud-pm-wizard-tab-body">
-                <ProductUploadWizard userId={userId} />
-            </div>
+        <div className="ud-pm-wizard-tab ud-pm-wizard-tab--upload">
+            <ProductUploadWizard userId={userId} embedded />
         </div>
     );
 
@@ -1796,316 +1766,43 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
     /* ═══════════════════════════════════════════════════════════════
        TAB 5: PAZARYERİNE YÜKLE
        ═══════════════════════════════════════════════════════════════ */
+    const selectUploadMpProduct = (p) => {
+        setUploadMpProduct(p);
+        setUploadMpSelectedPlatform(null);
+        resetUploadMpCategoryState();
+    };
+
     const renderUploadMarketplace = () => (
-        <div className="ud-pm-upload-mp-container">
-            {/* Sol: Ürün Listesi */}
-            <div className="ud-pm-card" style={{ display: "flex", flexDirection: "column", padding: 0, overflow: "hidden" }}>
-                <div style={{ padding: 15, borderBottom: "1px solid var(--ud-pm-border)", display: "flex", flexDirection: "column", gap: 10 }}>
-                    <div className="ud-pm-search-wrap" style={{ width: "100%" }}>
-                        <span className="icon"><FaSearch /></span>
-                        <input className="ud-pm-search" value={uploadMpSearch} onChange={e => setUploadMpSearch(e.target.value)} placeholder="Ürün ara..." />
-                    </div>
-                    <div style={{ display: "flex", gap: 5 }}>
-                        <select 
-                            className="ud-pm-select sm" 
-                            style={{ flex: 1, fontSize: 11 }}
-                            value={uploadMpFilterPl} 
-                            onChange={e => setUploadMpFilterPl(e.target.value)}
-                        >
-                            <option value="">Tüm Platformlar</option>
-                            {PLATFORMS.map(p => <option key={p} value={p}>{p}</option>)}
-                        </select>
-                        <select 
-                            className="ud-pm-select sm" 
-                            style={{ flex: 1, fontSize: 11 }}
-                            value={uploadMpFilterType} 
-                            onChange={e => setUploadMpFilterType(e.target.value)}
-                        >
-                            <option value="">Durum Hepsi</option>
-                            <option value="listed">Yüklü Olanlar</option>
-                            <option value="not_listed">Yüklü Olmayanlar</option>
-                        </select>
-                    </div>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                        <span style={{ color: "var(--ud-pm-text-dim)", fontSize: 11 }}>{total} ürün</span>
-                        <button
-                            className="ud-pm-btn sm outline"
-                            onClick={() => { setUploadMpSearch(""); setUploadMpFilterPl(""); setUploadMpFilterType(""); }}
-                        >
-                            <FaTimes /> Filtreyi Temizle
-                        </button>
-                    </div>
-                </div>
-                <div style={{ flex: 1, overflowY: "auto", padding: "10px 0" }}>
-                    {uploadMpLoading ? <Loading /> : products.length === 0 ? <Empty title="Ürün bulunamadı" /> : (
-                        products.map(p => (
-                            <div key={p._id} 
-                                className={`ud-pm-upload-list-item ${uploadMpProduct?._id === p._id ? "active" : ""}`}
-                                onClick={() => setUploadMpProduct(p)}>
-                                                <div style={{ width: 80, height: 80, borderRadius: 8, overflow: "hidden", border: "1px solid var(--ud-pm-border)", background: "#fff" }}>
-                                                    {p.masterProduct?.images?.[0] ? <img src={p.masterProduct.images[0]} style={{ width: "100%", height: "100%", objectFit: "contain" }} alt="" /> : <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "#ccc" }}><FaImage size={24} /></div>}
-                                                </div>
-                                                <div>
-                                                    <div className="name" style={{ fontWeight: 600, color: "var(--ud-pm-text)" }}>{p.masterProduct?.name || "İsimsiz"}</div>
-                                                    <div className="sku" style={{ fontSize: 11, color: "var(--ud-pm-text-sub)" }}>{p.masterProduct?.sku || p.masterProduct?.barcode || "-"}</div>
-                                                    <div className="mps" style={{ display: "flex", gap: 4, marginTop: 4 }}>
-                                                        {PLATFORMS.map(pl => {
-                                                            const m = (p.marketplaceMappings || []).find(mm => normMP(mm.marketplaceName) === normMP(pl) && mm.syncStatus !== "error");
-                                                            return m ? <span key={pl} title={pl} style={{ width: 6, height: 6, borderRadius: "50%", background: PL_COLOR[pl] }} /> : null;
-                                                        })}
-                                                    </div>
-                                                </div>
-                                <FaChevronRight className="chevron" />
-                            </div>
-                        ))
-                    )}
-                </div>
-                <div style={{ padding: 10, borderTop: "1px solid var(--ud-pm-border)" }}>
-                    <Pagination currentPage={uploadMpPage} totalPages={Math.ceil(total / LIMIT)} total={total} onPageChange={loadUploadMpProducts} />
-                </div>
-            </div>
-
-            {/* Sağ: Pazaryeri Dağıtım Paneli */}
-            <div className="ud-pm-card" style={{ padding: 0, display: "flex", flexDirection: "column", overflow: "hidden", background: "var(--ud-pm-bg-card)", position: "relative" }}>
-                {!uploadMpProduct ? (
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", flexDirection: "column", color: "var(--ud-pm-text-sub)", gap: 10 }}>
-                        <FaCloudUploadAlt style={{ fontSize: 48, opacity: 0.2 }} />
-                        <p>Düzenlemek veya yüklemek için soldan bir ürün seçin.</p>
-                    </div>
-                ) : (
-                    <div style={{ height: "100%", minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-                        {/* Üst Bilgi */}
-                        <div style={{ flexShrink: 0, padding: 20, borderBottom: "1px solid var(--ud-pm-border)", display: "flex", justifyContent: "space-between", alignItems: "flex-start", background: "rgba(255,255,255,0.02)" }}>
-                            <div style={{ display: "flex", gap: 15 }}>
-                                <div style={{ width: 80, height: 80, borderRadius: 8, overflow: "hidden", border: "1px solid var(--ud-pm-border)", background: "#fff" }}>
-                                    {uploadMpProduct.masterProduct?.images?.[0] ? <img src={uploadMpProduct.masterProduct.images[0]} style={{ width: "100%", height: "100%", objectFit: "contain" }} alt="" /> : <div style={{ height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "#ccc" }}><FaImage size={24} /></div>}
-                                </div>
-                                <div>
-                                    <h2 style={{ fontSize: 18, margin: "0 0 5px 0", color: "var(--ud-pm-text)" }}>{uploadMpProduct.masterProduct?.name || "İsimsiz"}</h2>
-                                    <div style={{ display: "flex", gap: 10, fontSize: 12 }}>
-                                        <Pill color="var(--ud-pm-blue)">SKU: {uploadMpProduct.masterProduct?.sku || "-"}</Pill>
-                                        <Pill color="var(--ud-pm-purple)">Barkod: {uploadMpProduct.masterProduct?.barcode || "-"}</Pill>
-                                        <Pill color="var(--ud-pm-accent)">{(uploadMpProduct.masterProduct?.price || 0).toLocaleString("tr-TR", { style: "currency", currency: uploadMpProduct.masterProduct?.currency || "TRY" })}</Pill>
-                                    </div>
-                                </div>
-                            </div>
-                            <button className="ud-pm-btn sm outline" onClick={() => openDetail(uploadMpProduct._id)}><FaBolt /> Tüm Bilgiler</button>
-                        </div>
-
-                        {/* Pazaryeri listesi + kategori: kategori seçilince dikey alan bölünür */}
-                        <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-                            <div style={{ flexShrink: 0, padding: "16px 20px 12px", maxHeight: uploadMpSelectedPlatform ? "min(38vh, 400px)" : "none", overflowY: uploadMpSelectedPlatform ? "auto" : "visible" }}>
-                            <h3 style={{ fontSize: 14, marginBottom: 15, display: "flex", alignItems: "center", gap: 8, color: "var(--ud-pm-text)" }}><FaStore /> Satış Platformları</h3>
-                            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 15 }}>
-                                {marketplaces.map(mp => {
-                                    const ps = getPlStatus(uploadMpProduct, mp.marketplaceName);
-                                    const isSelected = uploadMpSelectedPlatform === mp.marketplaceName;
-                                    const mapping = uploadMpProduct.marketplaceMappings?.find(m => m.marketplaceName === mp.marketplaceName);
-                                    
-                                    return (
-                                        <div key={mp._id} 
-                                            className={`ud-pm-mp-upload-card ${isSelected ? "selected" : ""} ${ps.exists ? "exists" : ""}`}
-                                            onClick={() => {
-                                                setUploadMpSelectedPlatform(mp.marketplaceName);
-                                                const catPathStr = Array.isArray(mapping?.categoryPath) ? mapping.categoryPath.join(" > ") : mapping?.categoryPath;
-                                                setUploadMpSelectedCategory(mapping ? { 
-                                                    id: mapping.categoryId || mapping.externalCategoryId, 
-                                                    path: catPathStr, 
-                                                    name: mapping.categoryName || mapping.externalCategoryName 
-                                                } : null);
-                                                setUploadMpCatResults([]);
-                                                setUploadMpCatSearch("");
-                                                setUploadMpCatPath([]);
-                                                setUploadMpCatExpanded(new Set());
-                                                loadCategoryTree(mp.marketplaceName);
-                                            }}>
-                                            <div className="mp-icon" style={{ background: PL_COLOR[mp.marketplaceName] + "15", color: PL_COLOR[mp.marketplaceName] }}>
-                                                {PL_SHORT[mp.marketplaceName]}
-                                            </div>
-                                            <div className="mp-info">
-                                                <div className="mp-name">{mp.marketplaceName}</div>
-                                                <div className="mp-status">
-                                                    {ps.exists ? (
-                                                        <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                                                            <span style={{ color: "var(--ud-pm-green)", display: "flex", alignItems: "center", gap: 4, fontSize: 11 }}>
-                                                                <FaCheckCircle size={10} /> Yüklü
-                                                            </span>
-                                                            <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                                                                {mapping?.categoryName && (
-                                                                    <span style={{ fontSize: 9, color: "var(--ud-pm-text)", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 150 }}>
-                                                                        {mapping.categoryName}
-                                                                    </span>
-                                                                )}
-                                                                {(mapping?.categoryId || mapping?.externalCategoryId) && (
-                                                                    <span style={{ fontSize: 8, color: "var(--ud-pm-text-sub)", fontFamily: 'monospace' }}>
-                                                                        ID: {mapping.categoryId || mapping.externalCategoryId}
-                                                                    </span>
-                                                                )}
-                                                            </div>
-                                                        </div>
-                                                    ) : (
-                                                        <span style={{ color: "var(--ud-pm-text-sub)", fontSize: 11 }}>Yüklü Değil</span>
-                                                    )}
-                                                </div>
-                                            </div>
-                                            {ps.exists && <div className="mp-synced"><FaSync size={10} /></div>}
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                            </div>
-
-                            {/* Kategori Seçim Alanı */}
-                            {uploadMpSelectedPlatform && (
-                                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden", marginTop: 8, borderTop: "1px solid var(--ud-pm-border)", padding: "12px 20px 20px" }}>
-                                    <div style={{ flexShrink: 0, display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 15 }}>
-                                        <h3 style={{ fontSize: 14, margin: 0, display: "flex", alignItems: "center", gap: 8, color: "var(--ud-pm-text)" }}>
-                                            <FaSitemap color={PL_COLOR[uploadMpSelectedPlatform]} /> {uploadMpSelectedPlatform} Kategori Seçimi
-                                        </h3>
-                                        {uploadMpSelectedCategory && (
-                                            <Pill color="var(--ud-pm-green)">Seçili: {uploadMpSelectedCategory.id}</Pill>
-                                        )}
-                                    </div>
-
-                                    {/* Mevcut Kategori / Breadcrumb */}
-                                    <div className="ud-pm-cat-breadcrumb-container" style={{ flexShrink: 0 }}>
-                                        <div className="ud-pm-cat-breadcrumb-title">
-                                            <FaFolderOpen /> Kategori Yolu:
-                                        </div>
-                                        <div className="ud-pm-cat-breadcrumb">
-                                            <span className="breadcrumb-item" onClick={() => { setUploadMpCatExpanded(new Set()); setUploadMpSelectedCategory(null); }}>
-                                                {uploadMpSelectedPlatform}
-                                            </span>
-                                            {uploadMpSelectedCategory && (
-                                                <>
-                                                    <FaChevronRight className="sep" />
-                                                    <span className="breadcrumb-item active">
-                                                        {uploadMpSelectedCategory.name}
-                                                    </span>
-                                                </>
-                                            )}
-                                        </div>
-                                        {uploadMpSelectedCategory && (
-                                            <div className="ud-pm-cat-full-path" style={{ marginTop: 8, padding: '8px 12px', background: 'var(--ud-pm-bg-alt)', borderRadius: 6, borderLeft: '3px solid var(--ud-pm-accent)' }}>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--ud-pm-text)', fontWeight: 600, fontSize: 12, marginBottom: 4 }}>
-                                                    <FaInfoCircle size={12} color="var(--ud-pm-accent)" /> Detaylı Kategori Bilgisi
-                                                </div>
-                                                <div style={{ fontSize: 11, color: 'var(--ud-pm-text-sub)', lineHeight: 1.4 }}>
-                                                    <div style={{ marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
-                                                        <strong style={{ color: 'var(--ud-pm-text)', minWidth: 80 }}>Kategori ID:</strong> 
-                                                        <code style={{ background: 'var(--ud-pm-bg)', padding: '1px 6px', borderRadius: 4, border: '1px solid var(--ud-pm-border)', color: 'var(--ud-pm-accent)' }}>
-                                                            {uploadMpSelectedCategory.id}
-                                                        </code>
-                                                    </div>
-                                                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
-                                                        <strong style={{ color: 'var(--ud-pm-text)', minWidth: 80, marginTop: 2 }}>Kategori Yolu:</strong> 
-                                                        <div style={{ flex: 1, color: 'var(--ud-pm-text)', background: 'var(--ud-pm-bg)', padding: '4px 8px', borderRadius: 4, border: '1px solid var(--ud-pm-border)', fontSize: 10 }}>
-                                                            {uploadMpSelectedCategory.path || uploadMpSelectedCategory.name}
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    {/* Arama */}
-                                    <div className="ud-pm-field" style={{ flexShrink: 0, marginBottom: 12 }}>
-                                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-                                            <label style={{ margin: 0 }}>Kategori Ara <small>(En az 2 harf)</small></label>
-                                            <button className="ud-pm-btn sm outline" onClick={resetUploadMpCategoryState}>
-                                                <FaTimes /> Temizle
-                                            </button>
-                                        </div>
-                                        <div className="ud-pm-cat-search-grid">
-                                            <span className="search-icon"><FaSearch /></span>
-                                            <input className="search-input" 
-                                                value={uploadMpCatSearch} 
-                                                onChange={e => handleUploadMpCatSearch(e.target.value, uploadMpSelectedPlatform)} 
-                                                placeholder={`${uploadMpSelectedPlatform} kategorilerinde ara...`} />
-                                            <span className="search-spinner">
-                                                {(uploadMpCatLoading || uploadMpCatTreeLoading) ? <FaSpinner className="ud-pm-spin" /> : null}
-                                            </span>
-                                        </div>
-                                        <div style={{ marginTop: 6, fontSize: 10, color: "var(--ud-pm-text-dim)" }}>
-                                            {uploadMpCatSearch.length >= 2
-                                                ? `${uploadMpCatResults.length} sonuç`
-                                                : "Arama yapmazsanız kategori ağacı listelenir."}
-                                        </div>
-                                    </div>
-
-                                    {/* Sonuçlar veya Ağaç */}
-                                    <div className="ud-pm-cat-results ud-pm-upload-mp-cat-scroll" style={{ flex: 1, minHeight: 0 }}>
-                                        {uploadMpCatSearch.length >= 2 ? (
-                                            /* Arama Sonuçları */
-                                            uploadMpCatResults.length > 0 ? (
-                                                uploadMpCatResults.map(cat => {
-                                                    const selectable = canSelectPmCategory(uploadMpSelectedPlatform, cat, cat.hasChildren);
-                                                    return (
-                                                    <div key={cat.id} 
-                                                        className={`ud-pm-cat-result-item ${uploadMpSelectedCategory?.id === cat.id ? "selected" : ""}`}
-                                                        style={selectable ? undefined : { opacity: 0.6, cursor: "not-allowed" }}
-                                                        title={!selectable && normMP(uploadMpSelectedPlatform) === "hepsiburada" ? "Listelenebilir yaprak kategori değil" : undefined}
-                                                        onClick={() => {
-                                                            if (!canSelectPmCategory(uploadMpSelectedPlatform, cat, cat.hasChildren)) {
-                                                                if (normMP(uploadMpSelectedPlatform) === "hepsiburada") {
-                                                                    showToast("Hepsiburada için listelenebilir yaprak kategori seçin", "error");
-                                                                }
-                                                                return;
-                                                            }
-                                                            setUploadMpSelectedCategory(cat);
-                                                        }}>
-                                                        <div className="cat-name">{cat.name}</div>
-                                                        <div className="cat-path">{cat.path}</div>
-                                                        {uploadMpSelectedCategory?.id === cat.id && <FaCheckCircle className="check" />}
-                                                    </div>
-                                                    );
-                                                })
-                                            ) : !uploadMpCatLoading && (
-                                                <div className="ud-pm-cat-no-results">Sonuç bulunamadı.</div>
-                                            )
-                                        ) : uploadMpCatSearch.length > 0 ? (
-                                            <div className="ud-pm-cat-hint">Arama için en az 2 karakter girin.</div>
-                                        ) : (
-                                            /* Kategori Ağacı */
-                                            uploadMpCatTreeLoading ? (
-                                                <div className="ud-pm-cat-loading"><FaSpinner className="spin" /> Kategoriler yükleniyor...</div>
-                                            ) : uploadMpCatTree.length > 0 ? (
-                                                <div className="ud-pm-cat-tree-container">
-                                                    {uploadMpCatTree.map(cat => renderCategoryNode(cat, 0, []))}
-                                                </div>
-                                            ) : (
-                                                <div className="ud-pm-cat-hint">
-                                                    <p>Kategoriler yüklenemedi.</p>
-                                                    <button className="ud-pm-btn-sm" onClick={() => loadCategoryTree(uploadMpSelectedPlatform)}>Yenile</button>
-                                                </div>
-                                            )
-                                        )}
-                                    </div>
-
-                                    {/* Gönderim Butonu */}
-                                    <div style={{ marginTop: 16, flexShrink: 0, display: "flex", justifyContent: "flex-end", gap: 10 }}>
-                                        <button className="ud-pm-btn outline" onClick={() => { setUploadMpSelectedPlatform(null); resetUploadMpCategoryState(); }}>Vazgeç</button>
-                                        {!normalizeUploadCategory(uploadMpSelectedCategory) && (
-                                            <div style={{ alignSelf: "center", color: "var(--ud-pm-yellow)", fontSize: 11, marginRight: 6 }}>
-                                                Yüklemek için kategori ID'si olan bir seçim yapın
-                                            </div>
-                                        )}
-                                        <button 
-                                            className="ud-pm-btn" 
-                                            style={{ background: PL_COLOR[uploadMpSelectedPlatform], color: "#fff", minWidth: 200, justifyContent: "center" }}
-                                            disabled={!normalizeUploadCategory(uploadMpSelectedCategory) || uploadMpActionLoading}
-                                            onClick={() => handleUploadToMarketplace(uploadMpProduct, uploadMpSelectedPlatform, uploadMpSelectedCategory)}>
-                                            {uploadMpActionLoading === `${uploadMpProduct._id}-${uploadMpSelectedPlatform}` ? <span className="spinner" /> : <FaCloudUploadAlt />}
-                                            {uploadMpProduct.marketplaceMappings?.some(m => m.marketplaceName === uploadMpSelectedPlatform) ? "Kategoriyi Güncelle & Gönder" : `${uploadMpSelectedPlatform}'a Yükle`}
-                                        </button>
-                                    </div>
-                                </motion.div>
-                            )}
-                        </div>
-                    </div>
-                )}
-            </div>
-        </div>
+        <UploadMarketplaceTab
+            products={products}
+            total={total}
+            page={uploadMpPage}
+            limit={LIMIT}
+            loading={uploadMpLoading}
+            search={uploadMpSearch}
+            onSearchChange={setUploadMpSearch}
+            filterPl={uploadMpFilterPl}
+            onFilterPlChange={setUploadMpFilterPl}
+            filterType={uploadMpFilterType}
+            onFilterTypeChange={setUploadMpFilterType}
+            onClearFilters={() => {
+                setUploadMpSearch("");
+                setUploadMpFilterPl("");
+                setUploadMpFilterType("");
+            }}
+            onPageChange={loadUploadMpProducts}
+            platforms={PLATFORMS}
+            plShort={PL_SHORT}
+            plColor={PL_COLOR}
+            fmt={fmt}
+            getPlStatus={getPlStatus}
+            getPlMappingAny={getPlMappingAny}
+            onUploadPlatform={openDistFlow}
+            onOpenDetail={openDetail}
+            Loading={Loading}
+            Empty={Empty}
+            Pagination={Pagination}
+        />
     );
 
     const renderPriceStock = () => (
@@ -2165,7 +1862,13 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
                                                     : <div className="product-img-placeholder"><FaBox /></div>}
                                                 <div style={{ minWidth: 0, flex: 1 }}>
                                                     <div className="product-name ps-product-name" title={mp.name}>{mp.name || "İsimsiz"}</div>
-                                                    <div className="mono-dim">{mp.barcode}</div>
+                                                    <div className="mono-dim">{mp.barcode} · {mp.sku}</div>
+                                                    {productHasBarcodeDrift(p) && (
+                                                        <button type="button" className="ud-pm-btn sm" style={{ marginTop: 4, fontSize: 10, padding: "2px 8px", background: "var(--ud-pm-red)", color: "#fff" }}
+                                                            onClick={(e) => { e.stopPropagation(); handleApplyMasterToPlatform(p._id, "Trendyol"); }}>
+                                                            Barkod uyumsuz — düzelt
+                                                        </button>
+                                                    )}
                                                 </div>
                                             </div>
                                         </td>
@@ -2962,41 +2665,49 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
                         </div>
 
                         {phase === "menu" && (
-                            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                                <button type="button" className="ud-pm-btn accent" style={{ width: "100%", justifyContent: "center", padding: "12px 16px" }}
+                            <div className="ud-pm-dist-menu">
+                                <button type="button" className="ud-pm-btn accent ud-pm-dist-menu-btn"
                                     onClick={goDistPhaseSearch}>
                                     <FaSearch /> Kategori ara (ağaç ve arama)
                                 </button>
-                                <button type="button" className="ud-pm-btn purple" style={{ width: "100%", justifyContent: "center", padding: "12px 16px" }}
+                                <button type="button" className="ud-pm-btn purple ud-pm-dist-menu-btn"
                                     onClick={() => { void goDistPhaseCenter(); }}>
                                     <FaSitemap /> Kategori merkezini kullan (otomatik)
                                 </button>
-                                <p style={{ fontSize: 11, color: "var(--ud-pm-text-dim)", margin: 0, lineHeight: 1.5 }}>
+                                <p className="ud-pm-dist-hint">
                                     Kategori merkezi: ürününüzün Trendyol kayıtlı kategori ID’si veya ana ürün kategori metniyle eşleşen satırdan, <strong>{platform}</strong> için tanımlı kategori kullanılır.
                                 </p>
                             </div>
                         )}
 
                         {phase === "search" && (
-                            <div>
-                                <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+                            <div className="ud-pm-dist-search">
+                                <div className="ud-pm-dist-toolbar">
                                     <button type="button" className="ud-pm-btn sm muted" onClick={() => { setDistUi((u) => (u ? { ...u, phase: "menu" } : u)); }}>
                                         <FaChevronLeft /> Geri
                                     </button>
-                                    <button type="button" className="ud-pm-btn sm outline" onClick={() => loadDistCategoryTree(platform)} disabled={distLoadingTree}>
-                                        <FaSync /> Yenile
+                                    <button type="button" className="ud-pm-btn sm outline" onClick={() => loadDistCategoryTree(platform)} disabled={distLoadingTree}
+                                        title="Tam ağaç yavaş olabilir; önce arama önerilir">
+                                        <FaSitemap /> Ağacı yükle
                                     </button>
                                 </div>
-                                <div className="ud-pm-cat-search-grid" style={{ marginBottom: 10 }}>
+                                <p className="ud-pm-dist-hint">
+                                    {normMP(platform) === "hepsiburada"
+                                        ? "Hepsiburada’da tam kategori ağacı yüklemek uzun sürebilir. En az 2 harf yazarak arayın ve listelenebilir yaprak kategori seçin; gerekirse «Ağacı yükle» kullanın."
+                                        : `${platform} kategorilerinde en az 2 harf yazarak arayın veya tam ağacı yükleyin.`}
+                                </p>
+                                <div className="ud-pm-cat-search-grid ud-pm-dist-search-input">
                                     <span className="search-icon"><FaSearch /></span>
                                     <input
                                         className="search-input"
                                         value={distSearch}
                                         onChange={(e) => handleDistSearchChange(e.target.value)}
-                                        placeholder={`${platform} kategorilerinde ara (en az 2 harf)...`}
+                                        placeholder={`${platform} kategorilerinde ara (en az 2 harf)`}
+                                        aria-label={`${platform} kategori ara`}
                                     />
                                     <span className="search-spinner">{distLoadingSearch ? <FaSpinner className="ud-pm-spin" /> : null}</span>
                                 </div>
+                                <div className="ud-pm-dist-panel">
                                 {distResults.length > 0 && (
                                     <div className="ud-pm-cat-results ud-pm-dist-cat-results">
                                         {distResults.map((cat) => {
@@ -3018,27 +2729,34 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
                                                     setDistSelected({ id: cat.id, name: cat.name, path: cat.path || cat.name });
                                                 }}
                                             >
-                                                <div className="cat-name">{cat.name}</div>
-                                                <div className="cat-path">{cat.path}</div>
+                                                <div className="ud-pm-cat-result-text">
+                                                    <div className="cat-name">{cat.name}</div>
+                                                    <div className="cat-path">{cat.path}</div>
+                                                </div>
                                             </div>
                                             );
                                         })}
                                     </div>
                                 )}
-                                {distLoadingTree ? <div className="ud-pm-cat-loading"><FaSpinner className="spin" /> Yükleniyor...</div>
-                                    : (
-                                        <div className="ud-pm-cat-tree-container ud-pm-dist-cat-tree">
-                                            {distTree.length ? distTree.map((c) => renderDistCategoryNode(c, 0, []))
-                                                : <div style={{ fontSize: 12, color: "var(--ud-pm-text-dim)" }}>Kategori bulunamadı.</div>}
-                                        </div>
-                                    )}
-                                {distSelected && (
-                                    <div style={{ marginTop: 12, padding: 10, background: "rgba(78,205,196,0.08)", borderRadius: 8, fontSize: 11 }}>
-                                        <strong>Seçili:</strong> {distSelected.path}{" "}
-                                        <span style={{ color: "var(--ud-pm-text-dim)" }}>(ID: {distSelected.id})</span>
+                                {distLoadingTree ? (
+                                    <div className="ud-pm-cat-loading ud-pm-dist-panel-loading">
+                                        <FaSpinner className="spin" /> Kategori ağacı yükleniyor…
+                                    </div>
+                                ) : (
+                                    <div className="ud-pm-cat-tree-container ud-pm-dist-cat-tree">
+                                        {distTree.length ? distTree.map((c) => renderDistCategoryNode(c, 0, []))
+                                            : <div className="ud-pm-dist-tree-empty">Ağaç yüklenmedi — yukarıdan arayın veya «Ağacı yükle».</div>}
                                     </div>
                                 )}
-                                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
+                                </div>
+                                {distSelected && (
+                                    <div className="ud-pm-dist-selected">
+                                        <span className="ud-pm-dist-selected-label">Seçili kategori</span>
+                                        <div className="ud-pm-dist-selected-path">{distSelected.path}</div>
+                                        <div className="ud-pm-dist-selected-id">ID: {distSelected.id}</div>
+                                    </div>
+                                )}
+                                <div className="ud-pm-dist-footer">
                                     <button type="button" className="ud-pm-btn accent" disabled={distActionLoading || !normalizeUploadCategory(distSelected)}
                                         onClick={() => distributeWithCategoryAndRefresh(product, platform, distSelected)}>
                                         {distActionLoading ? <span className="spinner" /> : <FaRocket />} Gönder
@@ -3048,15 +2766,15 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
                         )}
 
                         {phase === "center" && (
-                            <div>
-                                <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+                            <div className="ud-pm-dist-center">
+                                <div className="ud-pm-dist-toolbar">
                                     <button type="button" className="ud-pm-btn sm muted" onClick={() => { setDistCenter(null); setDistUi((u) => (u ? { ...u, phase: "menu" } : u)); }} disabled={distCenterLoading}>
                                         <FaChevronLeft /> Geri
                                     </button>
                                 </div>
-                                {distCenterLoading ? <Loading />
+                                {distCenterLoading ? <div className="ud-pm-dist-center-body"><Loading /></div>
                                     : distCenter?.resolved ? (
-                                        <div style={{ fontSize: 12, lineHeight: 1.6 }}>
+                                        <div className="ud-pm-dist-center-body" style={{ fontSize: 12, lineHeight: 1.6 }}>
                                             <div style={{ marginBottom: 10, padding: 10, background: "var(--ud-pm-glass)", borderRadius: 8 }}>
                                                 <div style={{ fontWeight: 700, color: "var(--ud-pm-text)", marginBottom: 6 }}>Kategori merkezi (master)</div>
                                                 <div style={{ color: "var(--ud-pm-text-sub)" }}>{distCenter.master?.masterPath || distCenter.master?.masterName || "—"}</div>
@@ -3083,7 +2801,7 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
                                             </div>
                                         </div>
                                     ) : (
-                                        <div style={{ textAlign: "center", padding: "8px 0" }}>
+                                        <div className="ud-pm-dist-center-body" style={{ textAlign: "center", padding: "8px 0" }}>
                                             <p style={{ color: "var(--ud-pm-text-sub)", fontSize: 12, marginBottom: 12 }}>
                                                 {distCenter?.hint
                                                     ? `Ürün kategorisi: "${distCenter.hint}" — merkezde eşleşen satır bulunamadı.`
@@ -3209,11 +2927,7 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
                                                         <span style={{ color: driftSeverityColor(d.severity) }}>{d.label}</span>
                                                         <span style={{ wordBreak: "break-all" }}>{d.masterValue || "—"}</span>
                                                         <span style={{ wordBreak: "break-all" }}>{d.platformValue || "—"}</span>
-                                                        <button type="button" className="ud-pm-btn sm accent outline"
-                                                            disabled={actionLoading === `fa-${p._id}-${d.field}`}
-                                                            onClick={() => handleApplyPlatformField(p._id, pl.marketplaceName, d.field)}>
-                                                            Platformu al
-                                                        </button>
+                                                        {renderDriftFieldAction(p._id, pl.marketplaceName, d)}
                                                     </div>
                                                 ))}
                                             </div>
@@ -3913,8 +3627,8 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
         setVgCreateOpen(true);
         setVgListLoading(true);
         try {
-            const res = await getProducts({ page: 0, limit: 300 });
-            setVgPickerRows((res.products || []).filter((p) => !p.variantGroupId));
+            const res = await getProducts({ page: 0, limit: 500, ungroupedOnly: true });
+            setVgPickerRows(res.products || []);
         } catch { setVgPickerRows([]); }
         finally { setVgListLoading(false); }
     };
@@ -3945,15 +3659,19 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
     const vgSubmitCreate = async () => {
         if (vgFormName.trim().length < 2) { showToast("Grup adı en az 2 karakter olmalı", "error"); return; }
         try {
-            await createVariantGroup({
+            const r = await createVariantGroup({
                 name: vgFormName.trim(),
                 notes: vgFormNotes,
                 trendyolProductMainId: vgFormMainId.trim(),
                 memberIds: [...vgCreatePick],
                 dimensionHint: { colorLabel: vgFormColorLbl, sizeLabel: vgFormSizeLbl },
+                applyProductMainId: true,
             });
             vgCloseCreate();
-            showToast("Varyant grubu oluşturuldu");
+            const synced = r.productMainIdSync?.updated ?? 0;
+            showToast(synced > 0
+                ? `Varyant grubu oluşturuldu — ${synced} üründe model kodu güncellendi`
+                : "Varyant grubu oluşturuldu");
             loadVariantGroups();
             loadProducts(page);
         } catch (e) { showToast(e.response?.data?.error || e.message, "error"); }
@@ -3968,24 +3686,58 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
             setVgFormColorLbl(data.group?.dimensionHint?.colorLabel || "Renk");
             setVgFormSizeLbl(data.group?.dimensionHint?.sizeLabel || "Beden");
             setVgMembers(data.members || []);
+            setVgMainIdSync(data.mainIdSync || null);
         } catch (e) {
             showToast(e.response?.data?.error || e.message, "error");
             setVgMembers([]);
+            setVgMainIdSync(null);
         }
     };
     const vgSaveDetailMeta = async () => {
         if (!vgActiveId) return;
         try {
-            await updateVariantGroup(vgActiveId, {
+            const r = await updateVariantGroup(vgActiveId, {
                 name: vgFormName.trim(),
                 notes: vgFormNotes,
                 trendyolProductMainId: vgFormMainId.trim(),
                 dimensionHint: { colorLabel: vgFormColorLbl, sizeLabel: vgFormSizeLbl },
+                applyProductMainId: true,
             });
-            showToast("Grup bilgileri kaydedildi");
+            const synced = r.productMainIdSync?.updated ?? 0;
+            showToast(synced > 0
+                ? `Kaydedildi — ${synced} üründe model kodu güncellendi`
+                : "Grup bilgileri kaydedildi");
             loadVariantGroups();
             const data = await getVariantGroup(vgActiveId);
             setVgMembers(data.members || []);
+            setVgMainIdSync(data.mainIdSync || null);
+            loadProducts(page);
+        } catch (e) { showToast(e.response?.data?.error || e.message, "error"); }
+    };
+    const vgApplyMainId = async (onlyEmpty = false) => {
+        if (!vgActiveId) return;
+        setVgApplyLoading(true);
+        try {
+            const r = await applyVariantGroupProductMainId(vgActiveId, { onlyEmpty });
+            const n = r.productMainIdSync?.updated ?? 0;
+            showToast(n > 0 ? `${n} üründe model kodu uygulandı` : "Güncellenecek ürün yok (zaten uyumlu)");
+            setVgMembers(r.members || []);
+            setVgMainIdSync(r.mainIdSync || null);
+            loadProducts(page);
+        } catch (e) { showToast(e.response?.data?.error || e.message, "error"); }
+        finally { setVgApplyLoading(false); }
+    };
+    const vgOpenDistributeGroup = async (groupId) => {
+        try {
+            const data = await getVariantGroup(groupId);
+            const ids = (data.members || []).map((m) => m._id).filter(Boolean);
+            if (ids.length === 0) {
+                showToast("Grupta dağıtılacak ürün yok", "error");
+                return;
+            }
+            setSelected(new Set(ids.map(String)));
+            setBulkModal(true);
+            showToast(`${ids.length} ürün seçildi — pazaryeri seçin`);
         } catch (e) { showToast(e.response?.data?.error || e.message, "error"); }
     };
     const vgOpenAddPicker = async () => {
@@ -3993,19 +3745,23 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
         setVgPickerPick(new Set()); setVgListSearch(""); setVgPickerOpen(true);
         setVgListLoading(true);
         try {
-            const res = await getProducts({ page: 0, limit: 300 });
-            setVgPickerRows((res.products || []).filter((p) => !p.variantGroupId));
+            const res = await getProducts({ page: 0, limit: 500, ungroupedOnly: true });
+            setVgPickerRows(res.products || []);
         } catch { setVgPickerRows([]); }
         finally { setVgListLoading(false); }
     };
     const vgSubmitAddMembers = async () => {
         if (!vgActiveId || vgPickerPick.size === 0) return;
         try {
-            await addVariantGroupMembers(vgActiveId, [...vgPickerPick]);
+            const r = await addVariantGroupMembers(vgActiveId, [...vgPickerPick]);
             vgClosePicker();
-            showToast("Ürünler gruba eklendi");
+            const synced = r.productMainIdSync?.updated ?? 0;
+            showToast(synced > 0
+                ? `Ürünler eklendi — ${synced} satırda model kodu yazıldı`
+                : "Ürünler gruba eklendi");
             const data = await getVariantGroup(vgActiveId);
             setVgMembers(data.members || []);
+            setVgMainIdSync(data.mainIdSync || null);
             loadVariantGroups();
             loadProducts(page);
         } catch (e) { showToast(e.response?.data?.error || e.message, "error"); }
@@ -4041,18 +3797,7 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
 
     const renderVariantGroups = () => (
         <div className="ud-pm-wizard-tab">
-            <div className="ud-pm-wizard-tab-intro ud-pm-card" role="note">
-                <p className="ud-pm-wizard-tab-desc" style={{ marginBottom: 10 }}>
-                    <strong>Varyant grubu</strong> aynı ürün modelinin farklı <strong>renk / beden</strong> satırlarını tek çatı altında tutar.
-                    Trendyol’da ortak <strong>model kodu</strong> (<code style={{ color: "var(--ud-pm-accent)" }}>productMainId</code>) burada tanımlanır; her satırın kendi barkodu ve stok kodu kalır.
-                </p>
-                <p className="ud-pm-wizard-tab-desc" style={{ marginBottom: 0 }}>
-                    <FaInfoCircle style={{ color: "var(--ud-pm-accent)", marginRight: 6, verticalAlign: "middle" }} />
-                    <strong>Kullanım:</strong> Yeni grup → (isteğe bağlı) grupsuz ürünleri seçin → Trendyol model kodunu girin.
-                    Düzenle ile üye ekleyip çıkarın. Başka gruptaki ürün eklenemez.
-                </p>
-            </div>
-            <div className="ud-pm-card" style={{ marginTop: 14 }}>
+            <div className="ud-pm-card">
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12, marginBottom: 16 }}>
                     <h2 style={{ margin: 0, fontSize: "1rem", display: "flex", alignItems: "center", gap: 8 }}>
                         <FaObjectGroup style={{ color: "var(--ud-pm-accent)" }} /> Gruplar
@@ -4083,7 +3828,12 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
                                         }}>TY: {g.trendyolProductMainId}</span>
                                     )}
                                 </div>
-                                <button type="button" className="ud-pm-btn sm outline" onClick={() => vgOpenDetail(g._id)}><FaEdit /> Düzenle</button>
+                                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                                    <button type="button" className="ud-pm-btn sm outline" onClick={() => vgOpenDetail(g._id)}><FaEdit /> Düzenle</button>
+                                    {(g.memberIds || []).length > 0 && (
+                                        <button type="button" className="ud-pm-btn sm purple outline" onClick={() => vgOpenDistributeGroup(g._id)}><FaRocket /> Dağıt</button>
+                                    )}
+                                </div>
                             </div>
                         ))}
                     </div>
@@ -4108,37 +3858,41 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
     ];
 
     return (
-        <div className="ud-pm-root">
-            {/* Header */}
-            <header className="ud-pm-header ud-pm-header--panel">
-                <h1><FaCubes /> Ürün Yönetim Merkezi</h1>
-                <p>Ürünlerinizi yönetin, platformlara dağıtın, stok ve fiyat senkronizasyonu yapın.</p>
-            </header>
+        <div className="ud-pm-root ud-pm-root--scroll-layout">
+            <div className="ud-pm-root-sticky">
+                <header className="ud-pm-header ud-pm-header--panel">
+                    <div className="ud-pm-header-actions">
+                        <div className="ud-pm-header-text">
+                            <h1><FaCubes /> Ürün Yönetim Merkezi</h1>
+                            <p>Ürünlerinizi yönetin, platformlara dağıtın, stok ve fiyat senkronizasyonu yapın.</p>
+                        </div>
+                        <PageHelpButton pageId={`pm-center.${tab}`} variant="header" />
+                    </div>
+                </header>
 
-            {/* Dashboard Cards */}
-            {renderDashCards()}
+                {renderDashCards()}
 
-            {/* Tab Bar */}
-            <nav className="ud-pm-tabs-rail" aria-label="Bölümler">
-                <div className="ud-pm-tabs" role="tablist">
-                    {tabs.map(t => (
-                        <button
-                            key={t.id}
-                            type="button"
-                            role="tab"
-                            aria-selected={tab === t.id}
-                            className={`ud-pm-tab ${tab === t.id ? "active" : ""}`}
-                            onClick={() => setTab(t.id)}
-                        >
-                            <span className="ud-pm-tab-icon" aria-hidden>{t.icon}</span>
-                            <span className="ud-pm-tab-label">{t.label}</span>
-                            {t.count !== undefined && <span className="ud-pm-tab-count">{t.count}</span>}
-                        </button>
-                    ))}
-                </div>
-            </nav>
+                <nav className="ud-pm-tabs-rail" aria-label="Bölümler">
+                    <div className="ud-pm-tabs" role="tablist">
+                        {tabs.map(t => (
+                            <button
+                                key={t.id}
+                                type="button"
+                                role="tab"
+                                aria-selected={tab === t.id}
+                                className={`ud-pm-tab ${tab === t.id ? "active" : ""}`}
+                                onClick={() => setTab(t.id)}
+                            >
+                                <span className="ud-pm-tab-icon" aria-hidden>{t.icon}</span>
+                                <span className="ud-pm-tab-label">{t.label}</span>
+                                {t.count !== undefined && <span className="ud-pm-tab-count">{t.count}</span>}
+                            </button>
+                        ))}
+                    </div>
+                </nav>
+            </div>
 
-            {/* Tab Content */}
+            <div className="ud-pm-root-scroll">
             <AnimatePresence mode="wait">
                 <motion.div className="ud-pm-tab-panel" key={tab} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: .18 }} role="tabpanel">
                     {tab === "products" && renderProducts()}
@@ -4153,6 +3907,7 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
                     {tab === "sync" && renderSync()}
                 </motion.div>
             </AnimatePresence>
+            </div>
 
             {/* Detail Modal */}
             {renderDetailModal()}
@@ -4399,43 +4154,81 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
             <AnimatePresence>
                 {vgDetailOpen && vgActiveId && (
                     <motion.div className="ud-pm-modal-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setVgDetailOpen(false)}>
-                        <motion.div className="ud-pm-modal" initial={{ scale: .9 }} animate={{ scale: 1 }} exit={{ scale: .9 }} onClick={e => e.stopPropagation()} style={{ maxWidth: 600, maxHeight: "92vh", overflow: "auto" }}>
-                            <h3 style={{ margin: "0 0 12px", fontSize: 16, color: "var(--ud-pm-text)" }}><FaEdit /> Grup düzenle</h3>
-                            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                                <label style={{ fontSize: 12, fontWeight: 600, color: "var(--ud-pm-text-sub)" }}>Grup adı</label>
-                                <input className="ud-pm-inline-input" value={vgFormName} onChange={(e) => setVgFormName(e.target.value)} />
-                                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                                    <div style={{ flex: 1 }}>
-                                        <label style={{ fontSize: 12, fontWeight: 600, color: "var(--ud-pm-text-sub)" }}>Trendyol model kodu</label>
-                                        <input className="ud-pm-inline-input" value={vgFormMainId} onChange={(e) => setVgFormMainId(e.target.value)} />
+                        <motion.div className="ud-pm-modal ud-pm-modal--readable" initial={{ scale: .9 }} animate={{ scale: 1 }} exit={{ scale: .9 }} onClick={e => e.stopPropagation()} style={{ maxWidth: 640, maxHeight: "92vh", overflow: "auto" }}>
+                            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10, marginBottom: 14 }}>
+                                <h3 style={{ margin: 0, fontSize: "1.1rem", color: "var(--ud-pm-text)", display: "flex", alignItems: "center", gap: 8 }}><FaEdit /> Grup düzenle</h3>
+                                <PageHelpButton pageId="pm-variants.editModal" variant="inline" ariaLabel="Grup düzenleme yardımı" />
+                            </div>
+                            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                                <div>
+                                    <label className="ud-pm-form-label">Grup adı</label>
+                                    <input className="ud-pm-inline-input" style={{ width: "100%", boxSizing: "border-box" }} value={vgFormName} onChange={(e) => setVgFormName(e.target.value)} />
+                                </div>
+                                <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
+                                    <div style={{ flex: 1, minWidth: 200 }}>
+                                        <label className="ud-pm-form-label">Trendyol model kodu (productMainId)</label>
+                                        <input className="ud-pm-inline-input" style={{ width: "100%", boxSizing: "border-box" }} value={vgFormMainId} onChange={(e) => setVgFormMainId(e.target.value)} placeholder="Tüm varyantlarda aynı kod" />
                                     </div>
-                                    <button type="button" className="ud-pm-btn sm outline" style={{ marginTop: 20 }} onClick={vgCopyMainId}>Kopyala</button>
+                                    <button type="button" className="ud-pm-btn sm outline" onClick={vgCopyMainId}>Kopyala</button>
                                 </div>
-                                <label style={{ fontSize: 12, fontWeight: 600, color: "var(--ud-pm-text-sub)" }}>Notlar</label>
-                                <textarea className="ud-pm-inline-input" rows={2} value={vgFormNotes} onChange={(e) => setVgFormNotes(e.target.value)} />
-                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                                    <div><label style={{ fontSize: 11, color: "var(--ud-pm-text-dim)" }}>Renk etiketi</label><input className="ud-pm-inline-input" value={vgFormColorLbl} onChange={(e) => setVgFormColorLbl(e.target.value)} /></div>
-                                    <div><label style={{ fontSize: 11, color: "var(--ud-pm-text-dim)" }}>Beden etiketi</label><input className="ud-pm-inline-input" value={vgFormSizeLbl} onChange={(e) => setVgFormSizeLbl(e.target.value)} /></div>
+                                <div>
+                                    <label className="ud-pm-form-label">Notlar</label>
+                                    <textarea className="ud-pm-inline-input" style={{ width: "100%", boxSizing: "border-box", minHeight: 72 }} rows={3} value={vgFormNotes} onChange={(e) => setVgFormNotes(e.target.value)} />
                                 </div>
-                                <button type="button" className="ud-pm-btn sm accent" onClick={vgSaveDetailMeta}><FaSave /> Kaydet</button>
-                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
-                                    <strong style={{ fontSize: 13 }}>Ürünler ({vgMembers.length})</strong>
+                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                                    <div>
+                                        <label className="ud-pm-form-label">Renk etiketi</label>
+                                        <input className="ud-pm-inline-input" style={{ width: "100%", boxSizing: "border-box" }} value={vgFormColorLbl} onChange={(e) => setVgFormColorLbl(e.target.value)} />
+                                    </div>
+                                    <div>
+                                        <label className="ud-pm-form-label">Beden etiketi</label>
+                                        <input className="ud-pm-inline-input" style={{ width: "100%", boxSizing: "border-box" }} value={vgFormSizeLbl} onChange={(e) => setVgFormSizeLbl(e.target.value)} />
+                                    </div>
+                                </div>
+                                {vgMainIdSync?.mismatchCount > 0 && (
+                                    <div className="ud-pm-form-hint" style={{
+                                        padding: "12px 14px",
+                                        borderRadius: 8,
+                                        background: "rgba(245,158,11,0.12)",
+                                        border: "1px solid rgba(245,158,11,0.35)",
+                                        color: "var(--ud-pm-yellow)",
+                                    }}>
+                                        <strong>{vgMainIdSync.mismatchCount}</strong> üyede model kodu grupla uyumsuz veya boş.
+                                        {vgMainIdSync.target && <> Hedef: <code style={{ color: "var(--ud-pm-accent)" }}>{vgMainIdSync.target}</code></>}
+                                    </div>
+                                )}
+                                <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                                    <button type="button" className="ud-pm-btn accent" onClick={vgSaveDetailMeta}><FaSave /> Kaydet ve üyelere uygula</button>
+                                    <button type="button" className="ud-pm-btn outline" disabled={vgApplyLoading || !vgFormMainId.trim()} onClick={() => vgApplyMainId(false)}>
+                                        {vgApplyLoading ? <span className="spinner" /> : null} Tüm üyelere uygula
+                                    </button>
+                                    <button type="button" className="ud-pm-btn outline" disabled={vgApplyLoading || !vgFormMainId.trim()} onClick={() => vgApplyMainId(true)}>
+                                        Sadece boş olanlara
+                                    </button>
+                                    {vgMembers.length > 0 && (
+                                        <button type="button" className="ud-pm-btn purple outline" onClick={() => vgOpenDistributeGroup(vgActiveId)}><FaRocket /> Gruptakilere dağıt</button>
+                                    )}
+                                </div>
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4, flexWrap: "wrap", gap: 8 }}>
+                                    <strong style={{ fontSize: "0.95rem", color: "var(--ud-pm-text)" }}>Ürünler ({vgMembers.length})</strong>
                                     <button type="button" className="ud-pm-btn sm outline" onClick={vgOpenAddPicker}><FaPlus /> Ürün ekle</button>
                                 </div>
-                                <div style={{ maxHeight: 220, overflow: "auto", border: "1px solid var(--ud-pm-border)", borderRadius: 8 }}>
-                                    {vgMembers.length === 0 ? <p style={{ padding: 10, margin: 0, fontSize: 12 }}>Üye yok.</p> : vgMembers.map((m) => (
-                                        <div key={m._id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, padding: "10px 12px", borderBottom: "1px solid var(--ud-pm-glass-border)", fontSize: 12 }}>
-                                            <div style={{ minWidth: 0 }}>
-                                                <strong style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.masterProduct?.name}</strong>
-                                                <span style={{ color: "var(--ud-pm-text-dim)" }}>{m.masterProduct?.sku} · {m.masterProduct?.barcode} · {summarizeVariantAttrs(m.masterProduct?.attributes)} · stok: {m.stockTracking?.totalStock ?? "—"}</span>
+                                <div style={{ maxHeight: 260, overflow: "auto", border: "1px solid var(--ud-pm-border)", borderRadius: 8 }}>
+                                    {vgMembers.length === 0 ? (
+                                        <p className="ud-pm-form-hint" style={{ padding: 14, margin: 0 }}>Üye yok. Ürün ekle ile grupsuz satırları seçin.</p>
+                                    ) : vgMembers.map((m) => (
+                                        <div key={m._id} className="ud-pm-member-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, borderBottom: "1px solid var(--ud-pm-glass-border)" }}>
+                                            <div style={{ minWidth: 0, flex: 1 }}>
+                                                <strong>{m.masterProduct?.name || "—"}</strong>
+                                                <span className="ud-pm-member-meta">{m.masterProduct?.sku} · {m.masterProduct?.barcode} · {summarizeVariantAttrs(m.masterProduct?.attributes)} · stok: {m.stockTracking?.totalStock ?? "—"}</span>
                                             </div>
-                                            <button type="button" className="ud-pm-btn sm red outline" onClick={() => vgRemoveMember(m._id)}>Çıkar</button>
+                                            <button type="button" className="ud-pm-btn sm red outline" style={{ flexShrink: 0 }} onClick={() => vgRemoveMember(m._id)}>Çıkar</button>
                                         </div>
                                     ))}
                                 </div>
                             </div>
-                            <div style={{ display: "flex", gap: 10, marginTop: 16, justifyContent: "space-between", flexWrap: "wrap" }}>
-                                <button type="button" className="ud-pm-btn sm red" onClick={vgDeleteGroup}><FaTrash /> Grubu sil</button>
+                            <div style={{ display: "flex", gap: 12, marginTop: 18, justifyContent: "space-between", flexWrap: "wrap" }}>
+                                <button type="button" className="ud-pm-btn red" onClick={vgDeleteGroup}><FaTrash /> Grubu sil</button>
                                 <button type="button" className="ud-pm-btn outline" onClick={() => setVgDetailOpen(false)}>Kapat</button>
                             </div>
                         </motion.div>

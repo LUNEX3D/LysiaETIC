@@ -74,5 +74,6 @@ router.get("/system-config", saas.getSystemConfig);
 
 // ─── 12. Paket Tanımları Güncelleme ───────────────────────────────────────────
 router.put("/plan-definitions", saas.updatePlanDefinitions);
+router.post("/plan-definitions/reset-defaults", saas.resetPlanDefinitionsToDefaults);
 
 module.exports = router;

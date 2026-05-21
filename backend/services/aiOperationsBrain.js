@@ -61,8 +61,9 @@ function hashString32(str) {
 
 function opportunityRotationSalt(userId) {
     const dayKey = Math.floor(Date.now() / dayMs);
+    const slot3h = Math.floor(Date.now() / (3 * 60 * 60 * 1000));
     const uid = userId != null ? String(userId) : "anon";
-    return hashString32(`${uid}:${dayKey}`);
+    return hashString32(`${uid}:${dayKey}:${slot3h}`);
 }
 
 function shortenProductLabel(name, maxLen = 42) {

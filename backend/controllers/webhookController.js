@@ -1,5 +1,6 @@
 const logger = require("../config/logger");
-const OrdersService = require("../services/ordersService");
+const { processOrderStockLine } = require("../services/stockSyncService");
+const { resolveOrderItemBarcodeForStock } = require("../utils/productFieldCompare");
 
 /**
  * ⚡ WEBHOOK CONTROLLER
@@ -14,9 +15,25 @@ exports.trendyolWebhook = async (req, res) => {
         const payload = req.body;
         logger.info("[WEBHOOK] Trendyol bildirimi alındı", { type: payload.eventType });
 
-        if (payload.eventType === "OrderCreated") {
-            // OrdersService içindeki sync metodunu çağır (ileride eklenecek)
-            // await OrdersService.syncTrendyolOrder(payload.orderNumber);
+        if (payload.eventType === "OrderCreated" && payload.sellerId) {
+            const lines = payload.lines || payload.orderLines || [];
+            const orderNumber = payload.orderNumber || payload.id || "";
+            const userId = req.webhookUserId || req.body?.userId;
+            if (userId && Array.isArray(lines) && lines.length > 0) {
+                for (const line of lines) {
+                    const barcode = await resolveOrderItemBarcodeForStock(userId, line);
+                    if (!barcode) continue;
+                    await processOrderStockLine({
+                        userId,
+                        marketplaceName: "Trendyol",
+                        orderNumber,
+                        barcode,
+                        quantity: Number(line.quantity) || 1,
+                        isCancelled: false,
+                        actionType: "webhook_order"
+                    });
+                }
+            }
         }
 
         return res.status(200).json({ success: true });

@@ -2,6 +2,10 @@ const axios = require("axios");
 const aws4 = require("aws4");
 const qs = require("querystring");
 const logger = require("../../config/logger");
+const {
+    normalizeAmazonCredentials,
+    validateAmazonCredentials
+} = require("./amazonCredentialService");
 
 // ═══════════════════════════════════════════════════════════════════════
 // 🛒 AMAZON SP-API SERVİSİ
@@ -173,9 +177,15 @@ const resolveEndpoint = (credentials) => {
  * Java karşılığı: ApiUtils sınıfındaki tüm API client oluşturma fonksiyonları
  * @param {object} params - { credentials, path, method, data, query }
  */
-const signedRequest = async ({ credentials, path, method = "GET", data = null, query = null }) => {
-    const { clientId, clientSecret, refreshToken, accessKeyId, secretAccessKey, sessionToken } = credentials;
-    const { region, host } = resolveEndpoint(credentials);
+const signedRequest = async ({ credentials, path, method = "GET", data = null, query = null, marketplaceName }) => {
+    const creds = normalizeAmazonCredentials(credentials, marketplaceName);
+    const validation = validateAmazonCredentials(creds);
+    if (!validation.valid) {
+        throw new Error(validation.message);
+    }
+
+    const { clientId, clientSecret, refreshToken, accessKeyId, secretAccessKey, sessionToken } = creds;
+    const { region, host } = resolveEndpoint(creds);
 
     if (!accessKeyId || !secretAccessKey) {
         throw new Error("Amazon AWS credentials (accessKeyId, secretAccessKey) eksik");
@@ -1325,34 +1335,41 @@ const getListingRestrictions = async (credentials, asin) => {
  * Amazon credentials test et
  * LWA token alıp basit bir API çağrısı yapar
  */
-const testCredentials = async (credentials) => {
+const testCredentials = async (credentials, marketplaceName = "") => {
     try {
-        const { clientId, clientSecret, refreshToken, accessKeyId, secretAccessKey } = credentials;
+        const creds = normalizeAmazonCredentials(credentials, marketplaceName);
+        const validation = validateAmazonCredentials(creds);
+        if (!validation.valid) {
+            return { success: false, message: validation.message, missing: validation.missing };
+        }
 
-        if (!clientId || !clientSecret || !refreshToken) {
-            return { success: false, message: "LWA credentials eksik (clientId, clientSecret, refreshToken)" };
-        }
-        if (!accessKeyId || !secretAccessKey) {
-            return { success: false, message: "AWS credentials eksik (accessKeyId, secretAccessKey)" };
-        }
+        const { clientId, clientSecret, refreshToken, accessKeyId, secretAccessKey, sellerId } = creds;
 
         // 1. LWA token test
         const accessToken = await getLwaAccessToken(clientId, clientSecret, refreshToken);
         if (!accessToken) {
-            return { success: false, message: "LWA token alınamadı" };
+            return { success: false, message: "LWA token alınamadı — Client ID, Secret ve Refresh Token kontrol edin" };
+        }
+
+        if (!sellerId) {
+            return { success: false, message: "Selling Partner ID (sellerId) eksik" };
         }
 
         // 2. Basit API çağrısı test (sipariş listesi)
-        const result = await getOrders(credentials, {
+        const result = await getOrders(creds, {
             createdAfter: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
             maxResults: 1
         });
 
         if (result.success) {
-            return { success: true, message: "Amazon SP-API bağlantısı başarılı" };
-        } else {
-            return { success: false, message: `API çağrısı başarısız: ${result.error}` };
+            return {
+                success: true,
+                message: "Amazon SP-API bağlantısı başarılı (LWA + IAM + Orders API)",
+                marketplaceId: creds.marketplaceId,
+                region: creds.region
+            };
         }
+        return { success: false, message: `API çağrısı başarısız: ${result.error}` };
     } catch (error) {
         return { success: false, message: `Bağlantı hatası: ${error.message}` };
     }
@@ -1414,5 +1431,9 @@ module.exports = {
     getListingRestrictions,
 
     // Test
-    testCredentials
+    testCredentials,
+
+    // Credentials (re-export)
+    normalizeAmazonCredentials,
+    validateAmazonCredentials
 };

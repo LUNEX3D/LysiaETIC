@@ -1,4 +1,5 @@
 import "./styles/tailwind.css"; // Tailwind CSS — must be first
+import "./styles/pageHelp.css";
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { LocalizationProvider } from "@mui/x-date-pickers";

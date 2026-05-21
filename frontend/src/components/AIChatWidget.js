@@ -1,4 +1,4 @@
-﻿/**
+/**
  * ═══════════════════════════════════════════════════════════════════════════════
  * AI CHAT WIDGET — LysiaETIC AI Operatör
  * ═══════════════════════════════════════════════════════════════════════════════
@@ -311,7 +311,7 @@ const AIChatWidget = () => {
                             zIndex: 9999,
                         }}
                     >
-                        <Tooltip title="PazarYonet Agent ile konuş" placement="left">
+                        <Tooltip title="Dashtock Agent ile konuş" placement="left">
                             <Badge
                                 badgeContent={alertCount}
                                 color="error"
@@ -385,7 +385,7 @@ const AIChatWidget = () => {
                                     <BotIcon />
                                     <Box>
                                         <Typography variant="subtitle1" fontWeight={700} lineHeight={1.2}>
-                                            PazarYonet Agent
+                                            Dashtock Agent
                                         </Typography>
                                         <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, flexWrap: "wrap" }}>
                                             <DotIcon sx={{ fontSize: 8, color: getHealthColor() }} />
@@ -444,7 +444,7 @@ const AIChatWidget = () => {
                                     <Box sx={{ textAlign: "center", py: 4 }}>
                                         <BotIcon sx={{ fontSize: 48, color: "#667eea", mb: 1 }} />
                                         <Typography variant="body1" fontWeight={600} color="text.primary">
-                                            PazarYonet Agent
+                                            Dashtock Agent
                                         </Typography>
                                         <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5, mb: 2 }}>
                                             Mağazanız için çalışan işletme ajanıyım: mesajınızı <strong>niyet → veri → yanıt</strong> hattından geçiririm.
@@ -581,7 +581,7 @@ const AIChatWidget = () => {
                                     multiline
                                     maxRows={3}
                                     size="small"
-                                    placeholder="PazarYonet Agent'a yazın…"
+                                    placeholder="Dashtock Agent'a yazın…"
                                     value={input}
                                     onChange={(e) => setInput(e.target.value)}
                                     onKeyDown={handleKeyPress}

@@ -81,7 +81,7 @@ const normalizeCredentials = (credentials) => {
     return {
         merchantId: merchantId || null,
         secretKey:  secretKey || serviceKey || apiKey || password || apiSecret || null,
-        userAgent:  userAgent || developerUsername || user_agent || "PazarYonet",
+        userAgent:  userAgent || developerUsername || user_agent || "Dashtock",
         // Mongo/string "false" truthy'dır — log "SIT" derken getEndpoints PROD seçiyordu (403)
         useSit:     coerceHepsiburadaUseSit(credentials.useSit)
     };
@@ -3663,6 +3663,7 @@ module.exports = {
     isHepsiburadaCampaignOrNonProductCategory,
     normalizeHepsiburadaCategoriesForUi,
     buildHepsiburadaCategoryNameMap,
+    loadHepsiburadaListableCategoryIdSet,
     fetchHepsiburadaCategoryAttributes,
     unwrapHbCategoryAttributesRoot,
     normalizeHbProductVariantHints,

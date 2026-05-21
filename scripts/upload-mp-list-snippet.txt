@@ -1,0 +1,67 @@
+            <div className="ud-pm-product-list-wrap ud-pm-card ud-pm-upload-mp-list-panel">
+                <motion.div className="ud-pm-product-list-head">
+                    <span style={{ fontSize: 12, fontWeight: 600, color: "var(--ud-pm-text-sub)" }}>
+                        Platforma yüklemek için listeden bir ürün seçin
+                    </span>
+                </motion.div>
+                <motion.div className="ud-pm-product-list ud-pm-upload-mp-product-list">
+                    {uploadMpLoading ? (
+                        <motion.div className="ud-pm-product-list-loading"><Loading /></motion.div>
+                    ) : products.length === 0 ? (
+                        <Empty icon={FaBox} title="Ürün bulunamadı" desc="Filtreleri değiştirin veya kataloga ürün ekleyin" />
+                    ) : products.map((p, i) => {
+                        const mp = p.masterProduct || {};
+                        const st = p.stockTracking || {};
+                        const isActive = uploadMpProduct?._id === p._id;
+                        return (
+                            <motion.div
+                                key={p._id}
+                                layout={false}
+                                initial={{ opacity: 0, y: 6 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ delay: Math.min(i * 0.02, 0.35) }}
+                                className={`ud-pm-product-list-item ${isActive ? "selected" : ""}`}
+                                onClick={() => selectUploadMpProduct(p)}
+                                role="button"
+                                tabIndex={0}
+                                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectUploadMpProduct(p); } }}
+                            >
+                                <motion.div className="ud-pm-product-list-item-main">
+                                    {mp.images?.[0] ? <img src={mp.images[0]} alt="" className="ud-pm-product-list-img" />
+                                        : <motion.div className="ud-pm-product-list-img ud-pm-product-list-img--ph"><FaBox /></motion.div>}
+                                    <motion.div className="ud-pm-product-list-text">
+                                        <motion.div className="ud-pm-product-list-name">{mp.name || "İsimsiz"}</motion.div>
+                                        {mp.brand && <motion.div className="ud-pm-product-list-brand">{mp.brand}</motion.div>}
+                                        <motion.div className="ud-pm-product-list-codes">
+                                            <span className="mono">{mp.barcode || "—"}</span>
+                                            <span className="mono-dim">{mp.sku || "—"}</span>
+                                        </motion.div>
+                                    </motion.div>
+                                </motion.div>
+                                <motion.div className="ud-pm-product-list-item-stats">
+                                    <motion.div className="ud-pm-product-list-stat">
+                                        <span className="ud-pm-product-list-stat-label">Fiyat</span>
+                                        <span className="price">{fmt(mp.price)}</span>
+                                    </motion.div>
+                                    <motion.div className="ud-pm-product-list-stat">
+                                        <span className="ud-pm-product-list-stat-label">Stok</span>
+                                        <span className={st.isOutOfStock ? "stock-out" : st.isLowStock ? "stock-low" : "stock-ok"}>
+                                            {st.totalStock ?? mp.stock ?? 0}
+                                        </span>
+                                    </motion.div>
+                                    <motion.div className="ud-pm-product-list-stat ud-pm-product-list-stat--platforms">
+                                        <span className="ud-pm-product-list-stat-label">Platform</span>
+                                        <PlatformDots product={p} />
+                                    </motion.div>
+                                </motion.div>
+                                <motion.div className="ud-pm-product-list-item-actions" onClick={(e) => e.stopPropagation()}>
+                                    <button type="button" className={`ud-pm-btn sm ${isActive ? "accent" : "accent outline"}`} onClick={() => selectUploadMpProduct(p)}>
+                                        {isActive ? <><FaCheck /> Seçili</> : <><FaCloudUploadAlt /> Seç</>}
+                                    </button>
+                                </motion.div>
+                            </motion.div>
+                        );
+                    })}
+                </motion.div>
+                <Pagination currentPage={uploadMpPage} totalPages={Math.ceil(total / LIMIT)} total={total} onPageChange={loadUploadMpProducts} />
+            </motion.div>

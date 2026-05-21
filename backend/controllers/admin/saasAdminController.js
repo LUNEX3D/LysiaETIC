@@ -802,12 +802,7 @@ exports.createSubscription = async (req, res) => {
             { $set: { status: "cancelled", cancelledAt: new Date(), cancelReason: "Yeni abonelik ile değiştirildi" } }
         );
 
-        const fallbackLimits = {
-            trial: { maxProducts: 50, maxOrders: 100, maxMarketplaces: 1, maxApiCalls: 5000, maxUsers: 1 },
-            basic: { maxProducts: 500, maxOrders: 5000, maxMarketplaces: 3, maxApiCalls: 50000, maxUsers: 3 },
-            pro: { maxProducts: 5000, maxOrders: 50000, maxMarketplaces: 10, maxApiCalls: 500000, maxUsers: 10 },
-            enterprise: { maxProducts: 999999, maxOrders: 999999, maxMarketplaces: 999, maxApiCalls: 9999999, maxUsers: 999 },
-        };
+        const fallbackLimits = PLAN_LIMITS_BY_KEY;
 
         const planKey = plan || "trial";
         let planDefs = {};
@@ -1342,53 +1337,11 @@ exports.getSystemConfig = async (req, res) => {
  */
 const SystemConfig = require("../../models/SystemConfig");
 const { invalidatePlansCache } = require("../paytrController");
-
-const DEFAULT_PLAN_DEFINITIONS = {
-    trial: {
-        name: "Deneme",
-        description: "Platformu keşfetmek için ücretsiz deneme paketi",
-        badge: "",
-        price: 0,
-        monthlyPrice: 0,
-        yearlyPrice: 0,
-        duration: 14,
-        limits: { maxProducts: 50, maxOrders: 100, maxMarketplaces: 1, maxApiCalls: 5000, maxUsers: 1 },
-        features: ["Dashboard erişimi", "50 ürün yönetimi", "100 sipariş/ay", "1 pazaryeri entegrasyonu", "Temel raporlama"],
-    },
-    basic: {
-        name: "Basic",
-        description: "Küçük işletmeler için temel e-ticaret yönetimi",
-        badge: "",
-        price: 299,
-        monthlyPrice: 299,
-        yearlyPrice: 2990,
-        duration: 30,
-        limits: { maxProducts: 500, maxOrders: 5000, maxMarketplaces: 3, maxApiCalls: 50000, maxUsers: 3 },
-        features: ["Dashboard erişimi", "500 ürün yönetimi", "5.000 sipariş/ay", "3 pazaryeri entegrasyonu", "Gelişmiş raporlama", "Kargo takibi", "E-posta desteği"],
-    },
-    pro: {
-        name: "Pro",
-        description: "Büyüyen işletmeler için gelişmiş özellikler ve AI desteği",
-        badge: "EN POPÜLER",
-        price: 799,
-        monthlyPrice: 799,
-        yearlyPrice: 7990,
-        duration: 30,
-        limits: { maxProducts: 5000, maxOrders: 50000, maxMarketplaces: 10, maxApiCalls: 500000, maxUsers: 10 },
-        features: ["Tüm Basic özellikleri", "5.000 ürün yönetimi", "50.000 sipariş/ay", "10 pazaryeri entegrasyonu", "AI Asistan & Radar", "Otomatik sipariş", "E-fatura entegrasyonu", "Öncelikli destek", "Gelişmiş analitik"],
-    },
-    enterprise: {
-        name: "Enterprise",
-        description: "Büyük ölçekli operasyonlar için sınırsız erişim ve özel destek",
-        badge: "ÖZEL",
-        price: 1999,
-        monthlyPrice: 1999,
-        yearlyPrice: 19990,
-        duration: 30,
-        limits: { maxProducts: 999999, maxOrders: 999999, maxMarketplaces: 999, maxApiCalls: 9999999, maxUsers: 999 },
-        features: ["Tüm Pro özellikleri", "Sınırsız ürün", "Sınırsız sipariş", "Sınırsız pazaryeri", "Sınırsız kullanıcı", "Özel API erişimi", "Dedicated destek", "SLA garantisi", "Özel entegrasyonlar", "White-label seçeneği"],
-    },
-};
+const { invalidatePlanDefinitionsCache } = require("../../services/planFeatureService");
+const {
+    DEFAULT_PLAN_DEFINITIONS,
+    PLAN_LIMITS_BY_KEY
+} = require("../../config/defaultPlanDefinitions");
 
 // Paket tanımlarını DB'den oku (yoksa default)
 const getPlanDefinitions = async () => {
@@ -1397,6 +1350,40 @@ const getPlanDefinitions = async () => {
         return doc?.value || DEFAULT_PLAN_DEFINITIONS;
     } catch {
         return DEFAULT_PLAN_DEFINITIONS;
+    }
+};
+
+exports.resetPlanDefinitionsToDefaults = async (req, res) => {
+    try {
+        const planDefinitions = JSON.parse(JSON.stringify(DEFAULT_PLAN_DEFINITIONS));
+
+        await SystemConfig.findOneAndUpdate(
+            { key: "planDefinitions" },
+            { value: planDefinitions, updatedBy: req.user._id, updatedAt: new Date() },
+            { upsert: true, new: true }
+        );
+
+        invalidatePlansCache();
+        invalidatePlanDefinitionsCache();
+
+        await AuditLog.create({
+            adminId: req.user._id,
+            action: "plan_definitions_reset_defaults",
+            category: "system",
+            severity: "warning",
+            description: "Paket tanımları varsayılan revizyona sıfırlandı",
+            metadata: { keys: Object.keys(planDefinitions) },
+            ipAddress: req.ip,
+        });
+
+        res.json({
+            success: true,
+            message: "Paket tanımları varsayılan revizyona sıfırlandı",
+            planDefinitions
+        });
+    } catch (error) {
+        logger.error(`Paket sıfırlama hatası: ${error.message}`);
+        res.status(500).json({ success: false, message: "Paket tanımları sıfırlanamadı" });
     }
 };
 
@@ -1427,8 +1414,8 @@ exports.updatePlanDefinitions = async (req, res) => {
             { upsert: true, new: true }
         );
 
-        // PayTR controller'daki plan cache'ini temizle — değişiklikler anında yansısın
         invalidatePlansCache();
+        invalidatePlanDefinitionsCache();
 
         await AuditLog.create({
             adminId: req.user._id,

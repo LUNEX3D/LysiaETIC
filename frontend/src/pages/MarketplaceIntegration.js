@@ -1,16 +1,32 @@
-﻿import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { FaGlobe, FaKey, FaEdit, FaTrash, FaTimes, FaCheck, FaPlug, FaRocket, FaFlag } from "react-icons/fa";
 import { motion, AnimatePresence } from "framer-motion";
 import API from "../services/api";
 import { useApp } from "../context/AppContext";
 import World3D from "../components/World3D";
+import DashtockLogoMark from "../components/brand/DashtockLogoMark";
+import {
+    findMarketplaceIntegration,
+    isMarketplaceConnected,
+    isSameMarketplace,
+    normalizeMarketplaceDisplayName,
+} from "../utils/marketplaceIdentity";
 import "../styles/MarketplaceIntegration.css";
+
+const normalizeIntegrationsList = (raw) => {
+    const list = Array.isArray(raw) ? raw : (raw?.marketplaces || raw?.data || []);
+    if (!Array.isArray(list)) return [];
+    return list.map((row) => ({
+        ...row,
+        marketplaceName: normalizeMarketplaceDisplayName(row.marketplaceName || row.name),
+    }));
+};
 
 // ✅ FIX #3: fetch() → api.js (axios) — 401 interceptor + token refresh çalışır
 const getUserIntegrations = async () => {
     try {
         const response = await API.get("/marketplace/user-marketplaces");
-        return response.data || [];
+        return normalizeIntegrationsList(response.data);
     } catch (error) {
         if (error.response?.status === 404) return [];
         return [];
@@ -27,6 +43,57 @@ const REGION_CONFIG = {
     "Amerika": { icon: <FaGlobe />, color: "#2ecc71" },
 };
 
+/** Amazon SP-API — resmi dokümantasyondaki satıcı credential alanları */
+const AMAZON_SP_API_FIELDS = [
+    "sellerId", "clientId", "clientSecret", "refreshToken", "accessKeyId", "secretAccessKey"
+];
+
+const AMAZON_SP_API_LABELS = {
+    sellerId: "Selling Partner ID",
+    clientId: "LWA Client ID",
+    clientSecret: "LWA Client Secret",
+    refreshToken: "LWA Refresh Token",
+    accessKeyId: "AWS Access Key ID",
+    secretAccessKey: "AWS Secret Access Key",
+    marketplaceId: "Hedef Amazon Pazarı"
+};
+
+const AMAZON_SP_API_HINTS = {
+    sellerId: "Seller Central → Ayarlar → Hesap bilgileri → Satıcı kimliği (Merchant Token / Selling Partner ID)",
+    clientId: "Develop Apps → Uygulamanız → LWA credentials → Client identifier",
+    clientSecret: "Aynı ekranda Client secret",
+    refreshToken: "Satıcı uygulamanızı yetkilendirdikten sonra alınan refresh token",
+    accessKeyId: "IAM → Users → Security credentials → Access key (SP-API execute-api imzası)",
+    secretAccessKey: "IAM → Secret access key (yalnızca oluşturulurken görünür)",
+    marketplaceId: "Avrupa’da ürün listelediğiniz ülke pazaryeri"
+};
+
+const AMAZON_EU_MARKETPLACE_OPTIONS = [
+    { value: "A1PA6795UKMFR9", label: "Almanya (DE)" },
+    { value: "A1F83G8C2ARO7P", label: "Birleşik Krallık (UK)" },
+    { value: "A13V1IB3VIYZZH", label: "Fransa (FR)" },
+    { value: "APJ6JRA9NG5V4", label: "İtalya (IT)" },
+    { value: "A1RKKUPIHCS9HS", label: "İspanya (ES)" },
+    { value: "A1805IZSGTT6HS", label: "Hollanda (NL)" },
+    { value: "A2NODRKZP88ZB9", label: "İsveç (SE)" },
+    { value: "A1C3SOZRARQ6R3", label: "Polonya (PL)" },
+    { value: "A33AVAJ2PDY3EV", label: "Türkiye (TR)" }
+];
+
+const makeAmazonPlatform = (name, { description, euMarketplaceSelect = false, autoMarketplaceId = null }) => ({
+    name,
+    isAmazon: true,
+    fields: euMarketplaceSelect ? [...AMAZON_SP_API_FIELDS, "marketplaceId"] : [...AMAZON_SP_API_FIELDS],
+    fieldLabels: AMAZON_SP_API_LABELS,
+    fieldHints: AMAZON_SP_API_HINTS,
+    fieldRequired: euMarketplaceSelect ? { marketplaceId: true } : {},
+    fieldTypes: euMarketplaceSelect ? { marketplaceId: "select" } : {},
+    fieldOptions: euMarketplaceSelect ? { marketplaceId: AMAZON_EU_MARKETPLACE_OPTIONS } : {},
+    fieldDefaults: euMarketplaceSelect ? { marketplaceId: "A1PA6795UKMFR9" } : {},
+    autoMarketplaceId,
+    description
+});
+
 const MarketplaceIntegration = () => {
     const { t } = useApp();
     const regions = [
@@ -35,8 +102,11 @@ const MarketplaceIntegration = () => {
             platforms: [
                 { name: "Trendyol", fields: ["apiKey", "apiSecret", "sellerId"], description: "Trendyol Entegratör API - Supplier ID, API Key ve API Secret gereklidir" },
                 { name: "Hepsiburada", fields: ["merchantId", "secretKey", "userAgent", "useSit"], fieldLabels: { merchantId: "Merchant ID (Mağaza ID)", secretKey: "Secret Key (Servis Anahtarı)", userAgent: "Developer Username (User-Agent)", useSit: "API Ortamı" }, fieldHints: { merchantId: "Hepsiburada'nın size verdiği Merchant ID (UUID formatında)", secretKey: "Satıcı Paneli → Entegrasyon → Entegratör Bilgileri → Servis Anahtarı", userAgent: "Hepsiburada'nın size verdiği Developer Username (ör: firmaadi_dev)", useSit: "Test hesabı için SIT, gerçek mağaza için Canlı seçin" }, fieldTypes: { useSit: "toggle" }, fieldDefaults: { useSit: false }, description: "Hepsiburada Merchant API — Merchant ID, Secret Key ve Developer Username gereklidir. Basic Auth: base64(merchantId:secretKey)" },
-                { name: "n11", fields: ["apiKey", "secretKey", "shipmentTemplate"], fieldLabels: { apiKey: "App Key", secretKey: "App Secret", shipmentTemplate: "Kargo Şablon Adı" }, fieldDefaults: { shipmentTemplate: "STANDART" }, fieldHints: { shipmentTemplate: "N11 Paneli → Hesabım → Teslimat Bilgileri → Şablon Adı" }, description: "N11 REST API — App Key ve App Secret zorunludur." },
-                { name: "Amazon Türkiye", fields: ["sellerId", "clientId", "clientSecret", "refreshToken", "accessKeyId", "secretAccessKey", "marketplaceId"], fieldLabels: { sellerId: "Seller ID", clientId: "LWA Client ID", clientSecret: "LWA Client Secret", refreshToken: "LWA Refresh Token", accessKeyId: "AWS Access Key ID", secretAccessKey: "AWS Secret Access Key", marketplaceId: "Marketplace ID" }, fieldDefaults: { marketplaceId: "A33AVAJ2PDY3EV" }, fieldHints: { sellerId: "Seller Central → Hesap Bilgileri → Satıcı ID", clientId: "Developer Central → LWA Credentials → Client ID", clientSecret: "Developer Central → LWA Credentials → Client Secret", refreshToken: "SP-API uygulaması yetkilendirildikten sonra alınan token", accessKeyId: "AWS IAM → Kullanıcı → Access Key ID", secretAccessKey: "AWS IAM → Kullanıcı → Secret Access Key", marketplaceId: "Türkiye: A33AVAJ2PDY3EV" }, description: "Amazon SP-API — Seller ID, LWA Credentials ve AWS IAM Keys gereklidir" },
+                { name: "N11", fields: ["apiKey", "secretKey", "shipmentTemplate"], fieldLabels: { apiKey: "App Key", secretKey: "App Secret", shipmentTemplate: "Kargo Şablon Adı" }, fieldDefaults: { shipmentTemplate: "STANDART" }, fieldHints: { shipmentTemplate: "N11 Paneli → Hesabım → Teslimat Bilgileri → Şablon Adı" }, description: "N11 REST API — App Key ve App Secret zorunludur." },
+                makeAmazonPlatform("Amazon Türkiye", {
+                    autoMarketplaceId: "A33AVAJ2PDY3EV",
+                    description: "Amazon SP-API (Türkiye) — Resmi 6 alan: Selling Partner ID, LWA (Client ID/Secret/Refresh Token), AWS IAM (Access Key/Secret). Marketplace ID otomatik atanır."
+                }),
                 { name: "ÇiçekSepeti", fields: ["apiKey", "sellerId", "integratorName"], fieldLabels: { apiKey: "API Key (x-api-key)", sellerId: "Satıcı ID", integratorName: "Entegratör Adı (opsiyonel)" }, fieldHints: { apiKey: "Satıcı Paneli → Hesap Yönetimi → Entegrasyon Bilgilerim", sellerId: "Satıcı Paneli → Entegrasyon Bilgilerim → Satıcı ID", integratorName: "Entegratör firma ile çalışıyorsanız doldurun, yoksa boş bırakın" }, fieldRequired: { apiKey: true, sellerId: true, integratorName: false }, description: "ÇiçekSepeti Marketplace API — API Key ve Satıcı ID zorunludur. Canlı ortam: apis.ciceksepeti.com" },
                 { name: "GittiGidiyor", fields: ["apiKey", "secretKey", "role", "nick"], description: "GittiGidiyor API (Kapatıldı) - Eski entegrasyonlar için" },
                 { name: "Morhipo", fields: ["supplierId", "apiKey", "apiSecret"], description: "Morhipo Entegrasyon API - Supplier ID, API Key ve API Secret gereklidir" },
@@ -48,7 +118,10 @@ const MarketplaceIntegration = () => {
         {
             name: "Avrupa",
             platforms: [
-                { name: "Amazon Europe", fields: ["sellerId", "clientId", "clientSecret", "refreshToken", "accessKeyId", "secretAccessKey", "marketplaceId"], fieldLabels: { sellerId: "Seller ID", clientId: "LWA Client ID", clientSecret: "LWA Client Secret", refreshToken: "LWA Refresh Token", accessKeyId: "AWS Access Key ID", secretAccessKey: "AWS Secret Access Key", marketplaceId: "Marketplace ID" }, fieldDefaults: { marketplaceId: "A1PA6795UKMFR9" }, fieldHints: { sellerId: "Seller Central → Account Info → Merchant Token", clientId: "Developer Central → LWA Credentials", clientSecret: "Developer Central → LWA Credentials", refreshToken: "SP-API app authorization token", accessKeyId: "AWS IAM → User → Access Key", secretAccessKey: "AWS IAM → User → Secret Key", marketplaceId: "DE: A1PA6795UKMFR9, UK: A1F83G8C2ARO7P, FR: A13V1IB3VIYZZH, IT: APJ6JRA9NG5V4, ES: A1RKKUPIHCS9HS" }, description: "Amazon SP-API Europe — Seller ID, LWA Credentials ve AWS IAM Keys gereklidir" },
+                makeAmazonPlatform("Amazon Europe", {
+                    euMarketplaceSelect: true,
+                    description: "Amazon SP-API (Avrupa) — Resmi 6 credential + hedef ülke pazarı seçimi (Marketplace ID listesi Amazon dokümantasyonundan)."
+                }),
                 { name: "eBay", fields: ["appId", "devId", "certId", "userToken", "siteId"], description: "eBay Trading API - App ID, Dev ID, Cert ID, User Token ve Site ID gereklidir" },
                 { name: "Etsy", fields: ["apiKey", "sharedSecret", "shopId", "accessToken"], description: "Etsy API v3 - API Key, Shared Secret, Shop ID ve OAuth Access Token gereklidir" },
                 { name: "Allegro", fields: ["clientId", "clientSecret", "refreshToken"], description: "Allegro REST API - Client ID, Client Secret ve Refresh Token gereklidir" }
@@ -66,7 +139,10 @@ const MarketplaceIntegration = () => {
         {
             name: "Amerika",
             platforms: [
-                { name: "Amazon USA", fields: ["sellerId", "clientId", "clientSecret", "refreshToken", "accessKeyId", "secretAccessKey", "marketplaceId"], fieldLabels: { sellerId: "Seller ID", clientId: "LWA Client ID", clientSecret: "LWA Client Secret", refreshToken: "LWA Refresh Token", accessKeyId: "AWS Access Key ID", secretAccessKey: "AWS Secret Access Key", marketplaceId: "Marketplace ID" }, fieldDefaults: { marketplaceId: "ATVPDKIKX0DER" }, fieldHints: { sellerId: "Seller Central → Account Info → Merchant Token", clientId: "Developer Central → LWA Credentials", clientSecret: "Developer Central → LWA Credentials", refreshToken: "SP-API app authorization token", accessKeyId: "AWS IAM → User → Access Key", secretAccessKey: "AWS IAM → User → Secret Key", marketplaceId: "US: ATVPDKIKX0DER, CA: A2EUQ1WTGCTBG2, MX: A1AM78C64UM0Y8" }, description: "Amazon SP-API North America — Seller ID, LWA Credentials ve AWS IAM Keys gereklidir" },
+                makeAmazonPlatform("Amazon USA", {
+                    autoMarketplaceId: "ATVPDKIKX0DER",
+                    description: "Amazon SP-API (Kuzey Amerika / ABD) — Resmi 6 alan. Varsayılan marketplace: ABD (ATVPDKIKX0DER)."
+                }),
                 { name: "Walmart", fields: ["clientId", "clientSecret", "consumerId"], description: "Walmart Marketplace API - Client ID, Client Secret ve Consumer ID gereklidir" },
                 { name: "Shopify", fields: ["shopName", "apiKey", "apiSecret", "accessToken"], description: "Shopify Admin API - Shop Name, API Key, API Secret ve Access Token gereklidir" }
             ]
@@ -77,7 +153,29 @@ const MarketplaceIntegration = () => {
     const [expandedPlatform, setExpandedPlatform] = useState(null);
     const [integrations, setIntegrations] = useState([]);
     const [formData, setFormData] = useState({});
+    const [testingPlatform, setTestingPlatform] = useState(null);
     const userId = localStorage.getItem("userId");
+
+    const buildCredentialsFromPlatform = (platform) => {
+        const platformFormData = formData[platform.name] || {};
+        const credentials = {};
+        platform.fields.forEach((field) => {
+            const val = platformFormData[field];
+            if (field === "useSit") {
+                credentials[field] =
+                    typeof val === "boolean" ? val : (platform.fieldDefaults?.[field] ?? false);
+                return;
+            }
+            credentials[field] =
+                val !== undefined && val !== null && val !== ""
+                    ? val
+                    : (platform.fieldDefaults?.[field] ?? "");
+        });
+        if (platform.autoMarketplaceId) {
+            credentials.marketplaceId = platform.autoMarketplaceId;
+        }
+        return credentials;
+    };
 
     /** Sunucudaki kayıtlı SIT/Canlı seçimini forma yansıt (maskeli güncellemede yanlışlıkla Canlı'ya dönmesini önler) */
     const hydrateHepsiburadaToggleFromApi = useCallback(() => {
@@ -100,25 +198,41 @@ const MarketplaceIntegration = () => {
         if (userId) fetchIntegrations();
     }, [userId]);
 
+    const handleTestAmazon = async (platform) => {
+        const uid = localStorage.getItem("userId");
+        if (!uid) { alert(t("mi.authError")); return; }
+
+        const credentials = buildCredentialsFromPlatform(platform);
+        const hasEmpty = AMAZON_SP_API_FIELDS.some((f) => !credentials[f] || !String(credentials[f]).trim());
+        if (hasEmpty) {
+            alert(`❌ ${t("mi.fillRequired")}`);
+            return;
+        }
+
+        setTestingPlatform(platform.name);
+        try {
+            const response = await API.post("/marketplace/test-amazon", {
+                marketplaceName: platform.name,
+                ...credentials
+            });
+            const data = response.data;
+            if (data?.success) {
+                alert(`✅ ${data.message || "Amazon SP-API bağlantısı başarılı"}`);
+            } else {
+                alert(`❌ ${data?.message || "Bağlantı testi başarısız"}`);
+            }
+        } catch (error) {
+            alert(`❌ ${error.response?.data?.message || error.message || "Test başarısız"}`);
+        } finally {
+            setTestingPlatform(null);
+        }
+    };
+
     const handleIntegration = async (platform) => {
         const uid = localStorage.getItem("userId");
         if (!uid) { alert(t("mi.authError")); return; }
 
-        const platformFormData = formData[platform.name] || {};
-        const credentials = {};
-        platform.fields.forEach(field => {
-            const val = platformFormData[field];
-            if (field === "useSit") {
-                credentials[field] =
-                    typeof val === "boolean"
-                        ? val
-                        : (platform.fieldDefaults?.[field] ?? false);
-                return;
-            }
-            credentials[field] = val !== undefined && val !== null && val !== ""
-                ? val
-                : (platform.fieldDefaults?.[field] ?? "");
-        });
+        const credentials = buildCredentialsFromPlatform(platform);
 
         const hasEmptyRequiredFields = platform.fields.some(field => {
             const isRequired = platform.fieldRequired ? platform.fieldRequired[field] !== false : true;
@@ -180,7 +294,8 @@ const MarketplaceIntegration = () => {
                     transition={{ duration: 0.7, ease: "easeOut" }}
                 >
                     <div className="mi-brand-logo">
-                        <span className="mi-brand-main">PazarYonet</span>
+                        <DashtockLogoMark size={44} animated />
+                        <span className="mi-brand-main">Dashtock</span>
                         <span className="mi-brand-sub">Platform</span>
                     </div>
                     <p className="mi-brand-tagline">Global Pazaryeri Entegrasyon Merkezi</p>
@@ -323,7 +438,7 @@ const MarketplaceIntegration = () => {
                                                                 const hint = platform.fieldHints?.[field];
                                                                 const isOptional = platform.fieldRequired && platform.fieldRequired[field] === false;
                                                                 const fieldType = platform.fieldTypes?.[field];
-                                                                const sensitive = ["apiKey","secretKey","appKey","appSecret","apiSecret","apiPassword","accessToken","sessionKey","clientSecret","mwsAuthToken","userToken","certId","partnerKey","licenseKey","serviceSecret"];
+                                                                const sensitive = ["apiKey","secretKey","appKey","appSecret","apiSecret","apiPassword","accessToken","sessionKey","clientSecret","refreshToken","secretAccessKey","mwsAuthToken","userToken","certId","partnerKey","licenseKey","serviceSecret"];
                                                                 const inputType = fieldType === "checkbox" ? "checkbox" : (sensitive.includes(field) ? "password" : "text");
                                                                 const defaultVal = platform.fieldDefaults?.[field] || "";
 
@@ -366,6 +481,32 @@ const MarketplaceIntegration = () => {
                                                                     );
                                                                 }
 
+                                                                if (fieldType === "select") {
+                                                                    const options = platform.fieldOptions?.[field] || [];
+                                                                    const current = (formData[platform.name]?.[field]) || defaultVal || "";
+                                                                    return (
+                                                                        <div key={field} className="mi-field">
+                                                                            <label>{label}</label>
+                                                                            <select
+                                                                                value={current}
+                                                                                onChange={(e) => setFormData(prev => ({
+                                                                                    ...prev,
+                                                                                    [platform.name]: {
+                                                                                        ...(prev[platform.name] || {}),
+                                                                                        [field]: e.target.value
+                                                                                    }
+                                                                                }))}
+                                                                                style={{ width: "100%", padding: "0.5rem", borderRadius: 6 }}
+                                                                            >
+                                                                                {options.map((opt) => (
+                                                                                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                                                                ))}
+                                                                            </select>
+                                                                            {hint && <small className="mi-field-hint">💡 {hint}</small>}
+                                                                        </div>
+                                                                    );
+                                                                }
+
                                                                 return (
                                                                     <div key={field} className="mi-field">
                                                                         <label>{label}{isOptional && <span style={{ color: '#64748b', fontSize: '0.75rem', marginLeft: '0.4rem', fontWeight: 400 }}>(opsiyonel)</span>}</label>
@@ -386,7 +527,23 @@ const MarketplaceIntegration = () => {
                                                                 );
                                                             })}
                                                         </div>
+                                                        {platform.isAmazon && platform.autoMarketplaceId && (
+                                                            <p className="mi-field-hint" style={{ margin: "0 0 0.5rem" }}>
+                                                                Marketplace ID (otomatik): <code>{platform.autoMarketplaceId}</code>
+                                                            </p>
+                                                        )}
                                                         <div className="mi-actions">
+                                                            {platform.isAmazon && (
+                                                                <button
+                                                                    type="button"
+                                                                    className="mi-btn"
+                                                                    style={{ background: "#232f3e", color: "#fff" }}
+                                                                    disabled={testingPlatform === platform.name}
+                                                                    onClick={() => handleTestAmazon(platform)}
+                                                                >
+                                                                    <FaPlug /> {testingPlatform === platform.name ? "Test ediliyor…" : "Bağlantıyı Test Et"}
+                                                                </button>
+                                                            )}
                                                             {isConnected ? (
                                                                 <>
                                                                     <button className="mi-btn mi-btn--update" onClick={() => handleIntegration(platform)}>

@@ -3,6 +3,8 @@ const router = express.Router();
 const { authMiddleware } = require("../middlewares/authMiddleware");
 const { subscriptionMiddleware } = require("../middlewares/subscriptionMiddleware");
 const analyticsController = require("../controllers/analyticsController");
+const { requirePlanFeature } = require("../middlewares/planFeatureMiddleware");
+const requireProfit = requirePlanFeature("profit_analytics");
 
 /**
  * Analytics Routes — LysiaETIC
@@ -20,11 +22,11 @@ router.get("/category-distribution", authMiddleware, subscriptionMiddleware, ana
 router.get("/hourly-sales", authMiddleware, subscriptionMiddleware, analyticsController.getHourlySales);
 
 // ── Gelişmiş Analiz (YENİ) ──
-router.get("/profit-overview", authMiddleware, subscriptionMiddleware, analyticsController.getProfitOverview);
-router.get("/product-performance", authMiddleware, subscriptionMiddleware, analyticsController.getProductPerformance);
-router.get("/product-profit-loss", authMiddleware, subscriptionMiddleware, analyticsController.getProductProfitLoss);
-router.get("/marketplace-comparison", authMiddleware, subscriptionMiddleware, analyticsController.getMarketplaceComparison);
-router.get("/commission-analysis", authMiddleware, subscriptionMiddleware, analyticsController.getCommissionAnalysis);
+router.get("/profit-overview", authMiddleware, subscriptionMiddleware, requireProfit, analyticsController.getProfitOverview);
+router.get("/product-performance", authMiddleware, subscriptionMiddleware, requireProfit, analyticsController.getProductPerformance);
+router.get("/product-profit-loss", authMiddleware, subscriptionMiddleware, requireProfit, analyticsController.getProductProfitLoss);
+router.get("/marketplace-comparison", authMiddleware, subscriptionMiddleware, requireProfit, analyticsController.getMarketplaceComparison);
+router.get("/commission-analysis", authMiddleware, subscriptionMiddleware, requireProfit, analyticsController.getCommissionAnalysis);
 router.get("/stock-velocity", authMiddleware, subscriptionMiddleware, analyticsController.getStockVelocity);
 router.get("/actions", authMiddleware, subscriptionMiddleware, analyticsController.getActions);
 router.get("/daily-summary", authMiddleware, subscriptionMiddleware, analyticsController.getDailySummary);

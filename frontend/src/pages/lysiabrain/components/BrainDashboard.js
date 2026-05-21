@@ -234,7 +234,7 @@ const BrainDashboard = ({
         return () => { cancelled = true; };
     }, []);
 
-    if (!brain) return <EmptyState icon="🧠" title={t("common.loading")} description="PazarYonet AI" />;
+    if (!brain) return <EmptyState icon="🧠" title={t("common.loading")} description="Dashtock AI" />;
 
     const bh = brain.businessHealth || {};
     const tone = brain.emotionalTone || {};

@@ -1,8 +1,20 @@
 {
-  "short_name": "PazarYonet",
-  "name": "PazarYonet — Pazaryeri Yönetim Platformu",
+  "short_name": "Dashtock",
+  "name": "Dashtock",
   "description": "E-ticaret pazaryeri entegrasyonu, ürün yönetimi, sipariş takibi ve AI destekli karar merkezi.",
   "icons": [
+    {
+      "src": "icons/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
     {
       "src": "icons/icon-72x72.png",
       "sizes": "72x72",
@@ -34,20 +46,8 @@
       "purpose": "maskable any"
     },
     {
-      "src": "icons/icon-192x192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "maskable any"
-    },
-    {
       "src": "icons/icon-384x384.png",
       "sizes": "384x384",
-      "type": "image/png",
-      "purpose": "maskable any"
-    },
-    {
-      "src": "icons/icon-512x512.png",
-      "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable any"
     }
@@ -100,14 +100,14 @@
       "sizes": "512x512",
       "type": "image/png",
       "form_factor": "wide",
-      "label": "PazarYonet Dashboard"
+      "label": "Dashtock Dashboard"
     },
     {
       "src": "icons/icon-384x384.png",
       "sizes": "384x384",
       "type": "image/png",
       "form_factor": "narrow",
-      "label": "PazarYonet Mobil"
+      "label": "Dashtock Mobil"
     }
   ],
   "handle_links": "preferred",
@@ -115,4 +115,3 @@
     "client_mode": "navigate-existing"
   }
 }
-

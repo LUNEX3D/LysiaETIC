@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import axios from "../services/api";
 import { useNavigate } from "react-router-dom";
 import { useGoogleLogin, GoogleOAuthProvider } from "@react-oauth/google";
@@ -548,7 +548,7 @@ const LoginFormInner = () => {
                                 </h2>
                                 <p className="ft-hero-desc">
                                     Pazaryeri entegrasyonundan yapay zeka destekli analize, stok yönetiminden kargo takibine kadar
-                                    ihtiyacınız olan her şey PazarYonet'de. Artık 10 farklı araç kullanmanıza gerek yok.
+                                    ihtiyacınız olan her şey Dashtock'de. Artık 10 farklı araç kullanmanıza gerek yok.
                                 </p>
                             </div>
 
@@ -585,7 +585,7 @@ const LoginFormInner = () => {
 
                                 <div className="ft-main-card">
                                     <div className="ft-main-icon" style={{ background: "linear-gradient(135deg, #6366f1, #8b5cf6)" }} aria-hidden>🧠</div>
-                                    <h4>PazarYonet AI Yapay Zeka Asistanı</h4>
+                                    <h4>Dashtock AI Yapay Zeka Asistanı</h4>
                                     <p>GPT-4 destekli AI asistanınız. Ürün açıklaması yazma, SEO optimizasyonu, fiyat önerisi, rakip analizi ve satış stratejisi... Hepsini yapay zeka ile yapın.</p>
                                     <div className="ft-main-tags">
                                         <span className="ft-tag" style={{ color: "#8b5cf6" }}>GPT-4</span>
@@ -619,7 +619,7 @@ const LoginFormInner = () => {
                                 <div className="ft-detail-card">
                                     <div className="ft-detail-icon" aria-hidden>🎯</div>
                                     <div className="ft-detail-body">
-                                        <h4>PazarYonet Radar Fırsat Motoru</h4>
+                                        <h4>Dashtock Radar Fırsat Motoru</h4>
                                         <p>Yapay zeka ile pazaryerlerini tarayarak yüksek kâr potansiyelli ürünleri keşfedin. Rakip analizi, talep tahmini ve fiyat optimizasyonu tek tuşla.</p>
                                         <ul className="ft-detail-list">
                                             <li>AI destekli ürün fırsat keşfi</li>
@@ -693,7 +693,7 @@ const LoginFormInner = () => {
                                 <div className="ft-ai-banner-content">
                                     <div className="ft-ai-badge"> YAPAY ZEKA DESTEKLİ</div>
                                     <h3>Rakiplerinizin Bir Adım Önünde Olun</h3>
-                                    <p>PazarYonet AI ve PazarYonet Radar ile pazaryerlerindeki trendleri analiz edin, yüksek kârlı ürünleri keşfedin ve satış stratejinizi optimize edin. Yapay zeka sizin için çalışsın.</p>
+                                    <p>Dashtock AI ve Dashtock Radar ile pazaryerlerindeki trendleri analiz edin, yüksek kârlı ürünleri keşfedin ve satış stratejinizi optimize edin. Yapay zeka sizin için çalışsın.</p>
                                     <div className="ft-ai-features">
                                         <div className="ft-ai-feat">
                                             <span aria-hidden>📈</span>
@@ -852,8 +852,8 @@ const LoginFormInner = () => {
                                         </ul>
                                         <div className="pr-section-label">AI & Araçlar</div>
                                         <ul className="pr-feature-list">
-                                            <li className="pr-feat-no"><span className="pr-x"></span> PazarYonet AI Asistanı</li>
-                                            <li className="pr-feat-no"><span className="pr-x"></span> PazarYonet Radar</li>
+                                            <li className="pr-feat-no"><span className="pr-x"></span> Dashtock AI Asistanı</li>
+                                            <li className="pr-feat-no"><span className="pr-x"></span> Dashtock Radar</li>
                                             <li className="pr-feat-no"><span className="pr-x"></span> Fiyat optimizasyonu</li>
                                             <li className="pr-feat-no"><span className="pr-x"></span> E-fatura entegrasyonu</li>
                                         </ul>
@@ -902,8 +902,8 @@ const LoginFormInner = () => {
                                         </ul>
                                         <div className="pr-section-label">AI & Araçlar</div>
                                         <ul className="pr-feature-list">
-                                            <li className="pr-feat-yes pr-feat-highlight"><span className="pr-check"></span> <strong>PazarYonet AI</strong> - 500 sorgu/ay</li>
-                                            <li className="pr-feat-yes pr-feat-highlight"><span className="pr-check"></span> <strong>PazarYonet Radar</strong> - Fırsat keşfi</li>
+                                            <li className="pr-feat-yes pr-feat-highlight"><span className="pr-check"></span> <strong>Dashtock AI</strong> - 500 sorgu/ay</li>
+                                            <li className="pr-feat-yes pr-feat-highlight"><span className="pr-check"></span> <strong>Dashtock Radar</strong> - Fırsat keşfi</li>
                                             <li className="pr-feat-yes"><span className="pr-check"></span> Fiyat optimizasyonu & kuralları</li>
                                             <li className="pr-feat-yes"><span className="pr-check"></span> E-fatura entegrasyonu</li>
                                             <li className="pr-feat-yes"><span className="pr-check"></span> Kargo takibi & etiket basımı</li>
@@ -952,8 +952,8 @@ const LoginFormInner = () => {
                                         </ul>
                                         <div className="pr-section-label">AI & Araçlar</div>
                                         <ul className="pr-feature-list">
-                                            <li className="pr-feat-yes pr-feat-highlight"><span className="pr-check"></span> <strong>PazarYonet AI</strong> - Sınırsız sorgu</li>
-                                            <li className="pr-feat-yes pr-feat-highlight"><span className="pr-check"></span> <strong>PazarYonet Radar</strong> - Tam erişim</li>
+                                            <li className="pr-feat-yes pr-feat-highlight"><span className="pr-check"></span> <strong>Dashtock AI</strong> - Sınırsız sorgu</li>
+                                            <li className="pr-feat-yes pr-feat-highlight"><span className="pr-check"></span> <strong>Dashtock Radar</strong> - Tam erişim</li>
                                             <li className="pr-feat-yes"><span className="pr-check"></span> Gelişmiş fiyat optimizasyonu</li>
                                             <li className="pr-feat-yes"><span className="pr-check"></span> E-fatura & muhasebe entegrasyonu</li>
                                             <li className="pr-feat-yes"><span className="pr-check"></span> Kargo takibi & etiket basımı</li>
@@ -1005,13 +1005,13 @@ const LoginFormInner = () => {
                                     <div className="pr-compare-val">Sınırsız</div>
                                 </div>
                                 <div className="pr-compare-row">
-                                    <div className="pr-compare-feature">PazarYonet AI</div>
+                                    <div className="pr-compare-feature">Dashtock AI</div>
                                     <div className="pr-compare-val"><span className="pr-compare-no"></span></div>
                                     <div className="pr-compare-val pr-compare-val--pop"><span className="pr-compare-yes">500/ay</span></div>
                                     <div className="pr-compare-val"><span className="pr-compare-yes">Sınırsız</span></div>
                                 </div>
                                 <div className="pr-compare-row">
-                                    <div className="pr-compare-feature">PazarYonet Radar</div>
+                                    <div className="pr-compare-feature">Dashtock Radar</div>
                                     <div className="pr-compare-val"><span className="pr-compare-no"></span></div>
                                     <div className="pr-compare-val pr-compare-val--pop"><span className="pr-compare-yes"></span></div>
                                     <div className="pr-compare-val"><span className="pr-compare-yes"></span></div>
@@ -1076,13 +1076,13 @@ const LoginFormInner = () => {
                         <div className="auth-tab-content auth-tab-fullpage">
                             {/*  HERO SECTION  */}
                             <div className="ft-hero">
-                                <span className="ft-hero-badge"> PazarYonet Hakkında</span>
+                                <span className="ft-hero-badge"> Dashtock Hakkında</span>
                                 <h2 className="ft-hero-title">
                                     E-Ticaretin Geleceğini<br />
                                     <span className="ft-gradient-text">Birlikte İnşa Ediyoruz</span>
                                 </h2>
                                 <p className="ft-hero-desc">
-                                    PazarYonet, Türkiye'nin en kapsamlı e-ticaret yönetim platformudur. Yapay zeka destekli
+                                    Dashtock, Türkiye'nin en kapsamlı e-ticaret yönetim platformudur. Yapay zeka destekli
                                     araçlarımızla binlerce satıcının işini büyütmesine yardımcı oluyoruz.
                                 </p>
                             </div>
@@ -1099,7 +1099,7 @@ const LoginFormInner = () => {
                                         ayrı bir yerde... Bu karmaşayı ortadan kaldırmak için yola çıktık.
                                     </p>
                                     <p>
-                                        PazarYonet, tüm e-ticaret operasyonlarını tek bir çatı altında toplayan, yapay zeka
+                                        Dashtock, tüm e-ticaret operasyonlarını tek bir çatı altında toplayan, yapay zeka
                                         ile güçlendirilmiş, kullanıcı dostu bir platform olarak doğdu. Amacımız basit:
                                         <strong> Satıcıların teknik detaylarla değil, işlerini büyütmeyle ilgilenmesini sağlamak.</strong>
                                     </p>
@@ -1238,7 +1238,7 @@ const LoginFormInner = () => {
 
                             {/*  RAKAMLARLA BİZ  */}
                             <div className="ft-section" style={{ marginTop: "48px" }}>
-                                <div className="ft-section-label"> RAKAMLARLA PazarYonet</div>
+                                <div className="ft-section-label"> RAKAMLARLA Dashtock</div>
                                 <h3 className="ft-section-title">Büyüyen Bir Ekosistem</h3>
                             </div>
 
@@ -1275,9 +1275,9 @@ const LoginFormInner = () => {
                                 </div>
                             </div>
 
-                            {/*  NEDEN PazarYonet?  */}
+                            {/*  NEDEN Dashtock?  */}
                             <div className="ft-section" style={{ marginTop: "48px" }}>
-                                <div className="ft-section-label"> NEDEN PazarYonet?</div>
+                                <div className="ft-section-label"> NEDEN Dashtock?</div>
                                 <h3 className="ft-section-title">Farkımız Ne?</h3>
                             </div>
 
@@ -1285,12 +1285,12 @@ const LoginFormInner = () => {
                                 <div className="ab-why-card">
                                     <div className="ab-why-number">01</div>
                                     <h4>Hepsi Bir Arada</h4>
-                                    <p>Pazaryeri entegrasyonu, stok yönetimi, sipariş takibi, finans, kargo, AI analiz... Hepsi tek platformda. 10 farklı araç yerine sadece PazarYonet.</p>
+                                    <p>Pazaryeri entegrasyonu, stok yönetimi, sipariş takibi, finans, kargo, AI analiz... Hepsi tek platformda. 10 farklı araç yerine sadece Dashtock.</p>
                                 </div>
                                 <div className="ab-why-card">
                                     <div className="ab-why-number">02</div>
                                     <h4>Yapay Zeka Gücü</h4>
-                                    <p>PazarYonet AI ve PazarYonet Radar ile rakiplerinizi analiz edin, trendleri önceden görün, fırsatları yakalayın. AI sizin için çalışsın.</p>
+                                    <p>Dashtock AI ve Dashtock Radar ile rakiplerinizi analiz edin, trendleri önceden görün, fırsatları yakalayın. AI sizin için çalışsın.</p>
                                 </div>
                                 <div className="ab-why-card">
                                     <div className="ab-why-number">03</div>
@@ -1332,7 +1332,7 @@ const LoginFormInner = () => {
                                     <div className="ab-timeline-content">
                                         <div className="ab-timeline-date">2024 Q3</div>
                                         <h4>AI Entegrasyonu</h4>
-                                        <p>PazarYonet AI asistanı, PazarYonet Radar fırsat motoru ve gelişmiş analitik modülleri eklendi.</p>
+                                        <p>Dashtock AI asistanı, Dashtock Radar fırsat motoru ve gelişmiş analitik modülleri eklendi.</p>
                                     </div>
                                 </div>
                                 <div className="ab-timeline-item">
@@ -1385,7 +1385,7 @@ const LoginFormInner = () => {
                                             <span aria-hidden>🔗</span>
                                             <div>
                                                 <strong>Sosyal Medya</strong>
-                                                <small>@PazarYonet</small>
+                                                <small>@Dashtock</small>
                                             </div>
                                         </div>
                                     </div>

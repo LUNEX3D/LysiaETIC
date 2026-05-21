@@ -7,6 +7,7 @@
  */
 import React, { useState, useEffect } from "react";
 import axios from "../services/api";
+import DashtockLogoMark from "./brand/DashtockLogoMark";
 
 /* ═══════════════════════════════════════════════════════════
    DATA
@@ -615,7 +616,7 @@ const FeaturesTab = () => {
     return (
         <div style={S.tabContent}>
             <div style={S.section}>
-                <h2 style={S.sectionTitle}>Neden PazarYonet?</h2>
+                <h2 style={S.sectionTitle}>Neden Dashtock?</h2>
                 <p style={S.sectionSub}>E-ticaret operasyonlarınızı kolaylaştıran güçlü özellikler</p>
                 <div style={S.featGrid}>
                     {FEATURES.map((f, i) => (
@@ -826,14 +827,8 @@ const LandingSection = ({ onScrollToLogin }) => {
             {/* ═══ NAVBAR ═══ */}
             <div style={S.navbar}>
                 <div style={S.navLogo}>
-                    <div style={S.navLogoIcon}>
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M12 2L2 7l10 5 10-5-10-5z"/>
-                            <path d="M2 17l10 5 10-5"/>
-                            <path d="M2 12l10 5 10-5"/>
-                        </svg>
-                    </div>
-                    <span style={S.navLogoText}>PAZARYONET</span>
+                    <DashtockLogoMark size={32} />
+                    <span style={S.navLogoText}>DASHTOCK</span>
                 </div>
                 <div style={S.navTabs}>
                     {TABS.map((tab) => (
@@ -862,7 +857,7 @@ const LandingSection = ({ onScrollToLogin }) => {
 
             {/* Footer */}
             <div style={S.footer}>
-                <span>© {new Date().getFullYear()} PazarYonet. Tüm hakları saklıdır.</span>
+                <span>© {new Date().getFullYear()} Dashtock. Tüm hakları saklıdır.</span>
                 <span style={{ margin: "0 8px", opacity: 0.3 }}>•</span>
                 <a href="/privacy" target="_blank" rel="noopener noreferrer" style={{ color: "#64748b", textDecoration: "none", transition: "color 0.2s" }}>Gizlilik Politikası</a>
                 <span style={{ margin: "0 8px", opacity: 0.3 }}>•</span>

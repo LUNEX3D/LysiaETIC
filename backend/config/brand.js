@@ -1,12 +1,12 @@
 /**
- * PazarYonet — marka ve e-posta sabitleri (backend)
- * Doğrulama postası: info@pazaryonet.com (Resend'de domain doğrulanmalı)
+ * Dashtock — marka ve e-posta sabitleri (backend)
+ * Doğrulama postası: info@dashtock.com (Resend'de domain doğrulanmalı)
  */
-const BRAND_NAME = process.env.BRAND_NAME || "PazarYonet";
+const BRAND_NAME = process.env.BRAND_NAME || "Dashtock";
 
-const MAIL_DOMAIN = (process.env.MAIL_DOMAIN || "pazaryonet.com").replace(/^@/, "");
+const MAIL_DOMAIN = (process.env.MAIL_DOMAIN || "dashtock.com").replace(/^@/, "");
 
-const DEFAULT_FROM = `PazarYonet <info@${MAIL_DOMAIN}>`;
+const DEFAULT_FROM = `Dashtock <info@${MAIL_DOMAIN}>`;
 
 const FROM_EMAIL = process.env.FROM_EMAIL || DEFAULT_FROM;
 

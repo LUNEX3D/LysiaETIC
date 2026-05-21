@@ -32,16 +32,63 @@ const trendService = require("./trendService");
 const marketplaceDataService = require("./marketplaceDataService");
 const scoringService = require("./scoringService");
 const explanationService = require("./explanationService");
+const { hashString32, deterministicShuffle, classifyNicheCluster } = require("./keywordService");
+const {
+    pickDiverseOpportunities,
+    getClusterLabel,
+} = require("./nicheClusterService");
 
 // ── Konfigürasyon ──
-const MAX_KEYWORDS = 20;           // Analiz edilecek max keyword (artırıldı)
+const MAX_KEYWORDS = 24;           // Tek analizde taranan keyword
 const KEYWORD_DELAY_MS = 3200;     // Keyword'ler arası bekleme (SerpAPI / harici API)
-const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 saat cache
+const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 saat cache (yeniden tarama)
+const DISPLAY_ROTATION_MS = 3 * 60 * 60 * 1000; // 3 saatte bir farklı 15'lik set
 const MIN_SCORE_THRESHOLD = 25;    // Bu skorun altındaki fırsatlar filtrelenir
-const MAX_OPPORTUNITIES = 15;      // Kullanıcıya sunulacak max fırsat (artırıldı)
-const EXPIRY_DAYS = 3;             // Fırsat kaç gün sonra expire olur
+const MAX_OPPORTUNITIES = 15;      // Ekranda gösterilen fırsat sayısı
+const OPPORTUNITY_POOL_SIZE = 36;  // DB'de tutulan aday havuzu (rotasyon için)
+const EXPIRY_DAYS = 5;             // Fırsat kaç gün sonra expire olur
+const DISMISS_COOLDOWN_DAYS = 14;  // Kapatılan keyword tekrar taranmasın
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+function getDisplayRotationSlot() {
+    return Math.floor(Date.now() / DISPLAY_ROTATION_MS);
+}
+
+function rotateKeywordWindow(keywords, offset) {
+    if (!keywords.length || offset <= 0) return keywords;
+    const o = offset % keywords.length;
+    return [...keywords.slice(o), ...keywords.slice(0, o)];
+}
+
+function computeKeywordOffset(userId, total, windowSize, salt = "") {
+    if (total <= windowSize) return 0;
+    const slot = getDisplayRotationSlot();
+    const h = hashString32(`${userId}|${slot}|${salt}|kw-window-v1`);
+    return h % (total - windowSize + 1);
+}
+
+/**
+ * Havuzdan kullanıcıya her 3 saatte farklı 15 fırsat göster
+ */
+function rotateOpportunitiesForDisplay(opportunities, userId, limit = MAX_OPPORTUNITIES) {
+    if (!opportunities?.length) return [];
+    const ranked = [...opportunities].sort((a, b) => (b.totalScore || 0) - (a.totalScore || 0));
+    const diverse = pickDiverseOpportunities(ranked, Math.min(limit * 2, ranked.length));
+    const slot = getDisplayRotationSlot();
+    const shuffled = deterministicShuffle(diverse, `${userId}|display|${slot}|v3`);
+    return shuffled.slice(0, limit);
+}
+
+function getDisplayRotationMeta() {
+    const slot = getDisplayRotationSlot();
+    const nextAt = (slot + 1) * DISPLAY_ROTATION_MS;
+    return {
+        rotationSlot: slot,
+        rotationIntervalMs: DISPLAY_ROTATION_MS,
+        nextRotationAt: new Date(nextAt).toISOString(),
+    };
+}
 
 /**
  * Kullanıcı için fırsat analizi çalıştır
@@ -75,7 +122,29 @@ async function analyzeOpportunities(userId, opts = {}) {
             includeAmazon: true,
             shuffleSalt: opts.shuffleSalt || "",
         });
-        const keywords = keywordData.allKeywords.slice(0, maxKeywords);
+        let keywords = keywordData.allKeywords;
+
+        const dismissedRows = await OpportunityResult.find({
+            userId,
+            status: "dismissed",
+            userActionAt: { $gte: new Date(Date.now() - DISMISS_COOLDOWN_DAYS * 86400000) },
+        })
+            .select("keyword")
+            .lean();
+        const dismissedSet = new Set(
+            dismissedRows.map((r) => String(r.keyword || "").trim().toLowerCase()).filter(Boolean)
+        );
+        if (dismissedSet.size > 0) {
+            keywords = keywords.filter((k) => !dismissedSet.has(String(k).trim().toLowerCase()));
+        }
+
+        const kwOffset = computeKeywordOffset(
+            userId,
+            keywords.length,
+            maxKeywords,
+            opts.shuffleSalt || ""
+        );
+        keywords = rotateKeywordWindow(keywords, kwOffset).slice(0, maxKeywords);
 
         if (keywords.length === 0) {
             logger.warn(`[OpportunityEngine] Keyword bulunamadı — user ${String(userId).slice(-6)}`);
@@ -115,12 +184,18 @@ async function analyzeOpportunities(userId, opts = {}) {
 
                 // 4d. Skorla (7 boyutlu)
                 const category = detectCategory(keyword, keywordData.userCategories);
+                const userDataEnriched = {
+                    ...userData,
+                    nicheBuckets: keywordData.nicheBuckets || [],
+                    productCountByCluster: keywordData.productCountByCluster || {},
+                };
                 const { scores, totalScore, profitAnalysis } = scoringService.calculateScores({
                     trendData,
                     marketData,
-                    userData,
+                    userData: userDataEnriched,
                     keyword,
                     category,
+                    nicheCluster,
                 });
 
                 // 4e. Minimum skor filtresi
@@ -141,6 +216,8 @@ async function analyzeOpportunities(userId, opts = {}) {
                 rawOpportunities.push({
                     keyword,
                     category,
+                    nicheCluster,
+                    nicheLabel,
                     source: determineSource(keyword, keywordData, trendData),
                     marketData: {
                         avgPrice: marketData.avgPrice,
@@ -198,9 +275,10 @@ async function analyzeOpportunities(userId, opts = {}) {
         }
 
         // ── 5. Sırala ve filtrele ──
-        const sorted = rawOpportunities
-            .sort((a, b) => b.totalScore - a.totalScore)
-            .slice(0, MAX_OPPORTUNITIES);
+        const sorted = pickDiverseOpportunities(
+            rawOpportunities.sort((a, b) => b.totalScore - a.totalScore),
+            OPPORTUNITY_POOL_SIZE
+        );
 
         // ── 6. DB'ye kaydet ──
         const savedOpportunities = [];
@@ -227,12 +305,12 @@ async function analyzeOpportunities(userId, opts = {}) {
 
         // ── 7. Eski fırsatları expire et ──
         try {
+            const activeKeywords = sorted.map((o) => o.keyword);
             await OpportunityResult.updateMany(
                 {
                     userId,
                     status: "active",
-                    keyword: { $nin: sorted.map(o => o.keyword) },
-                    dataFreshness: { $lt: new Date(Date.now() - CACHE_TTL_MS) },
+                    keyword: { $nin: activeKeywords },
                 },
                 { $set: { status: "expired" } }
             );
@@ -260,9 +338,10 @@ async function analyzeOpportunities(userId, opts = {}) {
         );
 
         return {
-            opportunities: savedOpportunities,
-            stats,
+            opportunities: rotateOpportunitiesForDisplay(savedOpportunities, userId),
+            stats: { ...stats, poolSize: savedOpportunities.length },
             fromCache: false,
+            displayRotation: getDisplayRotationMeta(),
         };
     } catch (err) {
         logger.error(`[OpportunityEngine] Genel hata (${userId}): ${err.message}`);
@@ -288,20 +367,24 @@ async function getCachedOpportunities(userId, ignoreAge = false) {
 
         const opportunities = await OpportunityResult.find(query)
             .sort({ totalScore: -1, dataFreshness: -1 })
-            .limit(MAX_OPPORTUNITIES)
+            .limit(OPPORTUNITY_POOL_SIZE)
             .lean();
 
         if (opportunities.length === 0) return null;
 
+        const displayed = rotateOpportunitiesForDisplay(opportunities, userId);
+
         return {
-            opportunities,
+            opportunities: displayed,
             stats: {
-                total: opportunities.length,
+                total: displayed.length,
+                poolSize: opportunities.length,
                 analyzed: opportunities.length,
                 filtered: 0,
                 durationMs: 0,
                 cachedAt: opportunities[0]?.dataFreshness,
             },
+            displayRotation: getDisplayRotationMeta(),
         };
     } catch (err) {
         return null;
@@ -335,12 +418,12 @@ async function getOpportunities(userId, filters = {}) {
     else if (filters.sortBy === "newest") sortField = { createdAt: -1 };
     else if (filters.sortBy === "fresh") sortField = { dataFreshness: -1, totalScore: -1 };
 
-    const opportunities = await OpportunityResult.find(query)
+    const pool = await OpportunityResult.find(query)
         .sort(sortField)
-        .limit(MAX_OPPORTUNITIES)
+        .limit(OPPORTUNITY_POOL_SIZE)
         .lean();
 
-    return opportunities;
+    return rotateOpportunitiesForDisplay(pool, userId);
 }
 
 /**
@@ -390,6 +473,10 @@ function detectCategory(keyword, userCategories) {
         "kozmetik": ["ruj", "fondöten", "parfüm", "krem", "serum", "şampuan", "makyaj"],
         "ev & yaşam": ["halı", "perde", "nevresim", "yastık", "mutfak", "dekorasyon"],
         "aksesuar": ["çanta", "cüzdan", "saat", "gözlük", "bileklik", "kolye", "küpe"],
+        "dekoratif & 3d": [
+            "biblo", "figür", "heykel", "dekoratif", "3d", "baskı", "vazo", "geyik",
+            "masaüstü", "minyatür", "mandala", "obje",
+        ],
         "spor": ["eşofman", "yoga", "fitness", "koşu", "bisiklet", "kamp"],
     };
 
@@ -440,6 +527,10 @@ module.exports = {
     getOpportunities,
     getCachedOpportunities,
     recordAction,
+    rotateOpportunitiesForDisplay,
+    getDisplayRotationMeta,
     MAX_OPPORTUNITIES,
+    OPPORTUNITY_POOL_SIZE,
     CACHE_TTL_MS,
+    DISPLAY_ROTATION_MS,
 };

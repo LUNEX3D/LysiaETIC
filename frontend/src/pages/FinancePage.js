@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useMemo, useCallback } from "react";
+﻿import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
     FaMoneyBillWave, FaShoppingCart, FaPercentage, FaChartLine,
@@ -7,7 +7,7 @@ import {
     FaFilePdf, FaArrowDown, FaClock, FaBox,
     FaChartBar, FaTable, FaSpinner, FaChevronDown,
     FaTrendingUp, FaTrendingDown, FaInfoCircle,
-    FaStore
+    FaStore, FaChartPie
 } from "react-icons/fa";
 import {
     LineChart, Line, BarChart, Bar, PieChart, Pie, Cell,
@@ -15,7 +15,9 @@ import {
 } from "recharts";
 import dayjs from "dayjs";
 import "dayjs/locale/tr";
-import { fetchFinanceSummary } from "../services/financeApi";
+import { fetchFinanceSummary, fetchProductProfitAnalysis } from "../services/financeApi";
+import FinanceProfitPanel from "./Finance/FinanceProfitPanel";
+import "../styles/FinanceDashboard.css";
 import { getUserMarketplaces } from "../services/marketplaceApi";
 import { useApp } from "../context/AppContext";
 
@@ -53,6 +55,11 @@ const FinancePage = ({ userId, marketplaceId, marketplace, marketplaces: propMar
     const [lastUpdate, setLastUpdate] = useState(null);
     const [expandedCard, setExpandedCard] = useState(null);
     const [error, setError] = useState(null);
+    const [profitData, setProfitData] = useState(null);
+    const [profitLoading, setProfitLoading] = useState(false);
+    const profitFetchKeyRef = useRef("");
+    const profitAbortRef = useRef(null);
+    const profitDataRef = useRef(null);
 
     useEffect(() => {
         if (!propMarketplaces || propMarketplaces.length === 0) {
@@ -83,7 +90,56 @@ const FinancePage = ({ userId, marketplaceId, marketplace, marketplaces: propMar
         finally { setLoading(false); }
     }, [selectedMp, dateRange]);
 
+    const profitCacheKey = selectedMp
+        ? `${selectedMp._id}|${dateRange.start}|${dateRange.end}`
+        : "";
+
+    const loadProfitData = useCallback(async (force = false) => {
+        if (!selectedMp) return;
+        if (!force && profitFetchKeyRef.current === profitCacheKey && profitDataRef.current) return;
+
+        profitAbortRef.current?.abort?.();
+        const controller = new AbortController();
+        profitAbortRef.current = controller;
+
+        setProfitLoading(true);
+        try {
+            const res = await fetchProductProfitAnalysis({
+                startDate: dateRange.start,
+                endDate: dateRange.end,
+                marketplaceId: selectedMp._id,
+                limit: 300,
+                sortBy: "netProfit",
+                signal: controller.signal,
+            });
+            if (controller.signal.aborted) return;
+            if (res.success && res.data) {
+                profitDataRef.current = res.data;
+                setProfitData(res.data);
+                profitFetchKeyRef.current = profitCacheKey;
+            } else {
+                profitDataRef.current = null;
+                setProfitData(null);
+            }
+        } catch (err) {
+            if (err?.name === "CanceledError" || err?.code === "ERR_CANCELED") return;
+            setProfitData(null);
+        } finally {
+            if (!controller.signal.aborted) setProfitLoading(false);
+        }
+    }, [selectedMp, dateRange, profitCacheKey]);
+
     useEffect(() => { if (selectedMp) loadFinanceData(); }, [selectedMp, dateRange, loadFinanceData]);
+
+    useEffect(() => {
+        if (selectedMp && activeView === "profit") loadProfitData();
+    }, [selectedMp, activeView, profitCacheKey, loadProfitData]);
+
+    useEffect(() => {
+        profitFetchKeyRef.current = "";
+        profitDataRef.current = null;
+        setProfitData(null);
+    }, [dateRange.start, dateRange.end, selectedMp?._id]);
 
     useEffect(() => {
         if (!autoRefresh || !selectedMp) return;
@@ -99,6 +155,14 @@ const FinancePage = ({ userId, marketplaceId, marketplace, marketplaces: propMar
         if (mpData.supported === false) return { ...empty, unsupported: true, message: mpData.message || mpData.error };
 
         const sett = mpData.settlements || [];
+        if (sett.length === 0) {
+            return {
+                ...empty,
+                noData: true,
+                dataSource: mpData.source || null,
+                message: mpData.message || mpData.error || null,
+            };
+        }
         const oth = mpData.otherFinancials || [];
         const sales = sett.filter(s => /^(Sale|Sat[ıi][sş])$/i.test(s.transactionType || ""));
         const rets = sett.filter(s => /^(Return|[İI]İade)$/i.test(s.transactionType || ""));
@@ -199,8 +263,13 @@ const FinancePage = ({ userId, marketplaceId, marketplace, marketplaces: propMar
                         <FaMoneyBillWave /> {isSingleMode && selectedMp ? `${selectedMp.name || selectedMp.marketplaceName} ${t("finance.pageTitle")}` : t("finance.pageTitle")}
                     </h1>
                     <div style={{ display: "flex", alignItems: "center", gap: "1rem", flexWrap: "wrap" }}>
-                        <p style={{ color: C.muted, fontSize: "0.875rem", margin: 0 }}>
-                            {selectedMp ? `${getLogo(selectedMp.marketplaceName)} ${selectedMp.marketplaceName} - ${t("finance.detailedAnalysis")}` : t("finance.selectMarketplace")}
+                        <p style={{ color: C.muted, fontSize: "0.875rem", margin: 0, display: "flex", alignItems: "center", gap: "0.35rem" }}>
+                            {selectedMp && getLogo(selectedMp.marketplaceName)}
+                            <span>
+                                {selectedMp
+                                    ? `${selectedMp.marketplaceName} - ${t("finance.detailedAnalysis")}`
+                                    : t("finance.selectMarketplace")}
+                            </span>
                         </p>
                         {lastUpdate && <span style={{ color: "#64748b", fontSize: "0.75rem", display: "flex", alignItems: "center", gap: "0.25rem" }}><FaClock /> Son: {dayjs(lastUpdate).format("HH:mm:ss")}</span>}
                     </div>
@@ -217,7 +286,7 @@ const FinancePage = ({ userId, marketplaceId, marketplace, marketplaces: propMar
                                 <span style={{ color: "#64748b" }}>-</span>
                                 <input type="date" value={dateRange.end} onChange={e => setDateRange({ ...dateRange, end: e.target.value })} style={{ background: "transparent", border: "none", color: "#fff", outline: "none", fontSize: "0.875rem", width: "130px" }} />
                             </div>
-                            <Btn onClick={loadFinanceData} disabled={loading} bg={loading ? "rgba(78,205,196,0.3)" : "linear-gradient(135deg,#4ecdc4,#44a08d)"}>
+                            <Btn onClick={() => { loadFinanceData(); if (activeView === "profit") loadProfitData(true); }} disabled={loading || profitLoading} bg={loading ? "rgba(78,205,196,0.3)" : "linear-gradient(135deg,#4ecdc4,#44a08d)"}>
                                 {loading ? <><FaSpinner style={{ animation: "spin 1s linear infinite" }} /> Yükleniyor...</> : <><FaSync /> Yenile</>}
                             </Btn>
                         </>
@@ -271,7 +340,7 @@ const FinancePage = ({ userId, marketplaceId, marketplace, marketplaces: propMar
             {selectedMp && (
                 <div style={{ background: C.bg, padding: "1rem 2rem 0 2rem" }}>
                     <div style={{ display: "flex", gap: "0.25rem", borderBottom: "2px solid rgba(255,255,255,0.05)" }}>
-                        {[{ id: "overview", label: "Genel Bakis", icon: FaChartLine }, { id: "charts", label: "Grafikler", icon: FaChartBar }, { id: "transactions", label: "Islemler", icon: FaTable }].map(v => (
+                        {[{ id: "overview", label: "Genel Bakis", icon: FaChartLine }, { id: "profit", label: "Kar/Zarar Haritasi", icon: FaChartPie }, { id: "charts", label: "Grafikler", icon: FaChartBar }, { id: "transactions", label: "Islemler", icon: FaTable }].map(v => (
                             <motion.button key={v.id} whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} onClick={() => setActiveView(v.id)}
                                 style={{ background: activeView === v.id ? "rgba(78,205,196,0.15)" : "transparent", border: "none", borderBottom: activeView === v.id ? "2px solid #4ecdc4" : "2px solid transparent", padding: "0.75rem 1.5rem", color: activeView === v.id ? "#4ecdc4" : "#94a3b8", fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: "0.5rem", fontSize: "0.875rem", transition: "all 0.2s ease", marginBottom: "-2px" }}>
                                 <v.icon /> {v.label}
@@ -302,6 +371,23 @@ const FinancePage = ({ userId, marketplaceId, marketplace, marketplaces: propMar
                         </motion.div>
                     )}
 
+                    {/* Veri yok */}
+                    {analytics.noData && !analytics.unsupported && !loading && (
+                        <motion.div key="no-data" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} style={{ background: "rgba(78,205,196,0.08)", border: "1px solid rgba(78,205,196,0.25)", borderRadius: "12px", padding: "2rem", textAlign: "center", marginBottom: "2rem" }}>
+                            <FaInfoCircle style={{ fontSize: "2.5rem", color: "#4ecdc4", marginBottom: "1rem" }} />
+                            <h3 style={{ color: "#fff", marginBottom: "0.5rem" }}>Bu aralikta kayit bulunamadi</h3>
+                            <p style={{ color: "#94a3b8", maxWidth: "520px", margin: "0 auto" }}>
+                                {analytics.message || (
+                                    <>
+                                        Secilen tarihlerde ({dayjs(dateRange.start).format("DD MMM YYYY")} – {dayjs(dateRange.end).format("DD MMM YYYY")})
+                                        {" "}{selectedMp?.marketplaceName} icin siparis verisi yok.
+                                        Tarih araligini genisletin veya once Siparisler sayfasindan senkron yapin, sonra Yenile&apos;ye basin.
+                                    </>
+                                )}
+                            </p>
+                        </motion.div>
+                    )}
+
                     {/* No MP Selected */}
                     {!selectedMp && marketplaces.length > 0 && (
                         <motion.div key="no-mp" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} style={{ background: "#1a1f35", borderRadius: "12px", padding: "3rem", textAlign: "center" }}>
@@ -312,7 +398,7 @@ const FinancePage = ({ userId, marketplaceId, marketplace, marketplaces: propMar
                     )}
 
                     {/* Overview */}
-                    {activeView === "overview" && selectedMp && !analytics.unsupported && (
+                    {activeView === "overview" && selectedMp && !analytics.unsupported && !analytics.noData && (
                         <motion.div key="overview" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}>
                             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "1.25rem", marginBottom: "2rem" }}>
                                 {kpiCards.map((kpi, i) => (
@@ -346,6 +432,13 @@ const FinancePage = ({ userId, marketplaceId, marketplace, marketplaces: propMar
                                     </motion.div>
                                 ))}
                             </div>
+                        </motion.div>
+                    )}
+
+                    {/* Kâr / Zarar */}
+                    {activeView === "profit" && selectedMp && (
+                        <motion.div key="profit" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}>
+                            <FinanceProfitPanel data={profitData} loading={profitLoading} C={C} />
                         </motion.div>
                     )}
 
@@ -410,7 +503,7 @@ const FinancePage = ({ userId, marketplaceId, marketplace, marketplaces: propMar
                     )}
 
                     {/* Transactions */}
-                    {activeView === "transactions" && selectedMp && !analytics.unsupported && (
+                    {activeView === "transactions" && selectedMp && !analytics.unsupported && !analytics.noData && (
                         <motion.div key="transactions" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}>
                             <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} style={{ background: cardBg, border: "1px solid rgba(78,205,196,0.2)", padding: "1.5rem", borderRadius: "12px", overflowX: "auto" }}>
                                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.5rem" }}>

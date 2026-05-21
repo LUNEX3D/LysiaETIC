@@ -77,7 +77,7 @@ async function processUser(userId, cycleNumber = 0) {
         const forceRefresh = shouldForceRefreshForCycle(userId, cycleNumber);
         const result = await opportunityEngine.analyzeOpportunities(userId, {
             forceRefresh,
-            maxKeywords: 14,
+            maxKeywords: 22,
             shuffleSalt: `c${cycleNumber}`,
         });
 

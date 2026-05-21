@@ -41,13 +41,13 @@ const WEIGHTS = {
  * @param {string} params.category        — kategori adı
  * @returns {object} { scores, totalScore, profitAnalysis }
  */
-function calculateScores({ trendData, marketData, userData, keyword, category }) {
+function calculateScores({ trendData, marketData, userData, keyword, category, nicheCluster }) {
     const scores = {
         trend: calculateTrendScore(trendData),
         demand: calculateDemandScore(marketData, trendData),
         competition: calculateCompetitionScore(marketData),
         profit: calculateProfitScore(marketData),
-        userFit: calculateUserFitScore(userData, category, keyword),
+        userFit: calculateUserFitScore(userData, category, keyword, nicheCluster),
         social: calculateSocialScore(trendData),
         amazon: calculateAmazonScore(marketData),
     };
@@ -275,7 +275,7 @@ function calculateProfitScore(marketData) {
 /**
  * 5. KULLANICI UYUM SKORU
  */
-function calculateUserFitScore(userData, category, keyword) {
+function calculateUserFitScore(userData, category, keyword, nicheCluster) {
     if (!userData || !userData.categories || userData.categories.length === 0) {
         return 50;
     }
@@ -284,6 +284,14 @@ function calculateUserFitScore(userData, category, keyword) {
     const userCategories = userData.categories.map(c => (c.name || "").toLowerCase());
     const targetCategory = (category || "").toLowerCase();
     const targetKeyword = (keyword || "").toLowerCase();
+    const cluster = nicheCluster || "other";
+    const clusterCounts = userData.productCountByCluster || {};
+    const clusterProductCount = Number(clusterCounts[cluster]) || 0;
+
+    if (cluster !== "other" && clusterProductCount > 0) {
+        score += 25;
+        if (clusterProductCount >= 5) score += 10;
+    }
 
     // Aynı kategori
     const exactMatch = userCategories.some(c => c === targetCategory || c.includes(targetCategory) || targetCategory.includes(c));

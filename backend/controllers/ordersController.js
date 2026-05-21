@@ -110,32 +110,17 @@ async function syncOrdersBackground(userId, marketplaceName, rawOrders) {
     let skipped = 0;
     const syncedOrderIds = [];
 
-    // Urun maliyet bilgilerini onceden cek (kar hesabi icin)
-    const [products, mappingDocs] = await Promise.all([
-        Product.find({ userId }).select("barcode sku stockCode images costPrice commissionRate shippingCost packagingCost otherCost category mainImage name").lean(),
-        ProductMapping.find({ userId }).select("masterProduct").lean()
-    ]);
-    const productMap = new Map();
-    const skuMap = new Map();
-
-    products.forEach(p => {
-        const barcode = String(p.barcode || "").trim();
-        const sku = String(p.sku || "").trim();
-        const stockCode = String(p.stockCode || "").trim();
-        if (barcode) productMap.set(barcode, p);
-        if (sku) skuMap.set(sku, p);
-        if (stockCode) skuMap.set(stockCode, p);
-    });
-    mappingDocs.forEach((m) => {
-        const mp = m.masterProduct;
-        if (!mp) return;
-        const barcode = String(mp.barcode || "").trim();
-        const sku = String(mp.sku || "").trim();
-        const stockCode = String(mp.stockCode || "").trim();
-        if (barcode && !productMap.has(barcode)) productMap.set(barcode, mp);
-        if (sku && !skuMap.has(sku)) skuMap.set(sku, mp);
-        if (stockCode && !skuMap.has(stockCode)) skuMap.set(stockCode, mp);
-    });
+    const {
+        buildProductEconomicsIndex,
+        resolveLineEconomics,
+        economicsToOrderItemFields,
+        resolveFromIndex,
+        rowFromLegacyProduct,
+    } = require("../utils/productEconomicsLookup");
+    const economicsIndex = await buildProductEconomicsIndex(userId);
+    const products = await Product.find({ userId })
+        .select("barcode sku stockCode images costPrice commissionRate shippingCost packagingCost otherCost category mainImage name")
+        .lean();
 
     const { resolveHepsiburadaOrderNumber, isHbInternalId } = require("../services/hepsiburadaService");
     const mpNorm = String(marketplaceName || "").toLowerCase();
@@ -164,20 +149,56 @@ async function syncOrdersBackground(userId, marketplaceName, rawOrders) {
                     needsUpdate = true;
                 }
                 // ✅ MEVCUT SİPARİŞİ GÜNCELLE: Eksik görsel varsa Product modelinden zenginleştir
-                const updatedItems = exists.items.map(item => {
+                const updatedItems = exists.items.map((item) => {
                     const barcode = String(item.barcode || "").trim();
                     const sku = String(item.sku || item.merchantSku || "").trim();
-                    const name = String(item.productName || item.name || item.title || "").trim().toLowerCase();
+                    const name = String(item.productName || item.name || item.title || "")
+                        .trim()
+                        .toLowerCase();
 
-                    const productInfo = productMap.get(barcode) || skuMap.get(sku) || skuMap.get(barcode) || productMap.get(sku) || Array.from(products).find(p => String(p.name || "").trim().toLowerCase() === name);
-                    
+                    let productInfo = resolveFromIndex(economicsIndex, {
+                        barcode,
+                        sku,
+                        productName: item.productName || item.name,
+                    });
+                    if (!productInfo.mappingFound) {
+                        productInfo =
+                            Array.from(products).find(
+                                (p) => String(p.name || "").trim().toLowerCase() === name
+                            ) || productInfo;
+                    }
+
                     if (productInfo) {
-                        const stockImage = productInfo.mainImage || (productInfo.images && productInfo.images[0]);
-                        // Eğer mevcut görsel placeholder ise veya boş ise veya stoktaki görsel farklı ise güncelle
-                        const isInvalid = !item.imageUrl || item.imageUrl.includes("default-product.jpg") || item.imageUrl.includes("placehold.co");
+                        const stockImage =
+                            productInfo.mainImage ||
+                            (productInfo.images && productInfo.images[0]);
+                        const isInvalid =
+                            !item.imageUrl ||
+                            item.imageUrl.includes("default-product.jpg") ||
+                            item.imageUrl.includes("placehold.co");
                         if (stockImage && (isInvalid || item.imageUrl !== stockImage)) {
                             needsUpdate = true;
                             item.imageUrl = stockImage;
+                        }
+                    }
+
+                    const needsEcon =
+                        (Number(item.costPrice) || 0) < 0.01 ||
+                        (Number(item.commissionAmount) || 0) < 0.01;
+                    if (needsEcon) {
+                        const econ = resolveLineEconomics(
+                            item,
+                            marketplaceName,
+                            economicsIndex,
+                            { allowDefaultCommission: false }
+                        );
+                        if (
+                            econ.costPrice > 0 ||
+                            econ.commissionAmount > 0 ||
+                            econ.shippingCost > 0
+                        ) {
+                            needsUpdate = true;
+                            Object.assign(item, economicsToOrderItemFields(econ, item));
                         }
                     }
                     return item;
@@ -185,8 +206,35 @@ async function syncOrdersBackground(userId, marketplaceName, rawOrders) {
 
                 if (needsUpdate) {
                     exists.items = updatedItems;
+                    const totalPrice = updatedItems.reduce(
+                        (s, it) => s + (Number(it.price) || 0) * (it.quantity || 1),
+                        0
+                    );
+                    const totalCost = updatedItems.reduce(
+                        (s, it) => s + (Number(it.costPrice) || 0) * (it.quantity || 1),
+                        0
+                    );
+                    const totalCommission = updatedItems.reduce(
+                        (s, it) => s + (Number(it.commissionAmount) || 0),
+                        0
+                    );
+                    const totalShipping = updatedItems.reduce(
+                        (s, it) => s + (Number(it.shippingCost) || 0),
+                        0
+                    );
+                    const netProfit = updatedItems.reduce(
+                        (s, it) => s + (Number(it.netProfit) || 0),
+                        0
+                    );
+                    exists.costSummary = {
+                        totalPrice,
+                        totalCost,
+                        totalCommission,
+                        totalShipping,
+                        netProfit,
+                    };
                     await exists.save();
-                    logger.info(`[OrderSync] ${marketplaceName}: ${orderNumber} görseli güncellendi`);
+                    logger.info(`[OrderSync] ${marketplaceName}: ${orderNumber} kalem/görsel güncellendi`);
                 }
 
                 // ── Pazaryeri fatura durumunu mevcut siparişe yansıt ───────────
@@ -293,62 +341,86 @@ async function syncOrdersBackground(userId, marketplaceName, rawOrders) {
                 const barcode = String(item.barcode || item.sku || item.merchantSku || item.productCode || item.productId || "").trim();
                 const sku = String(item.sku || item.merchantSku || item.productCode || "").trim();
                 const itemName = String(item.productName || item.name || item.title || "").trim().toLowerCase();
-                const productInfo = productMap.get(barcode) || skuMap.get(sku) || skuMap.get(barcode) || productMap.get(sku) || Array.from(products).find(p => String(p.name || "").trim().toLowerCase() === itemName) || {};
+                let productInfo = resolveFromIndex(economicsIndex, {
+                    barcode,
+                    sku,
+                    productName: item.productName || item.name || item.title,
+                });
+                if (!productInfo.mappingFound) {
+                    const byName = Array.from(products).find(
+                        (p) => String(p.name || "").trim().toLowerCase() === itemName
+                    );
+                    if (byName) productInfo = { ...rowFromLegacyProduct(byName), mappingFound: true };
+                }
 
-                // Gerçek barkod: önce satır, sonra eşleşen ürün kartı (SYNC- sentetik barkodunu azalt)
                 let finalBarcodeResolved = barcode;
-                if (!finalBarcodeResolved && productInfo.barcode) finalBarcodeResolved = String(productInfo.barcode).trim();
-                if (!finalBarcodeResolved && productInfo.sku) finalBarcodeResolved = String(productInfo.sku).trim();
-                if (!finalBarcodeResolved && productInfo.stockCode) finalBarcodeResolved = String(productInfo.stockCode).trim();
-                const finalBarcode = finalBarcodeResolved || ("SYNC-" + orderNumber + "-" + itemIdx);
+                if (!finalBarcodeResolved && productInfo.masterBarcode) {
+                    finalBarcodeResolved = productInfo.masterBarcode;
+                }
+                if (!finalBarcodeResolved && productInfo.masterSku) {
+                    finalBarcodeResolved = productInfo.masterSku;
+                }
+                const finalBarcode =
+                    finalBarcodeResolved || ("SYNC-" + orderNumber + "-" + itemIdx);
 
-                // Fiyat: item.price > 0 ise onu kullan, yoksa brüt veya sipariş tutarını kalemlere böl
                 let price = parseFloat(item.price || item.unitPrice || 0);
                 if (price === 0 && allocBase > 0) {
                     price = allocBase / totalItemCount;
                 }
                 const quantity = parseInt(item.quantity || 1);
-                const costPrice = productInfo.costPrice || 0;
-                const commissionRate = productInfo.commissionRate || 0;
-                
-            // ✅ GÖRSEL: Pazar yerinden gelmediyse sistemdeki üründen al
+
                 let imageUrl = item.imageUrl || item.image || "";
-                
-                // Stoktaki görseli her zaman pazar yeri görseline tercih et (Kalite ve doğruluk için)
-                const stockImage = productInfo.mainImage || (productInfo.images && productInfo.images[0]);
-                
+                const stockImage =
+                    productInfo.mainImage || (productInfo.images && productInfo.images[0]);
                 if (stockImage) {
                     imageUrl = stockImage;
                 } else {
-                    // Hatalı yerel dosya referanslarını temizle
-                    if (imageUrl.includes("default-product.jpg") || imageUrl.includes("placehold.co")) {
+                    if (
+                        imageUrl.includes("default-product.jpg") ||
+                        imageUrl.includes("placehold.co")
+                    ) {
                         imageUrl = "";
                     }
-
                     if (!imageUrl) {
-                        imageUrl = "https://placehold.co/400x400/1e293b/4ecdc4?text=Urun";
+                        imageUrl =
+                            "https://placehold.co/400x400/1e293b/4ecdc4?text=Urun";
                     }
                 }
 
+                const draftItem = {
+                    productName:
+                        item.productName || item.name || item.title || "Bilinmeyen",
+                    quantity,
+                    barcode: finalBarcode,
+                    sku,
+                    price,
+                    costPrice: item.costPrice,
+                    commissionRate: item.commissionRate,
+                    commissionAmount: item.commissionAmount,
+                    shippingCost: item.shippingCost,
+                };
                 const apiCommission = parseFloat(item.commissionAmount || 0);
-                const commissionAmount = apiCommission > 0 ? apiCommission : (price * quantity * (commissionRate / 100));
-                const shippingCost = productInfo.shippingCost || 0;
-                const totalCost = (costPrice * quantity) + commissionAmount + shippingCost;
-                const netProfit = (price * quantity) - totalCost;
+                const econ = resolveLineEconomics(
+                    { ...draftItem, commissionAmount: apiCommission > 0 ? apiCommission : 0 },
+                    marketplaceName,
+                    economicsIndex,
+                    { allowDefaultCommission: false }
+                );
+                const fields = economicsToOrderItemFields(econ, draftItem);
 
                 return {
-                    productName: item.productName || item.name || item.title || "Bilinmeyen",
-                    quantity: quantity,
+                    productName: draftItem.productName,
+                    quantity,
                     barcode: finalBarcode,
-                    sku: sku,
-                    imageUrl: imageUrl,
-                    price: price,
+                    sku,
+                    imageUrl,
+                    price,
                     category: item.category || productInfo.category || "Bilinmiyor",
-                    costPrice: costPrice,
-                    commissionRate: commissionRate,
-                    commissionAmount: commissionAmount,
-                    shippingCost: shippingCost,
-                    netProfit: netProfit
+                    costPrice: fields.costPrice,
+                    commissionRate: fields.commissionRate,
+                    commissionAmount: fields.commissionAmount,
+                    shippingCost: fields.shippingCost,
+                    netProfit: fields.netProfit,
                 };
             });
 

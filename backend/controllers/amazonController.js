@@ -31,8 +31,11 @@ const getAmazonCredentials = async (req) => {
         throw error;
     }
 
-    // ✅ FIX: Credential'ları decrypt et (DB'de şifreli saklanıyor)
-    return decryptCredentials(marketplace.credentials);
+    const { normalizeAmazonCredentials } = require("../services/amazon/amazonCredentialService");
+    return normalizeAmazonCredentials(
+        decryptCredentials(marketplace.credentials),
+        marketplace.marketplaceName
+    );
 };
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -629,8 +632,11 @@ const getListingRestrictions = async (req, res) => {
  */
 const testCredentials = async (req, res) => {
     try {
-        const credentials = req.body;
-        const result = await amazonService.testCredentials(credentials);
+        const { marketplaceName, ...credentialFields } = req.body || {};
+        const result = await amazonService.testCredentials(
+            credentialFields,
+            marketplaceName || req.query.marketplaceName || ""
+        );
         res.json(result);
     } catch (error) {
         logger.error("[Amazon Controller] Test hatası", { error: error.message });

@@ -9,7 +9,7 @@ import {
     FaTag,
 } from "react-icons/fa";
 import SeoHead from "../components/SeoHead";
-import PazarYonetLogo from "../components/brand/PazarYonetLogo";
+import DashtockLogo from "../components/brand/DashtockLogo";
 import { BRAND_NAME } from "../constants/brand";
 import {
     BLOG_CATEGORIES,
@@ -113,7 +113,7 @@ function ArticleDetail({ article }) {
                 <div className="blog-cta-box">
                     <h3>{category?.label} entegrasyonunu kurun</h3>
                     <p>
-                        PazarYonet ile {category?.label} mağazanızı bağlayın; stok, sipariş ve kâr
+                        Dashtock ile {category?.label} mağazanızı bağlayın; stok, sipariş ve kâr
                         analizini tek panelden yönetin.
                     </p>
                     <Link to={article.integrationPath} className="blog-btn-primary">
@@ -172,7 +172,7 @@ function BlogTopbar() {
     return (
         <header className="blog-topbar">
             <Link to="/" className="blog-topbar-brand">
-                <PazarYonetLogo size={32} />
+                <DashtockLogo size={32} />
                 {BRAND_NAME}
             </Link>
             <nav className="blog-topbar-nav">
@@ -240,7 +240,7 @@ export default function BlogPage() {
                 <SeoHead
                     title={`${article.title} | ${BRAND_NAME} Blog`}
                     description={article.excerpt}
-                    canonical={`https://pazaryonet.com/blog/${article.slug}`}
+                    canonical={`https://dashtock.com/blog/${article.slug}`}
                 />
                 <BlogTopbar />
                 <div className="blog-layout">
@@ -267,7 +267,7 @@ export default function BlogPage() {
             <SeoHead
                 title={`Blog | ${BRAND_NAME} — Pazaryeri ve E-Ticaret Rehberleri`}
                 description="Trendyol, Hepsiburada, Amazon, N11 entegrasyonu, stok yönetimi, kâr analizi ve e-ticaret otomasyonu hakkında rehber yazılar."
-                canonical="https://pazaryonet.com/blog"
+                canonical="https://dashtock.com/blog"
             />
             <BlogTopbar />
             <header className="blog-hero">
@@ -309,7 +309,7 @@ export default function BlogPage() {
                     </div>
                     <div className="blog-cta-box" style={{ marginTop: 40 }}>
                         <h3>Hemen uygulamaya geçin</h3>
-                        <p>Rehberlerdeki adımları PazarYonet panelinde dakikalar içinde uygulayın.</p>
+                        <p>Rehberlerdeki adımları Dashtock panelinde dakikalar içinde uygulayın.</p>
                         <Link to="/register" className="blog-btn-primary">
                             14 gün ücretsiz dene <FaArrowRight />
                         </Link>

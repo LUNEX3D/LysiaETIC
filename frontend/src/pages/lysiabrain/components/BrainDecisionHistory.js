@@ -1,4 +1,4 @@
-﻿/**
+/**
  * ═══════════════════════════════════════════════════════════════
  * LYSIA BRAIN — Karar Geçmişi Tab
  * ═══════════════════════════════════════════════════════════════
@@ -41,7 +41,7 @@ const BrainDecisionHistory = ({ t, onError }) => {
         if (!window.confirm(`Bu aksiyonu geri almak istediğinize emin misiniz?\n\n${title}`)) return;
         try {
             setRollbackInFlight(auditId);
-            const res = await API.post(`/ai-engine/audit/${auditId}/rollback`, { reason: "Kullanıcı geri aldı (PazarYonet AI)" });
+            const res = await API.post(`/ai-engine/audit/${auditId}/rollback`, { reason: "Kullanıcı geri aldı (Dashtock AI)" });
             if (res.data?.success) {
                 await loadAudit();
                 await load();

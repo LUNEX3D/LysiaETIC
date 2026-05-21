@@ -413,3 +413,198 @@ label {
         padding: 6px 10px;
     }
 }
+
+/* ── Kâr / zarar paneli (Finans Yönetimi) ── */
+.fin-profit { display: flex; flex-direction: column; gap: 1.25rem; }
+
+.fin-profit-hint {
+    display: flex; align-items: center; gap: 0.5rem;
+    padding: 0.75rem 1rem; border-radius: 10px;
+    background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.35);
+    color: #fbbf24; font-size: 0.85rem;
+}
+
+.fin-profit-empty {
+    text-align: center; padding: 3rem; color: #94a3b8;
+    background: rgba(255,255,255,0.03); border-radius: 12px;
+}
+
+.fin-profit-spinner {
+    width: 36px; height: 36px; margin: 0 auto;
+    border: 3px solid rgba(78, 205, 196, 0.2);
+    border-top-color: #4ecdc4; border-radius: 50%;
+    animation: fin-spin 0.8s linear infinite;
+}
+
+@keyframes fin-spin { to { transform: rotate(360deg); } }
+
+.fin-profit-kpis {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 0.75rem;
+}
+
+.fin-profit-kpi {
+    padding: 1rem; border-radius: 12px;
+    border: 1px solid rgba(255,255,255,0.08);
+    background: rgba(15, 23, 42, 0.5);
+    display: flex; flex-direction: column; gap: 0.25rem;
+}
+
+.fin-profit-kpi__label { font-size: 0.7rem; color: #94a3b8; font-weight: 600; text-transform: uppercase; }
+.fin-profit-kpi strong { font-size: 1.15rem; }
+.fin-profit-kpi__sub { font-size: 0.68rem; color: #64748b; }
+
+.fin-profit-section {
+    border: 1px solid rgba(78, 205, 196, 0.15);
+    border-radius: 14px; padding: 1.25rem;
+}
+
+.fin-profit-section h3 {
+    margin: 0 0 1rem; font-size: 1.05rem; color: #f1f5f9;
+    display: flex; align-items: center; gap: 0.5rem;
+}
+
+.fin-profit-zones {
+    display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem;
+}
+
+.fin-profit-zone-btn {
+    display: flex; align-items: center; gap: 0.4rem;
+    padding: 0.45rem 0.75rem; border-radius: 999px;
+    border: 1px solid rgba(255,255,255,0.12);
+    background: transparent; color: #cbd5e1;
+    cursor: pointer; font-size: 0.78rem; font-family: inherit;
+}
+
+.fin-profit-zone-btn--active { font-weight: 700; }
+.fin-profit-zone-btn__dot { width: 8px; height: 8px; border-radius: 50%; }
+.fin-profit-zone-btn__hint { opacity: 0.65; font-size: 0.65rem; }
+
+.fin-profit-heatmap {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 140px), 1fr));
+    gap: 0.5rem;
+}
+
+.fin-profit-tile {
+    text-align: left; padding: 0.65rem 0.75rem;
+    border-radius: 10px; border: 1px solid;
+    cursor: pointer; font-family: inherit; color: #e2e8f0;
+    min-width: 0;
+}
+
+.fin-profit-tile__name {
+    display: block; font-size: 0.72rem; font-weight: 600;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.fin-profit-tile__profit { display: block; font-size: 0.85rem; font-weight: 800; margin-top: 0.2rem; }
+.fin-profit-tile__margin { font-size: 0.65rem; color: #94a3b8; }
+
+.fin-profit-more { font-size: 0.75rem; color: #64748b; margin: 0.5rem 0 0; }
+
+.fin-profit-split {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+    gap: 1rem;
+}
+
+.fin-profit-tops { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+.fin-profit-tops h4 { margin: 0 0 0.5rem; font-size: 0.85rem; }
+.fin-profit-top-row {
+    display: flex; justify-content: space-between; gap: 0.5rem;
+    padding: 0.35rem 0; border-bottom: 1px solid rgba(255,255,255,0.05);
+    font-size: 0.78rem;
+}
+.fin-profit-top-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fin-profit-top-empty { font-size: 0.8rem; color: #64748b; }
+
+.fin-profit-table-head {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1rem;
+}
+.fin-profit-table-head h3 { margin: 0; }
+
+.fin-profit-table-tools { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+
+.fin-profit-search {
+    display: flex; align-items: center; gap: 0.4rem;
+    background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 8px; padding: 0.4rem 0.65rem; color: #94a3b8;
+}
+.fin-profit-search input {
+    background: transparent; border: none; outline: none;
+    color: #fff; font-size: 0.8rem; width: 160px;
+}
+
+.fin-profit-select {
+    background: rgba(15, 23, 42, 0.8); border: 1px solid rgba(255,255,255,0.1);
+    color: #e2e8f0; border-radius: 8px; padding: 0.45rem 0.65rem;
+    font-size: 0.8rem;
+}
+
+.fin-profit-table-scroll { overflow-x: auto; max-width: 100%; }
+
+.fin-profit-table {
+    width: 100%; min-width: 880px; border-collapse: collapse; font-size: 0.8rem;
+}
+.fin-profit-table th {
+    text-align: left; padding: 0.65rem 0.5rem;
+    color: #94a3b8; font-weight: 600; border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+.fin-profit-table td {
+    padding: 0.65rem 0.5rem; border-bottom: 1px solid rgba(255,255,255,0.05);
+    color: #e2e8f0; vertical-align: top;
+}
+.fin-profit-table tbody tr { cursor: pointer; }
+.fin-profit-table tbody tr:hover { background: rgba(255,255,255,0.03); }
+.fin-profit-row--loss { background: rgba(239, 68, 68, 0.06); }
+.fin-profit-table small { color: #64748b; display: block; }
+
+.fin-profit-prod__name { font-weight: 600; display: block; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fin-profit-prod__bc { font-size: 0.68rem; color: #64748b; font-family: monospace; }
+.fin-profit-badge-warn {
+    display: inline-block; margin-top: 0.2rem; font-size: 0.6rem;
+    padding: 0.1rem 0.35rem; border-radius: 4px;
+    background: rgba(245, 158, 11, 0.2); color: #fbbf24;
+}
+
+.fin-profit-detail { padding: 0.75rem 0; }
+.fin-profit-detail-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+}
+.fin-profit-detail h5 {
+    margin: 0 0 0.5rem; font-size: 0.78rem; color: #4ecdc4;
+    display: flex; align-items: center; gap: 0.35rem;
+}
+.fin-profit-detail ul { margin: 0; padding-left: 1.1rem; font-size: 0.78rem; color: #94a3b8; }
+.fin-profit-detail li { margin-bottom: 0.25rem; }
+.fin-profit-detail-total { margin-top: 0.35rem; font-weight: 700; color: #e2e8f0 !important; }
+.fin-profit-sources {
+    margin: 0.5rem 0; padding: 0.65rem 0.75rem;
+    background: rgba(78, 205, 196, 0.08); border-radius: 8px;
+    font-size: 0.75rem; color: #94a3b8;
+}
+.fin-profit-sources--warn { color: #fbbf24; margin-top: 0.35rem; }
+.fin-profit-mp-comm {
+    display: flex; flex-wrap: wrap; gap: 0.35rem 0.75rem;
+    font-size: 0.72rem; color: #94a3b8; margin: 0.5rem 0;
+}
+.fin-profit-mp-comm strong { margin-right: 0.35rem; color: #cbd5e1; }
+.fin-profit-mp-comm span {
+    padding: 0.15rem 0.45rem; border-radius: 6px;
+    background: rgba(255,255,255,0.05);
+}
+
+.fin-profit-formula {
+    margin: 0.75rem 0 0; font-size: 0.72rem; color: #64748b;
+    font-style: italic;
+}
+.fin-profit-detail-row td { padding: 0 !important; background: rgba(0,0,0,0.15); }
+
+@media (max-width: 768px) {
+    .fin-profit-tops { grid-template-columns: 1fr; }
+    .fin-profit-kpis { grid-template-columns: repeat(2, 1fr); }
+}

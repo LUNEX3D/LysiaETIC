@@ -23,49 +23,41 @@ const Payment = require("../models/Payment");
 const Subscription = require("../models/Subscription");
 const SystemConfig = require("../models/SystemConfig");
 const paytrService = require("../services/paytrService");
+const {
+    validateCouponForCheckout,
+    recordCouponRedemption,
+    normalizeCode
+} = require("../services/couponService");
 const logger = require("../config/logger");
 const mongoose = require("mongoose");
 
-// ─── FALLBACK PAKET TANIMLARI (DB'den okunamazsa kullanılır) ─────────────────────
-// ✅ FIX: saasAdminController.js'deki DEFAULT_PLAN_DEFINITIONS ile senkronize edildi
-const FALLBACK_PLANS = {
-    basic: {
-        name: "Basic",
-        description: "Küçük işletmeler için temel e-ticaret yönetimi",
-        badge: "",
-        price: 299,
-        monthlyPrice: 299,
-        yearlyPrice: 2990,
-        duration: 30,
-        durationDays: { monthly: 30, yearly: 365 },
-        limits: { maxProducts: 500, maxOrders: 5000, maxMarketplaces: 3, maxApiCalls: 50000, maxUsers: 3 },
-        features: ["Dashboard erişimi", "500 ürün yönetimi", "5.000 sipariş/ay", "3 pazaryeri entegrasyonu", "Gelişmiş raporlama", "Kargo takibi", "E-posta desteği"],
-    },
-    pro: {
-        name: "Pro",
-        description: "Büyüyen işletmeler için gelişmiş özellikler ve AI desteği",
-        badge: "EN POPÜLER",
-        price: 799,
-        monthlyPrice: 799,
-        yearlyPrice: 7990,
-        duration: 30,
-        durationDays: { monthly: 30, yearly: 365 },
-        limits: { maxProducts: 5000, maxOrders: 50000, maxMarketplaces: 10, maxApiCalls: 500000, maxUsers: 10 },
-        features: ["Tüm Basic özellikleri", "5.000 ürün yönetimi", "50.000 sipariş/ay", "10 pazaryeri entegrasyonu", "AI Asistan & Radar", "Otomatik sipariş", "E-fatura entegrasyonu", "Öncelikli destek", "Gelişmiş analitik"],
-    },
-    enterprise: {
-        name: "Enterprise",
-        description: "Büyük ölçekli operasyonlar için sınırsız erişim ve özel destek",
-        badge: "ÖZEL",
-        price: 1999,
-        monthlyPrice: 1999,
-        yearlyPrice: 19990,
-        duration: 30,
-        durationDays: { monthly: 30, yearly: 365 },
-        limits: { maxProducts: 999999, maxOrders: 999999, maxMarketplaces: 999, maxApiCalls: 9999999, maxUsers: 999 },
-        features: ["Tüm Pro özellikleri", "Sınırsız ürün", "Sınırsız sipariş", "Sınırsız pazaryeri", "Sınırsız kullanıcı", "Özel API erişimi", "Dedicated destek", "SLA garantisi", "Özel entegrasyonlar", "White-label seçeneği"],
+const { DEFAULT_PLAN_DEFINITIONS } = require("../config/defaultPlanDefinitions");
+
+// ─── FALLBACK PAKET TANIMLARI (DB'den okunamazsa) ─────────────────────────────
+const buildFallbackPlans = () => {
+    const result = {};
+    for (const [key, plan] of Object.entries(DEFAULT_PLAN_DEFINITIONS)) {
+        if (key === "trial") continue;
+        const monthlyPrice = plan.monthlyPrice || plan.price || 0;
+        const yearlyPrice = plan.yearlyPrice || Math.round(monthlyPrice * 10);
+        const duration = plan.duration || 30;
+        result[key] = {
+            name: plan.name || key,
+            description: plan.description || "",
+            badge: plan.badge || "",
+            price: monthlyPrice,
+            monthlyPrice,
+            yearlyPrice,
+            duration,
+            durationDays: { monthly: duration, yearly: 365 },
+            limits: plan.limits || {},
+            features: plan.features || []
+        };
     }
+    return result;
 };
+
+const FALLBACK_PLANS = buildFallbackPlans();
 
 // ─── DB'DEN DİNAMİK PAKET TANIMLARI OKU ─────────────────────────────────────────
 // Admin panelden güncellenen planDefinitions'ı SystemConfig'den okur.
@@ -202,8 +194,9 @@ exports.getSubscriptionStatus = async (req, res) => {
             logger.warn(`Ödeme geçmişi alınamadı: ${payErr.message}`);
         }
 
-        // DB'den güncel plan tanımlarını oku
         const currentPlans = await getPlansFromDB();
+        const { getPlanContext } = require("../services/planFeatureService");
+        const planContext = await getPlanContext(user);
 
         res.json({
             success: true,
@@ -222,7 +215,12 @@ exports.getSubscriptionStatus = async (req, res) => {
                 grantNote: sub.grantNote
             },
             payments,
-            plans: currentPlans
+            plans: currentPlans,
+            entitlements: planContext.entitlements,
+            limits: planContext.limits,
+            planFeatures: planContext.features,
+            planDisplayName: planContext.planName,
+            upgradeHint: planContext.upgradeHint
         });
     } catch (error) {
         logger.error(`Abonelik durumu hatası: ${error.message}`);
@@ -244,7 +242,7 @@ const PLAN_RANK = { trial: 0, free: 0, basic: 1, pro: 2, enterprise: 3 };
  */
 exports.createPayment = async (req, res) => {
     try {
-        const { plan, billingCycle = "monthly" } = req.body;
+        const { plan, billingCycle = "monthly", couponCode } = req.body;
         const user = req.user;
 
         // DB'den güncel plan tanımlarını oku
@@ -305,7 +303,32 @@ exports.createPayment = async (req, res) => {
         }
 
         const planInfo = PLANS[plan];
-        const amount = billingCycle === "yearly" ? planInfo.yearlyPrice : planInfo.monthlyPrice;
+        let amount = billingCycle === "yearly" ? planInfo.yearlyPrice : planInfo.monthlyPrice;
+        let couponMeta = null;
+
+        if (couponCode && String(couponCode).trim()) {
+            const couponResult = await validateCouponForCheckout({
+                code: couponCode,
+                userId: user._id,
+                plan,
+                billingCycle,
+                baseAmount: amount
+            });
+            if (!couponResult.valid) {
+                return res.status(400).json({ success: false, message: couponResult.message });
+            }
+            amount = couponResult.finalAmount;
+            couponMeta = {
+                code: couponResult.coupon.code,
+                couponId: couponResult.coupon._id,
+                name: couponResult.coupon.name,
+                type: couponResult.coupon.type,
+                value: couponResult.coupon.value,
+                discountAmount: couponResult.discountAmount,
+                originalAmount: couponResult.originalAmount
+            };
+        }
+
         const amountKurus = Math.round(amount * 100);
 
         // Benzersiz sipariş ID oluştur (PayTR max 64 karakter, alfanumerik)
@@ -324,7 +347,9 @@ exports.createPayment = async (req, res) => {
             status: "pending",
             paymentMethod: "paytr",
             transactionId: orderId,
-            description: `LysiaETIC ${planInfo.name} - ${billingCycle === "yearly" ? "Yıllık" : "Aylık"}`,
+            description: couponMeta
+                ? `LysiaETIC ${planInfo.name} - ${billingCycle === "yearly" ? "Yıllık" : "Aylık"} (Kupon: ${couponMeta.code})`
+                : `LysiaETIC ${planInfo.name} - ${billingCycle === "yearly" ? "Yıllık" : "Aylık"}`,
             expectedPlan: plan,
             expectedAmount: amountKurus,
             expectedBillingCycle: billingCycle,
@@ -333,7 +358,8 @@ exports.createPayment = async (req, res) => {
                 billingCycle,
                 paytrOrderId: orderId,
                 userEmail: user.email,
-                userName: user.name
+                userName: user.name,
+                ...(couponMeta ? { coupon: couponMeta } : {})
             }
         });
         await payment.save();
@@ -380,7 +406,14 @@ exports.createPayment = async (req, res) => {
             orderId,
             amount,
             plan: planInfo.name,
-            billingCycle
+            billingCycle,
+            coupon: couponMeta
+                ? {
+                    code: couponMeta.code,
+                    discountAmount: couponMeta.discountAmount,
+                    originalAmount: couponMeta.originalAmount
+                }
+                : null
         });
     } catch (error) {
         logger.error(`Ödeme oluşturma hatası: ${error.message}`, { stack: error.stack });
@@ -495,6 +528,7 @@ exports.paytrCallback = async (req, res) => {
                         }
                     });
 
+                    const planLimits = (await getPlansFromDB())[plan]?.limits || {};
                     user.subscription = {
                         ...existingSub,
                         plan,
@@ -503,7 +537,8 @@ exports.paytrCallback = async (req, res) => {
                         endDate,
                         trialUsed: true,
                         lastPaymentId: payment._id.toString(),
-                        autoRenew: true
+                        autoRenew: true,
+                        limits: planLimits
                     };
                     delete user.subscription.trialStartDate;
                     delete user.subscription.trialEndDate;
@@ -531,6 +566,20 @@ exports.paytrCallback = async (req, res) => {
 
                     payment.subscriptionId = subDoc._id;
                     await payment.save({ session });
+
+                    if (payment.metadata?.coupon?.couponId) {
+                        await recordCouponRedemption({
+                            couponId: payment.metadata.coupon.couponId,
+                            userId: user._id,
+                            paymentId: payment._id,
+                            code: payment.metadata.coupon.code,
+                            plan,
+                            billingCycle,
+                            originalAmount: payment.metadata.coupon.originalAmount,
+                            discountAmount: payment.metadata.coupon.discountAmount,
+                            finalAmount: payment.amount
+                        });
+                    }
 
                     logger.info(`🎉 Abonelik aktifleştirildi: ${user.email} → ${plan} (${billingCycle}) — Bitiş: ${endDate.toISOString()} — Toplam işlem: ${Date.now() - callbackStartTime}ms`);
                 });
@@ -597,6 +646,10 @@ exports.adminGrantSubscription = async (req, res) => {
 
         logger.info(`📋 Admin grant — ${user.email}: önceki plan=${existingSub.plan || "yok"}, yeni plan=${plan}, base=${baseDate.toISOString()}, end=${endDate.toISOString()}`);
 
+        const { getLimitsForPlan } = require("../services/planFeatureService");
+        const grantLimits = (await getPlansFromDB())[isPlanTrial ? "trial" : plan]?.limits
+            || (await getLimitsForPlan(isPlanTrial ? "trial" : plan));
+
         user.subscription = {
             plan: isPlanTrial ? "trial" : plan,
             status: isPlanTrial ? "trial" : "active",
@@ -607,7 +660,8 @@ exports.adminGrantSubscription = async (req, res) => {
             trialUsed: !isPlanTrial ? true : existingSub.trialUsed,
             grantedBy: adminUser._id,
             grantedAt: now,
-            grantNote: note || `Admin tarafından ${days} günlük ${plan} verildi`
+            grantNote: note || `Admin tarafından ${days} günlük ${plan} verildi`,
+            limits: grantLimits
         };
         await user.save();
 

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * App.js
  *
  * Uygulamanın ana componentidir. Tüm sayfaları, routing ve genel tema yönetimini içerir.
@@ -8,10 +8,11 @@
  * ✅ P1-2: Global ErrorBoundary eklendi — render hataları yakalanır
  */
 
-import React, { Suspense, lazy } from "react";
+import React, { Suspense, lazy, useEffect } from "react";
 import { BrowserRouter as Router, Route, Routes, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { CssBaseline, Container, ThemeProvider, createTheme } from "@mui/material";
 import { AppProvider } from "./context/AppContext";
+import { enforceCanonicalDomain } from "./utils/legacyDomainRedirect";
 
 // PWA & Responsive
 import PWAInstallPrompt from "./components/PWAInstallPrompt";
@@ -76,6 +77,7 @@ const AdminAccessControl     = lazy(() => import("./pages/AdminAccessControl"));
 const SaasSystemConfig       = lazy(() => import("./pages/SaasSystemConfig"));
 const SaasPlanManager        = lazy(() => import("./pages/SaasPlanManager"));
 const SaasUnitEconomics      = lazy(() => import("./pages/SaasUnitEconomics"));
+const AdminCouponsCampaigns  = lazy(() => import("./pages/AdminCouponsCampaigns"));
 
 // Pazaryeri & Ürün Yönetimi
 const MarketplaceIntegration = lazy(() => import("./pages/MarketplaceIntegration"));
@@ -93,7 +95,7 @@ const PaymentResult          = lazy(() => import("./pages/PaymentResult"));
 // Roketfy — Marketplace Intelligence
 const RoketfyPanel           = lazy(() => import("./pages/RoketfyPanel"));
 
-// PazarYonet Radar — AI Product Opportunity Engine
+// Dashtock Radar — AI Product Opportunity Engine
 const RadarProPage           = lazy(() => import("./pages/RadarProPage"));
 
 // LysiaBrain2 — Standalone test page (UserDashboard dışında)
@@ -350,6 +352,7 @@ const AppContent = () => {
             <Route path="/admin/plan-manager" element={<ProtectedRoute requiredRoles={["admin","dev"]}><SaasPlanManager /></ProtectedRoute>} />
             <Route path="/admin/subscriptions" element={<ProtectedRoute requiredRoles={["admin","dev"]}><SaasSubscriptions /></ProtectedRoute>} />
             <Route path="/admin/payments" element={<ProtectedRoute requiredRoles={["admin","dev"]}><SaasPayments /></ProtectedRoute>} />
+            <Route path="/admin/coupons" element={<ProtectedRoute requiredRoles={["admin","dev"]}><AdminCouponsCampaigns /></ProtectedRoute>} />
             <Route path="/admin/unit-economics" element={<ProtectedRoute requiredRoles={["admin","dev"]}><SaasUnitEconomics /></ProtectedRoute>} />
 
             {/* Operasyon */}
@@ -386,7 +389,7 @@ const AppContent = () => {
             {/* Roketfy — Marketplace Intelligence */}
             <Route path="/roketfy" element={<ProtectedRoute><RoketfyPanel /></ProtectedRoute>} />
 
-            {/* PazarYonet Radar — AI Product Opportunity Engine */}
+            {/* Dashtock Radar — AI Product Opportunity Engine */}
             <Route path="/radar-pro" element={<ProtectedRoute><RadarProPage /></ProtectedRoute>} />
 
             {/* Abonelik & Ödeme */}
@@ -430,6 +433,10 @@ const AppContent = () => {
 };
 
 const App = () => {
+    useEffect(() => {
+        enforceCanonicalDomain();
+    }, []);
+
     return (
         <ErrorBoundary>
             <AppProvider>

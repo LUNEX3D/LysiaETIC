@@ -65,7 +65,7 @@ Write-Host "[6/6] Tamam!" -ForegroundColor Green
 Write-Host ""
 Write-Host "═══════════════════════════════════════════" -ForegroundColor Green
 Write-Host "  DEPLOY TAMAMLANDI!" -ForegroundColor Green
-Write-Host "  https://pazaryonet.com" -ForegroundColor Green
-Write-Host "  https://pazaryonet.com/admin/login" -ForegroundColor Green
+Write-Host "  https://dashtock.com" -ForegroundColor Green
+Write-Host "  https://dashtock.com/admin/login" -ForegroundColor Green
 Write-Host "═══════════════════════════════════════════" -ForegroundColor Green
 Write-Host ""

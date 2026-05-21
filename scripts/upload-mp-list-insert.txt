@@ -1,0 +1,7 @@
+            <div className="ud-pm-product-list-wrap ud-pm-card ud-pm-upload-mp-list-panel">
+                <div className="ud-pm-product-list-head">
+                    <span style={{ fontSize: 12, fontWeight: 600, color: "var(--ud-pm-text-sub)" }}>
+                        Platforma yüklemek için listeden bir ürün seçin
+                    </span>
+                </motion.div>
+                <motion.div className="ud-pm-product-list ud-pm-upload-mp-product-list">

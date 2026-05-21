@@ -1003,6 +1003,15 @@ h3 {
     }
 }
 
+.pwa-install-banner-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    flex-shrink: 0;
+    object-fit: contain;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
 .pwa-install-banner-text {
     flex: 1;
 }

@@ -70,6 +70,7 @@ export const getSystemConfig = () => API.get(`${BASE}/system-config`);
 
 // ─── 12. Paket Tanımları Güncelleme ───────────────────────────────────────────
 export const updatePlanDefinitions = (planDefinitions) => API.put(`${BASE}/plan-definitions`, { planDefinitions });
+export const resetPlanDefinitionsToDefaults = () => API.post(`${BASE}/plan-definitions/reset-defaults`);
 
 // ─── 13. Public Paket Bilgileri (Auth gerektirmez) ────────────────────────────
 export const getPublicPlans = () => API.get(`${BASE}/public/plans`);

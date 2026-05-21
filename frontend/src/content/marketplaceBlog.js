@@ -12,7 +12,7 @@ export const MARKETPLACE_BLOG_SECTIONS = [
         topics: [
             {
                 heading: "Trendyol API entegrasyonu nasıl yapılır?",
-                body: "Satıcı panelinden API anahtarlarınızı alın, PazarYonet'e bağlayın. Ürün listeleme, stok güncelleme ve sipariş çekme işlemleri tek panelden yönetilir.",
+                body: "Satıcı panelinden API anahtarlarınızı alın, Dashtock'e bağlayın. Ürün listeleme, stok güncelleme ve sipariş çekme işlemleri tek panelden yönetilir.",
             },
             {
                 heading: "Stok ve fiyat senkronizasyonu",
@@ -35,7 +35,7 @@ export const MARKETPLACE_BLOG_SECTIONS = [
         topics: [
             {
                 heading: "Hepsiburada XML ürün yükleme",
-                body: "Toplu ürün aktarımında kategori ve marka eşleştirmesi kritiktir. PazarYonet ile katalogdan HB'ye güvenli dağıtım yapın.",
+                body: "Toplu ürün aktarımında kategori ve marka eşleştirmesi kritiktir. Dashtock ile katalogdan HB'ye güvenli dağıtım yapın.",
             },
             {
                 heading: "Sipariş ve kargo süreçleri",
@@ -125,7 +125,7 @@ export const MARKETPLACE_BLOG_SECTIONS = [
         topics: [
             {
                 heading: "Pazaryeri entegrasyonu seçerken",
-                body: "API kapsamı, stok hızı, kâr raporu ve destek kalitesine bakın. PazarYonet bu ihtiyaçlar için tasarlandı.",
+                body: "API kapsamı, stok hızı, kâr raporu ve destek kalitesine bakın. Dashtock bu ihtiyaçlar için tasarlandı.",
             },
             {
                 heading: "Stok senkronizasyonu",
@@ -137,7 +137,7 @@ export const MARKETPLACE_BLOG_SECTIONS = [
             },
             {
                 heading: "SEO ve marka",
-                body: "Kendi domaininizde tutarlı marka (PazarYonet) ve blog içerikleri organik trafik getirir.",
+                body: "Kendi domaininizde tutarlı marka (Dashtock) ve blog içerikleri organik trafik getirir.",
             },
         ],
         keywords: [

@@ -3,7 +3,7 @@
  * layout="split" → Lunexetic tarzı bölünmüş giriş sayfası üst çubuğu
  */
 import React from "react";
-import PazarYonetLogo from "../brand/PazarYonetLogo";
+import DashtockLogo from "../brand/DashtockLogo";
 import { BRAND_NAME_UPPER } from "../../constants/brand";
 import {
     HiOutlineHome,
@@ -36,7 +36,7 @@ const AuthNavbar = ({ activeTab, onTabChange, layout = "default" }) => {
                             onTabChange?.("home");
                         }}
                     >
-                        <PazarYonetLogo size={36} />
+                        <DashtockLogo size={36} />
                         <span className="lx-auth-logo-text">{BRAND_NAME_UPPER}</span>
                     </a>
                     <nav className="lx-auth-nav" aria-label="Sayfa">
@@ -75,7 +75,7 @@ const AuthNavbar = ({ activeTab, onTabChange, layout = "default" }) => {
                     onTabChange?.("home");
                 }}
             >
-                <PazarYonetLogo size={32} variant="light" />
+                <DashtockLogo size={32} variant="light" />
                 <span className="auth-navbar-logo-text">{BRAND_NAME_UPPER}</span>
             </a>
             <div className="auth-navbar-links">

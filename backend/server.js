@@ -55,6 +55,8 @@ const ciceksepetiRoutes       = require("./routes/ciceksepetiRoutes");
 const amazonRoutes            = require("./routes/amazonRoutes");
 const eInvoiceRoutes          = require("./routes/eInvoiceRoutes");
 const paytrRoutes             = require("./routes/paytrRoutes");
+const couponRoutes            = require("./routes/couponRoutes");
+const adminCouponRoutes       = require("./routes/adminCouponRoutes");
 const aiEngineRoutes          = require("./routes/aiEngineRoutes");
 const aiChatRoutes            = require("./routes/aiChatRoutes");
 
@@ -74,6 +76,10 @@ const seoPublicRoutes         = require("./routes/seoPublicRoutes");
 // ─── 3. DNS & App ─────────────────────────────────────────────────────────────
 dns.setServers(["1.1.1.1", "8.8.8.8"]);
 const app = express();
+const { canonicalHostRedirect } = require("./middlewares/canonicalHostRedirect");
+
+// Eski domain → dashtock.com (pazaryonet.com vb.)
+app.use(canonicalHostRedirect);
 
 // ─── 4. Sunucu başlangıç zamanı (uptime için) ─────────────────────────────────
 const SERVER_START = Date.now();
@@ -267,7 +273,7 @@ app.use((req, res, next) => {
 if (process.env.NODE_ENV !== "production") {
     app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
         customCss: ".swagger-ui .topbar { display: none }",
-        customSiteTitle: "PazarYonet API Docs",
+        customSiteTitle: "Dashtock API Docs",
         swaggerOptions: {
             persistAuthorization: true,
             docExpansion: "none",
@@ -315,6 +321,8 @@ app.use("/api/ciceksepeti",       ciceksepetiRoutes);
 app.use("/api/amazon",            amazonRoutes);
 app.use("/api/e-invoice",        eInvoiceRoutes);
 app.use("/api/paytr",            paytrRoutes);
+app.use("/api/coupons",          couponRoutes);
+app.use("/api/admin/coupons",    adminCouponRoutes);
 app.use("/api/ai-engine",       aiEngineRoutes);
 app.use("/api/ai-chat",        aiChatRoutes);
 app.use("/api/roketfy",        roketfyRoutes);
@@ -563,7 +571,7 @@ const startServer = async () => {
     server = app.listen(PORT, '0.0.0.0', () => {
         const line = "─".repeat(52);
         logger.info(`\n${line}`);
-        logger.info(`  🚀  PazarYonet Backend başlatıldı`);
+        logger.info(`  🚀  Dashtock Backend başlatıldı`);
         logger.info(`  📡  Port     : ${PORT}`);
         logger.info(`  🌍  Ortam    : ${process.env.NODE_ENV || "development"}`);
         logger.info(`  🔗  Site     : ${APP_URL}`);
@@ -576,6 +584,10 @@ const startServer = async () => {
             const { startStockCron } = require("./services/stockCronService");
             startStockCron();
             logger.info("Stok senkronizasyon cron'u başlatıldı ✅");
+
+            const { startBackgroundIdentityRepair } = require("./services/productIdentityGuardService");
+            startBackgroundIdentityRepair();
+            logger.info("Ürün kimlik koruyucu (tüm kullanıcılar) arka planda başlatıldı ✅");
         } catch (err) {
             logger.warn(`Stok cron başlatılamadı: ${err.message}`);
         }

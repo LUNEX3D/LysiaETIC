@@ -11,7 +11,8 @@ const { subscriptionMiddleware } = require("../middlewares/subscriptionMiddlewar
 const ctrl = require("../controllers/aiEngineController");
 
 // ✅ Tüm route'lara auth + subscription kontrolü uygula
-router.use(authMiddleware, subscriptionMiddleware);
+const { requirePlanFeature } = require("../middlewares/planFeatureMiddleware");
+router.use(authMiddleware, subscriptionMiddleware, requirePlanFeature("ai_assistant"));
 
 // ── Full Dashboard (combined endpoint — reduces API calls) ──
 router.get("/dashboard",                     ctrl.getFullDashboard);

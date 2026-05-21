@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import axios from "../services/api";
 import { FaCheckCircle, FaTimesCircle, FaSpinner, FaChartLine } from "react-icons/fa";
@@ -77,7 +77,7 @@ const VerifyEmail = () => {
                     <div className="auth-logo-icon" style={{ width: 40, height: 40, fontSize: 18 }}>
                         <FaChartLine />
                     </div>
-                    <span className="auth-logo-text" style={{ fontSize: 20 }}>PazarYonet</span>
+                    <span className="auth-logo-text" style={{ fontSize: 20 }}>Dashtock</span>
                 </div>
 
                 {status === "loading" && (
