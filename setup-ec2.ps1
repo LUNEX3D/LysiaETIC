@@ -5,7 +5,7 @@
 
 param(
     [string]$Key = "C:\Users\emrul\Downloads\key.pem",
-    [string]$Server = "ubuntu@13.60.207.1",
+    [string]$Server = "",
     [string]$Root = "D:\LysiaETIC",
     [switch]$CheckOnly,
     [switch]$RunBootstrap,
@@ -13,6 +13,8 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $Root "scripts\deploy-config.ps1")
+if (-not $Server) { $Server = $DashtockAwsServer }
 
 function Test-Ssh {
     param([string]$Cmd)

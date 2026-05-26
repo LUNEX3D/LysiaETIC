@@ -1,9 +1,10 @@
 # Sunucuya backend/.env kopyalar (PayTR dahil — git'e girmez)
 # Kullanım: powershell -File scripts/sync-backend-env.ps1
 
-$KEY = "C:\Users\emrul\Downloads\key.pem"
-$SERVER = "ubuntu@13.60.207.1"
 $ROOT = Split-Path $PSScriptRoot -Parent
+. (Join-Path $PSScriptRoot "deploy-config.ps1")
+$KEY = "C:\Users\emrul\Downloads\key.pem"
+$SERVER = $DashtockAwsServer
 $ENV_FILE = Join-Path $ROOT "backend\.env"
 
 if (-not (Test-Path $ENV_FILE)) {

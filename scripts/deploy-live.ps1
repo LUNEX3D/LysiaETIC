@@ -3,11 +3,13 @@
 
 param(
     [string]$Key = "C:\Users\emrul\Downloads\key.pem",
-    [string]$Server = "ubuntu@13.60.207.1",
+    [string]$Server = "",
     [string]$Root = "D:\LysiaETIC"
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "deploy-config.ps1")
+if (-not $Server) { $Server = $DashtockAwsServer }
 
 if (-not (Test-Path $Key)) {
     Write-Host "SSH key bulunamadi: $Key" -ForegroundColor Red

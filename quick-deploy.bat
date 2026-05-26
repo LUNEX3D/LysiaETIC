@@ -5,8 +5,9 @@ echo ============================================
 echo.
 
 set KEY=C:\Users\emrul\Downloads\key.pem
-set SERVER=ubuntu@13.60.207.1
-set ROOT=D:\LysiaETIC
+set ROOT=%~dp0
+if "%ROOT:~-1%"=="\" set ROOT=%ROOT:~0,-1%
+for /f "usebackq delims=" %%S in (`powershell -NoProfile -Command ". '%ROOT%\scripts\deploy-config.ps1'; Write-Output $DashtockAwsServer"`) do set SERVER=%%S
 
 echo [1/6] Building frontend...
 cd %ROOT%\frontend

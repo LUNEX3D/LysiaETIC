@@ -53,7 +53,7 @@ cd D:\LysiaETIC
 powershell -File deploy-frontend.ps1 -Server ubuntu@SUNUCU_IP
 ```
 
-`benim-server` ornegi: `-Server ubuntu@13.60.207.1`
+`benim-server` ornegi: `-Server ubuntu@EC2_IP` (IP: `scripts/deploy-config.ps1`)
 
 ---
 
@@ -61,10 +61,10 @@ powershell -File deploy-frontend.ps1 -Server ubuntu@SUNUCU_IP
 
 | | |
 |--|--|
-| **Aktif IP** | `13.60.207.1` |
+| **Aktif IP** | `scripts/deploy-config.ps1` icinde (`DASHTOCK_AWS_IP` ile override) |
 | Deploy | `deploy.ps1` / `deploy-frontend.ps1` |
 
-GitHub Actions secret: **`AWS_HOST` = `13.60.207.1`** (Settings → Secrets → Actions).
+GitHub Actions secret: **`AWS_HOST`** = EC2 public IP (Settings → Secrets → Actions).
 
 Ileride tasima: `powershell -File migrate-ec2.ps1`
 

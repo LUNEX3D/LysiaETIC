@@ -9,8 +9,9 @@ param(
     [switch]$FrontendOnly
 )
 
+. (Join-Path $PSScriptRoot "scripts\deploy-config.ps1")
 $KEY = "C:\Users\emrul\Downloads\key.pem"
-$SERVER = "ubuntu@13.60.207.1"
+$SERVER = $DashtockAwsServer
 $ROOT = "D:\LysiaETIC"
 $FRONTEND = Join-Path $ROOT "frontend"
 

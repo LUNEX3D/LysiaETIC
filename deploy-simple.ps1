@@ -1,9 +1,10 @@
 ## AWS Deploy Script
 param([switch]$SkipGit, [switch]$FrontendOnly)
 
-$KEY = "C:\Users\emrul\Downloads\key.pem"
-$SERVER = "ubuntu@13.60.207.1"
 $ROOT = "D:\LysiaETIC"
+. (Join-Path $ROOT "scripts\deploy-config.ps1")
+$KEY = "C:\Users\emrul\Downloads\key.pem"
+$SERVER = $DashtockAwsServer
 $FRONTEND = Join-Path $ROOT "frontend"
 
 Write-Host "═══════════════════════════════════════════" -ForegroundColor Cyan
