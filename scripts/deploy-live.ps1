@@ -3,7 +3,7 @@
 
 param(
     [string]$Key = "C:\Users\emrul\Downloads\key.pem",
-    [string]$Server = "ubuntu@13.60.214.195",
+    [string]$Server = "ubuntu@13.60.207.1",
     [string]$Root = "D:\LysiaETIC"
 )
 

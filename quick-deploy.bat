@@ -5,7 +5,7 @@ echo ============================================
 echo.
 
 set KEY=C:\Users\emrul\Downloads\key.pem
-set SERVER=ubuntu@13.51.158.124
+set SERVER=ubuntu@13.60.207.1
 set ROOT=D:\LysiaETIC
 
 echo [1/6] Building frontend...

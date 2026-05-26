@@ -53,7 +53,7 @@ cd D:\LysiaETIC
 powershell -File deploy-frontend.ps1 -Server ubuntu@SUNUCU_IP
 ```
 
-`benim-server` ornegi: `-Server ubuntu@13.60.214.195`
+`benim-server` ornegi: `-Server ubuntu@13.60.207.1`
 
 ---
 
@@ -61,10 +61,10 @@ powershell -File deploy-frontend.ps1 -Server ubuntu@SUNUCU_IP
 
 | | |
 |--|--|
-| **Aktif IP** | `13.60.214.195` |
+| **Aktif IP** | `13.60.207.1` |
 | Deploy | `deploy.ps1` / `deploy-frontend.ps1` |
 
-Yedek EC2 (`13.53.193.241`) kullanilmiyorsa DNS ve GitHub `AWS_HOST` eski IP'de kalsin; yeni instance'i Stop ederek maliyetten kurtulabilirsiniz.
+GitHub Actions secret: **`AWS_HOST` = `13.60.207.1`** (Settings → Secrets → Actions).
 
 Ileride tasima: `powershell -File migrate-ec2.ps1`
 

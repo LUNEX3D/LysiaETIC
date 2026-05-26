@@ -10,16 +10,16 @@ npm run build
 
 ADIM 2: Upload Build Files
 ----------------------------
-ssh -i C:\Users\emrul\Downloads\key.pem -o StrictHostKeyChecking=no ubuntu@13.51.158.124 "mkdir -p ~/build"
-scp -r -i C:\Users\emrul\Downloads\key.pem D:\LysiaETIC\frontend\build\* ubuntu@13.51.158.124:~/build/
+ssh -i C:\Users\emrul\Downloads\key.pem -o StrictHostKeyChecking=no ubuntu@13.60.207.1 "mkdir -p ~/build"
+scp -r -i C:\Users\emrul\Downloads\key.pem D:\LysiaETIC\frontend\build\* ubuntu@13.60.207.1:~/build/
 
 ADIM 3: Deploy Nginx
 ---------------------
-scp -i C:\Users\emrul\Downloads\key.pem D:\LysiaETIC\nginx-default.conf ubuntu@13.51.158.124:~/
-scp -i C:\Users\emrul\Downloads\key.pem D:\LysiaETIC\frontend\public\robots.txt ubuntu@13.51.158.124:~/build/
-scp -i C:\Users\emrul\Downloads\key.pem D:\LysiaETIC\frontend\public\sitemap.xml ubuntu@13.51.158.124:~/build/
+scp -i C:\Users\emrul\Downloads\key.pem D:\LysiaETIC\nginx-default.conf ubuntu@13.60.207.1:~/
+scp -i C:\Users\emrul\Downloads\key.pem D:\LysiaETIC\frontend\public\robots.txt ubuntu@13.60.207.1:~/build/
+scp -i C:\Users\emrul\Downloads\key.pem D:\LysiaETIC\frontend\public\sitemap.xml ubuntu@13.60.207.1:~/build/
 
-ssh -i C:\Users\emrul\Downloads\key.pem ubuntu@13.51.158.124 "sudo rm -rf /var/www/html/* && sudo cp -r ~/build/* /var/www/html/ && sudo cp ~/nginx-default.conf /etc/nginx/sites-available/default && sudo nginx -t && sudo systemctl reload nginx"
+ssh -i C:\Users\emrul\Downloads\key.pem ubuntu@13.60.207.1 "sudo rm -rf /var/www/html/* && sudo cp -r ~/build/* /var/www/html/ && sudo cp ~/nginx-default.conf /etc/nginx/sites-available/default && sudo nginx -t && sudo systemctl reload nginx"
 
 ADIM 4: Git Commit & Push
 ---------------------------
@@ -30,13 +30,13 @@ git push Etic main --force
 
 ADIM 5: Backend Update
 -----------------------
-scp -i C:\Users\emrul\Downloads\key.pem D:\LysiaETIC\backend\.env ubuntu@13.51.158.124:~/LysiaETIC/backend/
+scp -i C:\Users\emrul\Downloads\key.pem D:\LysiaETIC\backend\.env ubuntu@13.60.207.1:~/LysiaETIC/backend/
 
-ssh -i C:\Users\emrul\Downloads\key.pem ubuntu@13.51.158.124 "cd ~/LysiaETIC && git fetch --all && git reset --hard origin/main && cd backend && npm install --omit=dev && pm2 restart backend && pm2 save"
+ssh -i C:\Users\emrul\Downloads\key.pem ubuntu@13.60.207.1 "cd ~/LysiaETIC && git fetch --all && git reset --hard origin/main && cd backend && npm install --omit=dev && pm2 restart backend && pm2 save"
 
 ADIM 6: Health Check
 --------------------
-ssh -i C:\Users\emrul\Downloads\key.pem ubuntu@13.51.158.124 "curl -sS http://127.0.0.1:5000/api/status"
+ssh -i C:\Users\emrul\Downloads\key.pem ubuntu@13.60.207.1 "curl -sS http://127.0.0.1:5000/api/status"
 
 TAMAMLANDI!
 Site: https://dashtock.com

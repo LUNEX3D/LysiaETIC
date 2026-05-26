@@ -2,7 +2,7 @@
 # Kullanım: powershell -File scripts/sync-backend-env.ps1
 
 $KEY = "C:\Users\emrul\Downloads\key.pem"
-$SERVER = "ubuntu@13.51.158.124"
+$SERVER = "ubuntu@13.60.207.1"
 $ROOT = Split-Path $PSScriptRoot -Parent
 $ENV_FILE = Join-Path $ROOT "backend\.env"
 

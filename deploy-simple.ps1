@@ -2,7 +2,7 @@
 param([switch]$SkipGit, [switch]$FrontendOnly)
 
 $KEY = "C:\Users\emrul\Downloads\key.pem"
-$SERVER = "ubuntu@13.51.158.124"
+$SERVER = "ubuntu@13.60.207.1"
 $ROOT = "D:\LysiaETIC"
 $FRONTEND = Join-Path $ROOT "frontend"
 

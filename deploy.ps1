@@ -10,7 +10,7 @@ param(
 )
 
 $KEY = "C:\Users\emrul\Downloads\key.pem"
-$SERVER = "ubuntu@13.60.214.195"
+$SERVER = "ubuntu@13.60.207.1"
 $ROOT = "D:\LysiaETIC"
 $FRONTEND = Join-Path $ROOT "frontend"
 

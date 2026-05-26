@@ -37,8 +37,8 @@ const LOCAL_DEV_ORIGINS = buildLocalDevOrigins();
 
 /** Sunucu IP (doğrudan API erişimi) — pazaryonet domainleri CORS'ta yok */
 const LEGACY_ORIGINS = [
-    "https://13.51.158.124",
-    "http://13.51.158.124",
+    "https://13.60.207.1",
+    "http://13.60.207.1",
 ];
 
 function getCorsAllowedOrigins() {

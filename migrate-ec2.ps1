@@ -4,8 +4,8 @@
 
 param(
     [string]$Key = "C:\Users\emrul\Downloads\key.pem",
-    [string]$NewServer = "ubuntu@13.53.193.241",
-    [string]$OldServer = "ubuntu@13.51.158.124",  # aktif production
+    [string]$NewServer = "ubuntu@13.60.207.1",
+    [string]$OldServer = "ubuntu@13.60.214.195",  # onceki production
     [string]$Root = "D:\LysiaETIC",
     [switch]$CopyEnvFromOld,
     [switch]$SkipFrontend,
@@ -101,11 +101,11 @@ grep -oE 'Dashtock|PAZARYONET|id=\"root\"' /var/www/html/index.html 2>/dev/null 
 
 Write-Host ""
 Write-Host "=== Sizin yapmaniz gerekenler ===" -ForegroundColor Cyan
-Write-Host "1. DNS (Cloudflare/registrar): A kaydi dashtock.com -> 13.53.193.241"
+Write-Host "1. DNS (Cloudflare/registrar): A kaydi dashtock.com -> 13.60.207.1"
 Write-Host "2. SSL (yeni sunucuda SSH ile):"
 Write-Host "   sudo certbot --nginx -d dashtock.com -d www.dashtock.com"
-Write-Host "3. GitHub Actions secret: AWS_HOST = 13.53.193.241"
-Write-Host "4. Eski instance'i durdurmadan once yeni siteyi test: http://13.53.193.241"
+Write-Host "3. GitHub Actions secret: AWS_HOST = 13.60.207.1"
+Write-Host "4. Eski instance'i durdurmadan once yeni siteyi test: http://13.60.207.1"
 Write-Host ""
 Write-Host "Test: https://dashtock.com (DNS guncellenince)" -ForegroundColor Green
 Write-Host ""
