@@ -16,6 +16,7 @@ export const normalizeMarketplaceDisplayName = (name) => {
     if (k === "hepsiburada") return "Hepsiburada";
     if (k === "ciceksepeti") return "ÇiçekSepeti";
     if (k === "amazon") return "Amazon";
+    if (k === "ozon") return "Ozon";
     return String(name || "").trim();
 };
 

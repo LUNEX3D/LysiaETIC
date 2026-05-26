@@ -56,7 +56,7 @@
   "id": "/",
   "display": "standalone",
   "display_override": ["standalone", "minimal-ui", "window-controls-overlay"],
-  "theme_color": "#0f766e",
+  "theme_color": "#6025be",
   "background_color": "#0a0e1a",
   "orientation": "any",
   "scope": "/",

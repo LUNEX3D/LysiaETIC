@@ -1,0 +1,30 @@
+{
+  "orderNo": "407165336",
+  "db": [
+    {
+      "_id": "6a020b05308013b9d4101d54",
+      "user": "69cd229a7fa3ee7b5cf758fa",
+      "trackingNumber": "407165336",
+      "marketplaceName": "ÇiçekSepeti",
+      "status": "İade Tedarikçide",
+      "statusBucket": "new",
+      "isReturned": true,
+      "orderDate": "2026-05-11T15:35:00.000Z",
+      "classify": "processing"
+    }
+  ],
+  "marketplace": "ÇiçekSepeti",
+  "getOrdersByOrderNo": {
+    "success": true,
+    "count": 1,
+    "items": [
+      {
+        "orderId": 407165336,
+        "orderItemId": 451616871,
+        "orderProductStatus": "İade Tedarikçide"
+      }
+    ]
+  },
+  "returnApiMatches": [],
+  "returnApiTotal": 0
+}

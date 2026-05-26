@@ -112,7 +112,18 @@ exports.getBestSellers = async (req, res) => {
         });
         res.set("Cache-Control", "no-store, no-cache, must-revalidate");
         res.set("Pragma", "no-cache");
-        res.json({ success: true, bestSellers: { ...result, fetchedAt: new Date().toISOString() } });
+        const products = result.products || [];
+        res.json({
+            success: true,
+            bestSellers: {
+                ...result,
+                fetchedAt: new Date().toISOString(),
+                scrapeOk: products.length > 0,
+                hint: products.length === 0
+                    ? "Trendyol verisi alınamadı. Birkaç dakika sonra yenileyin; sorun sürerse sunucuda curl-impersonate kontrol edin."
+                    : null,
+            },
+        });
     } catch (err) {
         logger.error(`[Roketfy] En çok satanlar hatası: ${err.message}`);
         res.status(500).json({ success: false, message: "En çok satanlar yüklenemedi", error: err.message });
@@ -306,7 +317,18 @@ exports.getFlashProducts = async (req, res) => {
         });
         res.set("Cache-Control", "no-store, no-cache, must-revalidate");
         res.set("Pragma", "no-cache");
-        res.json({ success: true, flashProducts: { ...result, fetchedAt: new Date().toISOString() } });
+        const products = result.products || [];
+        res.json({
+            success: true,
+            flashProducts: {
+                ...result,
+                fetchedAt: new Date().toISOString(),
+                scrapeOk: products.length > 0,
+                hint: products.length === 0
+                    ? "Flaş ürün verisi alınamadı. Kategori seçip yenileyin veya birkaç dakika sonra tekrar deneyin."
+                    : null,
+            },
+        });
     } catch (err) {
         logger.error(`[Roketfy] Flaş ürünler hatası: ${err.message}`);
         res.status(500).json({ success: false, message: "Flaş ürünler yüklenemedi", error: err.message });

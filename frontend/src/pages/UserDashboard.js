@@ -1,6 +1,6 @@
 ﻿import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import ReactDOM from "react-dom";
-import { getUserMarketplaces, fetchDashboardData } from "../services/marketplaceApi";
+import { getUserMarketplaces, fetchDashboardData, syncRecentOrders } from "../services/marketplaceApi";
 import { getProductManagementDashboard } from "../services/productManagementApi";
 import { getNotifications, markNotificationAsRead, dismissNotification as apiDismissNotif, createBulkOrderNotifications } from "../services/notificationApi";
 import API, { logoutUser } from "../services/api";
@@ -40,7 +40,13 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import Particles from "react-tsparticles";
 import { loadSlim } from "tsparticles-slim";
-import { classifyOrderStatus, getOrderStatusLabelTr, parseOrderDateForDisplay, formatOrderNumberForDisplay } from "../utils/orderStatus";
+import {
+    classifyOrderStatus,
+    countActiveOrders,
+    getOrderStatusLabelTr,
+    parseOrderDateForDisplay,
+    formatOrderNumberForDisplay,
+} from "../utils/orderStatus";
 import useMobileShell from "../utils/useMobileShell";
 import usePlanEntitlements from "../hooks/usePlanEntitlements";
 import { MENU_FEATURE_MAP } from "../constants/planFeatures";
@@ -53,6 +59,7 @@ import {
     DashboardTrendChart,
     DashboardOrderTimeline
 } from "../components/dashboard/DashboardHomeParts";
+import ShippingLabelModal, { supportsCargoLabel } from "../components/orders/ShippingLabelModal";
 import "../styles/userDashboard.css";
 import "../styles/dashboardHome.css";
 
@@ -208,6 +215,7 @@ const UserDashboard = () => {
     const [openSubmenu, setOpenSubmenu] = useState(null);
 
     const [showOrderDetailsModal, setShowOrderDetailsModal] = useState(false);
+    const [labelOrder, setLabelOrder] = useState(null);
     const [selectedOrderTab, setSelectedOrderTab] = useState("all");
 
     // ── Bildirim Sistemi (Persistent Backend) ──
@@ -376,47 +384,197 @@ const UserDashboard = () => {
         } catch { /* sessiz */ }
     }, [notifFilter, notifSoundEnabled]);
 
-    // ── Dashboard Verileri (gerçek) ──
-    // ✅ v2: Polling 30sn → 90sn + sayfa görünmezken atla (rate limit azaltma)
+    const notifFilterRef = useRef(notifFilter);
     useEffect(() => {
+        notifFilterRef.current = notifFilter;
+    }, [notifFilter]);
+
+    const pollNotifications = useCallback(async () => {
+        try {
+            const params = {};
+            if (lastCheckRef.current) params.lastCheck = lastCheckRef.current;
+            if (notifFilterRef.current !== "all") params.type = notifFilterRef.current;
+            params.limit = 50;
+            const data = await getNotifications(params);
+            const serverNotifs = data.notifications || [];
+            if (lastCheckRef.current && serverNotifs.length > 0) {
+                setNotifications((prev) => {
+                    const existingIds = new Set(prev.map((n) => n._id));
+                    const newOnes = serverNotifs.filter((n) => !existingIds.has(n._id));
+                    return [...newOnes, ...prev].slice(0, 100);
+                });
+                const newCount = serverNotifs.filter((n) => !n.isRead).length;
+                if (newCount > 0 && notifSoundEnabled) playNotificationSound();
+            } else if (!lastCheckRef.current) {
+                setNotifications(serverNotifs);
+            }
+            setNotifCounts(data.counts || { total: 0, order: 0, admin: 0, ai: 0, stock: 0, system: 0 });
+            if (data.serverTime) lastCheckRef.current = data.serverTime;
+        } catch { /* sessiz */ }
+    }, [notifSoundEnabled]);
+
+    const dashboardPanelActive = activePanel === "dashboard";
+    const pmPanelActive = activePanel === "pm-center" || activePanel === "product-upload";
+    const orderNotifSyncedRef = useRef(false);
+    const orderSyncInFlightRef = useRef(false);
+    const lastOrderSyncAtRef = useRef(0);
+    const prevOrderNotifCountRef = useRef(0);
+
+    const DASHBOARD_DATA_POLL_MS = 30000;
+    const DASHBOARD_ORDER_SYNC_MS = 90000;
+    const DASHBOARD_ORDER_SYNC_MIN_GAP_MS = 60000;
+
+    const refreshDashboard = useCallback(async ({ bustCache = false, showSpinner = false } = {}) => {
         if (!userId) return;
-        let intervalId;
-        const load = async () => {
+        if (showSpinner) {
             setDashboardLoading(true);
             setDashboardError("");
-            try {
-                const data = await fetchDashboardData();
-                setDashboardData(data);
+        }
+        try {
+            const data = await fetchDashboardData({ refresh: bustCache });
+            setDashboardData(data);
+            if (!orderNotifSyncedRef.current) {
                 syncOrderNotifications(data);
-            } catch (e) {
-                console.error("Dashboard verileri yüklenirken hata:", e);
-                // ✅ Abonelik süresi dolmuşsa özel uyarı göster
-                if (e.subscriptionExpired || (e.response?.status === 403 && e.response?.data?.subscriptionExpired)) {
-                    setSubscriptionExpired(true);
-                    setSubscriptionMessage(e.response?.data?.message || e.message || "Abonelik süreniz dolmuştur.");
-                    setDashboardError("");
-                } else {
-                    setDashboardError("Veriler yüklenemedi.");
-                }
-            } finally { setDashboardLoading(false); }
-        };
-        load();
-        intervalId = setInterval(() => {
-            if (document.visibilityState === "visible") load();
-        }, 90000);
-        return () => clearInterval(intervalId);
+                orderNotifSyncedRef.current = true;
+            }
+        } catch (e) {
+            console.error("Dashboard verileri yüklenirken hata:", e);
+            if (e.subscriptionExpired || (e.response?.status === 403 && e.response?.data?.subscriptionExpired)) {
+                setSubscriptionExpired(true);
+                setSubscriptionMessage(e.response?.data?.message || e.message || "Abonelik süreniz dolmuştur.");
+                setDashboardError("");
+            } else if (showSpinner) {
+                setDashboardError("Veriler yüklenemedi.");
+            }
+        } finally {
+            if (showSpinner) setDashboardLoading(false);
+        }
     }, [userId, syncOrderNotifications]);
 
+    const syncMarketplaceOrders = useCallback(async () => {
+        if (!userId || orderSyncInFlightRef.current) return;
+        const now = Date.now();
+        if (now - lastOrderSyncAtRef.current < DASHBOARD_ORDER_SYNC_MIN_GAP_MS) return;
+        orderSyncInFlightRef.current = true;
+        lastOrderSyncAtRef.current = now;
+        try {
+            await syncRecentOrders();
+            await refreshDashboard({ bustCache: true, showSpinner: false });
+        } catch (e) {
+            console.warn("Sipariş senkronizasyonu:", e?.message || e);
+            await refreshDashboard({ bustCache: true, showSpinner: false });
+        } finally {
+            orderSyncInFlightRef.current = false;
+        }
+    }, [userId, refreshDashboard]);
+
+    // ── Ana sayfa: önce hızlı DB özeti, arka planda pazaryeri sync ──
+    useEffect(() => {
+        if (!userId || !dashboardPanelActive) return;
+
+        orderNotifSyncedRef.current = false;
+
+        refreshDashboard({ bustCache: false, showSpinner: true });
+        syncMarketplaceOrders();
+
+        const dataPollId = setInterval(() => {
+            if (document.visibilityState === "visible") {
+                refreshDashboard({ bustCache: false, showSpinner: false });
+            }
+        }, DASHBOARD_DATA_POLL_MS);
+
+        const syncPollId = setInterval(() => {
+            if (document.visibilityState === "visible") {
+                syncMarketplaceOrders();
+            }
+        }, DASHBOARD_ORDER_SYNC_MS);
+
+        const onVisible = () => {
+            if (document.visibilityState !== "visible") return;
+            refreshDashboard({ bustCache: false, showSpinner: false });
+            if (Date.now() - lastOrderSyncAtRef.current >= DASHBOARD_ORDER_SYNC_MIN_GAP_MS) {
+                syncMarketplaceOrders();
+            }
+        };
+        document.addEventListener("visibilitychange", onVisible);
+
+        return () => {
+            clearInterval(dataPollId);
+            clearInterval(syncPollId);
+            document.removeEventListener("visibilitychange", onVisible);
+        };
+    }, [userId, dashboardPanelActive, refreshDashboard, syncMarketplaceOrders]);
+
+    // Yeni sipariş bildirimi → hemen pazaryeri sync + kart güncelle
+    useEffect(() => {
+        if (!dashboardPanelActive) return;
+        const orderCount = notifCounts.order || 0;
+        if (orderCount > prevOrderNotifCountRef.current) {
+            syncMarketplaceOrders();
+        }
+        prevOrderNotifCountRef.current = orderCount;
+    }, [notifCounts.order, dashboardPanelActive, syncMarketplaceOrders]);
+
+    const openOrdersModal = useCallback(() => {
+        setSelectedOrderTab("all");
+        setShowOrderDetailsModal(true);
+    }, []);
+
+    const marketplaceIdByKey = useMemo(() => {
+        const map = new Map();
+        (marketplaces || []).forEach((mp) => {
+            const key = String(mp.marketplaceName || "").toLowerCase().trim();
+            if (key) map.set(key, mp._id);
+        });
+        return map;
+    }, [marketplaces]);
+
+    const resolveDashboardMarketplaceId = useCallback(
+        (order) => {
+            if (order?.marketplaceId) return order.marketplaceId;
+            const name = String(order?.marketplace || order?.marketplaceName || "").toLowerCase();
+            for (const [k, id] of marketplaceIdByKey) {
+                if (name.includes(k) || k.includes(name.replace(/\s/g, ""))) return id;
+            }
+            return undefined;
+        },
+        [marketplaceIdByKey]
+    );
+
+    const openDashboardCargoLabel = useCallback(
+        (order) => {
+            const orderNo = String(order.orderNumber || formatOrderNumberForDisplay(order) || "").trim();
+            setLabelOrder({
+                marketplace: order.marketplace || order.marketplaceName,
+                marketplaceName: order.marketplace || order.marketplaceName,
+                marketplaceId: resolveDashboardMarketplaceId(order),
+                orderNumber: orderNo,
+                trackingNumber: orderNo,
+                _id: order._id,
+                packageNumber: order.packageNumber || "",
+                cargoTrackingNumber: order.cargoTrackingNumber || "",
+                shipmentPackageId: order.shipmentPackageId || "",
+                cargoTrackingLink: order.cargoTrackingLink || "",
+                orderItemId: order.orderItemId || "",
+            });
+        },
+        [resolveDashboardMarketplaceId]
+    );
+
     // ── Bildirim Polling ──
-    // ✅ v2: 15sn → 45sn + sayfa görünmezken atla (rate limit azaltma)
     useEffect(() => {
         if (!userId) return;
-        loadNotifications(); // İlk yükleme
+        loadNotifications();
+    }, [userId, notifFilter, loadNotifications]);
+
+    useEffect(() => {
+        if (!userId) return;
+        pollNotifications();
         const iv = setInterval(() => {
-            if (document.visibilityState === "visible") loadNotifications();
+            if (document.visibilityState === "visible") pollNotifications();
         }, 45000);
         return () => clearInterval(iv);
-    }, [userId, loadNotifications]);
+    }, [userId, pollNotifications]);
 
     const hideToastNotif = useCallback((id) => {
         const sid = String(id);
@@ -458,16 +616,16 @@ const UserDashboard = () => {
         toastAutoHideTimers.current.clear();
     }, []);
 
-    // ── Ürün Yönetimi Dashboard (gerçek) ──
+    // ── Ürün Yönetimi Dashboard — yalnızca PM panelinde ──
     useEffect(() => {
-        if (!userId) return;
+        if (!userId || !pmPanelActive) return;
         (async () => {
             try {
                 const res = await getProductManagementDashboard();
                 setPmDashboard(res?.dashboard || null);
             } catch { /* sessiz */ }
         })();
-    }, [userId]);
+    }, [userId, pmPanelActive]);
 
     // ── Particles ──
     const particlesInit = async engine => { await loadSlim(engine); };
@@ -525,30 +683,61 @@ const UserDashboard = () => {
         }]);
     }, [marketplaceStatus, marketplaces]);
 
+    const emptyOrderState = {
+        all: [],
+        byStatus: { all: [], new: [], processing: [], shipping: [], delivered: [], cancelled: [], returned: [] },
+        total: 0,
+        statusCounts: { new: 0, processing: 0, shipping: 0, delivered: 0, cancelled: 0, returned: 0 },
+    };
+
+    /** Sipariş modalı — backend ordersModal (tek kaynak) */
     const allOrders = useMemo(() => {
-        if (!dashboardData?.marketplaceStatus) return { all: [], byStatus: {}, total: 0, statusCounts: { new: 0, processing: 0, shipping: 0, delivered: 0, cancelled: 0, returned: 0 } };
+        const modal = dashboardData?.ordersModal;
+        if (modal && Array.isArray(modal.orders)) {
+            return {
+                all: modal.orders,
+                byStatus: modal.byStatus || { all: modal.orders },
+                total: modal.total ?? modal.orders.length,
+                statusCounts: modal.statusCounts || emptyOrderState.statusCounts,
+            };
+        }
+        if (!dashboardData?.marketplaceStatus) return emptyOrderState;
+
         const orders = [];
         const sc = { new: 0, processing: 0, shipping: 0, delivered: 0, cancelled: 0, returned: 0 };
-
         Object.entries(dashboardData.marketplaceStatus).forEach(([marketplace, data]) => {
-            if (data.orderDetails && Array.isArray(data.orderDetails)) {
-                data.orderDetails.forEach(o => {
-                    orders.push({ ...o, marketplace });
-                    const bucket = classifyOrderStatus(o.status);
-                    if (sc[bucket] !== undefined) sc[bucket]++;
+            (data.orderDetails || []).forEach((o) => {
+                orders.push({
+                    ...o,
+                    marketplace,
+                    _id: o._id,
+                    packageNumber: o.packageNumber,
+                    cargoTrackingNumber: o.cargoTrackingNumber,
+                    shipmentPackageId: o.shipmentPackageId,
+                    cargoTrackingLink: o.cargoTrackingLink,
+                    orderItemId: o.orderItemId,
+                    marketplaceId: o.marketplaceId,
                 });
-            }
+                const bucket = classifyOrderStatus(o.status, marketplace);
+                if (sc[bucket] !== undefined) sc[bucket]++;
+            });
         });
-
-        const classify = (s) => classifyOrderStatus(s);
-
         const byStatus = { all: orders };
-        ["new", "processing", "shipping", "delivered", "cancelled", "returned"].forEach(k => {
-            byStatus[k] = orders.filter(o => classify(o.status) === k);
+        ["new", "processing", "shipping", "delivered", "cancelled", "returned"].forEach((k) => {
+            byStatus[k] = orders.filter((o) => classifyOrderStatus(o.status, o.marketplace) === k);
         });
-
         return { all: orders, byStatus, total: orders.length, statusCounts: sc };
     }, [dashboardData]);
+
+    const activeOrderCount = useMemo(() => {
+        if (dashboardData?.summary?.activeOrders != null) {
+            return Number(dashboardData.summary.activeOrders) || 0;
+        }
+        if (dashboardData?.ordersModal?.activeOrderCount != null) {
+            return Number(dashboardData.ordersModal.activeOrderCount) || 0;
+        }
+        return countActiveOrders(allOrders.statusCounts);
+    }, [dashboardData, allOrders.statusCounts]);
 
     const trendOrderTotal = trends.orderCounts.reduce((s, v) => s + v, 0);
     const trendRevenueTotal = trends.revenueTotals.reduce((s, v) => s + v, 0);
@@ -573,6 +762,35 @@ const UserDashboard = () => {
                 { label: "Yıllık", value: fmtCurrency(year, language) },
             ];
     }, [summary.revenueDay, summary.revenueMonth, summary.revenueYear, language]);
+
+    /** Pazaryeri bazında bugünkü ciro (İstanbul takvimi) */
+    const marketplaceDayRevenue = useMemo(() => {
+        const todayStr = new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Istanbul" });
+        const totals = new Map();
+
+        const addOrder = (o) => {
+            if (!o?.orderDate) return;
+            const t = new Date(o.orderDate);
+            if (Number.isNaN(t.getTime())) return;
+            if (t.toLocaleDateString("en-CA", { timeZone: "Europe/Istanbul" }) !== todayStr) return;
+            const mp = o.marketplace || o.marketplaceName || "—";
+            totals.set(mp, (totals.get(mp) || 0) + Number(o.totalPrice || 0));
+        };
+
+        allOrders.all.forEach(addOrder);
+
+        if (totals.size > 0) {
+            return Array.from(totals.entries())
+                .map(([name, revenue]) => ({ name, revenue }))
+                .filter((r) => r.revenue > 0)
+                .sort((a, b) => b.revenue - a.revenue);
+        }
+
+        return (todayBreakdown || [])
+            .filter((b) => (b.revenue || 0) > 0)
+            .map((b) => ({ name: b.marketplace, revenue: b.revenue }))
+            .sort((a, b) => b.revenue - a.revenue);
+    }, [allOrders, todayBreakdown]);
 
     const formatOrderDate = (orderDate) => {
         const d = parseOrderDateForDisplay(orderDate);
@@ -840,12 +1058,17 @@ const UserDashboard = () => {
                             revenue={fmtCurrency(revenue24h, language)}
                             revenueSub={`${t("dashboard.avgBasket")}: ${fmtCurrency(avgOrderValue, language)} · ${orders24h} ${language === "en" ? "orders" : "sipariş"}`}
                             revenueBreakdown={revenueBreakdown}
-                            orders={fmtNum(orders24h, language)}
-                            ordersSub={`${allOrders.statusCounts.new} ${t("dashboard.new")} · ${allOrders.statusCounts.processing} ${t("dashboard.processing")}`}
+                            marketplaceDayRevenue={marketplaceDayRevenue}
+                            fmtCurrency={fmtCurrency}
+                            orders={fmtNum(activeOrderCount, language)}
+                            ordersSub={[
+                                `${allOrders.statusCounts.new || 0} ${t("dashboard.new")}`,
+                                `${allOrders.statusCounts.processing || 0} ${t("dashboard.processing")}`,
+                            ].join(" · ")}
                             products={fmtNum(summary.totalProducts || pmProducts.total || 0, language)}
                             productsSub={`${fmtNum(pmProducts.lowStock || 0, language)} ${t("dashboard.lowStockAlert").toLowerCase()}`}
                             onFinance={() => handlePanelChange("finance")}
-                            onOrders={() => setShowOrderDetailsModal(true)}
+                            onOrders={openOrdersModal}
                             onProducts={() => handlePanelChange("pm-center")}
                             language={language}
                         />
@@ -1122,12 +1345,13 @@ const UserDashboard = () => {
 
                                 {/* Table Header */}
                                 {!isMobile && (
-                                <div style={{ display: "grid", gridTemplateColumns: "2fr 1.2fr 1fr 1.2fr 1fr", gap: "0.75rem", padding: "0.5rem 1rem", borderBottom: `2px solid ${C.accent}20`, marginBottom: "0.5rem", flexShrink: 0 }}>
+                                <div style={{ display: "grid", gridTemplateColumns: "2fr 1.2fr 1fr 1.2fr 1fr 52px", gap: "0.75rem", padding: "0.5rem 1rem", borderBottom: `2px solid ${C.accent}20`, marginBottom: "0.5rem", flexShrink: 0 }}>
                                     <span style={{ color: C.muted, fontSize: "0.68rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>{t("dashboard.orderNumber")}</span>
                                     <span style={{ color: C.muted, fontSize: "0.68rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>{t("dashboard.marketplace")}</span>
                                     <span style={{ color: C.muted, fontSize: "0.68rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", textAlign: "right" }}>{t("dashboard.amount")}</span>
                                     <span style={{ color: C.muted, fontSize: "0.68rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", textAlign: "center" }}>{t("dashboard.date")}</span>
                                     <span style={{ color: C.muted, fontSize: "0.68rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", textAlign: "center" }}>{t("dashboard.orderStatus")}</span>
+                                    <span style={{ color: C.muted, fontSize: "0.68rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", textAlign: "center" }}>{t("orders.cargoLabelBtn")}</span>
                                 </div>
                                 )}
 
@@ -1144,26 +1368,52 @@ const UserDashboard = () => {
                                                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "0.3rem" }}>
                                                             <span style={{ color: C.accent, fontSize: "0.75rem", fontWeight: 700 }}>{order.marketplace || "N/A"}</span>
                                                             <Pill color={
-                                                                classifyOrderStatus(order.status) === "delivered" ? C.green :
-                                                                classifyOrderStatus(order.status) === "shipping" ? C.purple :
-                                                                classifyOrderStatus(order.status) === "cancelled" ? C.red : C.yellow
+                                                                (order.statusNormalized || classifyOrderStatus(order.status, order.marketplace)) === "delivered" ? C.green :
+                                                                (order.statusNormalized || classifyOrderStatus(order.status, order.marketplace)) === "shipping" ? C.purple :
+                                                                (order.statusNormalized || classifyOrderStatus(order.status, order.marketplace)) === "cancelled" ? C.red :
+                                                                (order.statusNormalized || classifyOrderStatus(order.status, order.marketplace)) === "new" ? C.accent : C.yellow
                                                             }>
-                                                                {getOrderStatusLabelTr(order.status || t("dashboard.unknown"))}
+                                                                {getOrderStatusLabelTr(order.status || t("dashboard.unknown"), order.marketplace)}
                                                             </Pill>
                                                         </div>
                                                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                                                             <span style={{ color: C.dim, fontSize: "0.68rem", fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "55%" }}>#{formatOrderNumberForDisplay(order)}</span>
                                                             <span style={{ color: C.green, fontSize: "0.82rem", fontWeight: 800 }}>{fmtCurrency(order.totalPrice || 0, language)}</span>
                                                         </div>
-                                                        <div style={{ color: C.dim, fontSize: "0.62rem", marginTop: "0.2rem" }}>
-                                                            {formatOrderDate(order.orderDate)}
+                                                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: "0.25rem" }}>
+                                                            <span style={{ color: C.dim, fontSize: "0.62rem" }}>
+                                                                {formatOrderDate(order.orderDate)}
+                                                            </span>
+                                                            {supportsCargoLabel(order.marketplace) && (
+                                                                <motion.button
+                                                                    type="button"
+                                                                    whileTap={{ scale: 0.92 }}
+                                                                    title={t("orders.cargoLabelTitle")}
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        openDashboardCargoLabel(order);
+                                                                    }}
+                                                                    style={{
+                                                                        background: `${C.purple}18`,
+                                                                        border: `1px solid ${C.purple}40`,
+                                                                        borderRadius: 8,
+                                                                        padding: "0.25rem 0.5rem",
+                                                                        cursor: "pointer",
+                                                                        color: C.purple,
+                                                                        fontSize: "0.85rem",
+                                                                        fontWeight: 700,
+                                                                    }}
+                                                                >
+                                                                    🏷️ {t("orders.cargoLabelBtn")}
+                                                                </motion.button>
+                                                            )}
                                                         </div>
                                                     </motion.div>
                                                 ) : (
                                                     /* ── Desktop: Grid row layout ── */
                                                     <motion.div key={`${order.orderNumber}-${idx}`}
                                                         initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: Math.min(idx * 0.01, 0.3) }}
-                                                        style={{ display: "grid", gridTemplateColumns: "2fr 1.2fr 1fr 1.2fr 1fr", gap: "0.75rem", alignItems: "center", padding: "0.6rem 1rem", borderRadius: 8, background: idx % 2 === 0 ? C.glass : "transparent", border: `1px solid transparent`, transition: "background 0.15s ease, border-color 0.15s ease", cursor: "default" }}
+                                                        style={{ display: "grid", gridTemplateColumns: "2fr 1.2fr 1fr 1.2fr 1fr 52px", gap: "0.75rem", alignItems: "center", padding: "0.6rem 1rem", borderRadius: 8, background: idx % 2 === 0 ? C.glass : "transparent", border: `1px solid transparent`, transition: "background 0.15s ease, border-color 0.15s ease", cursor: "default" }}
                                                         whileHover={{ backgroundColor: `rgba(78,205,196,0.06)`, borderColor: `rgba(78,205,196,0.12)` }}>
                                                         <span style={{ color: C.text, fontSize: "0.8rem", fontWeight: 600, fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{formatOrderNumberForDisplay(order)}</span>
                                                         <span style={{ color: C.accent, fontSize: "0.8rem", fontWeight: 600 }}>{order.marketplace || "N/A"}</span>
@@ -1173,12 +1423,44 @@ const UserDashboard = () => {
                                                         </span>
                                                         <div style={{ textAlign: "center" }}>
                                                             <Pill color={
-                                                                classifyOrderStatus(order.status) === "delivered" ? C.green :
-                                                                classifyOrderStatus(order.status) === "shipping" ? C.purple :
-                                                                classifyOrderStatus(order.status) === "cancelled" ? C.red : C.yellow
+                                                                (order.statusNormalized || classifyOrderStatus(order.status, order.marketplace)) === "delivered" ? C.green :
+                                                                (order.statusNormalized || classifyOrderStatus(order.status, order.marketplace)) === "shipping" ? C.purple :
+                                                                (order.statusNormalized || classifyOrderStatus(order.status, order.marketplace)) === "cancelled" ? C.red :
+                                                                (order.statusNormalized || classifyOrderStatus(order.status, order.marketplace)) === "new" ? C.accent : C.yellow
                                                             }>
-                                                                {getOrderStatusLabelTr(order.status || t("dashboard.unknown"))}
+                                                                {getOrderStatusLabelTr(order.status || t("dashboard.unknown"), order.marketplace)}
                                                             </Pill>
+                                                        </div>
+                                                        <div style={{ display: "flex", justifyContent: "center" }}>
+                                                            {supportsCargoLabel(order.marketplace) ? (
+                                                                <motion.button
+                                                                    type="button"
+                                                                    whileHover={{ scale: 1.1 }}
+                                                                    whileTap={{ scale: 0.9 }}
+                                                                    title={t("orders.cargoLabelTitle")}
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        openDashboardCargoLabel(order);
+                                                                    }}
+                                                                    style={{
+                                                                        background: `${C.purple}18`,
+                                                                        border: `1px solid ${C.purple}40`,
+                                                                        borderRadius: 8,
+                                                                        width: 32,
+                                                                        height: 32,
+                                                                        cursor: "pointer",
+                                                                        display: "flex",
+                                                                        alignItems: "center",
+                                                                        justifyContent: "center",
+                                                                        color: C.purple,
+                                                                        fontSize: "0.9rem",
+                                                                    }}
+                                                                >
+                                                                    🏷️
+                                                                </motion.button>
+                                                            ) : (
+                                                                <span style={{ color: C.dim, fontSize: "0.75rem" }}>—</span>
+                                                            )}
                                                         </div>
                                                     </motion.div>
                                                 )
@@ -1207,6 +1489,15 @@ const UserDashboard = () => {
                         </motion.div>
                     )}
                 </AnimatePresence>
+
+                {labelOrder && (
+                    <ShippingLabelModal
+                        order={labelOrder}
+                        onClose={() => setLabelOrder(null)}
+                        C={C}
+                        t={t}
+                    />
+                )}
 
                 {/* ── TOAST BİLDİRİMLER (Sağ alt köşe) ── */}
                 <div style={{ position: "fixed", bottom: isMobile ? 12 : 20, right: isMobile ? 12 : 20, left: isMobile ? 12 : "auto", zIndex: 9998, display: "flex", flexDirection: "column", gap: "0.5rem", pointerEvents: "none" }}>
@@ -1571,11 +1862,12 @@ const UserDashboard = () => {
                     </button>
                 </div>
             )}
+            {dashboardPanelActive && (
             <Particles id="tsparticles" init={particlesInit}
                 options={{
                     background: { color: C.particleBg || C.bg },
                     particles: {
-                        number: { value: 120 },
+                        number: { value: 48 },
                         color: { value: ["#ff6b6b", "#4ecdc4", "#45b7d1"] },
                         shape: { type: "circle" },
                         opacity: { value: 0.7 },
@@ -1584,6 +1876,7 @@ const UserDashboard = () => {
                     },
                 }}
             />
+            )}
 
             {/* ── Mobile Hamburger Button ── */}
             <button
@@ -1607,12 +1900,7 @@ const UserDashboard = () => {
             >
                 <div className="sidebar-header">
                     <div className="logo-container" style={{ display: "flex", alignItems: "center", gap: 10, minHeight: 44 }}>
-                        <DashtockLogo size={menuOpen ? 34 : 30} />
-                        {menuOpen && (
-                            <h1 className="logo" style={{ margin: 0 }}>
-                                <span className="logo-main">{BRAND_NAME}</span>
-                            </h1>
-                        )}
+                        <DashtockLogo size={menuOpen ? 38 : 32} full={menuOpen} />
                     </div>
                     <button className="menu-toggle" onClick={() => setMenuOpen(!menuOpen)}>
                         {menuOpen ? <FaTimes /> : <FaBars />}
@@ -1740,7 +2028,7 @@ const UserDashboard = () => {
             <AnimatePresence mode="wait">
                 <motion.main
                     key={activePanel}
-                    className={`content-area${isMobile ? " content-area--mobile" : ""}${activePanel === "integration" ? " content-area--galaxy" : ""}${activePanel === "lysia-brain" ? " content-area--brain" : ""}${activePanel === "product-upload" || activePanel === "pm-center" ? " content-area--wizard-flush" : ""}${activePanel === "dashboard" ? " content-area--dashboard" : ""}`}
+                    className={`content-area${isMobile ? " content-area--mobile" : ""}${activePanel === "integration" ? " content-area--galaxy" : ""}${activePanel === "lysia-brain" ? " content-area--brain" : ""}${activePanel === "product-upload" || activePanel === "pm-center" ? " content-area--wizard-flush" : ""}${activePanel === "dashboard" ? " content-area--dashboard" : ""}${activePanel === "roketfy" || activePanel === "radar-pro" ? " content-area--radar" : ""}`}
                     initial={{ opacity: 0, y: 12 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -8 }}

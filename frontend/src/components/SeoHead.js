@@ -35,7 +35,11 @@ export default function SeoHead({ title, description, noindex, canonical }) {
         setMeta("og:description", finalDesc, true);
         setMeta("og:url", finalCanonical, true);
         setMeta("og:site_name", BRAND_NAME, true);
+        setMeta("og:type", "website", true);
+        setMeta("og:locale", "tr_TR", true);
+        setMeta("og:image", `${APP_SITE_URL}/icons/icon-512x512.png`, true);
         setMeta("twitter:card", "summary_large_image");
+        setMeta("twitter:image", `${APP_SITE_URL}/icons/icon-512x512.png`);
         setMeta("twitter:title", finalTitle);
         setMeta("twitter:description", finalDesc);
 
@@ -77,7 +81,7 @@ export function injectOrganizationSchema() {
                 "@type": "Organization",
                 name: BRAND_NAME,
                 url: APP_SITE_URL,
-                logo: `${APP_SITE_URL}/brand/dashtock-logo.svg`,
+                logo: `${APP_SITE_URL}/brand/dashtock-logo.svg?v=dashtock4`,
                 email: "info@dashtock.com",
                 sameAs: [],
             },

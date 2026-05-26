@@ -119,10 +119,15 @@ const MARKETPLACE_STATUS_MAP = {
         "Active", "Completed", "Shipped", "Delivered", "Paid",
     ],
     // Diğer platformlar
-    Morhipo: ["New", "Approved", "Shipped", "Delivered", "Processing"],
     PttAVM: ["New", "Approved", "Shipped", "Delivered", "Processing"],
-    Teknosa: ["New", "Approved", "Shipped", "Delivered", "Processing"],
-    ePttAVM: ["New", "Approved", "Shipped", "Delivered", "Processing"],
+    Ozon: [
+        "awaiting_packaging",
+        "awaiting_deliver",
+        "awaiting_approval",
+        "delivering",
+        "delivered",
+        "cancelled",
+    ],
 };
 
 /**
@@ -159,10 +164,8 @@ const normalizeMarketplaceName = (name) => {
         "amazon europe": "Amazon Europe",
         "amazon usa": "Amazon USA",
         "ebay": "eBay",
-        "morhipo": "Morhipo",
         "pttavm": "PttAVM",
-        "teknosa": "Teknosa",
-        "epttavm": "ePttAVM",
+        "ozon": "Ozon",
     };
     return MAP[lower] || name;
 };
@@ -843,10 +846,8 @@ const buildInvoiceLinesFromOrder = (order, config, marketplaceName) => {
         "Amazon Europe": "AMZ-EU",
         "Amazon USA": "AMZ-US",
         "eBay": "EBAY",
-        "Morhipo": "MRH",
         "PttAVM": "PTT",
-        "Teknosa": "TKN",
-        "ePttAVM": "EPTT",
+        "Ozon": "OZ",
     }[normalized] || "";
 
     if (items.length === 0) {

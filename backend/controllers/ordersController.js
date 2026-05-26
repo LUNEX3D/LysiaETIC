@@ -2,7 +2,8 @@ const {
     fetchTrendyolOrders,
     fetchHepsiburadaOrders,
     fetchN11Orders,
-    fetchCicekSepetiOrders
+    fetchCicekSepetiOrders,
+    fetchOzonOrders
 } = require("../services/ordersService");
 
 const amazonService = require("../services/amazon/amazonSpApiService");
@@ -26,6 +27,21 @@ const ORDER_DEFAULT_WINDOW_DAYS = Math.min(
     365,
     Math.max(1, parseInt(process.env.ORDER_DEFAULT_WINDOW_DAYS || "7", 10) || 7)
 );
+
+/** Ana sayfa arka plan sync — kısa pencere (gün). Env: DASHBOARD_SYNC_WINDOW_DAYS */
+const DASHBOARD_SYNC_WINDOW_DAYS = Math.min(
+    7,
+    Math.max(1, parseInt(process.env.DASHBOARD_SYNC_WINDOW_DAYS || "2", 10) || 2)
+);
+
+const resolveSyncWindowDays = (req) => {
+    if (req.query.startDate || req.query.endDate) return ORDER_DEFAULT_WINDOW_DAYS;
+    const raw = parseInt(req.query.days, 10);
+    if (!Number.isNaN(raw) && raw > 0) {
+        return Math.min(14, Math.max(1, raw));
+    }
+    return ORDER_DEFAULT_WINDOW_DAYS;
+};
 
 /** Pazaryeri satır görseli: //cdn... → https: (tarayıcıda yüklenmezdi) */
 const normalizeOrderItemImageUrl = (url) => {
@@ -56,7 +72,10 @@ const fillOrderProductImageMaps = (productImageMap, productNameImageMap, doc) =>
 
 /** Sipariş sayfası aynı anda 4 pazaryerine istek atınca Product+Mapping 4 kez taranmasın */
 const orderProductImageCache = new Map();
-const ORDER_PRODUCT_IMAGE_CACHE_MS = 50_000;
+const ORDER_PRODUCT_IMAGE_CACHE_MS = parseInt(
+    process.env.ORDER_PRODUCT_IMAGE_CACHE_MS || "300000",
+    10
+);
 
 async function getCachedProductImageMapsForOrders(userId) {
     const key = String(userId);
@@ -77,6 +96,51 @@ async function getCachedProductImageMapsForOrders(userId) {
     });
     orderProductImageCache.set(key, { at: now, productImageMap, productNameImageMap });
     return { productImageMap, productNameImageMap };
+}
+
+const orderInvoiceStatsCache = new Map();
+
+async function getCachedInvoiceStatsForOrders(userId) {
+    const key = String(userId);
+    const now = Date.now();
+    const hit = orderInvoiceStatsCache.get(key);
+    if (hit && now - hit.at < ORDER_PRODUCT_IMAGE_CACHE_MS) {
+        return hit.stats;
+    }
+    const stats = await (async () => {
+        const [totalOrders, invoicedCount, marketplaceOnlyInvoicedCount, uninvoicedCount, errorCount] =
+            await Promise.all([
+                Order.countDocuments({ user: userId }),
+                Order.countDocuments({
+                    user: userId,
+                    $or: [{ invoiceId: { $exists: true } }, { marketplaceInvoiced: true }],
+                }),
+                Order.countDocuments({
+                    user: userId,
+                    invoiceId: { $exists: false },
+                    marketplaceInvoiced: true,
+                }),
+                Order.countDocuments({
+                    user: userId,
+                    invoiceId: { $exists: false },
+                    marketplaceInvoiced: { $ne: true },
+                    invoiceStatus: { $nin: ["created", "pending", "error"] },
+                    isCancelled: false,
+                    isReturned: false,
+                    totalPrice: { $gt: 0 },
+                }),
+                Order.countDocuments({ user: userId, invoiceStatus: "error" }),
+            ]);
+        return {
+            total: totalOrders,
+            invoiced: invoicedCount,
+            marketplaceOnlyInvoiced: marketplaceOnlyInvoicedCount,
+            uninvoiced: uninvoicedCount,
+            error: errorCount,
+        };
+    })();
+    orderInvoiceStatsCache.set(key, { at: now, stats });
+    return stats;
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -122,28 +186,105 @@ async function syncOrdersBackground(userId, marketplaceName, rawOrders) {
         .select("barcode sku stockCode images costPrice commissionRate shippingCost packagingCost otherCost category mainImage name")
         .lean();
 
-    const { resolveHepsiburadaOrderNumber, isHbInternalId } = require("../services/hepsiburadaService");
+    const { resolveHepsiburadaOrderKey, isHbInternalId } = require("../services/hepsiburadaService");
+    const { normalizeMarketplaceName } = require("../models/Marketplace");
     const mpNorm = String(marketplaceName || "").toLowerCase();
     const isHepsiburadaMp = mpNorm.includes("hepsi");
+    const mpCanonical = normalizeMarketplaceName(marketplaceName);
+    const { pickPreferredOrderRecord, resolveBestOrderStatus, classifyOrderStatus } = require("../utils/orderStatus");
+
+    const applyOrderStatus = (doc, rawStatus, mpName) => {
+        const merged = resolveBestOrderStatus(doc.status, rawStatus, mpName);
+        doc.status = merged;
+        doc.statusBucket = classifyOrderStatus(merged);
+    };
+
+    const isCiceksepetiMp = /cicek|çiçek/i.test(mpCanonical);
 
     for (const order of rawOrders) {
         try {
-            const orderNumber = isHepsiburadaMp
-                ? (resolveHepsiburadaOrderNumber(order) || order.orderNumber)
-                : (order.orderNumber || order.id);
-            if (!orderNumber || (isHepsiburadaMp && isHbInternalId(orderNumber))) {
+            let orderNumber;
+            let tracking;
+            if (isCiceksepetiMp) {
+                const parentNo = String(order.orderNumber || order.orderId || order.packageNumber || "").trim();
+                const itemId = String(order.orderItemId || "").trim();
+                orderNumber = parentNo || itemId;
+                tracking = itemId || parentNo;
+                if (parentNo && !order.packageNumber) order.packageNumber = parentNo;
+            } else if (isHepsiburadaMp) {
+                orderNumber = resolveHepsiburadaOrderKey(order, null) || order.orderNumber;
+                tracking = String(orderNumber);
+            } else {
+                orderNumber = order.orderNumber || order.id;
+                tracking = String(orderNumber);
+            }
+
+            if (!orderNumber || !tracking || (isHepsiburadaMp && isHbInternalId(orderNumber))) {
                 skipped++;
                 continue;
             }
+            const apiStatus = String(order.status || "").trim();
 
-            // Ayni siparis zaten var mi kontrol et
-            const exists = await Order.findOne({
+            // Aynı sipariş (büyük/küçük harf marketplace farkı dahil)
+            let exists = await Order.findOne({
                 user: userId,
-                marketplaceName: marketplaceName,
-                trackingNumber: String(orderNumber)
+                trackingNumber: tracking,
+                marketplaceName: mpCanonical,
             });
+            if (!exists) {
+                const escaped = String(marketplaceName || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+                exists = await Order.findOne({
+                    user: userId,
+                    trackingNumber: tracking,
+                    marketplaceName: { $regex: new RegExp(`^${escaped}$`, "i") },
+                }).sort({ updatedAt: -1 });
+            }
+
+            const dupes = await Order.find({
+                user: userId,
+                trackingNumber: tracking,
+                marketplaceName: { $regex: new RegExp(`^${String(marketplaceName || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") },
+            }).sort({ updatedAt: -1 });
+
+            if (dupes.length > 1) {
+                let keeper = dupes[0];
+                for (let d = 1; d < dupes.length; d++) {
+                    const preferred = pickPreferredOrderRecord(
+                        {
+                            status: keeper.status,
+                            marketplaceName: keeper.marketplaceName,
+                            orderDate: keeper.orderDate,
+                            updatedAt: keeper.updatedAt,
+                        },
+                        {
+                            status: dupes[d].status,
+                            marketplaceName: dupes[d].marketplaceName,
+                            orderDate: dupes[d].orderDate,
+                            updatedAt: dupes[d].updatedAt,
+                        }
+                    );
+                    keeper = preferred === dupes[d] ? dupes[d] : keeper;
+                }
+                exists = keeper;
+                for (const doc of dupes) {
+                    if (doc._id.toString() !== keeper._id.toString()) {
+                        await Order.deleteOne({ _id: doc._id });
+                    }
+                }
+            }
+
             if (exists) {
                 let needsUpdate = false;
+
+                if (apiStatus) {
+                    const prevStatus = exists.status;
+                    const prevBucket = exists.statusBucket;
+                    applyOrderStatus(exists, apiStatus, mpCanonical);
+                    if (exists.status !== prevStatus || exists.statusBucket !== prevBucket) {
+                        exists.marketplaceName = mpCanonical;
+                        needsUpdate = true;
+                    }
+                }
                 if (isHepsiburadaMp && isHbInternalId(exists.trackingNumber) && !isHbInternalId(orderNumber)) {
                     exists.trackingNumber = String(orderNumber);
                     needsUpdate = true;
@@ -242,7 +383,7 @@ async function syncOrdersBackground(userId, marketplaceName, rawOrders) {
                 // Trendyol bir sonraki sync'te invoiceLink + status="Invoiced" döndürüyor.
                 // Bu bilgiyi mükerrer fatura engeli için Order'a yazıyoruz.
                 try {
-                    const newStatusRaw = String(order.status || "").trim();
+                    const newStatusRaw = apiStatus;
                     const newStatusLower = newStatusRaw.toLowerCase();
                     const newInvoiceLink = String(order.invoiceLink || "").trim();
                     const newStatusSaysInvoiced = newStatusLower === "invoiced"
@@ -270,8 +411,33 @@ async function syncOrdersBackground(userId, marketplaceName, rawOrders) {
                             invoiceChanged = true;
                         }
                     }
-                    if (newStatusRaw && exists.status !== newStatusRaw) {
-                        exists.status = newStatusRaw;
+                    if (newStatusRaw) {
+                        const prevStatus = exists.status;
+                        applyOrderStatus(exists, newStatusRaw, mpCanonical);
+                        if (exists.status !== prevStatus) {
+                            invoiceChanged = true;
+                        }
+                    }
+                    const cargoCo = String(order.cargoCompany || order.cargoProviderName || "").trim();
+                    const cargoTn = String(
+                        order.cargoTrackingNumber != null && order.cargoTrackingNumber !== ""
+                            ? order.cargoTrackingNumber
+                            : order.trackingNumber || ""
+                    ).trim();
+                    const pkgNo = String(order.packageNumber || "").trim();
+                    const shipPkgId = String(order.shipmentPackageId || order.packageId || "").trim();
+                    if (cargoCo && exists.cargoCompany !== cargoCo) { exists.cargoCompany = cargoCo; invoiceChanged = true; }
+                    if (cargoTn && exists.cargoTrackingNumber !== cargoTn) { exists.cargoTrackingNumber = cargoTn; invoiceChanged = true; }
+                    if (pkgNo && exists.packageNumber !== pkgNo) { exists.packageNumber = pkgNo; invoiceChanged = true; }
+                    if (shipPkgId && exists.shipmentPackageId !== shipPkgId) { exists.shipmentPackageId = shipPkgId; invoiceChanged = true; }
+                    const orderItemId = String(order.orderItemId || "").trim();
+                    if (orderItemId && exists.orderItemId !== orderItemId) {
+                        exists.orderItemId = orderItemId;
+                        invoiceChanged = true;
+                    }
+                    const cargoLink = String(order.cargoTrackingLink || "").trim();
+                    if (cargoLink && exists.cargoTrackingLink !== cargoLink) {
+                        exists.cargoTrackingLink = cargoLink;
                         invoiceChanged = true;
                     }
                     if (order.commercialInvoice && !exists.commercialInvoice) {
@@ -471,8 +637,15 @@ async function syncOrdersBackground(userId, marketplaceName, rawOrders) {
 
             // Siparis durumu kontrol
             const status = String(order.status || "Created");
-            const isReturned = /cancel|return|refund|iade|iptal/i.test(status);
-            const isCancelled = /cancel|iptal/i.test(status);
+            const mpLower = String(mpCanonical || marketplaceName || "").toLowerCase();
+            const isCs = mpLower.includes("cicek") || mpLower.includes("çiçek");
+            const { isCiceksepetiReturnStatus } = require("../utils/ciceksepetiOrders");
+            const isReturned =
+                !!order.isReturned ||
+                isCiceksepetiReturnStatus(status) ||
+                /return|refund|iade/i.test(status);
+            const isCancelled =
+                !!order.isCancelled || (/cancel|iptal/i.test(status) && !(isCs && /iade/i.test(status)));
 
             // ── Pazaryeri fatura durumu kontrolü ──────────────────────────
             // Trendyol: status "Invoiced" VEYA invoiceLink dolu ise pazaryerinde fatura kesilmiş
@@ -527,14 +700,25 @@ async function syncOrdersBackground(userId, marketplaceName, rawOrders) {
             const newOrder = new Order({
                 user: userId,
                 marketplace: undefined, // marketplace ObjectId opsiyonel
-                marketplaceName: marketplaceName,
+                marketplaceName: mpCanonical,
                 totalPrice: totalPrice,
                 grossOrderAmount: grossOrderAmount,
                 sellerDiscountTotal: sellerDiscountTotal,
                 tyDiscountTotal: tyDiscountTotal,
                 orderDate: orderDate,
                 status: status,
+                statusBucket: classifyOrderStatus(status),
                 trackingNumber: String(orderNumber),
+                cargoCompany: String(order.cargoCompany || order.cargoProviderName || "").trim(),
+                cargoTrackingNumber: String(
+                    order.cargoTrackingNumber != null && order.cargoTrackingNumber !== ""
+                        ? order.cargoTrackingNumber
+                        : order.trackingNumber || ""
+                ).trim(),
+                packageNumber: String(order.packageNumber || "").trim(),
+                shipmentPackageId: String(order.shipmentPackageId || order.packageId || "").trim(),
+                orderItemId: String(order.orderItemId || "").trim(),
+                cargoTrackingLink: String(order.cargoTrackingLink || "").trim(),
                 customerName: rawCustomerName,
                 customerAddress: {
                     city: addrSource.city || rawShipAddr.city || addrSource.province || "",
@@ -596,6 +780,36 @@ async function syncOrdersBackground(userId, marketplaceName, rawOrders) {
     }
 
     logger.info("[OrderSync] " + marketplaceName + ": " + synced + " yeni siparis kaydedildi, " + skipped + " atlandi");
+
+    try {
+        const stale = await Order.find({
+            user: userId,
+            $or: [{ statusBucket: { $exists: false } }, { statusBucket: "" }, { statusBucket: null }],
+        })
+            .select("_id status marketplaceName")
+            .limit(3000)
+            .lean();
+        if (stale.length > 0) {
+            const bulk = stale.map((o) => ({
+                updateOne: {
+                    filter: { _id: o._id },
+                    update: {
+                        $set: {
+                            statusBucket: classifyOrderStatus(o.status),
+                        },
+                    },
+                },
+            }));
+            await Order.bulkWrite(bulk, { ordered: false });
+        }
+    } catch (bucketErr) {
+        logger.warn(`[OrderSync] statusBucket backfill: ${bucketErr.message}`);
+    }
+
+    try {
+        const { invalidateDashboardCache } = require("../services/dashboardService");
+        invalidateDashboardCache(userId);
+    } catch (_) { /* cache optional */ }
 
     // ── Anlık stok + otomatik fatura (arka plan) ───────────────────────────
     // Stok: processOrderStockLine + makeOrderStockKey ile cron ile aynı anahtar — çift düşüş yok
@@ -734,11 +948,21 @@ exports.getAllOrders = async (req, res) => {
                 }));
                 break;
 
+            case "ozon":
+                rawOrders = await fetchOzonOrders(
+                    credentials.clientId,
+                    credentials.apiKey,
+                    convertedStartDate,
+                    convertedEndDate,
+                    credentials.useSandbox
+                );
+                break;
+
             default:
                 logger.warn(`Unsupported marketplace: ${marketplaceName}`);
                 return res.status(400).json({
                     error: "Unsupported marketplace!",
-                    supportedMarketplaces: ["trendyol", "hepsiburada", "n11", "çiçeksepeti", "amazon"]
+                    supportedMarketplaces: ["trendyol", "hepsiburada", "n11", "çiçeksepeti", "amazon", "ozon"]
                 });
         }
 
@@ -794,6 +1018,16 @@ exports.getAllOrders = async (req, res) => {
                 marketplaceOrderDateToIsoString(order.orderDateRaw != null ? order.orderDateRaw : order.orderDate) ||
                 marketplaceOrderDateToIsoString(order.orderDate);
 
+            const cargoTn =
+                order.cargoTrackingNumber != null && String(order.cargoTrackingNumber).trim() !== ""
+                    ? String(order.cargoTrackingNumber)
+                    : "";
+            const trackDisplay =
+                cargoTn ||
+                (order.trackingNumber && String(order.trackingNumber).trim() !== "Yok"
+                    ? String(order.trackingNumber)
+                    : "");
+
             return {
                 orderNumber: order.orderNumber,
                 orderDate: dateIso || order.orderDate,
@@ -804,8 +1038,12 @@ exports.getAllOrders = async (req, res) => {
                 sellerDiscountTotal: order.sellerDiscountTotal,
                 tyDiscountTotal: order.tyDiscountTotal,
                 status: order.status,
-                trackingNumber: order.trackingNumber || "Yok",
-                cargoCompany: order.cargoCompany || "Bilinmiyor",
+                trackingNumber: trackDisplay || order.orderNumber || "",
+                cargoTrackingNumber: cargoTn,
+                cargoCompany: order.cargoCompany || order.cargoProviderName || "",
+                packageNumber: order.packageNumber || "",
+                shipmentPackageId: order.shipmentPackageId || "",
+                cargoTrackingLink: order.cargoTrackingLink || "",
                 imageUrl: firstImg,
                 products: processedProducts
             };
@@ -889,61 +1127,20 @@ exports.getDbOrders = async (req, res) => {
             filter.orderDate.$lte = new Date(req.query.endDate + "T23:59:59.999Z");
         }
 
-        const [orders, total, userProducts, userMappings] = await Promise.all([
+        const [orders, total, imageMaps, invoiceStats] = await Promise.all([
             Order.find(filter)
-                .select("trackingNumber marketplaceName customerName totalPrice orderDate status invoiceId invoiceNumber invoiceStatus items isReturned isCancelled marketplaceInvoiced invoiceUrl invoiceSource invoiceCheckedAt commercialInvoice etgbNo etgbDate")
+                .select("trackingNumber marketplaceName customerName totalPrice orderDate status invoiceId invoiceNumber invoiceStatus items isReturned isCancelled marketplaceInvoiced invoiceUrl invoiceSource invoiceCheckedAt commercialInvoice etgbNo etgbDate cargoCompany cargoTrackingNumber packageNumber shipmentPackageId orderItemId cargoTrackingLink")
                 .populate("invoiceId", "invoiceNumber uuid status faturaURL issueDate")
                 .sort({ orderDate: -1 })
                 .skip(skip)
                 .limit(limit)
                 .lean(),
             Order.countDocuments(filter),
-            Product.find({ userId }).select("barcode sku stockCode images name mainImage").lean(),
-            ProductMapping.find({ userId }).select("masterProduct").lean()
+            getCachedProductImageMapsForOrders(userId),
+            getCachedInvoiceStatsForOrders(userId),
         ]);
 
-        // Ürün görsel haritası oluştur (barkod/sku/isim -> görsel)
-        const productImageMap = new Map();
-        const productNameImageMap = new Map();
-
-        userProducts.forEach((p) => fillOrderProductImageMaps(productImageMap, productNameImageMap, p));
-        userMappings.forEach((m) => {
-            if (m.masterProduct) fillOrderProductImageMaps(productImageMap, productNameImageMap, m.masterProduct);
-        });
-
-        // ✅ CANLI API GÖRSEL ZENGİNLEŞTİRME: getAllOrders'dan gelen veriler için de haritayı kullanabiliriz
-        // Ancak bu fonksiyon req/res döner, biz burada sadece DB'dekileri döndürüyoruz.
-
-        // Fatura istatistikleri
-        // ✅ FIX 1: "error" ve "pending" durumundaki siparişleri "faturasız" olarak sayma
-        // ✅ FIX 2: Pazaryerinde zaten faturalı (Trendyol invoiceLink / status="Invoiced")
-        //         siparişler de "faturalı" sayılır — X kullanıcı senaryosu için kritik
-        const [totalOrders, invoicedCount, marketplaceOnlyInvoicedCount, uninvoicedCount, errorCount] = await Promise.all([
-            Order.countDocuments({ user: userId }),
-            Order.countDocuments({
-                user: userId,
-                $or: [
-                    { invoiceId: { $exists: true } },
-                    { marketplaceInvoiced: true },
-                ],
-            }),
-            // Sadece pazaryeri tarafı faturalı (LysiaETIC bizden bir fatura kesmedi)
-            Order.countDocuments({
-                user: userId,
-                invoiceId: { $exists: false },
-                marketplaceInvoiced: true,
-            }),
-            Order.countDocuments({
-                user: userId,
-                invoiceId: { $exists: false },
-                marketplaceInvoiced: { $ne: true },
-                invoiceStatus: { $nin: ["created", "pending", "error"] },
-                isCancelled: false,
-                isReturned: false,
-                totalPrice: { $gt: 0 },
-            }),
-            Order.countDocuments({ user: userId, invoiceStatus: "error" }),
-        ]);
+        const { productImageMap, productNameImageMap } = imageMaps;
 
         // Siparişleri formatla
         const formattedOrders = orders.map(o => {
@@ -990,10 +1187,14 @@ exports.getDbOrders = async (req, res) => {
             // İlk ürün görselini ana görsel olarak belirle
             const imageUrl = enrichedItems[0]?.imageUrl || "https://placehold.co/400x400/1e293b/4ecdc4?text=Urun";
 
+            const mpName = o.marketplaceName || "";
+            const isCsRow = /cicek|çiçek/i.test(mpName);
+            const displayOrderNo = isCsRow && o.packageNumber ? o.packageNumber : o.trackingNumber || "";
+
             return {
                 _id: o._id,
-                orderNumber: o.trackingNumber || "",
-                marketplace: o.marketplaceName || "",
+                orderNumber: displayOrderNo,
+                marketplace: mpName,
                 customerName: o.customerName || "",
                 totalPrice: o.totalPrice || 0,
                 grossOrderAmount: o.grossOrderAmount || 0,
@@ -1019,6 +1220,12 @@ exports.getDbOrders = async (req, res) => {
                 imageUrl: imageUrl,
                 isReturned: o.isReturned || false,
                 isCancelled: o.isCancelled || false,
+                cargoCompany: o.cargoCompany || "",
+                cargoTrackingNumber: o.cargoTrackingNumber || "",
+                packageNumber: o.packageNumber || "",
+                shipmentPackageId: o.shipmentPackageId || "",
+                orderItemId: o.orderItemId || "",
+                cargoTrackingLink: o.cargoTrackingLink || "",
             };
         });
 
@@ -1026,14 +1233,7 @@ exports.getDbOrders = async (req, res) => {
             success: true,
             data: formattedOrders,
             pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
-            invoiceStats: {
-                total: totalOrders,
-                invoiced: invoicedCount,
-                // Sadece pazaryerinde faturalı (LysiaETIC kesmedi, ama Trendyol panelinde var)
-                marketplaceOnlyInvoiced: marketplaceOnlyInvoicedCount,
-                uninvoiced: uninvoicedCount,
-                error: errorCount,
-            }
+            invoiceStats,
         });
     } catch (error) {
         logger.error("[Orders] getDbOrders hatası: " + error.message);
@@ -1041,18 +1241,106 @@ exports.getDbOrders = async (req, res) => {
     }
 };
 
+async function syncMarketplaceOrdersForUser(userId, rawMp, startDate, endDate) {
+    const mp = rawMp.toObject ? rawMp.toObject() : rawMp;
+    const credentials = decryptCredentials(mp.credentials);
+    const marketplaceName = mp.marketplaceName;
+    let rawOrders = [];
+
+    try {
+        switch (marketplaceName.toLowerCase()) {
+            case "trendyol":
+                rawOrders = await fetchTrendyolOrders(
+                    credentials.sellerId, credentials.apiKey, credentials.apiSecret,
+                    startDate, endDate
+                );
+                break;
+            case "hepsiburada": {
+                const { normalizeCredentials: normHbAll } = require("../services/hepsiburadaService");
+                const hbAllCreds = normHbAll(credentials);
+                rawOrders = await fetchHepsiburadaOrders(
+                    hbAllCreds.merchantId, hbAllCreds.secretKey,
+                    startDate, endDate, hbAllCreds.userAgent, hbAllCreds.useSit
+                );
+                break;
+            }
+            case "n11":
+                rawOrders = await fetchN11Orders(
+                    credentials.apiKey, credentials.secretKey,
+                    startDate, endDate
+                );
+                break;
+            case "çiçeksepeti":
+            case "ciceksepeti":
+                rawOrders = await fetchCicekSepetiOrders(
+                    credentials.apiKey, credentials.sellerId, credentials.integratorName
+                );
+                break;
+            case "amazon":
+            case "amazon türkiye":
+            case "amazon europe":
+            case "amazon usa":
+                try {
+                    const amazonResult = await amazonService.getAllOrders(credentials, {
+                        createdAfter: new Date(startDate).toISOString(),
+                        createdBefore: new Date(endDate).toISOString()
+                    });
+                    rawOrders = (amazonResult.orders || []).map((order) => ({
+                        orderNumber: order.AmazonOrderId,
+                        orderDate: order.PurchaseDate,
+                        totalPrice: order.OrderTotal?.Amount || "0.00",
+                        status: order.OrderStatus,
+                        products: []
+                    }));
+                } catch (amzErr) {
+                    logger.warn("[OrderSync] Amazon siparis cekme hatasi: " + amzErr.message);
+                }
+                break;
+            case "ozon":
+                rawOrders = await fetchOzonOrders(
+                    credentials.clientId,
+                    credentials.apiKey,
+                    startDate,
+                    endDate,
+                    credentials.useSandbox
+                );
+                break;
+            default:
+                logger.warn("[OrderSync] Desteklenmeyen marketplace: " + marketplaceName);
+                return null;
+        }
+
+        const syncResult = await syncOrdersBackground(userId, marketplaceName, rawOrders);
+        return {
+            marketplace: marketplaceName,
+            fetched: rawOrders.length,
+            synced: syncResult.synced,
+            skipped: syncResult.skipped
+        };
+    } catch (mpErr) {
+        logger.error("[OrderSync] " + marketplaceName + " hatasi: " + mpErr.message);
+        return {
+            marketplace: marketplaceName,
+            fetched: 0,
+            synced: 0,
+            skipped: 0,
+            error: mpErr.message
+        };
+    }
+}
+
 exports.syncAllOrders = async (req, res) => {
     try {
         const userId = req.user._id;
         const now = getIstanbulTimestamp();
-        const defaultStartDate = now - ORDER_DEFAULT_WINDOW_DAYS * 24 * 60 * 60 * 1000; // env veya 7 gün
+        const windowDays = resolveSyncWindowDays(req);
+        const defaultStartDate = now - windowDays * 24 * 60 * 60 * 1000;
         const startDate = req.query.startDate ? convertToGMT3Timestamp(req.query.startDate, true) : defaultStartDate;
         const endDate = req.query.endDate ? convertToGMT3Timestamp(req.query.endDate, false) : now;
+        const parallel = req.query.parallel === "1" || req.query.parallel === "true";
 
-        logger.info(`[OrderSync] syncAllOrders başladı - userId=${userId}`);
+        logger.info(`[OrderSync] syncAllOrders başladı - userId=${userId} windowDays=${windowDays} parallel=${parallel}`);
 
-        // NOT: isActive alani bazi eski kayitlarda undefined olabilir
-        // $ne: false kullanarak hem true hem undefined olanlari dahil ediyoruz
         const marketplaces = await Marketplace.find({ userId, isActive: { $ne: false } });
         if (marketplaces.length === 0) {
             logger.warn(`[OrderSync] userId=${userId} için aktif pazaryeri bulunamadı!`);
@@ -1061,87 +1349,23 @@ exports.syncAllOrders = async (req, res) => {
 
         logger.info("[OrderSync] Tum pazaryerleri icin sync basliyor - " + marketplaces.length + " marketplace");
 
-        const results = [];
-
-        for (const rawMp of marketplaces) {
-            const mp = rawMp.toObject();
-            const credentials = decryptCredentials(mp.credentials);
-            const marketplaceName = mp.marketplaceName;
-            let rawOrders = [];
-
-            try {
-                switch (marketplaceName.toLowerCase()) {
-                    case "trendyol":
-                        rawOrders = await fetchTrendyolOrders(
-                            credentials.sellerId, credentials.apiKey, credentials.apiSecret,
-                            startDate, endDate
-                        );
-                        break;
-                    case "hepsiburada": {
-                        const { normalizeCredentials: normHbAll } = require("../services/hepsiburadaService");
-                        const hbAllCreds = normHbAll(credentials);
-                        rawOrders = await fetchHepsiburadaOrders(
-                            hbAllCreds.merchantId, hbAllCreds.secretKey,
-                            startDate, endDate, hbAllCreds.userAgent, hbAllCreds.useSit
-                        );
-                        break;
-                    }
-                    case "n11":
-                        rawOrders = await fetchN11Orders(
-                            credentials.apiKey, credentials.secretKey,
-                            startDate, endDate
-                        );
-                        break;
-                    case "çiçeksepeti":
-                    case "ciceksepeti":
-                        rawOrders = await fetchCicekSepetiOrders(
-                            credentials.apiKey, credentials.sellerId, credentials.integratorName
-                        );
-                        break;
-                    case "amazon":
-                    case "amazon türkiye":
-                    case "amazon europe":
-                    case "amazon usa":
-                        try {
-                            const amazonResult = await amazonService.getAllOrders(credentials, {
-                                createdAfter: new Date(startDate).toISOString(),
-                                createdBefore: new Date(endDate).toISOString()
-                            });
-                            rawOrders = (amazonResult.orders || []).map(function(order) {
-                                return {
-                                    orderNumber: order.AmazonOrderId,
-                                    orderDate: order.PurchaseDate,
-                                    totalPrice: order.OrderTotal?.Amount || "0.00",
-                                    status: order.OrderStatus,
-                                    products: []
-                                };
-                            });
-                        } catch (amzErr) {
-                            logger.warn("[OrderSync] Amazon siparis cekme hatasi: " + amzErr.message);
-                        }
-                        break;
-                    default:
-                        logger.warn("[OrderSync] Desteklenmeyen marketplace: " + marketplaceName);
-                        continue;
-                }
-
-                const syncResult = await syncOrdersBackground(userId, marketplaceName, rawOrders);
-                results.push({
-                    marketplace: marketplaceName,
-                    fetched: rawOrders.length,
-                    synced: syncResult.synced,
-                    skipped: syncResult.skipped
-                });
-
-            } catch (mpErr) {
-                logger.error("[OrderSync] " + marketplaceName + " hatasi: " + mpErr.message);
-                results.push({
-                    marketplace: marketplaceName,
-                    fetched: 0,
-                    synced: 0,
-                    skipped: 0,
-                    error: mpErr.message
-                });
+        let results = [];
+        if (parallel) {
+            const settled = await Promise.allSettled(
+                marketplaces.map((rawMp) => syncMarketplaceOrdersForUser(userId, rawMp, startDate, endDate))
+            );
+            results = settled
+                .map((r, idx) => {
+                    if (r.status === "fulfilled" && r.value) return r.value;
+                    const name = marketplaces[idx]?.marketplaceName || "unknown";
+                    const errMsg = r.status === "rejected" ? r.reason?.message : "Atlandı";
+                    return { marketplace: name, fetched: 0, synced: 0, skipped: 0, error: errMsg || "Sync başarısız" };
+                })
+                .filter(Boolean);
+        } else {
+            for (const rawMp of marketplaces) {
+                const row = await syncMarketplaceOrdersForUser(userId, rawMp, startDate, endDate);
+                if (row) results.push(row);
             }
         }
 
@@ -1149,6 +1373,11 @@ exports.syncAllOrders = async (req, res) => {
         const totalFetched = results.reduce(function(sum, r) { return sum + r.fetched; }, 0);
 
         logger.info("[OrderSync] Sync tamamlandi - " + totalFetched + " siparis cekildi, " + totalSynced + " yeni kaydedildi");
+
+        try {
+            const { invalidateDashboardCache } = require("../services/dashboardService");
+            invalidateDashboardCache(userId);
+        } catch (_) { /* optional */ }
 
         return res.json({
             success: true,
@@ -1160,4 +1389,13 @@ exports.syncAllOrders = async (req, res) => {
         logger.error("[OrderSync] Sync hatasi:", error.message);
         return res.status(500).json({ success: false, message: "Siparis sync hatasi: " + error.message });
     }
+};
+
+/** Ana sayfa — son N gün siparişlerini DB'ye çek (paralel, kısa pencere) */
+exports.syncRecentOrders = async (req, res) => {
+    if (!req.query.days) {
+        req.query.days = String(DASHBOARD_SYNC_WINDOW_DAYS);
+    }
+    req.query.parallel = "1";
+    return exports.syncAllOrders(req, res);
 };

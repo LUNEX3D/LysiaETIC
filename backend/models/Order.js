@@ -16,7 +16,21 @@ const OrderSchema = new mongoose.Schema({
     tyDiscountTotal: { type: Number, default: 0 },
     orderDate: { type: Date, default: Date.now },
     status: { type: String, required: true, default: "Created" },
+    /** Ana sayfa sekmesi: new | processing | shipping | delivered | cancelled | returned */
+    statusBucket: { type: String, default: "new" },
     trackingNumber: { type: String, default: "" },
+    /** Kargo firması adı (pazaryeri API) */
+    cargoCompany: { type: String, default: "" },
+    /** Trendyol ortak etiket / kargo takip no (cargoTrackingNumber) */
+    cargoTrackingNumber: { type: String, default: "" },
+    /** Hepsiburada paket numarası (etiket API için) */
+    packageNumber: { type: String, default: "" },
+    /** Trendyol shipment package id */
+    shipmentPackageId: { type: String, default: "" },
+    /** ÇiçekSepeti alt sipariş numarası (orderItemId) */
+    orderItemId: { type: String, default: "" },
+    /** Trendyol / pazaryeri kargo takip sayfası (Express etiket yazdırma) */
+    cargoTrackingLink: { type: String, default: "" },
 
     // ── Müşteri bilgileri (fatura için) ─────────────────────────────────────
     customerName: { type: String, default: "" },
@@ -121,6 +135,8 @@ const OrderSchema = new mongoose.Schema({
 OrderSchema.index({ user: 1, orderDate: -1 });
 OrderSchema.index({ user: 1, orderDate: -1, marketplaceName: 1 });
 OrderSchema.index({ user: 1, marketplaceName: 1 });
+OrderSchema.index({ user: 1, trackingNumber: 1, marketplaceName: 1 });
 OrderSchema.index({ user: 1, status: 1 });
+OrderSchema.index({ user: 1, statusBucket: 1, orderDate: -1 });
 
 module.exports = mongoose.model("Order", OrderSchema);

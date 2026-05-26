@@ -1,0 +1,195 @@
+{
+  "orderId": "6a0b1273-d85e-492c-a6c5-17ac06060606",
+  "orderNumber": "4381688459",
+  "paymentStatus": "Received",
+  "orderDate": "2026-05-18T16:21:55",
+  "createdDate": "2026-05-18T16:21:55.561",
+  "customer": {
+    "customerId": "1ca48da6-e5d1-4e2e-bc07-80e19df5858c",
+    "name": "SERKAN VAROL"
+  },
+  "invoice": {
+    "turkishIdentityNumber": "11111111111",
+    "taxNumber": "",
+    "taxOffice": null,
+    "address": {
+      "addressId": "2bbd5760-6107-4430-a925-1113b5621b98",
+      "address": "Şeyh Şamil mah. Rasim Başara cad. Karacakent Safran D2 Konutları Adliye Lojmanı No:45/5 Kat:1 Daire:4 ŞEYH ŞAMİL MERKEZ Sivas",
+      "name": "SERKAN VAROL",
+      "email": "4381688459_5477503376@hepsifatura.com",
+      "countryCode": "TR",
+      "phoneNumber": "",
+      "alternatePhoneNumber": "",
+      "district": "ŞEYH ŞAMİL",
+      "city": "Sivas",
+      "town": "MERKEZ",
+      "directions": "",
+      "postalCode": "58050"
+    }
+  },
+  "deliveryAddress": {
+    "addressId": "c3bdf4d9-a73e-42ff-9b6a-3a05808e2cc1",
+    "address": "Şeyh Şamil mah. Rasim Başara cad. Karacakent Safran D2 Konutları No:45/5 Adliye Lojmanı Kat:1 Daire:4 ŞEYH ŞAMİL MERKEZ Sivas",
+    "name": "SERKAN VAROL",
+    "email": "4381688459_5477503376@hepsifatura.com",
+    "countryCode": "TR",
+    "phoneNumber": "",
+    "alternatePhoneNumber": "",
+    "district": "ŞEYH ŞAMİL",
+    "city": "Sivas",
+    "town": "MERKEZ",
+    "directions": "",
+    "postalCode": "58050"
+  },
+  "orderNote": {},
+  "items": [
+    {
+      "dueDate": "2026-05-20T23:59:00",
+      "lastStatusUpdateDate": "2026-05-25T13:30:01.091",
+      "id": "6a0b1273-d85e-492c-a6c5-17ab06060606",
+      "name": "Ejderha Figürlü Tütsülük – Dekoratif Tütsü Standı | 3D Baskı",
+      "sku": "HBCV0000EKLOBL",
+      "orderId": "6a0b1273-d85e-492c-a6c5-17ac06060606",
+      "orderNumber": "4381688459",
+      "orderDate": "2026-05-18T16:21:55",
+      "quantity": 1,
+      "merchantId": "825f9afd-e1c5-4416-9dbd-632f70730568",
+      "totalPrice": {
+        "currency": "TRY",
+        "amount": 1
+      },
+      "unitPrice": {
+        "currency": "TRY",
+        "amount": 1
+      },
+      "hbDiscount": {
+        "totalPrice": {
+          "currency": "TRY",
+          "amount": 75
+        },
+        "unitPrice": {
+          "currency": "TRY",
+          "amount": 75
+        }
+      },
+      "merchantDiscount": {
+        "totalPrice": {
+          "currency": "TRY",
+          "amount": 0
+        },
+        "unitPrice": {
+          "currency": "TRY",
+          "amount": 0
+        }
+      },
+      "vat": 0.17,
+      "vatRate": 20,
+      "customerName": "SERKAN VAROL",
+      "customerId": "1ca48da6-e5d1-4e2e-bc07-80e19df5858c",
+      "status": "InTransit",
+      "shippingAddress": {
+        "addressId": "c3bdf4d9-a73e-42ff-9b6a-3a05808e2cc1",
+        "address": "Şeyh Şamil mah. Rasim Başara cad. Karacakent Safran D2 Konutları No:45/5 Adliye Lojmanı Kat:1 Daire:4 ŞEYH ŞAMİL MERKEZ Sivas",
+        "name": "SERKAN VAROL",
+        "email": "4381688459_5477503376@hepsifatura.com",
+        "countryCode": "TR",
+        "phoneNumber": "",
+        "alternatePhoneNumber": "",
+        "district": "ŞEYH ŞAMİL",
+        "city": "Sivas",
+        "town": "MERKEZ",
+        "directions": "",
+        "postalCode": "58050"
+      },
+      "invoice": {
+        "turkishIdentityNumber": "11111111111",
+        "taxNumber": "",
+        "taxOffice": null,
+        "address": {
+          "addressId": "2bbd5760-6107-4430-a925-1113b5621b98",
+          "address": "Şeyh Şamil mah. Rasim Başara cad. Karacakent Safran D2 Konutları Adliye Lojmanı No:45/5 Kat:1 Daire:4 ŞEYH ŞAMİL MERKEZ Sivas",
+          "name": "SERKAN VAROL",
+          "email": "4381688459_5477503376@hepsifatura.com",
+          "countryCode": "TR",
+          "phoneNumber": "",
+          "alternatePhoneNumber": "",
+          "district": "ŞEYH ŞAMİL",
+          "city": "Sivas",
+          "town": "MERKEZ",
+          "directions": "",
+          "postalCode": "58050"
+        }
+      },
+      "sapNumber": "000010",
+      "dispatchTime": 1,
+      "commission": {
+        "currency": "TRY",
+        "amount": 16.72
+      },
+      "commissionRate": 22,
+      "paymentTermInDays": 24,
+      "commissionType": 0,
+      "cargoCompanyModel": {
+        "id": 1,
+        "name": "Yurtiçi Kargo",
+        "shortName": "YK",
+        "logoUrl": "https://images.hepsiburada.net/assets/cargo-logo/yurtici.svg",
+        "trackingUrl": null
+      },
+      "cargoCompany": "Yurtiçi Kargo",
+      "customizedText01": "",
+      "customizedText02": "",
+      "customizedText03": "",
+      "customizedText04": "",
+      "customizedTextX": "",
+      "creditCardHolderName": null,
+      "isCustomized": false,
+      "canCreatePackage": true,
+      "isCancellable": false,
+      "isCancellableByHbAdmin": true,
+      "deliveryType": "StandardDelivery",
+      "deliveryOptionId": 1,
+      "slot": null,
+      "pickUpTime": null,
+      "discountInfo": [],
+      "merchantSKU": "LA-3D-243",
+      "purchasePrice": {
+        "currency": "TRY",
+        "amount": 0
+      },
+      "deliveryNote": {},
+      "isCargoChangable": true,
+      "warehouse": {
+        "shippingModel": "Standard",
+        "shippingAddressLabel": "BIRINCIL"
+      },
+      "deptorDifferenceAmount": 0,
+      "isJetDelivery": false,
+      "isSundayDelivery": false,
+      "properties": [
+        {
+          "name": "Renk",
+          "value": "Siyah",
+          "displayName": ""
+        }
+      ],
+      "discountToBeBilledToHB": 0,
+      "bnplCommissionAmount": {
+        "currency": "TRY",
+        "amount": 0
+      },
+      "unitLaborCost": {
+        "currency": "TRY",
+        "amount": 0
+      },
+      "productBarcode": "0086912345243",
+      "creationReason": "OrderCreated",
+      "packageNumber": "5477503376",
+      "barcode": "62754775033760",
+      "isMicroExport": false,
+      "releatedLineIndexesWithCampaign": [],
+      "parentItemIndex": -1,
+      "productImageUrlFormat": "https://productimages.hepsiburada.net/s/777/{size}/110001727007884.jpg"
+    }
+  ]
+}

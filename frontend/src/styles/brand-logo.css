@@ -5,6 +5,10 @@
     flex-shrink: 0;
 }
 
+.ds-brand-logo--full {
+    flex-shrink: 0;
+}
+
 .ds-logo-mark--animated .ds-logo-mark__arrow,
 .py-logo-mark--animated .py-logo-mark__arrow {
     animation: ds-logo-arrow-pulse 2.4s ease-in-out infinite;

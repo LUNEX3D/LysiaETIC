@@ -1,0 +1,139 @@
+{
+  "marketplaceId": "69fb72e41eff1b56754c6536",
+  "at": "2026-05-25T22:45:12.838Z",
+  "steps": [
+    {
+      "label": "orders-open",
+      "url": "https://oms-external.hepsiburada.com/orders/merchantid/825f9afd-e1c5-4416-9dbd-632f70730568?offset=0&limit=10",
+      "status": 200,
+      "body": {
+        "type": "object",
+        "keys": [
+          "totalCount",
+          "limit",
+          "offset",
+          "pageCount",
+          "items"
+        ],
+        "items": 0
+      },
+      "rawCount": 0
+    },
+    {
+      "label": "orders-dated",
+      "url": "https://oms-external.hepsiburada.com/orders/merchantid/825f9afd-e1c5-4416-9dbd-632f70730568?begindate=2026-05-19%2000%3A00&enddate=2026-05-26%2023%3A59&offset=0&limit=10",
+      "status": 200,
+      "body": {
+        "type": "object",
+        "keys": [
+          "totalCount",
+          "limit",
+          "offset",
+          "pageCount",
+          "items"
+        ],
+        "items": 0
+      },
+      "rawCount": 0
+    },
+    {
+      "label": "packages-timespan720",
+      "url": "https://oms-external.hepsiburada.com/packages/merchantid/825f9afd-e1c5-4416-9dbd-632f70730568?timespan=720&offset=0&limit=10",
+      "status": 200,
+      "body": {
+        "type": "array",
+        "len": 0,
+        "sampleKeys": []
+      },
+      "rawCount": 0
+    },
+    {
+      "label": "unpacked",
+      "url": "https://oms-external.hepsiburada.com/packages/merchantid/825f9afd-e1c5-4416-9dbd-632f70730568/unpacked?begindate=2026-05-19%2000%3A00&enddate=2026-05-26%2023%3A59&offset=0&limit=10",
+      "status": 404,
+      "body": {
+        "type": "object",
+        "keys": [
+          "message"
+        ]
+      },
+      "rawCount": 0
+    },
+    {
+      "label": "shipped",
+      "url": "https://oms-external.hepsiburada.com/packages/merchantid/825f9afd-e1c5-4416-9dbd-632f70730568/shipped?begindate=2026-05-19%2000%3A00&enddate=2026-05-26%2023%3A59&offset=0&limit=10",
+      "status": 200,
+      "body": {
+        "type": "object",
+        "keys": [
+          "totalCount",
+          "limit",
+          "offset",
+          "pageCount",
+          "items"
+        ],
+        "items": 2
+      },
+      "rawCount": 2,
+      "firstResolveKey": "4381688459",
+      "firstSample": {
+        "hasItems": 0
+      }
+    },
+    {
+      "label": "delivered",
+      "url": "https://oms-external.hepsiburada.com/packages/merchantid/825f9afd-e1c5-4416-9dbd-632f70730568/delivered?begindate=2026-05-19%2000%3A00&enddate=2026-05-26%2023%3A59&offset=0&limit=10",
+      "status": 200,
+      "body": {
+        "type": "object",
+        "keys": [
+          "totalCount",
+          "limit",
+          "offset",
+          "pageCount",
+          "items"
+        ]
+      },
+      "rawCount": 0
+    },
+    {
+      "label": "listing-smoke",
+      "url": "https://listing-external.hepsiburada.com/listings/merchantid/825f9afd-e1c5-4416-9dbd-632f70730568?offset=0&limit=1",
+      "status": 200,
+      "body": {
+        "type": "object",
+        "keys": [
+          "listings",
+          "totalCount",
+          "limit",
+          "offset"
+        ]
+      },
+      "rawCount": 0
+    },
+    {
+      "label": "sit-orders-open",
+      "url": "https://oms-external-sit.hepsiburada.com/orders/merchantid/825f9afd-e1c5-4416-9dbd-632f70730568?offset=0&limit=5",
+      "status": 401,
+      "body": {
+        "type": "null"
+      },
+      "rawCount": 0
+    }
+  ],
+  "creds": {
+    "merchantIdPrefix": "825f9afd",
+    "merchantIdLen": 36,
+    "secretKeyLen": 12,
+    "secretLooksEncrypted": false,
+    "userAgent": "welcomebaby_dev",
+    "useSitStored": false,
+    "useSitNorm": false
+  },
+  "effectiveSit": false,
+  "ordersServiceCount": 1,
+  "ordersServiceSample": {
+    "orderNumber": "4381688459",
+    "status": "InTransit"
+  }
+}

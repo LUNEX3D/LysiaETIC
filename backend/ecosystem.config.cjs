@@ -1,7 +1,9 @@
 /**
  * PM2 — AWS EC2 production
- * Kullanım: cd backend && pm2 start ecosystem.config.cjs && pm2 save
+ * Kullanım: cd ~/LysiaETIC/backend && pm2 start ecosystem.config.cjs && pm2 save
  */
+const path = require("path");
+
 module.exports = {
     apps: [
         {
@@ -14,6 +16,7 @@ module.exports = {
             max_restarts: 15,
             min_uptime: "10s",
             max_memory_restart: "800M",
+            env_file: path.join(__dirname, ".env"),
             env: {
                 NODE_ENV: "production",
             },

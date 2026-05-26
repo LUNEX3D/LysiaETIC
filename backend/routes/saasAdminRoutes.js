@@ -40,6 +40,7 @@ router.put("/subscriptions/:id", saas.updateSubscription);
 router.get("/payments", saas.getPayments);
 router.post("/payments", saas.createPayment);
 router.put("/payments/:id/status", saas.updatePaymentStatus);
+router.post("/payments/:id/refund", saas.refundPayment);
 
 // ─── 5. Entegrasyon Kontrolü ─────────────────────────────────────────────────
 router.get("/integrations", saas.getAllIntegrations);

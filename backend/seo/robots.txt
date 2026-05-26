@@ -1,10 +1,19 @@
+# Dashtock — https://dashtock.com
 User-agent: *
 Allow: /
+Allow: /home
+Allow: /blog
+Allow: /register
+Allow: /login
+Allow: /*-entegrasyonu
 
+# Uygulama / ödeme / API — indexlenmesin
 Disallow: /dashboard
 Disallow: /admin
 Disallow: /api/
 Disallow: /verify-email
 Disallow: /payment/
+Disallow: /subscription
+Disallow: /settings
 
 Sitemap: https://dashtock.com/sitemap.xml

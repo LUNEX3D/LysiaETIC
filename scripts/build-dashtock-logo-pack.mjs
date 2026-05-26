@@ -13,8 +13,13 @@ const root = path.join(__dirname, "..");
 const require = createRequire(path.join(root, "frontend", "package.json"));
 const sharp = require("sharp");
 const pack = path.join(root, "Dashtock-Logo-Pack");
-const iconSvg = path.join(pack, "svg", "dashtock-icon.svg");
-const fullSvg = path.join(pack, "svg", "dashtock-logo-full.svg");
+const sourceDir = path.join(root, "Dashtock", "Dashtock");
+const iconSvg = fs.existsSync(path.join(sourceDir, "Logo.svg"))
+    ? path.join(sourceDir, "Logo.svg")
+    : path.join(pack, "svg", "dashtock-icon.svg");
+const fullSvg = fs.existsSync(path.join(sourceDir, "Dashtock.svg"))
+    ? path.join(sourceDir, "Dashtock.svg")
+    : path.join(pack, "svg", "dashtock-logo-full.svg");
 const fullLightSvg = path.join(pack, "svg", "dashtock-logo-full-on-light.svg");
 const publicBrand = path.join(root, "frontend", "public", "brand");
 const iconOut = path.join(pack, "png", "icon");

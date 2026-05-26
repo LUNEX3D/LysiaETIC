@@ -183,6 +183,8 @@ export default function RoketfyPanel() {
     const [radarListFilter, setRadarListFilter] = useState("");
     const [flashMinDiscount, setFlashMinDiscount] = useState(0);
     const [radarToast, setRadarToast] = useState("");
+    const [dashboard, setDashboard] = useState(null);
+    const [scrapeHint, setScrapeHint] = useState("");
     const radarToastTimerRef = useRef(null);
 
     const lastFetchRef = useRef(null);
@@ -225,11 +227,16 @@ export default function RoketfyPanel() {
         }
     }, [activeTab]);
 
-    //  Kategorileri Yükle 
+    //  Kategorileri + dashboard 
     useEffect(() => {
         API.get("/roketfy/categories/detailed")
             .then(res => { if (res.data?.categories) setCategories(res.data.categories); })
             .catch(() => {});
+        API.get("/roketfy/dashboard")
+            .then(res => { if (res.data) setDashboard(res.data); })
+            .catch(() => {});
+        fetchBestSellers();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     //  Sekmeye her dönüşte taze veri (önceki: sadece ilk yüklemede istek atılıyordu, liste bayat kalıyordu)
@@ -331,10 +338,14 @@ export default function RoketfyPanel() {
                 totalCount: data.totalCount || data.products?.length || 0,
                 source: data.source || "unknown",
                 fetchedAt: data.fetchedAt || null,
+                scrapeOk: data.scrapeOk !== false,
+                hint: data.hint || "",
             });
+            setScrapeHint((!data.products?.length && data.hint) ? data.hint : "");
             lastFetchRef.current = new Date();
         } catch (err) {
             setError(err.response?.data?.message || "Veriler yüklenemedi");
+            setScrapeHint("");
         } finally {
             setLoading(false);
         }
@@ -353,7 +364,9 @@ export default function RoketfyPanel() {
                 totalCount: data.totalCount || data.products?.length || 0,
                 source: data.source || "unknown",
                 fetchedAt: data.fetchedAt || null,
+                hint: data.hint || "",
             });
+            if (!data.products?.length && data.hint) setScrapeHint(data.hint);
             lastFetchRef.current = new Date();
         } catch (err) {
             setError(err.response?.data?.message || "Veriler yüklenemedi");
@@ -480,10 +493,15 @@ export default function RoketfyPanel() {
         <div className="rk-categories">
             <h4 className="rk-cat-title">Kategoriler</h4>
 
-            {/* Tüm Kategoriler */}
             <div
                 className={`rk-cat-item ${!selectedCategory ? "active" : ""}`}
-                onClick={() => { setSelectedCategory(""); setSelectedSubCategory(""); setExpandedCategory(""); if (activeTab === 0) fetchBestSellers(""); else if (activeTab === 1) fetchFlashProducts(""); }}
+                onClick={() => {
+                    setSelectedCategory("");
+                    setSelectedSubCategory("");
+                    setExpandedCategory("");
+                    if (activeTab === 0) fetchBestSellers("");
+                    else if (activeTab === 1) fetchFlashProducts("");
+                }}
             >
                 <div className="rk-cat-item-left">
                     <div className="rk-cat-icon" style={{ background: "rgba(78,205,196,0.12)", color: "var(--rk-accent)" }}>
@@ -523,7 +541,10 @@ export default function RoketfyPanel() {
                                     <div
                                         key={sub.key}
                                         className={`rk-subcat-item ${selectedSubCategory === sub.key ? "active" : ""}`}
-                                        onClick={(e) => { e.stopPropagation(); handleSubCategoryClick(cat.key, sub); }}
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleSubCategoryClick(cat.key, sub);
+                                        }}
                                     >
                                         <span className="rk-subcat-dot" />
                                         <span>{sub.name}</span>
@@ -540,7 +561,7 @@ export default function RoketfyPanel() {
     // 
     // RENDER: ürün Kart
     // 
-    const ProductCard = ({ product, index, isFlash }) => (
+    const ProductCard = ({ product, index, isFlash, dataFresh }) => (
         <div
             className="rk-product-card"
             title="Ürünü Trendyol'da açmak için tıklayın"
@@ -556,6 +577,12 @@ export default function RoketfyPanel() {
                     />
                 )}
                 <div className={`rk-product-rank ${rankClass(index)}`}>{index + 1}</div>
+                {dataFresh && (
+                    <span className="rk-fresh-badge">
+                        <span className="rk-live-dot" />
+                        Güncel
+                    </span>
+                )}
                 <div className="rk-card-actions">
                     {product.url && (
                         <button
@@ -625,7 +652,10 @@ export default function RoketfyPanel() {
                     </div>
                     <div className="rk-meta-item">
                         <FaStar style={{ color: "var(--rk-yellow)" }} />
-                        <span className="rk-meta-val">{product.ratingScore || ""}{product.ratingCount > 0 ? ` (${fmt(product.ratingCount)})` : ""}</span>
+                        <span className="rk-meta-val">
+                            {product.ratingScore || ""}
+                            {product.ratingCount > 0 ? ` (${fmt(product.ratingCount)})` : ""}
+                        </span>
                     </div>
                     <div className="rk-meta-item">
                         <FaChartLine style={{ color: "var(--rk-green)" }} />
@@ -718,33 +748,43 @@ export default function RoketfyPanel() {
         const prices = products.map(p => p.price).filter(p => p > 0);
         const avgPrice = prices.length > 0 ? Math.round(prices.reduce((a, b) => a + b, 0) / prices.length) : 0;
         const totalFav = products.reduce((s, p) => s + (p.favoriteCount || 0), 0);
-        const avgSales = products.length > 0 ? Math.round(products.reduce((s, p) => s + (p.estimatedDailySales || 0), 0) / products.length) : 0;
+        const avgSales = products.length > 0
+            ? Math.round(products.reduce((s, p) => s + (p.estimatedDailySales || 0), 0) / products.length)
+            : 0;
 
         return (
             <div className="rk-stats-row">
                 <div className="rk-stat-card">
-                    <div className="rk-stat-icon" style={{ background: "rgba(78,205,196,0.12)", color: "var(--rk-accent)" }}><FaBoxOpen /></div>
+                    <div className="rk-stat-icon" style={{ background: "rgba(78,205,196,0.12)", color: "var(--rk-accent)" }}>
+                        <FaBoxOpen />
+                    </div>
                     <div className="rk-stat-info">
                         <div className="rk-stat-label">Toplam ürün</div>
                         <div className="rk-stat-value">{fmt(products.length)}</div>
                     </div>
                 </div>
                 <div className="rk-stat-card">
-                    <div className="rk-stat-icon" style={{ background: "rgba(34,197,94,0.12)", color: "var(--rk-green)" }}><FaDollarSign /></div>
+                    <div className="rk-stat-icon" style={{ background: "rgba(34,197,94,0.12)", color: "var(--rk-green)" }}>
+                        <FaDollarSign />
+                    </div>
                     <div className="rk-stat-info">
                         <div className="rk-stat-label">Ort. Fiyat</div>
                         <div className="rk-stat-value">{fmtPrice(avgPrice)}</div>
                     </div>
                 </div>
                 <div className="rk-stat-card">
-                    <div className="rk-stat-icon" style={{ background: "rgba(236,72,153,0.12)", color: "var(--rk-pink)" }}><FaHeart /></div>
+                    <div className="rk-stat-icon" style={{ background: "rgba(236,72,153,0.12)", color: "var(--rk-pink)" }}>
+                        <FaHeart />
+                    </div>
                     <div className="rk-stat-info">
                         <div className="rk-stat-label">Toplam favori</div>
-                        <div className="rk-stat-value" title={`Listedeki ürünlerin favori sayıları toplamı: ${fmt(totalFav)}`}>{fmt(totalFav)}</div>
+                        <div className="rk-stat-value">{fmt(totalFav)}</div>
                     </div>
                 </div>
                 <div className="rk-stat-card">
-                    <div className="rk-stat-icon" style={{ background: "rgba(242,122,26,0.12)", color: "var(--rk-orange)" }}><FaChartLine /></div>
+                    <div className="rk-stat-icon" style={{ background: "rgba(242,122,26,0.12)", color: "var(--rk-orange)" }}>
+                        <FaChartLine />
+                    </div>
                     <div className="rk-stat-info">
                         <div className="rk-stat-label">Ort. sat/gün</div>
                         <div className="rk-stat-value">{avgSales}</div>
@@ -753,6 +793,9 @@ export default function RoketfyPanel() {
             </div>
         );
     };
+
+    const isLiveSource = (source) =>
+        Boolean(source && (source.includes("live") || source.includes("trendyol")));
 
     //  Veri Kayna Etiketi 
     const DataSourceBadge = ({ source }) => {
@@ -783,6 +826,8 @@ export default function RoketfyPanel() {
         const fetchedAt = bestSellers?.fetchedAt;
         const products = filterRadarProducts(rawProducts, radarListFilter, 0, false);
         const filterActive = radarListFilter.trim().length > 0;
+
+        const dataFresh = isLiveSource(source);
 
         return (
             <div className="rk-content">
@@ -856,6 +901,12 @@ export default function RoketfyPanel() {
                         <FaTrophy className="rk-empty-icon" />
                         <div className="rk-empty-text">Henüz veri yok</div>
                         <div className="rk-empty-sub">Sol menüden kategori seçin veya Yenile’ye basın</div>
+                        {(scrapeHint || bestSellers?.hint) && (
+                            <p className="rk-empty-hint">{scrapeHint || bestSellers.hint}</p>
+                        )}
+                        <button type="button" className="rk-retry-btn" onClick={() => fetchBestSellers()}>
+                            <FaSync /> Tekrar dene
+                        </button>
                     </div>
                 ) : products.length === 0 ? (
                     <div className="rk-empty">
@@ -866,7 +917,15 @@ export default function RoketfyPanel() {
                     </div>
                 ) : viewMode === "grid" ? (
                     <div className="rk-product-grid">
-                        {products.map((p, i) => <ProductCard key={productRowKey(p, i)} product={p} index={i} isFlash={false} />)}
+                        {products.map((p, i) => (
+                            <ProductCard
+                                key={productRowKey(p, i)}
+                                product={p}
+                                index={i}
+                                isFlash={false}
+                                dataFresh={dataFresh}
+                            />
+                        ))}
                     </div>
                 ) : (
                     <ProductTable products={products} isFlash={false} />
@@ -884,6 +943,8 @@ export default function RoketfyPanel() {
         const fetchedAt = flashProducts?.fetchedAt;
         const products = filterRadarProducts(rawProducts, radarListFilter, flashMinDiscount, true);
         const filterActive = radarListFilter.trim().length > 0 || flashMinDiscount > 0;
+
+        const dataFresh = isLiveSource(source);
 
         return (
             <div className="rk-content">
@@ -987,7 +1048,15 @@ export default function RoketfyPanel() {
                     </div>
                 ) : viewMode === "grid" ? (
                     <div className="rk-product-grid">
-                        {products.map((p, i) => <ProductCard key={productRowKey(p, i)} product={p} index={i} isFlash={true} />)}
+                        {products.map((p, i) => (
+                            <ProductCard
+                                key={productRowKey(p, i)}
+                                product={p}
+                                index={i}
+                                isFlash
+                                dataFresh={dataFresh}
+                            />
+                        ))}
                     </div>
                 ) : (
                     <ProductTable products={products} isFlash={true} />
@@ -1133,6 +1202,14 @@ export default function RoketfyPanel() {
     // 
     // TAB 3: RAKP ARATIRMASI
     // 
+    const runManualCompetitorAnalyze = () => {
+        if (!compProductUrl && !compSearchQuery) return;
+        apiCall("post", "/roketfy/competitor/analyze", {
+            productUrl: compProductUrl,
+            searchQuery: compSearchQuery,
+        }, setCompResult);
+    };
+
     const renderCompetitorAnalysis = () => {
         const comp = compResult?.competitor;
         const filteredMyProducts = myProductSearch
@@ -1142,108 +1219,144 @@ export default function RoketfyPanel() {
                 (p.brand || "").toLowerCase().includes(myProductSearch.toLowerCase())
             )
             : myProducts;
+        const canAnalyzeManual = Boolean(compProductUrl || compSearchQuery);
 
         return (
-            <div className="rk-content">
-                {/* RNLERM  Yatay kart listesi */}
+            <div className="rk-content rk-comp">
+                <section className="rk-comp-hero">
+                    <div className="rk-comp-hero-top">
+                        <div className="rk-comp-hero-icon" aria-hidden>
+                            <FaBalanceScale />
+                        </div>
+                        <div>
+                            <h3>Rakip araştırması</h3>
+                            <p>
+                                Mağazanızdaki ürünü seçin veya Trendyol linki / anahtar kelime ile rakip fiyatlarını,
+                                anahtar kelimeleri ve fırsatları karşılaştırın.
+                            </p>
+                        </div>
+                    </div>
+                    <div className="rk-comp-search">
+                        <div className="rk-comp-field">
+                            <label htmlFor="rk-comp-url">Trendyol ürün linki</label>
+                            <input
+                                id="rk-comp-url"
+                                className="rk-input"
+                                placeholder="https://www.trendyol.com/…"
+                                value={compProductUrl}
+                                onChange={(e) => setCompProductUrl(e.target.value)}
+                            />
+                        </div>
+                        <div className="rk-comp-field">
+                            <label htmlFor="rk-comp-kw">Arama kelimesi</label>
+                            <input
+                                id="rk-comp-kw"
+                                className="rk-input"
+                                placeholder="ör. bluetooth kulaklık"
+                                value={compSearchQuery}
+                                onChange={(e) => setCompSearchQuery(e.target.value)}
+                                onKeyDown={(e) => e.key === "Enter" && canAnalyzeManual && runManualCompetitorAnalyze()}
+                            />
+                        </div>
+                        <button
+                            type="button"
+                            className="rk-btn rk-btn-orange rk-comp-submit"
+                            disabled={!canAnalyzeManual || loading || compLoading}
+                            onClick={runManualCompetitorAnalyze}
+                        >
+                            <FaBalanceScale /> Analiz et
+                        </button>
+                    </div>
+                </section>
+
                 {myProducts.length > 0 && (
-                    <div className="rk-section" style={{ borderColor: "rgba(78,205,196,0.3)", background: "rgba(78,205,196,0.03)" }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                            <h4 className="rk-section-title" style={{ margin: 0 }}>
-                                <FaBoxOpen style={{ color: "var(--rk-accent)" }} /> Ürünlerim
-                                <span style={{ fontSize: 12, fontWeight: 400, color: "var(--rk-text-dim)", marginLeft: 8 }}>({myProducts.length} ürün)</span>
+                    <section className="rk-comp-my">
+                        <div className="rk-comp-my-head">
+                            <h4>
+                                <FaBoxOpen /> Ürünlerim
+                                <span className="rk-comp-my-count">({fmt(myProducts.length)})</span>
                             </h4>
-                            <div className="rk-search-input-wrap" style={{ maxWidth: 260, margin: 0 }}>
-                                <FaSearch className="rk-search-icon" />
+                            <div className="rk-search-input-wrap rk-comp-my-filter">
+                                <FaSearch className="rk-search-icon" aria-hidden />
                                 <input
+                                    type="search"
                                     className="rk-search-input"
-                                    placeholder="Ürün ara…"
+                                    placeholder="Ürün, barkod veya marka ara…"
                                     value={myProductSearch}
                                     onChange={(e) => setMyProductSearch(e.target.value)}
-                                    style={{ fontSize: 12, padding: "6px 10px 6px 32px" }}
+                                    aria-label="Ürünlerimde ara"
                                 />
                             </div>
                         </div>
-                        <div style={{ display: "flex", gap: 12, overflowX: "auto", paddingBottom: 8, scrollSnapType: "x mandatory" }}>
-                            {filteredMyProducts.map((p) => (
-                                <div
-                                    key={p.barcode}
-                                    style={{
-                                        minWidth: 200, maxWidth: 220, flexShrink: 0, scrollSnapAlign: "start",
-                                        background: "var(--rk-card)", border: "1px solid var(--rk-border)", borderRadius: 12,
-                                        padding: 12, display: "flex", flexDirection: "column", gap: 8,
-                                        transition: "border-color 0.2s, box-shadow 0.2s",
-                                        borderColor: compAnalyzingBarcode === p.barcode ? "var(--rk-accent)" : "var(--rk-border)",
-                                        boxShadow: compAnalyzingBarcode === p.barcode ? "0 0 0 2px rgba(78,205,196,0.3)" : "none",
-                                    }}
-                                >
-                                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                                        {p.imageUrl ? (
-                                            <img src={p.imageUrl} alt="" style={{ width: 40, height: 40, borderRadius: 8, objectFit: "cover", background: "var(--rk-glass)" }} onError={(e) => { e.target.style.display = "none"; }} />
-                                        ) : (
-                                            <div style={{ width: 40, height: 40, borderRadius: 8, background: "var(--rk-glass)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}></div>
-                                        )}
-                                        <div style={{ flex: 1, minWidth: 0 }}>
-                                            <div style={{ fontSize: 12, fontWeight: 600, color: "var(--rk-text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>
-                                            <div style={{ fontSize: 10, color: "var(--rk-text-dim)", fontFamily: "monospace" }}>{p.barcode}</div>
-                                        </div>
-                                    </div>
-                                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                        <div>
-                                            <div style={{ fontSize: 14, fontWeight: 700, color: "var(--rk-accent)" }}>{fmtPrice(p.price)}</div>
-                                            <div style={{ fontSize: 10, color: p.isOutOfStock ? "var(--rk-red)" : p.stock < 5 ? "var(--rk-yellow)" : "var(--rk-text-dim)" }}>
-                                                {p.isOutOfStock ? "Stok yok" : `${p.stock} adet`}
+                        <div className="rk-comp-strip">
+                            {filteredMyProducts.map((p) => {
+                                const stockCls = p.isOutOfStock
+                                    ? "rk-comp-pick-stock--out"
+                                    : p.stock < 5
+                                        ? "rk-comp-pick-stock--low"
+                                        : "rk-comp-pick-stock--ok";
+                                return (
+                                    <div
+                                        key={p.barcode}
+                                        className={`rk-comp-pick ${compAnalyzingBarcode === p.barcode ? "is-active" : ""}`}
+                                    >
+                                        <div className="rk-comp-pick-top">
+                                            {p.imageUrl ? (
+                                                <img
+                                                    className="rk-comp-pick-img"
+                                                    src={p.imageUrl}
+                                                    alt=""
+                                                    onError={(e) => { e.target.style.display = "none"; }}
+                                                />
+                                            ) : (
+                                                <div className="rk-comp-pick-img rk-comp-pick-img--empty">
+                                                    <FaBoxOpen />
+                                                </div>
+                                            )}
+                                            <div className="rk-comp-pick-info">
+                                                <div className="rk-comp-pick-name">{p.name}</div>
+                                                <div className="rk-comp-pick-barcode">{p.barcode}</div>
                                             </div>
                                         </div>
-                                        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                                        <div className="rk-comp-pick-meta">
+                                            <div>
+                                                <div className="rk-comp-pick-price">{fmtPrice(p.price)}</div>
+                                                <div className={`rk-comp-pick-stock ${stockCls}`}>
+                                                    {p.isOutOfStock ? "Stok yok" : `${fmt(p.stock)} adet`}
+                                                </div>
+                                            </div>
                                             {p.marketplaces?.length > 0 && (
-                                                <div style={{ display: "flex", gap: 2, justifyContent: "flex-end" }}>
+                                                <div className="rk-comp-pick-mp">
                                                     {p.marketplaces.slice(0, 3).map((m, i) => (
-                                                        <span key={i} style={{ fontSize: 8, padding: "1px 4px", borderRadius: 4, background: "rgba(78,205,196,0.12)", color: "var(--rk-accent)" }}>{m}</span>
+                                                        <span key={i}>{m}</span>
                                                     ))}
                                                 </div>
                                             )}
                                         </div>
+                                        <button
+                                            type="button"
+                                            className="rk-btn rk-btn-primary rk-comp-pick-btn"
+                                            disabled={compLoading}
+                                            onClick={() => analyzeCompetitorByBarcode(p.barcode)}
+                                        >
+                                            {compAnalyzingBarcode === p.barcode ? (
+                                                <><FaSync className="spinning" /> Analiz…</>
+                                            ) : (
+                                                <><FaSearch /> Rakip analizi</>
+                                            )}
+                                        </button>
                                     </div>
-                                    <button
-                                        className="rk-btn rk-btn-primary"
-                                        style={{ fontSize: 11, padding: "6px 10px", width: "100%", justifyContent: "center" }}
-                                        disabled={compLoading}
-                                        onClick={() => analyzeCompetitorByBarcode(p.barcode)}
-                                    >
-                                        {compAnalyzingBarcode === p.barcode ? (
-                                            <><FaSync className="spinning" /> Analiz ediliyor...</>
-                                        ) : (
-                                            <><FaSearch /> Rakip Analizi</>
-                                        )}
-                                    </button>
-                                </div>
-                            ))}
+                                );
+                            })}
                         </div>
                         {filteredMyProducts.length === 0 && myProductSearch && (
-                            <div style={{ textAlign: "center", padding: 12, fontSize: 12, color: "var(--rk-text-dim)" }}>
+                            <p style={{ textAlign: "center", margin: "12px 0 0", fontSize: 12, color: "var(--rk-text-dim)" }}>
                                 “{myProductSearch}” ile eşleşen ürün bulunamadı
-                            </div>
+                            </p>
                         )}
-                    </div>
+                    </section>
                 )}
 
-                {/* MANUEL GR */}
-                <div className="rk-section">
-                    <h3 className="rk-section-title"><FaBalanceScale style={{ color: "var(--rk-yellow)" }} /> Manuel Rakip Araştırması</h3>
-                    <p className="rk-section-desc">Trendyol ürün linki veya anahtar kelime girerek rakiplerinizi analiz edin.</p>
-                    <div className="rk-form-row">
-                        <input className="rk-input" placeholder="Trendyol ürün linki (opsiyonel)" value={compProductUrl} onChange={(e) => setCompProductUrl(e.target.value)} />
-                        <input className="rk-input" placeholder="Arama kelimesi" value={compSearchQuery} onChange={(e) => setCompSearchQuery(e.target.value)}
-                            onKeyDown={(e) => e.key === "Enter" && compSearchQuery && apiCall("post", "/roketfy/competitor/analyze", { productUrl: compProductUrl, searchQuery: compSearchQuery }, setCompResult)} />
-                        <button className="rk-btn rk-btn-orange" disabled={(!compProductUrl && !compSearchQuery) || loading || compLoading}
-                            onClick={() => apiCall("post", "/roketfy/competitor/analyze", { productUrl: compProductUrl, searchQuery: compSearchQuery }, setCompResult)}>
-                            <FaBalanceScale /> Analiz Et
-                        </button>
-                    </div>
-                </div>
-
-                {/* LOADING */}
                 {compLoading && (
                     <div className="rk-loading">
                         <div className="rk-loading-spinner" />
@@ -1251,112 +1364,185 @@ export default function RoketfyPanel() {
                     </div>
                 )}
 
-                {/* SONULAR */}
                 {comp && !compLoading && (
                     <>
-                        {/* SENN RNN KARTI */}
                         {comp.myProduct && (
-                            <div className="rk-section" style={{ borderColor: "rgba(78,205,196,0.4)", background: "rgba(78,205,196,0.04)" }}>
-                                <h4 className="rk-section-title"><FaBoxOpen style={{ color: "var(--rk-accent)" }} /> Sizin ürününüz</h4>
-                                <div style={{ display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap" }}>
+                            <section className="rk-comp-highlight">
+                                <div className="rk-comp-highlight-head">
+                                    <FaBoxOpen /> Sizin ürününüz
+                                </div>
+                                <div className="rk-comp-highlight-body">
                                     {comp.myProduct.imageUrl && (
-                                        <img src={comp.myProduct.imageUrl} alt="" style={{ width: 64, height: 64, borderRadius: 10, objectFit: "cover", border: "2px solid var(--rk-accent)" }} onError={(e) => { e.target.style.display = "none"; }} />
+                                        <img
+                                            className="rk-comp-highlight-img"
+                                            src={comp.myProduct.imageUrl}
+                                            alt=""
+                                            onError={(e) => { e.target.style.display = "none"; }}
+                                        />
                                     )}
-                                    <div style={{ flex: 1 }}>
-                                        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>{comp.myProduct.name}</div>
-                                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                                    <div className="rk-comp-highlight-main">
+                                        <div className="rk-comp-highlight-title">{comp.myProduct.name}</div>
+                                        <div className="rk-comp-highlight-chips">
                                             <span className="rk-chip rk-chip-accent">{fmtPrice(comp.myProduct.price)}</span>
-                                            {comp.myProduct.brand && <span className="rk-chip rk-chip-info">{comp.myProduct.brand}</span>}
-                                            <span className="rk-chip" style={{ background: comp.myProduct.stock > 0 ? "rgba(34,197,94,0.12)" : "rgba(239,68,68,0.12)", color: comp.myProduct.stock > 0 ? "var(--rk-green)" : "var(--rk-red)" }}>
-                                                {comp.myProduct.stock > 0 ? `${comp.myProduct.stock} stok` : "Stok yok"}
+                                            {comp.myProduct.brand && (
+                                                <span className="rk-chip rk-chip-info">{comp.myProduct.brand}</span>
+                                            )}
+                                            <span
+                                                className="rk-chip"
+                                                style={{
+                                                    background: comp.myProduct.stock > 0
+                                                        ? "rgba(34,197,94,0.12)"
+                                                        : "rgba(239,68,68,0.12)",
+                                                    color: comp.myProduct.stock > 0 ? "var(--rk-green)" : "var(--rk-red)",
+                                                }}
+                                            >
+                                                {comp.myProduct.stock > 0 ? `${fmt(comp.myProduct.stock)} stok` : "Stok yok"}
                                             </span>
-                                            <span style={{ fontSize: 10, fontFamily: "monospace", color: "var(--rk-text-dim)", alignSelf: "center" }}>{comp.myProduct.barcode}</span>
+                                            <span className="rk-chip" style={{ fontFamily: "monospace", fontSize: "0.65rem" }}>
+                                                {comp.myProduct.barcode}
+                                            </span>
                                         </div>
                                     </div>
                                     {comp.priceAnalysis?.myPricePosition && (
-                                        <div style={{ textAlign: "center", padding: "8px 16px", background: "rgba(78,205,196,0.08)", borderRadius: 10 }}>
-                                            <div style={{ fontSize: 24, fontWeight: 800, color: "var(--rk-accent)" }}>%{comp.priceAnalysis.myPricePosition.cheaperThanPercent}</div>
-                                            <div style={{ fontSize: 10, color: "var(--rk-text-sec)" }}>rakiplerden daha ucuz</div>
+                                        <div className="rk-comp-position">
+                                            <div className="rk-comp-position-val">
+                                                %{comp.priceAnalysis.myPricePosition.cheaperThanPercent}
+                                            </div>
+                                            <div className="rk-comp-position-lbl">rakiplerden daha ucuz</div>
                                         </div>
                                     )}
                                 </div>
-                            </div>
+                            </section>
                         )}
 
-                        {/* TRENDYOL RN (URL ile analiz) */}
                         {comp.analyzedProduct && (
-                            <div className="rk-section" style={{ borderColor: "rgba(242,122,26,0.3)" }}>
-                                <h4 className="rk-section-title"><FaEye /> Analiz edilen Trendyol ürünü</h4>
-                                <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>{comp.analyzedProduct.name}</div>
-                                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                                    <span className="rk-chip rk-chip-accent">{fmtPrice(comp.analyzedProduct.price)}</span>
-                                    <span className="rk-chip rk-chip-warning">Puan: {comp.analyzedProduct.ratingScore}</span>
-                                    <span className="rk-chip rk-chip-danger">Favori: {fmt(comp.analyzedProduct.favoriteCount)}</span>
+                            <section className="rk-comp-highlight rk-comp-highlight--trendyol">
+                                <div className="rk-comp-highlight-head">
+                                    <FaEye /> Analiz edilen Trendyol ürünü
                                 </div>
-                            </div>
+                                <div className="rk-comp-highlight-body">
+                                    {comp.analyzedProduct.imageUrl && (
+                                        <img
+                                            className="rk-comp-highlight-img"
+                                            src={comp.analyzedProduct.imageUrl}
+                                            alt=""
+                                            onError={(e) => { e.target.style.display = "none"; }}
+                                        />
+                                    )}
+                                    <div className="rk-comp-highlight-main">
+                                        <div className="rk-comp-highlight-title">{comp.analyzedProduct.name}</div>
+                                        <div className="rk-comp-highlight-chips">
+                                            <span className="rk-chip rk-chip-accent">{fmtPrice(comp.analyzedProduct.price)}</span>
+                                            {comp.analyzedProduct.ratingScore > 0 && (
+                                                <span className="rk-chip rk-chip-warning">
+                                                    <FaStar style={{ marginRight: 4 }} />
+                                                    {comp.analyzedProduct.ratingScore}
+                                                </span>
+                                            )}
+                                            <span className="rk-chip rk-chip-danger">
+                                                <FaHeart style={{ marginRight: 4 }} />
+                                                {fmt(comp.analyzedProduct.favoriteCount)}
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </section>
                         )}
 
                         <div className="rk-stats-row">
                             <div className="rk-stat-card">
-                                <div className="rk-stat-icon" style={{ background: "rgba(78,205,196,0.12)", color: "var(--rk-accent)" }}><FaStore /></div>
-                                <div className="rk-stat-info"><div className="rk-stat-label">Toplam Rakip</div><div className="rk-stat-value">{fmt(comp.totalCompetitors)}</div></div>
+                                <div className="rk-stat-icon" style={{ background: "rgba(78,205,196,0.12)", color: "var(--rk-accent)" }}>
+                                    <FaStore />
+                                </div>
+                                <div className="rk-stat-info">
+                                    <div className="rk-stat-label">Toplam rakip</div>
+                                    <div className="rk-stat-value">{fmt(comp.totalCompetitors)}</div>
+                                </div>
                             </div>
                             <div className="rk-stat-card">
-                                <div className="rk-stat-icon" style={{ background: "rgba(34,197,94,0.12)", color: "var(--rk-green)" }}><FaDollarSign /></div>
-                                <div className="rk-stat-info"><div className="rk-stat-label">Ort. Fiyat</div><div className="rk-stat-value">{fmtPrice(comp.priceAnalysis?.avgPrice)}</div></div>
+                                <div className="rk-stat-icon" style={{ background: "rgba(34,197,94,0.12)", color: "var(--rk-green)" }}>
+                                    <FaDollarSign />
+                                </div>
+                                <div className="rk-stat-info">
+                                    <div className="rk-stat-label">Ort. fiyat</div>
+                                    <div className="rk-stat-value">{fmtPrice(comp.priceAnalysis?.avgPrice)}</div>
+                                </div>
                             </div>
                             <div className="rk-stat-card">
-                                <div className="rk-stat-icon" style={{ background: "rgba(59,130,246,0.12)", color: "var(--rk-blue)" }}><FaChartLine /></div>
-                                <div className="rk-stat-info"><div className="rk-stat-label">Min Fiyat</div><div className="rk-stat-value">{fmtPrice(comp.priceAnalysis?.minPrice)}</div></div>
+                                <div className="rk-stat-icon" style={{ background: "rgba(59,130,246,0.12)", color: "var(--rk-blue)" }}>
+                                    <FaChartLine />
+                                </div>
+                                <div className="rk-stat-info">
+                                    <div className="rk-stat-label">Min fiyat</div>
+                                    <div className="rk-stat-value">{fmtPrice(comp.priceAnalysis?.minPrice)}</div>
+                                </div>
                             </div>
                             <div className="rk-stat-card">
-                                <div className="rk-stat-icon" style={{ background: "rgba(239,68,68,0.12)", color: "var(--rk-red)" }}><FaChartLine /></div>
-                                <div className="rk-stat-info"><div className="rk-stat-label">Max Fiyat</div><div className="rk-stat-value">{fmtPrice(comp.priceAnalysis?.maxPrice)}</div></div>
+                                <div className="rk-stat-icon" style={{ background: "rgba(239,68,68,0.12)", color: "var(--rk-red)" }}>
+                                    <FaChartLine />
+                                </div>
+                                <div className="rk-stat-info">
+                                    <div className="rk-stat-label">Max fiyat</div>
+                                    <div className="rk-stat-value">{fmtPrice(comp.priceAnalysis?.maxPrice)}</div>
+                                </div>
                             </div>
                         </div>
 
                         {comp.productComparison?.length > 0 && (
-                            <ProductTable products={comp.productComparison} isFlash={false} />
+                            <section>
+                                <div className="rk-comp-results-head">
+                                    <h4>Rakip ürün listesi</h4>
+                                    <span>{fmt(comp.productComparison.length)} ürün karşılaştırıldı</span>
+                                </div>
+                                <ProductTable products={comp.productComparison} isFlash={false} />
+                            </section>
                         )}
 
                         {comp.topKeywords?.length > 0 && (
-                            <div className="rk-brands-section">
-                                <h4 className="rk-brands-title"><FaKey /> Rakiplerin Anahtar Kelimeleri</h4>
+                            <section className="rk-comp-keywords">
+                                <h4><FaKey /> Rakiplerin anahtar kelimeleri</h4>
                                 <div className="rk-brands-wrap">
                                     {comp.topKeywords.map((k, i) => (
-                                        <span key={i} className={`rk-brand-tag ${i < 5 ? "top" : ""}`}>{k.keyword} ({k.count})</span>
+                                        <span key={i} className={`rk-brand-tag ${i < 5 ? "top" : ""}`}>
+                                            {k.keyword} <strong>({k.count})</strong>
+                                        </span>
                                     ))}
                                 </div>
-                            </div>
+                            </section>
                         )}
 
                         {comp.insights?.length > 0 && (
-                            <div className="rk-section">
-                                <h4 className="rk-section-title"><FaLightbulb style={{ color: "var(--rk-yellow)" }} /> Görüşler ve öneriler</h4>
-                                {comp.insights.map((ins, i) => {
-                                    const isAlert = /kritik|risk|uyarı|zarar|düşük|yüksek fiyat|pahalı/i.test(ins);
-                                    return (
-                                        <div key={i} style={{
-                                            padding: "8px 12px",
-                                            background: isAlert ? "rgba(239,68,68,0.06)" : "rgba(59,130,246,0.06)",
-                                            border: `1px solid ${isAlert ? "rgba(239,68,68,0.15)" : "rgba(59,130,246,0.15)"}`,
-                                            borderRadius: 8, marginBottom: 6, fontSize: 13, color: "var(--rk-text-sec)",
-                                        }}>
-                                            {ins}
-                                        </div>
-                                    );
-                                })}
-                            </div>
+                            <section className="rk-section">
+                                <h4 className="rk-section-title">
+                                    <FaLightbulb style={{ color: "var(--rk-yellow)" }} /> Görüşler ve öneriler
+                                </h4>
+                                <div className="rk-comp-insights">
+                                    {comp.insights.map((ins, i) => {
+                                        const isAlert = /kritik|risk|uyarı|zarar|düşük|yüksek fiyat|pahalı/i.test(ins);
+                                        return (
+                                            <div
+                                                key={i}
+                                                className={`rk-comp-insight ${isAlert ? "rk-comp-insight--warn" : "rk-comp-insight--tip"}`}
+                                            >
+                                                {isAlert ? <FaExclamationTriangle /> : <FaLightbulb />}
+                                                <span>{ins}</span>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </section>
                         )}
                     </>
                 )}
 
-                {/* BO DURUM */}
                 {!comp && !compLoading && myProducts.length === 0 && (
-                    <div className="rk-empty">
-                        <FaBalanceScale className="rk-empty-icon" />
-                        <div className="rk-empty-text">Rakip analizi yapmak için</div>
-                        <div className="rk-empty-sub">Yukarıdaki alana Trendyol ürün linki veya anahtar kelime girin.</div>
+                    <div className="rk-comp-empty">
+                        <FaBalanceScale className="rk-comp-empty-icon" aria-hidden />
+                        <h4>Rakip analizine başlayın</h4>
+                        <p>
+                            Üstte Trendyol linki veya anahtar kelime girin. Mağazanıza ürün eklediğinizde
+                            buradan tek tıkla da analiz yapabilirsiniz.
+                        </p>
                     </div>
                 )}
             </div>
@@ -1862,7 +2048,6 @@ export default function RoketfyPanel() {
 
     return (
         <div className="rk-container">
-            {/* Header */}
             <div className="rk-header">
                 <div className="rk-header-left">
                     <h1>
@@ -1876,10 +2061,17 @@ export default function RoketfyPanel() {
                         <span className="rk-live-dot" />
                         CANLI VERİ
                         {(activeTab === 0 || activeTab === 1 || (activeTab === 2 && researchResult)) && nextRefreshIn > 0 && (
-                            <span style={{ fontSize: 10, opacity: 0.7, marginLeft: 6 }}> {formatCountdown(nextRefreshIn)}</span>
+                            <span style={{ fontSize: 10, opacity: 0.7, marginLeft: 6 }}>
+                                {formatCountdown(nextRefreshIn)}
+                            </span>
                         )}
                     </div>
-                    <button className={`rk-refresh-btn ${loading ? "spinning" : ""}`} onClick={handleRefresh} disabled={loading}>
+                    <button
+                        type="button"
+                        className={`rk-refresh-btn ${loading ? "spinning" : ""}`}
+                        onClick={handleRefresh}
+                        disabled={loading}
+                    >
                         <FaSync /> Yenile
                     </button>
                 </div>
@@ -1889,29 +2081,52 @@ export default function RoketfyPanel() {
             {error && (
                 <div className="rk-error">
                     <FaExclamationTriangle /> {error}
+                    <button type="button" className="rk-retry-btn" style={{ marginLeft: 8 }} onClick={handleRefresh}>Tekrar dene</button>
                     <button className="rk-error-close" onClick={() => setError("")}><FaTimes /></button>
                 </div>
             )}
 
-            {/* Main Tabs */}
-            <div className="rk-main-tabs">
-                {TAB_CONFIG.map((tab, i) => {
-                    const Icon = tab.icon;
-                    return (
-                        <button
-                            type="button"
-                            key={tab.id}
-                            className={`rk-main-tab ${activeTab === i ? `active ${tab.color}` : ""}`}
-                            onClick={() => setActiveTab(i)}
-                        >
-                            <Icon className="rk-tab-icon" />
-                            {tab.label}
-                        </button>
-                    );
-                })}
-            </div>
+            {dashboard?.overview && (
+                <div className="rk-dash-strip">
+                    <div className="rk-dash-card">
+                        <strong>{fmt(dashboard.overview.totalProducts)}</strong>
+                        <span>Mağaza ürünü</span>
+                    </div>
+                    <div className="rk-dash-card">
+                        <strong>{dashboard.overview.avgListingGrade || "—"}</strong>
+                        <span>Ort. liste skoru</span>
+                    </div>
+                    <div className="rk-dash-card">
+                        <strong>{fmt(dashboard.overview.monthlyOrders)}</strong>
+                        <span>Sipariş (30 gün)</span>
+                    </div>
+                    <div className="rk-dash-card">
+                        <strong>{bestSellers?.products?.length ?? "—"}</strong>
+                        <span>Canlı liste</span>
+                    </div>
+                </div>
+            )}
 
-            {/* Layout: Category Panel + Content */}
+            <nav className="rk-tabs-nav" aria-label="Radar analiz sekmeleri">
+                <div className="rk-main-tabs">
+                    {TAB_CONFIG.map((tab, i) => {
+                        const Icon = tab.icon;
+                        return (
+                            <button
+                                type="button"
+                                key={tab.id}
+                                className={`rk-main-tab ${activeTab === i ? `active ${tab.color}` : ""}`}
+                                onClick={() => setActiveTab(i)}
+                                aria-current={activeTab === i ? "page" : undefined}
+                            >
+                                <Icon className="rk-tab-icon" aria-hidden />
+                                <span>{tab.label}</span>
+                            </button>
+                        );
+                    })}
+                </div>
+            </nav>
+
             {showCategoryPanel ? (
                 <div className="rk-layout">
                     {renderCategoryPanel()}

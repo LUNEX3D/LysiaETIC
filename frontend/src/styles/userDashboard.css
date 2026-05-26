@@ -590,6 +590,14 @@
     z-index: 1;
 }
 
+/* Dashtock Radar — tam genişlik, normal dikey kaydırma (ürün listesi kesilmesin) */
+.content-area.content-area--radar {
+    padding: clamp(0.75rem, 1.5vw, 1.25rem);
+    padding-top: calc(clamp(0.75rem, 1.5vw, 1.25rem) + env(safe-area-inset-top));
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
 .dashboard-home-layout {
     width: 100%;
     max-width: 100%;

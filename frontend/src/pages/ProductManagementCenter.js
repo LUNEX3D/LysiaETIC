@@ -364,7 +364,6 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
         finally { setLoading(false); }
     }, [search, stockFilter, showToast]);
 
-    useEffect(() => { loadProducts(0); }, [stockFilter]); // eslint-disable-line
     useEffect(() => { if (searchRef.current) clearTimeout(searchRef.current); searchRef.current = setTimeout(() => loadProducts(0, search), 400); return () => clearTimeout(searchRef.current); }, [search]); // eslint-disable-line
 
     const loadDashboard = useCallback(async () => { try { const r = await getProductManagementDashboard(); setDashboard(r.dashboard || r); } catch {} }, []);
@@ -1005,7 +1004,7 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
         if (tab === "uploadMp") loadUploadMpProducts(0, uploadMpSearch, uploadMpFilterPl, uploadMpFilterType);
         if (tab === "channel-prices") loadChTabProducts(0);
         if (tab === "variants") loadVariantGroups();
-    }, [tab, loadLogs]); // eslint-disable-line
+    }, [tab, stockFilter, loadLogs]); // eslint-disable-line
     useEffect(() => { if (tab === "bulk") { if (bulkSearchRef.current) clearTimeout(bulkSearchRef.current); bulkSearchRef.current = setTimeout(() => loadBulkProducts(0, bulkSearch), 400); return () => clearTimeout(bulkSearchRef.current); } }, [bulkSearch]); // eslint-disable-line
     useEffect(() => { if (tab === "uploadMp") { const t = setTimeout(() => loadUploadMpProducts(0, uploadMpSearch, uploadMpFilterPl, uploadMpFilterType), 400); return () => clearTimeout(t); } }, [uploadMpSearch, uploadMpFilterPl, uploadMpFilterType]); // eslint-disable-line
     useEffect(() => {
@@ -1240,7 +1239,15 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
         try {
             const r = await distributeUndistributed({});
             const s = r.stats || {};
-            showToast(`${s.distributed || 0} ürün dağıtıldı${s.error > 0 ? `, ${s.error} hata` : ""}`);
+            const parts = [];
+            if (s.distributed > 0) parts.push(`${s.distributed} yükleme başlatıldı`);
+            if (s.noCategory > 0) parts.push(`${s.noCategory} kategori eşleşmesi yok (Kategori Merkezi)`);
+            if (s.error > 0) parts.push(`${s.error} hata`);
+            if (s.skipped > 0 && !s.distributed) parts.push("dağıtılacak ürün bulunamadı");
+            showToast(
+                parts.length ? parts.join(" · ") : r.message || "İşlem tamamlandı",
+                s.distributed > 0 ? "success" : s.noCategory > 0 || s.error > 0 ? "warning" : "info"
+            );
             logUserActivity(
                 "marketplace",
                 "Dağıtım (bekleyen ürünler)",
@@ -1989,7 +1996,7 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
     const loadCatProducts = async () => {
         setCatProdLoading(true);
         try {
-            const r = await getProducts({ page: 0, limit: 9999 });
+            const r = await getProducts({ page: 0, limit: 200 });
             setCatProducts(r.products || []);
         } catch {}
         finally { setCatProdLoading(false); }
@@ -3181,7 +3188,7 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
     const bulkSelectAll = async () => {
         setBulkActionLoading(true);
         try {
-            const params = { page: 0, limit: 9999 }; if (bulkSearch) params.search = bulkSearch;
+            const params = { page: 0, limit: 200 }; if (bulkSearch) params.search = bulkSearch;
             const res = await getProducts(params);
             setBulkSelected(new Set((res.products || []).map(p => p._id)));
             showToast(`${(res.products || []).length} ürün seçildi`);

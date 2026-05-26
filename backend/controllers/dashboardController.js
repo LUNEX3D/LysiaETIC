@@ -1,4 +1,5 @@
-const { getDashboardData } = require("../services/dashboardService");
+const { getDashboardData, invalidateDashboardCache } = require("../services/dashboardService");
+const { getOrdersCardData } = require("../services/dashboardOrdersCardService");
 const logger = require("../config/logger");
 const { ok, badRequest, serverError } = require("../utils/apiResponse");
 
@@ -12,10 +13,34 @@ exports.getDashboardSummary = async (req, res) => {
             return badRequest(res, "Kullanıcı ID'si gerekli.");
         }
 
-        const data = await getDashboardData(userId);
+        if (req.query.refresh === "1" || req.query.refresh === "true") {
+            invalidateDashboardCache(userId);
+        }
+
+        const live =
+            req.query.refresh === "1" ||
+            req.query.refresh === "true" ||
+            req.query.live === "1" ||
+            req.query.live === "true";
+        const data = await getDashboardData(userId, { live });
         return ok(res, "Dashboard verileri.", data);
     } catch (error) {
         logger.error("Dashboard summary error", { error: error.message });
         return serverError(res, error, "Dashboard verileri yüklenemedi.");
+    }
+};
+
+/** Ana sayfa siparişler kartı — canlı API, tek liste */
+exports.getOrdersCard = async (req, res) => {
+    try {
+        const userId = req.user?._id || req.user?.id;
+        if (!userId) {
+            return badRequest(res, "Kullanıcı ID'si gerekli.");
+        }
+        const data = await getOrdersCardData(userId);
+        return ok(res, "Sipariş kartı verileri.", data);
+    } catch (error) {
+        logger.error("Orders card error", { error: error.message });
+        return serverError(res, error, "Sipariş kartı yüklenemedi.");
     }
 };

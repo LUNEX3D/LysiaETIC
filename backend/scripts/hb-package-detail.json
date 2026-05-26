@@ -1,0 +1,15 @@
+{
+  "status": 200,
+  "data": [
+    {
+      "packageNumber": "5477503376",
+      "status": "InTransit",
+      "cargoCompany": "Yurtiçi Kargo",
+      "trackingInfoCode": "905862913007",
+      "trackingInfoUrl": "https://www.yurticikargo.com/tr/online-servisler/gonderi-sorgula?code=905862913007",
+      "barcode": "62754775033760",
+      "estimatedArrivalDate": "2026-06-01T13:28:24",
+      "deci": 1
+    }
+  ]
+}

@@ -9,6 +9,7 @@ const mongoose = require("mongoose");
 const MARKETPLACE_ENUM = [
     "Trendyol", "Hepsiburada", "N11", "ÇiçekSepeti",
     "Amazon", "Amazon Türkiye", "Amazon Europe", "Amazon USA",
+    "Ozon",
 ];
 
 /** Frontend / API'den gelen "n11" → "N11" (enum doğrulamasından önce) */
@@ -21,6 +22,7 @@ function normalizeMarketplaceName(name) {
     if (n === "hepsiburada") return "Hepsiburada";
     if (n === "çiçeksepeti" || n === "ciceksepeti") return "ÇiçekSepeti";
     if (n === "amazon") return "Amazon";
+    if (n === "ozon") return "Ozon";
     for (const v of MARKETPLACE_ENUM) {
         if (n === v.toLowerCase()) return v;
     }

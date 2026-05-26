@@ -1,0 +1,86 @@
+{
+  "found": [
+    {
+      "_id": "69eca6fe2f2b3328ebad1e00",
+      "user": "69cd229a7fa3ee7b5cf758fa",
+      "marketplaceName": "n11",
+      "totalPrice": 103.99,
+      "orderDate": "2026-04-24T19:26:41.700Z",
+      "status": "Delivered",
+      "trackingNumber": "205677347336",
+      "customerName": "Hatice Cırıl",
+      "customerAddress": {
+        "city": "İstanbul",
+        "district": "Üsküdar",
+        "street": "Kalfaçeşme sk. No:1 Validebağ ek hizmet binası",
+        "country": "Turkiye",
+        "phone": "",
+        "email": "bidimb16f7fe77f44f0b2d@n11mail.com"
+      },
+      "items": [
+        {
+          "productName": "Sevgililer Günü Temalı Puzzle Kalp İkili Anahtarlık",
+          "quantity": 1,
+          "barcode": "SYNC-205677347336-0",
+          "imageUrl": "/default-product.jpg",
+          "price": 103.99,
+          "category": "Bilinmiyor",
+          "costPrice": 0,
+          "commissionRate": 0,
+          "commissionAmount": 0,
+          "shippingCost": 0,
+          "netProfit": 103.99,
+          "_id": "69eca6fe2f2b3328ebad1e01"
+        }
+      ],
+      "costSummary": {
+        "totalCost": 0,
+        "totalCommission": 0,
+        "totalShipping": 0,
+        "totalPackaging": 0,
+        "totalOtherCost": 0,
+        "grossProfit": 103.99,
+        "netProfit": 103.99,
+        "profitMargin": 100
+      },
+      "invoiceNumber": "",
+      "invoiceStatus": "",
+      "isReturned": false,
+      "isCancelled": false,
+      "createdAt": "2026-04-25T11:35:26.893Z",
+      "updatedAt": "2026-05-23T23:10:06.919Z",
+      "__v": 0,
+      "statusBucket": "delivered"
+    }
+  ],
+  "tests": [
+    {
+      "status": "Tamamlandı",
+      "bucket": "delivered"
+    },
+    {
+      "status": "Tamamlandi",
+      "bucket": "delivered"
+    },
+    {
+      "status": "COMPLETED",
+      "bucket": "delivered"
+    },
+    {
+      "status": "Delivered",
+      "bucket": "delivered"
+    },
+    {
+      "status": "DELIVERED",
+      "bucket": "delivered"
+    },
+    {
+      "status": "New",
+      "bucket": "new"
+    },
+    {
+      "status": "Approved",
+      "bucket": "processing"
+    }
+  ]
+}

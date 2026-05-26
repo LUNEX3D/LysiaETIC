@@ -13,10 +13,11 @@
  * ✅ P1-3: Swagger API dokümantasyonu eklendi (/api-docs)
  */
 
-// ─── 1. ENV — EN ÜSTTE yüklenmeli ────────────────────────────────────────────
-require("dotenv").config();
-// Yerel geliştirme: backend/.env.local (gitignore) — NODE_ENV=development vb.
-require("dotenv").config({ path: ".env.local", override: true });
+// ─── 1. ENV — EN ÜSTTE yüklenmeli (PM2 cwd'den bağımsız: backend/ kökü) ─────
+const path = require("path");
+const BACKEND_ROOT = __dirname;
+require("dotenv").config({ path: path.join(BACKEND_ROOT, ".env") });
+require("dotenv").config({ path: path.join(BACKEND_ROOT, ".env.local"), override: true });
 
 const express        = require("express");
 const mongoose       = require("mongoose");
@@ -26,7 +27,7 @@ const hpp            = require("hpp");
 const mongoSanitize  = require("express-mongo-sanitize");
 const dns            = require("dns");
 const os             = require("os");
-const path           = require("path");
+const fs             = require("fs");
 const logger         = require("./config/logger");
 const { apiLimiter }        = require("./middlewares/rateLimiter");
 const { sanitizeBody }      = require("./middlewares/sanitize");
@@ -93,9 +94,19 @@ const stats = {
     routes   : {},  // endpoint bazlı sayaç
 };
 
-// --- FRONTEND STATIC SERVING ---
+// --- FRONTEND STATIC SERVING (production: deploy ile frontend/build veya Nginx /var/www/html) ---
 const buildPath = path.join(__dirname, "../frontend/build");
-app.use(express.static(buildPath));
+const buildIndexPath = path.join(buildPath, "index.html");
+const hasFrontendBuild = fs.existsSync(buildIndexPath);
+if (process.env.NODE_ENV === "production" && !hasFrontendBuild) {
+    logger.warn(
+        "⚠️ frontend/build/index.html yok — Ana site icin Nginx + deploy-frontend.ps1 gerekli. " +
+        "Sadece git pull yapmak yetmez (build .gitignore'da)."
+    );
+}
+if (hasFrontendBuild) {
+    app.use(express.static(buildPath));
+}
 // -------------------------------
 
 // ─── 6. GÜVENLİK — Helmet.js + Ek Güvenlik Header'ları ────────────────────────
@@ -463,9 +474,17 @@ app.get("/api/status", (req, res) => {
 
 // ─── 11. 404 — Bilinmeyen route ───────────────────────────────────────────────
 app.use((req, res, next) => {
-    // API endpoint'i değilse ve dosya uzantısı yoksa (SPA router) index.html döndür
-    if (!req.path.startsWith('/api') && !req.path.includes('.')) {
-        return res.sendFile(path.join(__dirname, "../frontend/build/index.html"));
+    if (!req.path.startsWith("/api") && !req.path.includes(".")) {
+        if (hasFrontendBuild) {
+            return res.sendFile(buildIndexPath);
+        }
+        return res.status(503).type("html").send(
+            "<!DOCTYPE html><html><body style='font-family:sans-serif;padding:2rem'>" +
+            "<h1>Dashtock</h1><p>Frontend henuz yayinlanmamis.</p>" +
+            "<p>Sunucuda: <code>powershell -File deploy-frontend.ps1</code> (yerel) calistirin.</p>" +
+            "<p><code>git pull</code> tek basina yetmez — <code>frontend/build</code> gitte yoktur.</p>" +
+            "</body></html>"
+        );
     }
     next();
 });
@@ -577,6 +596,17 @@ const startServer = async () => {
         logger.info(`  🔗  Site     : ${APP_URL}`);
         logger.info(`  📊  Durum    : http://localhost:${PORT}/api/status`);
         logger.info(`  🕐  Başlangıç: ${new Date().toLocaleString("tr-TR")}`);
+        try {
+            const paytrService = require("./services/paytrService");
+            const paytr = paytrService.getConfigStatus();
+            if (paytr.configured) {
+                logger.info(`  💳  PayTR   : hazır (test_mode=${paytr.testMode}, bildirim=${paytr.notifyUrl})`);
+            } else {
+                logger.warn(`  💳  PayTR   : EKSIK — backend/.env → PAYTR_MERCHANT_ID/KEY/SALT + pm2 restart`);
+            }
+        } catch (e) {
+            logger.warn(`  💳  PayTR   : durum okunamadı (${e.message})`);
+        }
         logger.info(`${line}\n`);
 
         // ─── Otomatik Stok Senkronizasyon Cron'unu Başlat ─────────────────────

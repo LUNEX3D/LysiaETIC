@@ -49,6 +49,21 @@ router.post("/test-ciceksepeti", authMiddleware, async (req, res) => {
     }
 });
 
+// Ozon Seller credential test
+router.post("/test-ozon", authMiddleware, async (req, res) => {
+    try {
+        const { testConnection, normalizeCredentials } = require("../services/ozon/ozonService");
+        const creds = normalizeCredentials(req.body);
+        const result = await testConnection(creds);
+        return res.status(200).json(result);
+    } catch (err) {
+        return res.status(200).json({
+            success: false,
+            message: err.message || "Ozon bağlantı testi başarısız",
+        });
+    }
+});
+
 // Amazon SP-API credential test
 router.post("/test-amazon", authMiddleware, async (req, res) => {
     try {

@@ -4,31 +4,90 @@
     <meta charset="UTF-8" />
     <script>
         (function () {
+            var canon = "https://dashtock.com";
+            var h = (location.hostname || "").toLowerCase();
             var legacy = {
                 "pazaryonet.com": 1, "www.pazaryonet.com": 1,
                 "pazaryonetim.com": 1, "www.pazaryonetim.com": 1,
                 "pazaryönetim.com": 1, "www.pazaryönetim.com": 1,
                 "xn--pazarynetim-wfb.com": 1, "www.xn--pazarynetim-wfb.com": 1
             };
-            var h = (location.hostname || "").toLowerCase();
-            if (legacy[h]) {
-                location.replace("https://dashtock.com" + location.pathname + location.search + location.hash);
+            if (legacy[h] || h === "www.dashtock.com") {
+                location.replace(canon + location.pathname + location.search + location.hash);
+                return;
+            }
+            if (location.protocol === "http:" && h === "dashtock.com") {
+                location.replace(canon + location.pathname + location.search + location.hash);
             }
         })();
     </script>
     <!-- ✅ WEB APP FIRST: viewport-fit=cover for notched devices (iPhone X+, Android punch-hole) -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover" />
     <meta http-equiv="X-UA-Compatible" content="IE=edge" />
-    <title>Dashtock</title>
-    <meta name="description" content="Dashtock ile Trendyol, Hepsiburada, Amazon ve diğer pazaryerlerinde stok, sipariş, fiyat ve kârınızı tek dashboard'dan yönetin." />
-    <meta name="robots" content="index, follow" />
-    <link rel="canonical" href="https://dashtock.com/" />
-    <meta property="og:url" content="https://dashtock.com/" />
+    <title>Dashtock — Pazaryeri Entegrasyon ve E-Ticaret Yönetimi</title>
+    <meta name="description" content="Dashtock ile Trendyol, Hepsiburada, Amazon, N11 ve diğer pazaryerlerini tek panelden yönetin. Stok, sipariş, fiyat ve kâr analizi." />
+    <meta name="keywords" content="Dashtock, pazaryeri entegrasyonu, e-ticaret yönetimi, Trendyol entegrasyonu, Hepsiburada entegrasyonu, stok senkronizasyonu, sipariş yönetimi" />
+    <meta name="author" content="Dashtock" />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
+    <meta name="googlebot" content="index, follow" />
+    <link rel="canonical" href="https://dashtock.com/home" />
+    <link rel="sitemap" type="application/xml" title="Sitemap" href="https://dashtock.com/sitemap.xml" />
+    <link rel="alternate" hreflang="tr" href="https://dashtock.com/home" />
+    <link rel="alternate" hreflang="x-default" href="https://dashtock.com/home" />
+    <meta property="og:type" content="website" />
+    <meta property="og:locale" content="tr_TR" />
+    <meta property="og:url" content="https://dashtock.com/home" />
     <meta property="og:site_name" content="Dashtock" />
-    <meta property="og:title" content="Dashtock — Stok ve satış dashboard'u" />
-    <meta property="og:description" content="Dashtock ile Trendyol, Hepsiburada, Amazon ve diğer pazaryerlerini tek panelden yönetin." />
+    <meta property="og:title" content="Dashtock — Pazaryeri Entegrasyon ve E-Ticaret Yönetimi" />
+    <meta property="og:description" content="Dashtock ile Trendyol, Hepsiburada, Amazon ve diğer pazaryerlerini tek panelden yönetin. Stok, sipariş, fiyat ve kâr analizi." />
+    <meta property="og:image" content="https://dashtock.com/icons/icon-512x512.png" />
+    <meta property="og:image:width" content="512" />
+    <meta property="og:image:height" content="512" />
+    <meta property="og:image:alt" content="Dashtock logosu" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Dashtock — Pazaryeri Entegrasyon ve E-Ticaret Yönetimi" />
+    <meta name="twitter:description" content="Trendyol, Hepsiburada, Amazon ve diğer pazaryerlerinde stok, sipariş, fiyat ve kârınızı tek panelden yönetin." />
+    <meta name="twitter:image" content="https://dashtock.com/icons/icon-512x512.png" />
     <script type="application/ld+json">
-    {"@context":"https://schema.org","@graph":[{"@type":"Organization","name":"Dashtock","url":"https://dashtock.com","email":"info@dashtock.com","logo":"https://dashtock.com/brand/dashtock-logo.svg"},{"@type":"SoftwareApplication","name":"Dashtock","applicationCategory":"BusinessApplication","operatingSystem":"Web","description":"Pazaryeri entegrasyonu ve e-ticaret yönetim SaaS platformu"}]}
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "WebSite",
+          "@id": "https://dashtock.com/#website",
+          "url": "https://dashtock.com/",
+          "name": "Dashtock",
+          "description": "Pazaryeri entegrasyonu ve e-ticaret yönetim platformu",
+          "inLanguage": "tr-TR",
+          "publisher": { "@id": "https://dashtock.com/#organization" }
+        },
+        {
+          "@type": "Organization",
+          "@id": "https://dashtock.com/#organization",
+          "name": "Dashtock",
+          "url": "https://dashtock.com/",
+          "email": "info@dashtock.com",
+          "logo": {
+            "@type": "ImageObject",
+            "url": "https://dashtock.com/brand/dashtock-logo.svg?v=dashtock4"
+          }
+        },
+        {
+          "@type": "SoftwareApplication",
+          "name": "Dashtock",
+          "applicationCategory": "BusinessApplication",
+          "operatingSystem": "Web",
+          "url": "https://dashtock.com/home",
+          "description": "Trendyol, Hepsiburada, Amazon ve diğer pazaryerlerinde stok, sipariş, fiyat ve kâr yönetimi.",
+          "offers": {
+            "@type": "Offer",
+            "price": "0",
+            "priceCurrency": "TRY",
+            "description": "Ücretsiz deneme"
+          }
+        }
+      ]
+    }
     </script>
 
     <!-- ✅ PWA Meta Tags — Full cross-platform support -->
@@ -53,12 +112,12 @@
     <link rel="manifest" href="/manifest.json" crossorigin="use-credentials" />
 
     <!-- ✅ Favicons — Dashtock (PNG öncelikli; sekme + "Uygulamada aç" chip) -->
-    <link rel="icon" type="image/png" sizes="32x32" href="/icons/icon-32x32.png?v=dashtock3" />
-    <link rel="icon" type="image/png" sizes="16x16" href="/icons/icon-16x16.png?v=dashtock3" />
-    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192x192.png?v=dashtock3" />
-    <link rel="shortcut icon" href="/favicon.png?v=dashtock3" type="image/png" />
-    <link rel="icon" href="/brand/dashtock-logo.svg?v=dashtock3" type="image/svg+xml" />
-    <link rel="apple-touch-icon" href="/icons/icon-192x192.png?v=dashtock3" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/icons/icon-32x32.png?v=dashtock4" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/icons/icon-16x16.png?v=dashtock4" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192x192.png?v=dashtock4" />
+    <link rel="shortcut icon" href="/favicon.png?v=dashtock4" type="image/png" />
+    <link rel="icon" href="/brand/dashtock-logo.svg?v=dashtock4" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icons/icon-192x192.png?v=dashtock4" />
     <link rel="apple-touch-icon" sizes="120x120" href="/icons/icon-128x128.png" />
     <link rel="apple-touch-icon" sizes="152x152" href="/icons/icon-152x152.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/icons/icon-192x192.png" />
@@ -115,6 +174,22 @@
         })();
     </script>
 
+    <!-- Cüzdan eklentisi (MetaMask) gürültüsü — Dashtock Web3 kullanmaz -->
+    <script>
+        (function () {
+            var re = /metamask|nkbihfbeogaeaoehlefnkodbefgpgknn|failed to connect to metamask/i;
+            function noisy(v) {
+                var s = String((v && v.message) || v || "");
+                return re.test(s) || re.test(String((v && v.stack) || ""));
+            }
+            window.addEventListener("unhandledrejection", function (e) {
+                if (noisy(e.reason)) e.preventDefault();
+            }, true);
+            window.addEventListener("error", function (e) {
+                if (noisy(e.message) || re.test(String(e.filename || ""))) e.preventDefault();
+            }, true);
+        })();
+    </script>
     <!-- ✅ WEB APP FIRST: Critical inline styles for instant first paint -->
     <style>
         /* Prevent FOUC and layout shift */
@@ -126,7 +201,12 @@
     </style>
 </head>
 <body>
-    <noscript>Dashtock'i kullanabilmek için JavaScript'i etkinleştirmeniz gerekmektedir.</noscript>
+    <noscript>
+        <h1>Dashtock — Pazaryeri Entegrasyon ve E-Ticaret Yönetimi</h1>
+        <p>Dashtock ile Trendyol, Hepsiburada, Amazon, N11 ve diğer pazaryerlerini tek panelden yönetin. Stok, sipariş, fiyat ve kâr analizi.</p>
+        <p><a href="https://dashtock.com/home">Ana sayfa</a> · <a href="https://dashtock.com/register">Ücretsiz dene</a> · <a href="https://dashtock.com/blog">Blog</a></p>
+        <p>JavaScript kapalı — tam uygulama için tarayıcınızda JavaScript'i etkinleştirin.</p>
+    </noscript>
     <div id="root"></div>
 </body>
 </html>

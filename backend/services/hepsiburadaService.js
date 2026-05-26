@@ -150,6 +150,49 @@ const formatHbOmsDateTime = (value) => {
 /** Katalog SKU (HBCV…) — merchantSku ile karıştırılmamalı */
 const isHbCatalogSku = (value) => /^HBCV/i.test(String(value ?? "").trim());
 
+/** OMS yanıtı camelCase veya PascalCase gelebilir */
+const hbField = (obj, ...keys) => {
+    if (!obj || typeof obj !== "object") return undefined;
+    for (const k of keys) {
+        const v = obj[k];
+        if (v != null && v !== "") return v;
+    }
+    return undefined;
+};
+
+/**
+ * Hepsiburada OMS kaydını tek forma indirger (shipped/delivered çoğunlukla PascalCase).
+ */
+const normalizeHbOmsItem = (raw) => {
+    if (!raw || typeof raw !== "object") return raw;
+    const orderNumbers = hbField(raw, "orderNumbers", "OrderNumbers");
+    const firstOrderNo = Array.isArray(orderNumbers) && orderNumbers.length ? orderNumbers[0] : undefined;
+    const nested = raw.items || raw.Items || raw.lineItems || raw.LineItems || [];
+    const nestedItems = Array.isArray(nested) ? nested.map((x) => normalizeHbOmsItem(x)) : [];
+
+    return {
+        ...raw,
+        id: hbField(raw, "id", "Id"),
+        orderNumber: hbField(raw, "orderNumber", "OrderNumber") || firstOrderNo,
+        merchantOrderNumber: hbField(raw, "merchantOrderNumber", "MerchantOrderNumber"),
+        customerOrderNumber: hbField(raw, "customerOrderNumber", "CustomerOrderNumber"),
+        packageNumber: hbField(raw, "packageNumber", "PackageNumber"),
+        barcode: hbField(raw, "barcode", "Barcode"),
+        orderDate:
+            hbField(raw, "orderDate", "OrderDate", "shippedDate", "ShippedDate", "deliveredDate", "DeliveredDate", "createdDate", "CreatedDate") ||
+            raw.orderDate,
+        status: hbField(raw, "status", "Status"),
+        customerName: hbField(raw, "customerName", "CustomerName", "recipientName", "RecipientName"),
+        recipientName: hbField(raw, "recipientName", "RecipientName"),
+        cargoCompany: hbField(raw, "cargoCompany", "CargoCompany") || raw.cargoCompanyModel?.name,
+        trackingInfoCode: hbField(raw, "trackingInfoCode", "TrackingInfoCode"),
+        shippingAddress: raw.shippingAddress || raw.ShippingAddress,
+        shippingAddressDetail: raw.shippingAddressDetail || raw.ShippingAddressDetail,
+        invoice: raw.invoice || raw.Invoice,
+        items: nestedItems,
+    };
+};
+
 /**
  * Otomatik sipariş / lineitem kargo — HB CargoCompanyShortName (ör. HEPSIJET, YK).
  */
@@ -227,22 +270,200 @@ const resolveHepsiburadaOrderNumber = (item, parent = null) => {
         return null;
     };
 
+    const orderNums = item?.orderNumbers || item?.OrderNumbers;
+    const firstListed = Array.isArray(orderNums) && orderNums.length ? orderNums[0] : null;
+
     const fromItem = pick(
         item?.orderNumber,
+        item?.OrderNumber,
+        firstListed,
         item?.merchantOrderNumber,
+        item?.MerchantOrderNumber,
+        item?.customerOrderNumber,
+        item?.CustomerOrderNumber,
+        item?.order?.orderNumber,
+        item?.order?.OrderNumber,
+        item?.order?.merchantOrderNumber,
         item?.sapNumber,
+        item?.SapNumber,
         item?.packageNumber,
-        item?.orderId
+        item?.PackageNumber,
+        item?.orderId,
+        item?.OrderId
     );
     if (fromItem) return fromItem;
 
+    const pNums = parent?.orderNumbers || parent?.OrderNumbers;
+    const pFirst = Array.isArray(pNums) && pNums.length ? pNums[0] : null;
+
     return pick(
         parent?.orderNumber,
+        parent?.OrderNumber,
+        pFirst,
         parent?.merchantOrderNumber,
+        parent?.MerchantOrderNumber,
+        parent?.customerOrderNumber,
+        parent?.CustomerOrderNumber,
+        parent?.order?.orderNumber,
+        parent?.order?.OrderNumber,
         parent?.sapNumber,
+        parent?.SapNumber,
         parent?.packageNumber,
-        parent?.orderId
+        parent?.PackageNumber,
+        parent?.orderId,
+        parent?.OrderId
     );
+};
+
+const hbMoney = (v) => {
+    if (v == null) return 0;
+    if (typeof v === "object") return Number(v.amount ?? v.Amount ?? 0) || 0;
+    return Number(v) || 0;
+};
+
+/**
+ * Müşterinin ödediği / faturalanacak kalem tutarı (kampanya sonrası).
+ * HB dokümantasyonu: totalPrice = satır toplamı; hbDiscount / merchantDiscount = indirim tutarları (eklenmez).
+ * Örnek: liste 100 TL, kampanya −50 → totalPrice 50; unitPrice 100 + merchantDiscount 50 toplanmamalı.
+ */
+const computeHbLineCustomerAmount = (item) => {
+    if (!item || typeof item !== "object") return 0;
+    const qty = Math.max(1, Number(item.quantity ?? item.Quantity ?? 1));
+
+    const lineTotal = hbMoney(item.totalPrice ?? item.TotalPrice);
+    if (lineTotal > 0) return Math.round(lineTotal * 10000) / 10000;
+
+    const unit = hbMoney(item.unitPrice ?? item.UnitPrice);
+    const hbDiscLine = hbMoney(item.hbDiscount?.totalPrice ?? item.HbDiscount?.totalPrice);
+    const merchDiscLine = hbMoney(item.merchantDiscount?.totalPrice ?? item.MerchantDiscount?.TotalPrice);
+    const fromList = unit * qty - hbDiscLine - merchDiscLine;
+    if (fromList > 0) return Math.round(fromList * 10000) / 10000;
+
+    const hbDiscUnit = hbMoney(item.hbDiscount?.unitPrice ?? item.HbDiscount?.UnitPrice);
+    const merchDiscUnit = hbMoney(item.merchantDiscount?.unitPrice ?? item.MerchantDiscount?.UnitPrice);
+    const fromUnitDisc = unit * qty - hbDiscUnit * qty - merchDiscUnit * qty;
+    if (fromUnitDisc > 0) return Math.round(fromUnitDisc * 10000) / 10000;
+
+    return unit > 0 ? Math.round(unit * qty * 10000) / 10000 : 0;
+};
+
+/** Birim fiyat (indirim sonrası) */
+const computeHbLineUnitCustomerPrice = (item) => {
+    const qty = Math.max(1, Number(item.quantity ?? item.Quantity ?? 1));
+    const line = computeHbLineCustomerAmount(item);
+    return line > 0 ? line / qty : 0;
+};
+
+/** @deprecated — computeHbLineCustomerAmount kullanın */
+const computeHbLineGrossAmount = computeHbLineCustomerAmount;
+
+/**
+ * GET /orders/merchantid/{merchantId}/ordernumber/{orderNumber}
+ * Shipped/delivered listelerinde müşteri ve kalem detayı yok — bu uç tam sipariş döner.
+ */
+const fetchHbOrderByOrderNumber = async (merchantId, secretKey, userAgent, orderNumber, useSit = false) => {
+    const orderNo = String(orderNumber || "").trim();
+    if (!merchantId || !secretKey || !orderNo) return null;
+    const ep = getEndpoints({ useSit });
+    const headers = getHeadersForGet(merchantId, secretKey, userAgent);
+    const url = `${ep.OMS}/orders/merchantid/${merchantId}/ordernumber/${encodeURIComponent(orderNo)}`;
+    try {
+        const res = await axios.get(url, { headers, timeout: 25000, validateStatus: () => true });
+        if (res.status !== 200 || !res.data) return null;
+        return res.data;
+    } catch (e) {
+        logger.warn(`[HB OrderDetail] ${orderNo}: ${e.message}`);
+        return null;
+    }
+};
+
+/** OMS sipariş detayını ordersService orderMap kaydına uygular */
+const mapHbOrderDetailToEntry = (detail, existing = {}) => {
+    if (!detail || typeof detail !== "object") return existing;
+    const del = detail.deliveryAddress || {};
+    const inv = detail.invoice?.address || {};
+    const cust = detail.customer || {};
+    const lines = Array.isArray(detail.items) ? detail.items : [];
+
+    const products = lines.map((line) => {
+        const imgTpl = line.productImageUrlFormat || line.productImageUrl || "";
+        const imgUrl = imgTpl ? String(imgTpl).replace("{size}", "424") : "";
+        const qty = Number(line.quantity || 1);
+        const lineAmt = computeHbLineCustomerAmount(line);
+        const unitPaid = computeHbLineUnitCustomerPrice(line);
+        return {
+            productId: line.sku || line.merchantSKU || line.hbSku || line.id || "",
+            productName: line.name || line.productName || "Ürün",
+            quantity: qty,
+            price: unitPaid > 0 ? unitPaid.toFixed(2) : (lineAmt > 0 ? lineAmt.toFixed(2) : "0.00"),
+            lineTotal: lineAmt > 0 ? lineAmt.toFixed(2) : "0.00",
+            listPrice: hbMoney(line.unitPrice ?? line.UnitPrice) || undefined,
+            imageUrl: imgUrl,
+            sku: line.merchantSKU || line.merchantSku || line.sku || "",
+            barcode: line.productBarcode || line.merchantSKU || line.sku || "",
+            commissionAmount: Number(line.commission?.amount ?? line.commission ?? 0),
+        };
+    });
+
+    const totalPrice = lines.reduce((sum, line) => sum + computeHbLineCustomerAmount(line), 0);
+    const firstLine = lines[0] || {};
+
+    return {
+        ...existing,
+        orderNumber: detail.orderNumber || existing.orderNumber,
+        orderDate: detail.orderDate || detail.createdDate || existing.orderDate,
+        customerName: cust.name || del.name || inv.name || existing.customerName,
+        customerEmail: del.email || inv.email || existing.customerEmail || "",
+        customerPhone: del.phoneNumber || del.alternatePhoneNumber || inv.phoneNumber || existing.customerPhone || "",
+        totalPrice: totalPrice > 0 ? totalPrice : existing.totalPrice || 0,
+        status: firstLine.status || detail.paymentStatus || existing.status,
+        trackingNumber:
+            firstLine.barcode ||
+            existing.trackingNumber ||
+            firstLine.packageNumber ||
+            existing.packageNumber ||
+            "Yok",
+        cargoCompany:
+            firstLine.cargoCompany ||
+            firstLine.cargoCompanyModel?.name ||
+            existing.cargoCompany ||
+            "Bilinmiyor",
+        packageNumber: firstLine.packageNumber || existing.packageNumber || "",
+        shippingAddress: {
+            fullName: del.name || cust.name || existing.shippingAddress?.fullName || "",
+            city: del.city || existing.shippingAddress?.city || "",
+            district: del.district || del.town || existing.shippingAddress?.district || "",
+            fullAddress: del.address || existing.shippingAddress?.fullAddress || "",
+            phone: del.phoneNumber || del.alternatePhoneNumber || existing.shippingAddress?.phone || "",
+            country: del.countryCode || existing.shippingAddress?.country || "Turkiye",
+        },
+        invoiceAddress: {
+            fullName: inv.name || cust.name || "",
+            city: inv.city || "",
+            district: inv.district || inv.town || "",
+            fullAddress: inv.address || "",
+            taxNumber: detail.invoice?.taxNumber || "",
+            taxOffice: detail.invoice?.taxOffice || "",
+            company: inv.name || "",
+        },
+        products: products.length ? products : existing.products || [],
+    };
+};
+
+/** Panel sipariş no yoksa paket numarası (UUID değil) ile eşleştir */
+const resolveHepsiburadaOrderKey = (item, parent = null) => {
+    const direct = resolveHepsiburadaOrderNumber(item, parent);
+    if (direct) return direct;
+    for (const v of [
+        item?.packageNumber,
+        item?.PackageNumber,
+        parent?.packageNumber,
+        parent?.PackageNumber,
+    ]) {
+        const s = v == null ? "" : String(v).trim();
+        if (s && !isHbInternalId(s)) return s;
+    }
+    return null;
 };
 
 /**
@@ -675,10 +896,9 @@ const fetchHepsiburadaProducts = async (merchantId, secretKey, userAgent, useSit
  * @param {Date} startDate - Başlangıç tarihi
  * @param {Date} endDate - Bitiş tarihi
  */
-const fetchHepsiburadaOrders = async (merchantId, secretKey, startDate, endDate) => {
-    // ordersService.js'deki aynı fonksiyonu kullan
+const fetchHepsiburadaOrders = async (merchantId, secretKey, startDate, endDate, userAgent, useSit = false) => {
     const { fetchHepsiburadaOrders: fetchOrders } = require("./ordersService");
-    return await fetchOrders(merchantId, secretKey, startDate, endDate);
+    return await fetchOrders(merchantId, secretKey, startDate, endDate, userAgent, useSit);
 };
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -3621,6 +3841,7 @@ module.exports = {
     HB_ENDPOINTS,
     HB_SIT_ENDPOINTS,
     // Yardımcılar
+    coerceHepsiburadaUseSit,
     normalizeCredentials,
     normalizeHbMerchantSku,
     postInventoryUploadListing,
@@ -3636,7 +3857,17 @@ module.exports = {
     resolveHbCargoShortCode,
     HB_OMS_ORDERS_MAX_DAYS,
     HB_OMS_PACKAGES_MAX_DAYS,
+    hbField,
+    normalizeHbOmsItem,
     resolveHepsiburadaOrderNumber,
+    resolveHepsiburadaOrderKey,
+    hbMoney,
+    computeHbLineCustomerAmount,
+    computeHbLineUnitCustomerPrice,
+    computeHbLineGrossAmount,
+    fetchHbOrderByOrderNumber,
+    mapHbOrderDetailToEntry,
+    resolveHbUseSitAuto,
     validateCredentials,
     classifyHepsiburadaTrackingPoll,
     summarizeHepsiburadaTrackingPayload,

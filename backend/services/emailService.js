@@ -424,3 +424,200 @@ Eğer bu işlemi siz yapmadıysanız, bu e-postayı görmezden gelebilirsiniz.
         return { success: false, error: err.message };
     }
 };
+
+function fmtMoneyTl(amount, currency = "TRY") {
+    const n = Number(amount);
+    if (!Number.isFinite(n)) return "—";
+    if (currency === "TRY") {
+        return `₺${n.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    }
+    return `${n.toLocaleString("tr-TR")} ${currency}`;
+}
+
+function fmtDateTr(d) {
+    if (!d) return "—";
+    const dt = d instanceof Date ? d : new Date(d);
+    if (Number.isNaN(dt.getTime())) return "—";
+    return dt.toLocaleString("tr-TR", {
+        day: "2-digit",
+        month: "long",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+    });
+}
+
+function billingCycleLabel(cycle) {
+    return cycle === "yearly" ? "Yıllık" : "Aylık";
+}
+
+/**
+ * Ödeme başarılı — şık onay + PayTR dekont özeti (e-posta içi)
+ */
+exports.sendPaymentSuccessEmail = async (user, { payment, subscription, receipt = {} }) => {
+    const planName = subscription?.planName || subscription?.plan || "Paket";
+    const cycleLabel = billingCycleLabel(subscription?.billingCycle);
+    const dashboardUrl = `${APP_URL}/dashboard`;
+    const subscriptionUrl = `${APP_URL}/subscription`;
+
+    const paidAt = payment?.paidAt || new Date();
+    const amountDisplay = receipt?.amount
+        ? `${receipt.amount} ${receipt.currency || payment?.currency || "TL"}`
+        : fmtMoneyTl(payment?.amount, payment?.currency);
+
+    const installmentNum = parseInt(receipt?.installment, 10);
+    const installmentLabel =
+        installmentNum > 1 ? `${installmentNum} taksit` : "Tek çekim";
+
+    const receiptRows = [
+        ["Sipariş no", payment?.transactionId || "—"],
+        ["İşlem tarihi", receipt?.paymentDate || fmtDateTr(paidAt)],
+        ["Tutar", amountDisplay],
+        ["Paket", `${planName} (${cycleLabel})`],
+        ["Geçerlilik", fmtDateTr(subscription?.endDate)],
+        ["Ödeme yöntemi", "PayTR · Kredi/Banka Kartı"],
+    ];
+    if (receipt?.cardBrand) {
+        receiptRows.push(["Kart programı", String(receipt.cardBrand).toUpperCase()]);
+    }
+    if (receipt?.installment != null && receipt?.installment !== "") {
+        receiptRows.push(["Taksit", installmentLabel]);
+    }
+    if (payment?.invoiceNumber) {
+        receiptRows.push(["Fatura / referans", payment.invoiceNumber]);
+    }
+
+    const receiptTableRows = receiptRows
+        .map(
+            ([label, value]) => `
+        <tr>
+            <td style="padding:10px 0;color:#64748b;font-size:13px;width:42%;vertical-align:top;border-bottom:1px solid #e2e8f0;">${label}</td>
+            <td style="padding:10px 0;color:#0f172a;font-size:13px;font-weight:600;text-align:right;border-bottom:1px solid #e2e8f0;">${value}</td>
+        </tr>`
+        )
+        .join("");
+
+    const testBanner = receipt?.isTest
+        ? `<p style="margin:0 0 12px;padding:10px 12px;background:#fef3c7;border-radius:8px;color:#92400e;font-size:12px;font-weight:600;text-align:center;">Test modu ödemesi — canlı tahsilat değildir</p>`
+        : "";
+
+    const htmlContent = `
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ödeme Onayı</title>
+</head>
+<body style="margin:0;padding:0;background-color:#eef2ff;font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#eef2ff;padding:36px 16px;">
+        <tr>
+            <td align="center">
+                <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
+
+                    <tr>
+                        <td style="background:linear-gradient(135deg,#4f46e5 0%,#7c3aed 55%,#06b6d4 100%);border-radius:20px 20px 0 0;padding:36px 32px 28px;text-align:center;">
+                            <p style="margin:0 0 8px;color:rgba(255,255,255,0.85);font-size:12px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;">Ödeme alındı</p>
+                            <h1 style="margin:0;color:#ffffff;font-size:26px;font-weight:800;letter-spacing:-0.02em;">Teşekkürler, ${user.name || "Değerli müşterimiz"}!</h1>
+                            <p style="margin:14px 0 0;color:rgba(255,255,255,0.9);font-size:15px;line-height:1.55;">
+                                <strong>${planName}</strong> paketiniz aktifleştirildi.<br>
+                                Artık tüm özelliklere erişebilirsiniz.
+                            </p>
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td style="background:#ffffff;padding:32px 28px 8px;border-left:1px solid #e2e8f0;border-right:1px solid #e2e8f0;">
+                            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;">
+                                <tr>
+                                    <td width="50%" style="padding:14px 16px;background:#f0fdf4;border-radius:12px;border:1px solid #bbf7d0;vertical-align:top;">
+                                        <p style="margin:0 0 4px;color:#166534;font-size:11px;font-weight:700;text-transform:uppercase;">Ödenen tutar</p>
+                                        <p style="margin:0;color:#14532d;font-size:22px;font-weight:800;">${fmtMoneyTl(payment?.amount, payment?.currency)}</p>
+                                    </td>
+                                    <td width="8"></td>
+                                    <td width="50%" style="padding:14px 16px;background:#eef2ff;border-radius:12px;border:1px solid #c7d2fe;vertical-align:top;">
+                                        <p style="margin:0 0 4px;color:#4338ca;font-size:11px;font-weight:700;text-transform:uppercase;">Paket bitiş</p>
+                                        <p style="margin:0;color:#312e81;font-size:15px;font-weight:700;line-height:1.35;">${fmtDateTr(subscription?.endDate)}</p>
+                                    </td>
+                                </tr>
+                            </table>
+
+                            <p style="margin:0 0 10px;color:#1e293b;font-size:16px;font-weight:700;">Ödeme dekontu</p>
+                            <p style="margin:0 0 16px;color:#64748b;font-size:13px;line-height:1.5;">
+                                PayTR üzerinden alınan ödemenize ait özet bilgiler aşağıdadır.
+                                Resmi makbuz için PayTR işlem kayıtlarınızı da saklayabilirsiniz.
+                            </p>
+                            ${testBanner}
+                            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:14px;padding:4px 18px 8px;margin-bottom:24px;">
+                                <tr><td>${receiptTableRows}</td></tr>
+                            </table>
+
+                            ${payment?.description ? `<p style="margin:0 0 20px;color:#64748b;font-size:12px;"><strong>Açıklama:</strong> ${payment.description}</p>` : ""}
+
+                            <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto 8px;">
+                                <tr>
+                                    <td style="border-radius:12px;background:linear-gradient(135deg,#6366f1,#7c3aed);">
+                                        <a href="${dashboardUrl}" target="_blank" style="display:inline-block;padding:15px 36px;color:#ffffff;font-size:15px;font-weight:700;text-decoration:none;">Panele git →</a>
+                                    </td>
+                                </tr>
+                            </table>
+                            <p style="text-align:center;margin:0;">
+                                <a href="${subscriptionUrl}" style="color:#6366f1;font-size:13px;font-weight:600;text-decoration:none;">Abonelik detayları</a>
+                            </p>
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td style="background:#f8fafc;padding:22px 28px;border-radius:0 0 20px 20px;border:1px solid #e2e8f0;border-top:none;">
+                            <p style="margin:0;color:#94a3b8;font-size:12px;line-height:1.6;text-align:center;">
+                                Bu e-posta ${BRAND_NAME} ödeme onayı için gönderilmiştir.<br>
+                                Sorularınız için bu mesaja yanıt verebilirsiniz.<br>
+                                © ${new Date().getFullYear()} ${BRAND_NAME}
+                            </p>
+                        </td>
+                    </tr>
+
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>`;
+
+    const textLines = [
+        `Merhaba ${user.name || ""},`,
+        "",
+        `${BRAND_NAME} — Ödemeniz alındı`,
+        `${planName} paketiniz (${cycleLabel}) aktifleştirildi.`,
+        "",
+        "Ödeme dekontu:",
+        ...receiptRows.map(([l, v]) => `  ${l}: ${v}`),
+        "",
+        `Panele git: ${dashboardUrl}`,
+        "",
+        `© ${new Date().getFullYear()} ${BRAND_NAME}`,
+    ];
+
+    try {
+        const resend = getResend();
+        if (!resend) return { success: false, error: "RESEND_API_KEY tanımlı değil" };
+
+        const { data, error } = await resend.emails.send({
+            ...mailHeaders(),
+            to: [user.email],
+            subject: `${BRAND_NAME} — Ödemeniz alındı · ${planName} aktif`,
+            html: htmlContent,
+            text: textLines.join("\n"),
+        });
+
+        if (error) {
+            logger.error(`Resend ödeme onay e-postası: ${JSON.stringify(error)}`);
+            return { success: false, error: formatResendError(error) };
+        }
+
+        return { success: true, id: data?.id };
+    } catch (err) {
+        logger.error(`Ödeme onay e-postası: ${err.message}`);
+        return { success: false, error: err.message };
+    }
+};

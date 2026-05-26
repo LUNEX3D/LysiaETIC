@@ -1,0 +1,46 @@
+{
+  "/orders/merchantid/825f9afd-e1c5-4416-9dbd-632f70730568/ordernumber/4381688459": {
+    "status": 200,
+    "keys": [
+      "orderId",
+      "orderNumber",
+      "paymentStatus",
+      "orderDate",
+      "createdDate",
+      "customer",
+      "invoice",
+      "deliveryAddress",
+      "orderNote",
+      "items"
+    ],
+    "sample": "{\"orderId\":\"6a0b1273-d85e-492c-a6c5-17ac06060606\",\"orderNumber\":\"4381688459\",\"paymentStatus\":\"Received\",\"orderDate\":\"2026-05-18T16:21:55\",\"createdDate\":\"2026-05-18T16:21:55.561\",\"customer\":{\"customerId\":\"1ca48da6-e5d1-4e2e-bc07-80e19df5858c\",\"name\":\"SERKAN VAROL\"},\"invoice\":{\"turkishIdentityNumber\":\"11111111111\",\"taxNumber\":\"\",\"taxOffice\":null,\"address\":{\"addressId\":\"2bbd5760-6107-4430-a925-1113b5621b98\",\"address\":\"Şeyh Şamil mah. Rasim Başara cad. Karacakent Safran D2 Konutları Adliye Lojmanı No:45/5 Kat:1 Daire:4 ŞEYH ŞAMİL MERKEZ Sivas\",\"name\":\"SERKAN VAROL\",\"email\":\"4381688459_5477503376@hepsifatura.com\",\"countryCode\":\"TR\",\"phoneNumber\":\"\",\"alternatePhoneNumber\":\"\",\"district\":\"ŞEYH ŞAMİL\",\"city\":\"Sivas\",\"town\":\"MERKEZ\",\"directions\":\"\",\"postalCode\":\"58050\"}},\"deliveryAddress\":{\"addressI"
+  },
+  "/orders/merchantid/825f9afd-e1c5-4416-9dbd-632f70730568/orders/4381688459": {
+    "status": 404,
+    "keys": [
+      "message"
+    ],
+    "sample": "{\"message\":\"Not Found\"}"
+  },
+  "/packages/merchantid/825f9afd-e1c5-4416-9dbd-632f70730568/packagenumber/5477503376/lines": {
+    "status": 404,
+    "keys": [
+      "message"
+    ],
+    "sample": "{\"message\":\"Not Found\"}"
+  },
+  "/packages/merchantid/825f9afd-e1c5-4416-9dbd-632f70730568/packagenumber/5477503376/lineitems": {
+    "status": 404,
+    "keys": [
+      "message"
+    ],
+    "sample": "{\"message\":\"Not Found\"}"
+  },
+  "/lineitems/merchantid/825f9afd-e1c5-4416-9dbd-632f70730568/ordernumber/4381688459": {
+    "status": 404,
+    "keys": [
+      "message"
+    ],
+    "sample": "{\"message\":\"Not Found\"}"
+  }
+}

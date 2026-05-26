@@ -4,7 +4,6 @@
  */
 import React from "react";
 import DashtockLogo from "../brand/DashtockLogo";
-import { BRAND_NAME_UPPER } from "../../constants/brand";
 import {
     HiOutlineHome,
     HiOutlineSparkles,
@@ -36,8 +35,7 @@ const AuthNavbar = ({ activeTab, onTabChange, layout = "default" }) => {
                             onTabChange?.("home");
                         }}
                     >
-                        <DashtockLogo size={36} />
-                        <span className="lx-auth-logo-text">{BRAND_NAME_UPPER}</span>
+                        <DashtockLogo size={40} full />
                     </a>
                     <nav className="lx-auth-nav" aria-label="Sayfa">
                         {TABS.map((tab) => (
@@ -75,8 +73,7 @@ const AuthNavbar = ({ activeTab, onTabChange, layout = "default" }) => {
                     onTabChange?.("home");
                 }}
             >
-                <DashtockLogo size={32} variant="light" />
-                <span className="auth-navbar-logo-text">{BRAND_NAME_UPPER}</span>
+                <DashtockLogo size={36} full />
             </a>
             <div className="auth-navbar-links">
                 {TABS.map((tab) => (

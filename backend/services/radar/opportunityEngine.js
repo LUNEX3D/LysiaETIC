@@ -184,6 +184,8 @@ async function analyzeOpportunities(userId, opts = {}) {
 
                 // 4d. Skorla (7 boyutlu)
                 const category = detectCategory(keyword, keywordData.userCategories);
+                const nicheCluster = classifyNicheCluster(category, keyword);
+                const nicheLabel = getClusterLabel(nicheCluster);
                 const userDataEnriched = {
                     ...userData,
                     nicheBuckets: keywordData.nicheBuckets || [],

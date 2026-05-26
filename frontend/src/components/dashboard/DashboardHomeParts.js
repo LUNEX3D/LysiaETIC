@@ -7,6 +7,46 @@ import {
 import DashtockLogo from "../brand/DashtockLogo";
 import PageHelpButton from "../help/PageHelpButton";
 
+const MP_BRAND = {
+    trendyol: { color: "#f27a1a", abbr: "TY", label: "Trendyol" },
+    n11: { color: "#7b2d8e", abbr: "n11", label: "N11" },
+    hepsiburada: { color: "#ff6000", abbr: "HB", label: "Hepsiburada" },
+    ciceksepeti: { color: "#e91e63", abbr: "ÇS", label: "ÇiçekSepeti" },
+    amazon: { color: "#ff9900", abbr: "AZ", label: "Amazon" },
+    ozon: { color: "#005bff", abbr: "OZ", label: "Ozon" },
+};
+
+const normalizeMpBrandKey = (name = "") => {
+    const n = String(name || "").toLowerCase().trim();
+    if (n.includes("trendyol")) return "trendyol";
+    if (n.includes("hepsi")) return "hepsiburada";
+    if (n === "n11") return "n11";
+    if (n.includes("cicek") || n.includes("çiçek")) return "ciceksepeti";
+    if (n.includes("amazon")) return "amazon";
+    if (n.includes("ozon")) return "ozon";
+    return n;
+};
+
+/** Pazaryeri marka rozeti (küçük ikon) */
+export const MarketplaceBrandIcon = ({ name, size = 22 }) => {
+    const key = normalizeMpBrandKey(name);
+    const brand = MP_BRAND[key] || {
+        color: "#4ecdc4",
+        abbr: String(name || "?").slice(0, 2).toUpperCase(),
+        label: name,
+    };
+    return (
+        <span
+            className="dh-mp-brand"
+            style={{ width: size, height: size, background: brand.color }}
+            title={brand.label || name}
+            aria-hidden
+        >
+            <span className="dh-mp-brand__txt">{brand.abbr}</span>
+        </span>
+    );
+};
+
 /** Hero — karşılama + canlı özet */
 export const DashboardHero = ({
     BRAND_NAME, greeting, dateStr, timeStr, activeChannels, planDisplayName,
@@ -104,6 +144,8 @@ export const DashboardSpotlight = ({
     revenue,
     revenueSub,
     revenueBreakdown,
+    marketplaceDayRevenue,
+    fmtCurrency,
     orders,
     ordersSub,
     products,
@@ -121,6 +163,18 @@ export const DashboardSpotlight = ({
                 {language === "en" ? "Revenue (last 24h)" : "Son 24 saat ciro"}
             </p>
             <p className="dh-spotlight__value">{revenue}</p>
+            {marketplaceDayRevenue?.length > 0 ? (
+                <div className="dh-spotlight__mp-row" onClick={(e) => e.stopPropagation()} role="presentation">
+                    {marketplaceDayRevenue.map((row) => (
+                        <span key={row.name} className="dh-spotlight__mp-chip" title={row.name}>
+                            <MarketplaceBrandIcon name={row.name} size={20} />
+                            <span className="dh-spotlight__mp-amt">
+                                {fmtCurrency ? fmtCurrency(row.revenue, language) : row.revenue}
+                            </span>
+                        </span>
+                    ))}
+                </div>
+            ) : null}
             {revenueBreakdown?.length > 0 ? (
                 <div className="dh-spotlight__breakdown">
                     {revenueBreakdown.map((row) => (

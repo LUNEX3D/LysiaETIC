@@ -21,11 +21,8 @@ const {
     fetchCicekSepetiOrders,
     fetchAmazonOrders,
     fetchEbayOrders,
-    fetchGittiGidiyorOrders,
-    fetchMorhipoOrders,
     fetchPttAVMOrders,
-    fetchTeknosaOrders,
-    fetchEPttAVMOrders
+    fetchOzonOrders
 } = require("../backend/services/ordersService");
 
 class IntelligentEngine {
@@ -40,11 +37,8 @@ class IntelligentEngine {
             "amazon europe",
             "amazon usa",
             "ebay",
-            "gittigidiyor",
-            "morhipo",
             "pttavm",
-            "teknosa",
-            "epttavm"
+            "ozon"
         ]);
 
         // AI Konfigürasyonu
@@ -231,25 +225,6 @@ class IntelligentEngine {
                         endDate
                     );
 
-                case "gittigidiyor":
-                    return await fetchGittiGidiyorOrders(
-                        credentials.apiKey,
-                        credentials.secretKey,
-                        credentials.role,
-                        credentials.nick,
-                        startDate,
-                        endDate
-                    );
-
-                case "morhipo":
-                    return await fetchMorhipoOrders(
-                        credentials.supplierId,
-                        credentials.apiKey,
-                        credentials.apiSecret,
-                        startDate,
-                        endDate
-                    );
-
                 case "pttavm":
                     return await fetchPttAVMOrders(
                         credentials.merchantCode,
@@ -259,22 +234,13 @@ class IntelligentEngine {
                         endDate
                     );
 
-                case "teknosa":
-                    return await fetchTeknosaOrders(
-                        credentials.supplierId,
+                case "ozon":
+                    return await fetchOzonOrders(
+                        credentials.clientId,
                         credentials.apiKey,
-                        credentials.apiPassword,
                         startDate,
-                        endDate
-                    );
-
-                case "epttavm":
-                    return await fetchEPttAVMOrders(
-                        credentials.merchantId,
-                        credentials.apiKey,
-                        credentials.apiSecret,
-                        startDate,
-                        endDate
+                        endDate,
+                        credentials.useSandbox
                     );
 
                 default:

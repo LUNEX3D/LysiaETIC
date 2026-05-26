@@ -108,11 +108,7 @@ const MarketplaceIntegration = () => {
                     description: "Amazon SP-API (Türkiye) — Resmi 6 alan: Selling Partner ID, LWA (Client ID/Secret/Refresh Token), AWS IAM (Access Key/Secret). Marketplace ID otomatik atanır."
                 }),
                 { name: "ÇiçekSepeti", fields: ["apiKey", "sellerId", "integratorName"], fieldLabels: { apiKey: "API Key (x-api-key)", sellerId: "Satıcı ID", integratorName: "Entegratör Adı (opsiyonel)" }, fieldHints: { apiKey: "Satıcı Paneli → Hesap Yönetimi → Entegrasyon Bilgilerim", sellerId: "Satıcı Paneli → Entegrasyon Bilgilerim → Satıcı ID", integratorName: "Entegratör firma ile çalışıyorsanız doldurun, yoksa boş bırakın" }, fieldRequired: { apiKey: true, sellerId: true, integratorName: false }, description: "ÇiçekSepeti Marketplace API — API Key ve Satıcı ID zorunludur. Canlı ortam: apis.ciceksepeti.com" },
-                { name: "GittiGidiyor", fields: ["apiKey", "secretKey", "role", "nick"], description: "GittiGidiyor API (Kapatıldı) - Eski entegrasyonlar için" },
-                { name: "Morhipo", fields: ["supplierId", "apiKey", "apiSecret"], description: "Morhipo Entegrasyon API - Supplier ID, API Key ve API Secret gereklidir" },
-                { name: "PttAVM", fields: ["merchantCode", "apiKey", "apiSecret"], description: "PttAVM Entegrasyon API - Merchant Code, API Key ve API Secret gereklidir" },
-                { name: "Teknosa", fields: ["supplierId", "apiKey", "apiPassword"], description: "Teknosa Marketplace API - Supplier ID, API Key ve API Password gereklidir" },
-                { name: "ePttAVM", fields: ["merchantId", "apiKey", "apiSecret"], description: "ePttAVM Entegrasyon API - Merchant ID, API Key ve API Secret gereklidir" }
+                { name: "PttAVM", fields: ["merchantCode", "apiKey", "apiSecret"], description: "PttAVM Entegrasyon API - Merchant Code, API Key ve API Secret gereklidir" }
             ]
         },
         {
@@ -124,7 +120,27 @@ const MarketplaceIntegration = () => {
                 }),
                 { name: "eBay", fields: ["appId", "devId", "certId", "userToken", "siteId"], description: "eBay Trading API - App ID, Dev ID, Cert ID, User Token ve Site ID gereklidir" },
                 { name: "Etsy", fields: ["apiKey", "sharedSecret", "shopId", "accessToken"], description: "Etsy API v3 - API Key, Shared Secret, Shop ID ve OAuth Access Token gereklidir" },
-                { name: "Allegro", fields: ["clientId", "clientSecret", "refreshToken"], description: "Allegro REST API - Client ID, Client Secret ve Refresh Token gereklidir" }
+                { name: "Allegro", fields: ["clientId", "clientSecret", "refreshToken"], description: "Allegro REST API - Client ID, Client Secret ve Refresh Token gereklidir" },
+                {
+                    name: "Ozon",
+                    fields: ["clientId", "apiKey", "useSandbox"],
+                    fieldLabels: {
+                        clientId: "Client-Id (Satıcı ID)",
+                        apiKey: "Api-Key",
+                        useSandbox: "Sandbox ortamı",
+                    },
+                    fieldHints: {
+                        clientId: "Ozon Seller → Ayarlar → API anahtarları → Client-Id",
+                        apiKey: "Ozon Seller → API anahtarları → Api-Key (gizli anahtar)",
+                        useSandbox: "Test için sandbox; canlı mağaza için kapalı bırakın",
+                    },
+                    fieldTypes: { useSandbox: "toggle" },
+                    fieldDefaults: { useSandbox: false },
+                    fieldRequired: { clientId: true, apiKey: true, useSandbox: false },
+                    isOzon: true,
+                    description:
+                        "Ozon Seller API (Rusya/CIS) — FBS sipariş, stok ve kargo etiketi. Kimlik: Client-Id + Api-Key, adres: api-seller.ozon.ru",
+                },
             ]
         },
         {
@@ -197,6 +213,24 @@ const MarketplaceIntegration = () => {
         };
         if (userId) fetchIntegrations();
     }, [userId]);
+
+    const handleTestOzon = async (platform) => {
+        const credentials = buildCredentialsFromPlatform(platform);
+        if (!credentials.clientId?.trim() || !credentials.apiKey?.trim()) {
+            alert(`❌ ${t("mi.fillRequired")}`);
+            return;
+        }
+        setTestingPlatform(platform.name);
+        try {
+            const response = await API.post("/marketplace/test-ozon", credentials);
+            const data = response.data;
+            alert(data?.success ? `✅ ${data.message}` : `❌ ${data?.message || "Test başarısız"}`);
+        } catch (error) {
+            alert(`❌ ${error.response?.data?.message || error.message || "Test başarısız"}`);
+        } finally {
+            setTestingPlatform(null);
+        }
+    };
 
     const handleTestAmazon = async (platform) => {
         const uid = localStorage.getItem("userId");
@@ -540,6 +574,17 @@ const MarketplaceIntegration = () => {
                                                                     style={{ background: "#232f3e", color: "#fff" }}
                                                                     disabled={testingPlatform === platform.name}
                                                                     onClick={() => handleTestAmazon(platform)}
+                                                                >
+                                                                    <FaPlug /> {testingPlatform === platform.name ? "Test ediliyor…" : "Bağlantıyı Test Et"}
+                                                                </button>
+                                                            )}
+                                                            {platform.isOzon && (
+                                                                <button
+                                                                    type="button"
+                                                                    className="mi-btn"
+                                                                    style={{ background: "#005bff", color: "#fff" }}
+                                                                    disabled={testingPlatform === platform.name}
+                                                                    onClick={() => handleTestOzon(platform)}
                                                                 >
                                                                     <FaPlug /> {testingPlatform === platform.name ? "Test ediliyor…" : "Bağlantıyı Test Et"}
                                                                 </button>

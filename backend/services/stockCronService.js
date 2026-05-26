@@ -99,6 +99,7 @@ const normalizeName = (name) => {
     if (n === "n11") return "N11";
     if (n === "amazon") return "Amazon";
     if (n === "çiçeksepeti" || n === "ciceksepeti") return "ÇiçekSepeti";
+    if (n === "ozon") return "Ozon";
     return name.trim();
 };
 
@@ -342,10 +343,11 @@ const checkHepsiburadaOrders = async (userId, credentials) => {
  * Yanıt: { supplierOrderListWithBranch: [...], orderListCount }
  * Her item: { orderId, orderItemId, barcode, stockCode, productCode, quantity, orderProductStatus, ... }
  *
- * orderProductStatus değerleri:
- *   Yeni sipariş: "Yeni", "Hazırlanıyor", "Onaylandı"
- *   İptal/İade:   "İptal Edildi", "İade Edildi", "İade Sürecinde"
- *   Tamamlanmış:  "Teslim Edildi", "Kargoda", "Kargoya Verildi"
+ * orderProductStatus (GetOrders):
+ *   İşlemde: Yeni, Hazırlanıyor, Onaylandı, Kargoya Verilecek
+ *   Kargoda: Kargoda, Kargoya Verildi, Taşıma durumunda
+ *   Teslim: Teslim Edildi, Tamamlandı
+ *   İptal/İade: İptal Edildi, İade …
  */
 const checkCicekSepetiOrders = async (userId, credentials) => {
     const results = [];
@@ -431,6 +433,57 @@ const checkCicekSepetiOrders = async (userId, credentials) => {
         }
     }
 
+    return results;
+};
+
+/** Ozon FBS — son 2 saat siparişleri */
+const checkOzonOrders = async (userId, credentials) => {
+    const results = [];
+    try {
+        const { fetchOzonOrders, normalizeCredentials } = require("./ozon/ozonService");
+        const creds = normalizeCredentials(credentials);
+        if (!creds.clientId || !creds.apiKey) return results;
+
+        const endMs = Date.now();
+        const startMs = endMs - 2 * 60 * 60 * 1000;
+        const orders = await fetchOzonOrders(creds, startMs, endMs);
+
+        const cancelStatuses = ["cancelled", "not_accepted"];
+        const activeStatuses = [
+            "awaiting_packaging",
+            "awaiting_deliver",
+            "awaiting_approval",
+            "delivering",
+        ];
+
+        for (const order of orders) {
+            const status = String(order.status || "").toLowerCase();
+            const isCancelled = cancelStatuses.some((s) => status.includes(s));
+            const isNewOrder = activeStatuses.some((s) => status.includes(s));
+            if (!isCancelled && !isNewOrder) continue;
+
+            const products = order.products || [];
+            for (const p of products) {
+                const barcode = p.barcode || p.sku || "";
+                if (!barcode) continue;
+                const orderItemKey = `ozon_${order.orderNumber}_${barcode}`;
+                if (processedOrders.has(orderItemKey)) continue;
+
+                await applyCronOrderStockLine({
+                    userId,
+                    marketplaceName: "Ozon",
+                    orderNumber: order.orderNumber,
+                    barcode,
+                    quantity: p.quantity || 1,
+                    isCancelled,
+                    orderItemKey,
+                    results,
+                });
+            }
+        }
+    } catch (error) {
+        logger.error(`[STOCK CRON] Ozon sipariş kontrolü hatası: ${error.message}`);
+    }
     return results;
 };
 
@@ -731,6 +784,9 @@ const runStockSync = async () => {
                             break;
                         case "Amazon":
                             results = await checkAmazonOrders(userId, decryptedCreds);
+                            break;
+                        case "Ozon":
+                            results = await checkOzonOrders(userId, decryptedCreds);
                             break;
                         default:
                             break;

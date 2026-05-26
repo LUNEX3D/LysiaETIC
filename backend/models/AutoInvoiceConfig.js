@@ -35,7 +35,7 @@ const AutoInvoiceConfigSchema = new mongoose.Schema({
         enum: [
             "Trendyol", "Hepsiburada", "N11", "ÇiçekSepeti",
             "Amazon", "Amazon Türkiye", "Amazon Europe", "Amazon USA",
-            "eBay", "Morhipo", "PttAVM", "Teknosa", "ePttAVM", "Diğer"
+            "eBay", "PttAVM", "Ozon", "Diğer"
         ]
     }],
 

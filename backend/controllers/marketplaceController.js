@@ -123,6 +123,11 @@ exports.getUserMarketplaces = async (req, res) => {
                         };
                     } else if (lowName === "çiçeksepeti" || lowName === "ciceksepeti") {
                         integrationHints = { apiConfigured: !!decrypted.apiKey };
+                    } else if (lowName === "ozon") {
+                        integrationHints = {
+                            apiConfigured: !!(decrypted.clientId && decrypted.apiKey),
+                            useSandbox: decrypted.useSandbox === true,
+                        };
                     } else if (isAmazonMarketplaceName(mp.marketplaceName)) {
                         const norm = normalizeAmazonCredentials(decrypted, mp.marketplaceName);
                         const v = validateAmazonCredentials(norm);

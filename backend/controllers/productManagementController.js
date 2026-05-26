@@ -42,6 +42,11 @@ const {
 } = require("../utils/productFieldCompare");
 const { normalizeDistributeCategory } = require("../utils/normalizeDistributeCategory");
 const {
+    resolveCategoryForDistribute,
+    getMissingPlatformsForProduct,
+    isMarketplaceMappingListed,
+} = require("../services/categoryCenterResolveService");
+const {
     isHepsiburadaMappingListedForUi,
     isHepsiburadaMappingVisibleForProductUi,
     loadHepsiburadaListableCategoryIdSet,
@@ -243,6 +248,8 @@ exports.getProducts = async (req, res) => {
         if (!userId) return res.status(401).json({ error: "Yetkilendirme hatası" });
 
         const { page = 0, limit = 20, search, category, marketplace, stockStatus, mpFilter, mpFilterStatus, ungroupedOnly } = req.query;
+        const safeLimit = Math.min(200, Math.max(1, parseInt(limit, 10) || 20));
+        const safePage = Math.max(0, parseInt(page, 10) || 0);
 
         const filter = { userId };
 
@@ -310,8 +317,8 @@ exports.getProducts = async (req, res) => {
         const total = await ProductMapping.countDocuments(filter);
         const products = await ProductMapping.find(filter)
             .sort({ updatedAt: -1 })
-            .skip(Number(page) * Number(limit))
-            .limit(Number(limit))
+            .skip(safePage * safeLimit)
+            .limit(safeLimit)
             .lean();
 
         // ── PLATFORM DOĞRULAMA ──
@@ -355,9 +362,9 @@ exports.getProducts = async (req, res) => {
         return res.status(200).json({
             success: true,
             total,
-            page: Number(page),
-            limit: Number(limit),
-            totalPages: Math.ceil(total / Number(limit)),
+            page: safePage,
+            limit: safeLimit,
+            totalPages: Math.ceil(total / safeLimit) || 0,
             products
         });
 
@@ -3350,25 +3357,24 @@ exports.distributeUndistributed = async (req, res) => {
             });
         }
 
-        // 3) Dağıtılmamış ürünleri filtrele
+        // 3) Eksik platformları filtrele (listelenmemiş / hata / kayıt yok)
         const undistributed = [];
         for (const product of allProducts) {
-            const existingPlatforms = (product.marketplaceMappings || [])
-                .filter(m => m.syncStatus !== "error")
-                .map(m => m.marketplaceName?.toLowerCase());
-
-            const missingPlatforms = targets.filter(t => !existingPlatforms.includes(t.toLowerCase()));
+            const missingPlatforms = getMissingPlatformsForProduct(product, targets);
 
             if (onlyFullyUndistributed) {
-                // Sadece hiçbir yere dağıtılmamış ürünler
-                if (existingPlatforms.length === 0) {
+                const anyListed = (product.marketplaceMappings || []).some((m) =>
+                    targets.some(
+                        (t) =>
+                            normalizeMarketplaceName(m.marketplaceName) ===
+                            normalizeMarketplaceName(t)
+                    ) && isMarketplaceMappingListed(m, t)
+                );
+                if (!anyListed && missingPlatforms.length > 0) {
                     undistributed.push({ product, missingPlatforms: targets });
                 }
-            } else {
-                // Herhangi bir platformda eksik olan ürünler
-                if (missingPlatforms.length > 0) {
-                    undistributed.push({ product, missingPlatforms });
-                }
+            } else if (missingPlatforms.length > 0) {
+                undistributed.push({ product, missingPlatforms });
             }
         }
 
@@ -3383,63 +3389,122 @@ exports.distributeUndistributed = async (req, res) => {
         logger.info(`[DIST UNDISTRIBUTED] ${undistributed.length}/${allProducts.length} ürün dağıtılacak`);
 
         // 4) Sıralı dağıtım (rate limit koruması — 3'erli batch)
-        const stats = { total: undistributed.length, distributed: 0, skipped: 0, error: 0, details: [] };
-        const BATCH_SIZE = 3;
+        const stats = {
+            total: undistributed.length,
+            distributed: 0,
+            skipped: 0,
+            error: 0,
+            noCategory: 0,
+            details: [],
+        };
+        const BATCH_SIZE = 2;
 
         for (let i = 0; i < undistributed.length; i += BATCH_SIZE) {
             const batch = undistributed.slice(i, i + BATCH_SIZE);
 
             const batchResults = await Promise.all(
                 batch.map(async ({ product, missingPlatforms }) => {
-                    try {
-                        const distResults = await distributeProductToMarketplaces(userId, product._id, missingPlatforms);
-                        const ok = distResults.filter(
-                            (r) => r.status === "success" || r.status === "pending"
-                        ).length;
-                        const err = distResults.filter((r) => r.status === "error").length;
+                    const perPlatform = [];
+                    let ok = 0;
+                    let err = 0;
+                    let noCat = 0;
 
-                        return {
-                            productId: product._id,
-                            name: product.masterProduct?.name || "İsimsiz",
-                            platforms: missingPlatforms,
-                            ok,
-                            err,
-                            results: distResults
-                        };
-                    } catch (err) {
-                        return {
-                            productId: product._id,
-                            name: product.masterProduct?.name || "İsimsiz",
-                            platforms: missingPlatforms,
-                            ok: 0,
-                            err: 1,
-                            error: err.message
-                        };
+                    for (const platform of missingPlatforms) {
+                        try {
+                            const resolution = await resolveCategoryForDistribute(product, platform);
+                            if (!resolution.resolved || !resolution.platformCategory?.categoryId) {
+                                noCat++;
+                                perPlatform.push({
+                                    marketplace: platform,
+                                    status: "error",
+                                    message:
+                                        resolution.message ||
+                                        "Kategori merkezinde bu platform için kategori ID yok",
+                                });
+                                continue;
+                            }
+
+                            const pc = resolution.platformCategory;
+                            const pathStr = pc.categoryPath || "";
+                            const leafName = pathStr.includes(">")
+                                ? pathStr
+                                      .split(/\s*>\s*/)
+                                      .map((s) => s.trim())
+                                      .filter(Boolean)
+                                      .pop()
+                                : pathStr;
+
+                            const catNorm = normalizeDistributeCategory({
+                                id: pc.categoryId,
+                                path: pathStr,
+                                name: leafName || pc.categoryId,
+                            });
+
+                            const distResults = await distributeProductToMarketplaces(
+                                userId,
+                                product._id,
+                                [platform],
+                                catNorm
+                            );
+                            perPlatform.push(...distResults);
+                            const hit = distResults.find(
+                                (r) => r.status === "success" || r.status === "pending"
+                            );
+                            const fail = distResults.find((r) => r.status === "error");
+                            if (hit) ok++;
+                            else if (fail) err++;
+                        } catch (platformErr) {
+                            err++;
+                            perPlatform.push({
+                                marketplace: platform,
+                                status: "error",
+                                message: platformErr.message,
+                            });
+                        }
                     }
+
+                    return {
+                        productId: product._id,
+                        name: product.masterProduct?.name || "İsimsiz",
+                        platforms: missingPlatforms,
+                        ok,
+                        err,
+                        noCategory: noCat,
+                        results: perPlatform,
+                    };
                 })
             );
 
             for (const br of batchResults) {
                 if (br.ok > 0) stats.distributed++;
-                if (br.err > 0) stats.error++;
-                if (br.ok === 0 && br.err === 0) stats.skipped++;
+                if (br.err > 0) stats.error += br.err;
+                if (br.noCategory > 0) stats.noCategory += br.noCategory;
+                if (br.ok === 0 && br.err === 0 && br.noCategory > 0) stats.skipped++;
+                else if (br.ok === 0 && br.err === 0) stats.skipped++;
                 stats.details.push({
                     productId: br.productId,
                     name: br.name,
                     platforms: br.platforms,
                     success: br.ok,
                     error: br.err,
-                    errorMessage: br.error || undefined
+                    noCategory: br.noCategory,
+                    results: br.results,
                 });
             }
         }
 
-        logger.info(`[DIST UNDISTRIBUTED] ✅ Tamamlandı — Dağıtılan: ${stats.distributed}, Hata: ${stats.error}, Atlanan: ${stats.skipped}`);
+        logger.info(
+            `[DIST UNDISTRIBUTED] ✅ Tamamlandı — Dağıtılan: ${stats.distributed}, Hata: ${stats.error}, Kategori yok: ${stats.noCategory}, Atlanan: ${stats.skipped}`
+        );
+
+        let message = `${stats.distributed} ürün-platform yüklemesi başlatıldı`;
+        if (stats.noCategory > 0) message += `, ${stats.noCategory} kategori eşleşmesi yok`;
+        if (stats.error > 0) message += `, ${stats.error} hata`;
 
         return res.status(200).json({
             success: true,
-            message: `${stats.distributed} ürün dağıtıldı${stats.error > 0 ? `, ${stats.error} hata` : ""}`,
-            stats
+            message,
+            stats,
         });
 
     } catch (error) {

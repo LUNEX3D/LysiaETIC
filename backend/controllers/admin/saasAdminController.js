@@ -928,22 +928,221 @@ exports.createPayment = async (req, res) => {
     }
 };
 
+/** PayTR İade API — admin panel */
+exports.refundPayment = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const {
+            returnAmount,
+            refundReason,
+            referenceNo,
+            deactivateSubscription = true,
+        } = req.body;
+
+        const payment = await Payment.findById(id);
+        if (!payment) {
+            return res.status(404).json({ success: false, message: "Ödeme bulunamadı" });
+        }
+
+        if (payment.status !== "completed") {
+            return res.status(400).json({
+                success: false,
+                message: "Yalnızca tamamlanmış ödemeler iade edilebilir",
+            });
+        }
+
+        const paytrService = require("../../services/paytrService");
+        const { deactivateSubscriptionAfterRefund } = require("../../services/subscriptionActivationService");
+
+        const alreadyRefunded = Number(payment.metadata?.refundedTotal) || 0;
+        const maxRefund = Math.round((Number(payment.amount) - alreadyRefunded) * 100) / 100;
+
+        if (maxRefund <= 0) {
+            return res.status(400).json({ success: false, message: "Bu ödeme için iade edilecek tutar kalmadı" });
+        }
+
+        const refundTl =
+            returnAmount != null && returnAmount !== ""
+                ? Math.round(Number(returnAmount) * 100) / 100
+                : maxRefund;
+
+        if (!Number.isFinite(refundTl) || refundTl <= 0 || refundTl > maxRefund + 0.001) {
+            return res.status(400).json({
+                success: false,
+                message: `İade tutarı 0 ile ${maxRefund} TL arasında olmalı`,
+            });
+        }
+
+        let paytrResult = null;
+        if (payment.paymentMethod === "paytr" && payment.transactionId) {
+            const ref =
+                String(referenceNo || "").trim().slice(0, 64)
+                || `RF${String(payment._id).slice(-8)}${Date.now()}`.replace(/[^a-zA-Z0-9]/g, "");
+
+            paytrResult = await paytrService.requestRefund(
+                payment.transactionId,
+                refundTl,
+                ref
+            );
+
+            if (!paytrResult.success) {
+                return res.status(400).json({
+                    success: false,
+                    message: paytrResult.errMsg || paytrResult.error || "PayTR iade başarısız",
+                    paytr: {
+                        errNo: paytrResult.errNo,
+                        errMsg: paytrResult.errMsg,
+                        status: paytrResult.status,
+                    },
+                });
+            }
+        } else if (payment.paymentMethod === "paytr") {
+            return res.status(400).json({
+                success: false,
+                message: "PayTR sipariş numarası (transactionId) bulunamadı",
+            });
+        }
+
+        const newRefundedTotal = Math.round((alreadyRefunded + refundTl) * 100) / 100;
+        const isFullRefund = newRefundedTotal >= Number(payment.amount) - 0.01;
+
+        const refundEntry = {
+            amount: refundTl,
+            at: new Date().toISOString(),
+            referenceNo: paytrResult?.referenceNo || referenceNo || null,
+            adminId: String(req.user._id),
+            paytr: paytrResult?.raw || null,
+        };
+
+        payment.metadata = {
+            ...(payment.metadata || {}),
+            refundedTotal: newRefundedTotal,
+            refunds: [...(payment.metadata?.refunds || []), refundEntry],
+        };
+
+        if (isFullRefund) {
+            payment.status = "refunded";
+            payment.refundedAt = new Date();
+            payment.refundReason = refundReason || "Admin iade";
+        }
+
+        await payment.save();
+
+        let subscriptionDeactivated = false;
+        if (isFullRefund && deactivateSubscription) {
+            const deact = await deactivateSubscriptionAfterRefund(payment.userId, {
+                source: "admin_paytr_refund",
+            });
+            subscriptionDeactivated = !!deact?.updated;
+        }
+
+        await AuditLog.create({
+            userId: payment.userId,
+            adminId: req.user._id,
+            action: "payment_refunded",
+            category: "payment",
+            severity: "warning",
+            description: `Ödeme iadesi: ${refundTl} TL — ${payment.transactionId || payment._id}${isFullRefund ? " (tam)" : " (kısmi)"}`,
+            ipAddress: req.ip,
+        });
+
+        logger.info(`Admin iade: ${payment._id} — ${refundTl} TL — tam=${isFullRefund}`);
+
+        res.json({
+            success: true,
+            payment,
+            refundAmount: refundTl,
+            refundedTotal: newRefundedTotal,
+            isFullRefund,
+            subscriptionDeactivated,
+            paytr: paytrResult
+                ? {
+                    referenceNo: paytrResult.referenceNo,
+                    returnAmount: paytrResult.returnAmount,
+                    isTest: paytrResult.isTest,
+                }
+                : null,
+            message: isFullRefund
+                ? "İade PayTR üzerinden tamamlandı"
+                : "Kısmi iade PayTR üzerinden tamamlandı (ödeme durumu: completed)",
+        });
+    } catch (error) {
+        logger.error(`refundPayment: ${error.message}`);
+        res.status(500).json({ success: false, message: "İade işlemi başarısız" });
+    }
+};
+
 exports.updatePaymentStatus = async (req, res) => {
     try {
         const { id } = req.params;
         const { status, refundReason } = req.body;
 
-        const updates = { status };
-        if (status === "completed") updates.paidAt = new Date();
-        if (status === "refunded") {
-            updates.refundedAt = new Date();
-            updates.refundReason = refundReason;
-        }
-
-        const payment = await Payment.findByIdAndUpdate(id, updates, { new: true });
+        const payment = await Payment.findById(id);
         if (!payment) return res.status(404).json({ success: false, message: "Ödeme bulunamadı" });
 
-        res.json({ success: true, payment });
+        if (status === "refunded") {
+            if (payment.paymentMethod === "paytr" && payment.transactionId) {
+                return res.status(400).json({
+                    success: false,
+                    message: "PayTR ödemeleri için «PayTR İade» butonunu kullanın.",
+                });
+            }
+            payment.refundedAt = new Date();
+            payment.refundReason = refundReason || "Manuel iade";
+            await payment.save();
+            return res.json({ success: true, payment });
+        }
+
+        const prevStatus = payment.status;
+        payment.status = status;
+        if (status === "completed") payment.paidAt = payment.paidAt || new Date();
+        await payment.save();
+
+        let subscriptionActivated = false;
+        if (status === "completed" && prevStatus !== "completed") {
+            const plan = payment.expectedPlan || payment.metadata?.plan;
+            if (plan && plan !== "trial") {
+                try {
+                    const paytrService = require("../../services/paytrService");
+                    const { activateSubscriptionFromPayment } = require("../../services/subscriptionActivationService");
+                    let activateOpts = {
+                        totalAmountTl: payment.amount,
+                        source: "admin_approval",
+                        adminId: req.user._id,
+                    };
+                    if (payment.paymentMethod === "paytr" && payment.transactionId) {
+                        const q = await paytrService.queryOrderStatus(payment.transactionId);
+                        if (!q.apiOk || !q.paid) {
+                            payment.status = prevStatus;
+                            await payment.save();
+                            return res.status(400).json({
+                                success: false,
+                                message:
+                                    "PayTR ödemeleri otomatik işlenir. Bu sipariş PayTR'de başarılı görünmüyor; manuel onay yapılamaz.",
+                                paytr: q.errMsg || q.error,
+                            });
+                        }
+                        activateOpts = {
+                            totalAmountTl: q.paymentTotalTl || payment.amount,
+                            source: "admin_paytr_verify",
+                            paytrVerified: true,
+                            adminId: req.user._id,
+                        };
+                    }
+                    await activateSubscriptionFromPayment(payment, activateOpts);
+                    subscriptionActivated = true;
+                    logger.info(`Admin ödeme onayı → abonelik aktif: ${payment._id} — ${plan}`);
+                } catch (actErr) {
+                    logger.error(`Admin onay abonelik aktivasyonu: ${actErr.message}`);
+                    return res.status(500).json({
+                        success: false,
+                        message: `Ödeme onaylandı ancak abonelik aktifleştirilemedi: ${actErr.message}`,
+                    });
+                }
+            }
+        }
+
+        res.json({ success: true, payment, subscriptionActivated });
     } catch (error) {
         res.status(500).json({ success: false, message: "Ödeme durumu güncellenemedi" });
     }

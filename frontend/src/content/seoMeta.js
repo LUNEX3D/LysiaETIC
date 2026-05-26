@@ -1,9 +1,9 @@
 import { APP_SITE_URL } from "../constants/domain";
 import { BRAND_NAME, formatBrandPageTitle } from "../constants/brand";
 
-const DEFAULT_TITLE = BRAND_NAME;
+const DEFAULT_TITLE = `${BRAND_NAME} — Pazaryeri Entegrasyon ve E-Ticaret Yönetimi`;
 const DEFAULT_DESC =
-    "Dashtock ile Trendyol, Hepsiburada, Amazon, N11 ve diğer pazaryerlerinde stok, sipariş, fiyat ve kârınızı tek panelden yönetin.";
+    "Dashtock ile Trendyol, Hepsiburada, Amazon, N11 ve diğer pazaryerlerini tek panelden yönetin. Stok, sipariş, fiyat ve kâr analizi.";
 
 /** pathname → { title, description, noindex } */
 export const SEO_BY_PATH = {
@@ -12,7 +12,7 @@ export const SEO_BY_PATH = {
         description: DEFAULT_DESC,
     },
     "/home": {
-        title: formatBrandPageTitle("Ana Sayfa"),
+        title: DEFAULT_TITLE,
         description: DEFAULT_DESC,
     },
     "/blog": {

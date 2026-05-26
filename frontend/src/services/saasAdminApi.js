@@ -31,6 +31,9 @@ export const getPayments = () => API.get(`${BASE}/payments`);
 export const createPayment = (data) => API.post(`${BASE}/payments`, data);
 export const updatePaymentStatus = (id, status, refundReason) => API.put(`${BASE}/payments/${id}/status`, { status, refundReason });
 
+/** PayTR İade API — tam veya kısmi iade */
+export const refundPayment = (id, body) => API.post(`${BASE}/payments/${id}/refund`, body);
+
 // ─── 5. Entegrasyon Kontrolü ─────────────────────────────────────────────────
 export const getAllIntegrations = () => API.get(`${BASE}/integrations`);
 

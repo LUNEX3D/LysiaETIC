@@ -68,7 +68,12 @@ exports.getOpportunities = async (req, res) => {
             }
         }
 
-        if (meta.isStale && opportunities.length > 0) {
+        // Otomatik tam tarama yalnızca açıkça istenirse (sekme geçişlerini yavaşlatmaz)
+        if (
+            meta.isStale &&
+            opportunities.length > 0 &&
+            process.env.RADAR_AUTO_REFRESH_ON_GET === "1"
+        ) {
             opportunityEngine
                 .analyzeOpportunities(userId, {
                     forceRefresh: true,

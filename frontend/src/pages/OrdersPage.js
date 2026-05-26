@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { FaBox, FaImage } from "react-icons/fa";
 import { useApp } from "../context/AppContext";
 import { classifyOrderStatus, getOrderStatusLabelTr, formatOrderNumberForDisplay } from "../utils/orderStatus";
+import ShippingLabelModal, { supportsCargoLabel } from "../components/orders/ShippingLabelModal";
 
 const fmtCurrency = (v) => {
     try {
@@ -81,7 +82,7 @@ const hasOrderDiscountBreakdown = (o) => {
 /* ═══════════════════════════════════════════════════════════
    DURUM SINIFLANDIRMA
    ═══════════════════════════════════════════════════════════ */
-const classifyStatus = (s) => classifyOrderStatus(s);
+const classifyStatus = (s, marketplace) => classifyOrderStatus(s, marketplace);
 
 /* ═══════════════════════════════════════════════════════════
    MARKETPLACE LOGO
@@ -93,6 +94,7 @@ const mpColors = {
     çiçeksepeti: "#e91e63",
     ciceksepeti: "#e91e63",
     amazon: "#ff9900",
+    ozon: "#005bff",
 };
 
 /* ═══════════════════════════════════════════════════════════
@@ -211,6 +213,11 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId, marketplaceId: scop
 
     // Filtreler
     const [searchQuery, setSearchQuery] = useState("");
+    const [debouncedSearch, setDebouncedSearch] = useState("");
+    useEffect(() => {
+        const t = setTimeout(() => setDebouncedSearch(searchQuery), 300);
+        return () => clearTimeout(t);
+    }, [searchQuery]);
     const [statusFilter, setStatusFilter] = useState("all");
     const [mpFilter, setMpFilter] = useState("all");
 
@@ -226,6 +233,7 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId, marketplaceId: scop
 
     // Modal
     const [selectedOrder, setSelectedOrder] = useState(null);
+    const [labelOrder, setLabelOrder] = useState(null);
 
     // Aktif veri kaynağı
     const allOrders = apiOrders;
@@ -241,9 +249,9 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId, marketplaceId: scop
         returned: { label: t("orders.statusReturned"), color: C.pink, icon: "↩️" },
     }), [C, t]);
 
-    const getStatusBadge = useCallback((status) => {
-        const cls = classifyStatus(status);
-        const meta = statusMeta[cls] || statusMeta.processing;
+    const getStatusBadge = useCallback((status, marketplace) => {
+        const cls = classifyStatus(status, marketplace);
+        const meta = statusMeta[cls] || statusMeta.new;
         return (
             <span style={{
                 display: "inline-flex", alignItems: "center", gap: "0.3rem",
@@ -388,7 +396,74 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId, marketplaceId: scop
         setStatusFilter("all");
     }, [marketplaceIdsKey]);
 
-    /* ── API SİPARİŞLERİ ÇEK (pazaryeri API) — pazaryerleri paralel ── */
+    const mergeDbIntoLiveOrders = (liveOrders, dbRows) => {
+        const invoiceMap = new Map();
+        (dbRows || []).forEach((dbOrder) => {
+            invoiceMap.set(dbOrder.orderNumber, {
+                invoiceStatus: dbOrder.invoiceStatus,
+                invoice: dbOrder.invoice,
+                marketplaceInvoiced: dbOrder.marketplaceInvoiced,
+                invoiceUrl: dbOrder.invoiceUrl,
+                invoiceSource: dbOrder.invoiceSource,
+                invoiceCheckedAt: dbOrder.invoiceCheckedAt,
+                commercialInvoice: dbOrder.commercialInvoice,
+                etgbNo: dbOrder.etgbNo,
+                imageUrl: dbOrder.imageUrl,
+                items: dbOrder.items,
+                cargoCompany: dbOrder.cargoCompany,
+                cargoTrackingNumber: dbOrder.cargoTrackingNumber,
+                packageNumber: dbOrder.packageNumber,
+                shipmentPackageId: dbOrder.shipmentPackageId,
+                cargoTrackingLink: dbOrder.cargoTrackingLink,
+                _id: dbOrder._id,
+            });
+        });
+        const isInvalidImg = (url) =>
+            !url || url.includes("default-product.jpg") || url.includes("placehold.co");
+        liveOrders.forEach((order) => {
+            const dbInfo = invoiceMap.get(order.orderNumber);
+            if (!dbInfo) return;
+            if (dbInfo._id && !order._id) order._id = dbInfo._id;
+            if (dbInfo.cargoTrackingNumber) order.cargoTrackingNumber = dbInfo.cargoTrackingNumber;
+            if (dbInfo.packageNumber) order.packageNumber = dbInfo.packageNumber;
+            if (dbInfo.cargoCompany) order.cargoCompany = dbInfo.cargoCompany;
+            if (dbInfo.shipmentPackageId) order.shipmentPackageId = dbInfo.shipmentPackageId;
+            if (dbInfo.cargoTrackingLink) order.cargoTrackingLink = dbInfo.cargoTrackingLink;
+            order.invoiceStatus = dbInfo.invoiceStatus;
+            order.invoice = dbInfo.invoice;
+            order.marketplaceInvoiced = !!dbInfo.marketplaceInvoiced;
+            order.invoiceUrl = dbInfo.invoiceUrl || "";
+            order.invoiceSource = dbInfo.invoiceSource || "";
+            order.invoiceCheckedAt = dbInfo.invoiceCheckedAt || null;
+            order.commercialInvoice = !!dbInfo.commercialInvoice;
+            order.etgbNo = dbInfo.etgbNo || "";
+            if (!isInvalidImg(dbInfo.imageUrl)) order.imageUrl = dbInfo.imageUrl;
+            if (dbInfo.items?.length) {
+                if (!order.products?.length) {
+                    order.products = dbInfo.items;
+                } else {
+                    const norm = (s) => String(s || "").trim().toLowerCase();
+                    order.products = order.products.map((p) => {
+                        const dbItem = dbInfo.items.find(
+                            (di) =>
+                                (di.barcode && p.barcode && String(di.barcode) === String(p.barcode)) ||
+                                (di.sku && String(di.sku) === String(p.sku || p.merchantSku || "")) ||
+                                (di.productName &&
+                                    p.productName &&
+                                    norm(di.productName) === norm(p.productName))
+                        );
+                        if (dbItem && !isInvalidImg(dbItem.imageUrl)) {
+                            return { ...p, imageUrl: dbItem.imageUrl };
+                        }
+                        return p;
+                    });
+                }
+            }
+        });
+        return liveOrders;
+    };
+
+    /* ── Siparişler: önce DB (hızlı), ardından canlı API (arka planda) ── */
     const fetchApiOrders = useCallback(async () => {
         const mps = marketplacesRef.current || [];
         if (!mps.length) return;
@@ -396,145 +471,112 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId, marketplaceId: scop
         setError("");
         const collected = [];
         const failedLabels = [];
+        let dbRows = [];
 
-        const settled = await Promise.allSettled(
-            mps.map(async (mp) => {
-                const label = mp.marketplaceName || mp.name || "…";
-                setLoadingMp(`${label}…`);
-                const params = new URLSearchParams({
-                    marketplaceId: mp._id,
-                    ...(startDate && { startDate }),
-                    ...(endDate && { endDate }),
-                });
-                const response = await axios.get(`/orders/all?${params.toString()}`, {
-                    headers: { Authorization: `Bearer ${token}` },
-                });
-                const mpName = response.data?.marketplace || label;
-                return (response.data?.orders || []).map((o) => ({
-                    ...o,
-                    marketplace: mpName,
-                    marketplaceId: mp._id,
-                }));
-            })
-        );
-
-        settled.forEach((result, idx) => {
-            const label = mps[idx]?.marketplaceName || mps[idx]?.name || `#${idx}`;
-            if (result.status === "fulfilled") {
-                collected.push(...result.value);
-            } else {
-                const msg =
-                    result.reason?.response?.data?.error ||
-                    result.reason?.response?.data?.details ||
-                    result.reason?.message ||
-                    "İstek başarısız";
-                failedLabels.push(`${label}: ${msg}`);
-            }
+        const dbParams = new URLSearchParams({
+            limit: "500",
+            ...(startDate && { startDate }),
+            ...(endDate && { endDate }),
         });
-
-        if (failedLabels.length === mps.length) {
-            setError(
-                t("orders.allMarketplacesFailed") ||
-                    "Hiçbir pazaryerinden sipariş alınamadı. Bağlantı veya API anahtarlarını kontrol edin."
-            );
-        } else if (failedLabels.length > 0) {
-            setError(
-                (t("orders.partialMarketplaceFailure") || "Bazı pazaryerleri yüklenemedi:") +
-                    " " +
-                    failedLabels.join(" · ")
-            );
+        if (isSingleMarketplaceScope && scopedMarketplaces[0]?.marketplaceName) {
+            dbParams.set("marketplace", scopedMarketplaces[0].marketplaceName);
         }
 
-        collected.sort((a, b) => {
-            const da = a.orderDate ? new Date(a.orderDate) : new Date(0);
-            const db = b.orderDate ? new Date(b.orderDate) : new Date(0);
-            return db - da;
-        });
-
-        // ── Fatura durumlarını DB'den çek ve eşleştir ──
         try {
-            const dbResponse = await axios.get(`/orders/db-orders?limit=1000`, {
+            const dbResponse = await axios.get(`/orders/db-orders?${dbParams.toString()}`, {
                 headers: { Authorization: `Bearer ${token}` },
             });
-
-            if (dbResponse.data?.success) {
-                const dbOrdersData = dbResponse.data.data || [];
-                // Fatura istatistiklerini güncelle
-                if (dbResponse.data.invoiceStats) {
-                    setInvoiceStats(dbResponse.data.invoiceStats);
-                }
-                // orderNumber ile eşleştir
-                const invoiceMap = new Map();
-                dbOrdersData.forEach(dbOrder => {
-                    invoiceMap.set(dbOrder.orderNumber, {
-                        invoiceStatus: dbOrder.invoiceStatus,
-                        invoice: dbOrder.invoice,
-                        // Pazaryeri fatura bilgileri (X kullanıcı senaryosu)
-                        marketplaceInvoiced: dbOrder.marketplaceInvoiced,
-                        invoiceUrl: dbOrder.invoiceUrl,
-                        invoiceSource: dbOrder.invoiceSource,
-                        invoiceCheckedAt: dbOrder.invoiceCheckedAt,
-                        commercialInvoice: dbOrder.commercialInvoice,
-                        etgbNo: dbOrder.etgbNo,
-                        imageUrl: dbOrder.imageUrl,
-                        items: dbOrder.items
-                    });
+            if (dbResponse.data?.success && Array.isArray(dbResponse.data.data)) {
+                dbRows = dbResponse.data.data;
+                const quick = dbRows.map((o) => {
+                    const mpName = o.marketplace || o.marketplaceName;
+                    const mpRow = mps.find(
+                        (m) =>
+                            String(m.marketplaceName || m.name || "").toLowerCase() ===
+                            String(mpName || "").toLowerCase()
+                    );
+                    return {
+                        ...o,
+                        marketplace: mpName,
+                        marketplaceId: o.marketplaceId || mpRow?._id,
+                        products: o.items || o.products || [],
+                    };
                 });
-
-                // API siparişlerine fatura bilgisini ekle
-                collected.forEach(order => {
-                    const dbInfo = invoiceMap.get(order.orderNumber);
-                    if (dbInfo) {
-                        order.invoiceStatus = dbInfo.invoiceStatus;
-                        order.invoice = dbInfo.invoice;
-                        order.marketplaceInvoiced = !!dbInfo.marketplaceInvoiced;
-                        order.invoiceUrl = dbInfo.invoiceUrl || "";
-                        order.invoiceSource = dbInfo.invoiceSource || "";
-                        order.invoiceCheckedAt = dbInfo.invoiceCheckedAt || null;
-                        order.commercialInvoice = !!dbInfo.commercialInvoice;
-                        order.etgbNo = dbInfo.etgbNo || "";
-                        
-                        // ✅ GÖRSEL GÜNCELLEME: Eğer API'den gelen görsel yoksa veya hatalıysa, 
-                        // backend'in Product modelinden (Stok Yönetimi) eşleştirdiği görseli kullan.
-                        const isInvalidImg = (url) => !url || url.includes("default-product.jpg") || url.includes("placehold.co");
-                        
-                        // Backend'den gelen imageUrl zaten stoktaki görselle zenginleştirilmiş olabilir (yeni getAllOrders mantığı)
-                        // Ama garantiye alalım: DB verisinden gelen görseli (dbInfo.imageUrl) pazar yeri görseline tercih et
-                        if (!isInvalidImg(dbInfo.imageUrl)) {
-                            order.imageUrl = dbInfo.imageUrl;
-                        }
-                        
-                        if (dbInfo.items && dbInfo.items.length > 0) {
-                            if (!order.products || order.products.length === 0) {
-                                order.products = dbInfo.items;
-                            } else {
-                                // Mevcut ürünlerin görsellerini de DB'den gelen zenginleştirilmiş verilerle güncelle
-                                const norm = (s) => String(s || "").trim().toLowerCase();
-                                order.products = order.products.map(p => {
-                                    const dbItem = dbInfo.items.find(di =>
-                                        (di.barcode && p.barcode && String(di.barcode) === String(p.barcode)) ||
-                                        (di.sku && (String(di.sku) === String(p.sku || p.merchantSku || ""))) ||
-                                        (di.productName && p.productName && norm(di.productName) === norm(p.productName))
-                                    );
-                                    if (dbItem && !isInvalidImg(dbItem.imageUrl)) {
-                                        return { ...p, imageUrl: dbItem.imageUrl };
-                                    }
-                                    return p;
-                                });
-                            }
-                        }
-                    }
-                });
+                setApiOrders(quick);
+                if (dbResponse.data.invoiceStats) setInvoiceStats(dbResponse.data.invoiceStats);
             }
-        } catch (err) {
-            // Fatura bilgisi çekilemezse sessizce devam et
-            console.warn("Fatura durumları yüklenemedi:", err.message);
+        } catch {
+            /* DB yoksa canlı API ile devam */
+        } finally {
+            setLoadingApi(false);
         }
 
-        setApiOrders(collected);
-        setLoadingApi(false);
-        setLoadingMp("");
-    }, [token, startDate, endDate, t]);
+        try {
+            const settled = await Promise.allSettled(
+                mps.map(async (mp) => {
+                    const label = mp.marketplaceName || mp.name || "…";
+                    setLoadingMp(`${label}…`);
+                    const params = new URLSearchParams({
+                        marketplaceId: mp._id,
+                        ...(startDate && { startDate }),
+                        ...(endDate && { endDate }),
+                    });
+                    const response = await axios.get(`/orders/all?${params.toString()}`, {
+                        headers: { Authorization: `Bearer ${token}` },
+                    });
+                    const mpName = response.data?.marketplace || label;
+                    return (response.data?.orders || []).map((o) => ({
+                        ...o,
+                        marketplace: mpName,
+                        marketplaceId: mp._id,
+                    }));
+                })
+            );
+
+            settled.forEach((result, idx) => {
+                const label = mps[idx]?.marketplaceName || mps[idx]?.name || `#${idx}`;
+                if (result.status === "fulfilled") {
+                    collected.push(...result.value);
+                } else {
+                    const msg =
+                        result.reason?.response?.data?.error ||
+                        result.reason?.response?.data?.details ||
+                        result.reason?.message ||
+                        "İstek başarısız";
+                    failedLabels.push(`${label}: ${msg}`);
+                }
+            });
+
+            if (collected.length === 0 && dbRows.length === 0) {
+                if (failedLabels.length === mps.length) {
+                    setError(
+                        t("orders.allMarketplacesFailed") ||
+                            "Hiçbir pazaryerinden sipariş alınamadı. Bağlantı veya API anahtarlarını kontrol edin."
+                    );
+                }
+            } else if (failedLabels.length > 0) {
+                setError(
+                    (t("orders.partialMarketplaceFailure") || "Bazı pazaryerleri yüklenemedi:") +
+                        " " +
+                        failedLabels.join(" · ")
+                );
+            }
+
+            if (collected.length > 0) {
+                collected.sort((a, b) => {
+                    const da = a.orderDate ? new Date(a.orderDate) : new Date(0);
+                    const db = b.orderDate ? new Date(b.orderDate) : new Date(0);
+                    return db - da;
+                });
+                mergeDbIntoLiveOrders(collected, dbRows);
+                setApiOrders(collected);
+            }
+        } catch (err) {
+            console.warn("Canlı sipariş senkronu:", err.message);
+        } finally {
+            setLoadingMp("");
+        }
+    }, [token, startDate, endDate, t, isSingleMarketplaceScope, scopedMarketplaces]);
 
     /* ── Pazaryeri listesi veya tarih gerçekten değişince çek (parent re-render’da tekrarlama yok) ── */
     useEffect(() => {
@@ -552,15 +594,15 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId, marketplaceId: scop
         let result = [...allOrders];
 
         if (statusFilter !== "all") {
-            result = result.filter(o => classifyStatus(o.status) === statusFilter);
+            result = result.filter(o => classifyStatus(o.status, o.marketplace) === statusFilter);
         }
 
         if (mpFilter !== "all") {
             result = result.filter(o => o.marketplace === mpFilter);
         }
 
-        if (searchQuery.trim()) {
-            const q = searchQuery.toLowerCase().trim();
+        if (debouncedSearch.trim()) {
+            const q = debouncedSearch.toLowerCase().trim();
             result = result.filter(o =>
                 (o.orderNumber || "").toLowerCase().includes(q) ||
                 (o.customerName || "").toLowerCase().includes(q) ||
@@ -595,7 +637,7 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId, marketplaceId: scop
         });
 
         return result;
-    }, [allOrders, statusFilter, mpFilter, searchQuery, sortField, sortDir]);
+    }, [allOrders, statusFilter, mpFilter, debouncedSearch, sortField, sortDir]);
 
     const totalPages = Math.ceil(filteredOrders.length / perPage);
     const paginatedOrders = filteredOrders.slice((currentPage - 1) * perPage, currentPage * perPage);
@@ -603,7 +645,7 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId, marketplaceId: scop
     const statusCounts = useMemo(() => {
         const sc = { all: allOrders.length, new: 0, processing: 0, shipping: 0, delivered: 0, cancelled: 0, returned: 0 };
         allOrders.forEach(o => {
-            const cls = classifyStatus(o.status);
+            const cls = classifyStatus(o.status, o.marketplace);
             if (sc[cls] !== undefined) sc[cls]++;
         });
         return sc;
@@ -642,7 +684,7 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId, marketplaceId: scop
             { field: "orderDate", label: t("orders.date"), width: "14%" },
             { field: "status", label: t("orders.status"), width: "9%", noSort: true },
             { field: "invoiceStatus", label: t("orders.invoice"), width: "12%", noSort: true },
-            { field: "actions", label: "", width: "2%", noSort: true },
+            { field: "actions", label: "", width: "6%", noSort: true },
         ];
         return cols;
     }, [t]);
@@ -1058,7 +1100,7 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId, marketplaceId: scop
                                             })()}
                                         </td>
                                         <td style={{ padding: "0.75rem 0.5rem" }}>
-                                            {getStatusBadge(order.status)}
+                                            {getStatusBadge(order.status, order.marketplace)}
                                         </td>
                                         {/* ── FATURA DURUMU KOLONU ── */}
                                         <td style={{ padding: "0.75rem 0.5rem" }}>
@@ -1076,17 +1118,57 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId, marketplaceId: scop
                                             </div>
                                         </td>
                                         <td style={{ padding: "0.75rem 0.5rem", textAlign: "center" }}>
-                                            <motion.button whileHover={{ scale: 1.15 }} whileTap={{ scale: 0.9 }}
-                                                onClick={e => { e.stopPropagation(); setSelectedOrder(order); }}
-                                                style={{
-                                                    background: `${C.accent}15`, border: `1px solid ${C.accent}30`,
-                                                    borderRadius: 8, width: 32, height: 32, cursor: "pointer",
-                                                    display: "flex", alignItems: "center", justifyContent: "center",
-                                                    color: C.accent, fontSize: "0.85rem",
-                                                }}
-                                            >
-                                                →
-                                            </motion.button>
+                                            <div style={{ display: "flex", gap: "0.35rem", justifyContent: "center", alignItems: "center" }}>
+                                                {supportsCargoLabel(order.marketplace) && (
+                                                    <motion.button
+                                                        whileHover={{ scale: 1.12 }}
+                                                        whileTap={{ scale: 0.9 }}
+                                                        title={t("orders.cargoLabelTitle")}
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setLabelOrder(order);
+                                                        }}
+                                                        style={{
+                                                            background: `${C.purple}18`,
+                                                            border: `1px solid ${C.purple}40`,
+                                                            borderRadius: 8,
+                                                            width: 32,
+                                                            height: 32,
+                                                            cursor: "pointer",
+                                                            display: "flex",
+                                                            alignItems: "center",
+                                                            justifyContent: "center",
+                                                            color: C.purple,
+                                                            fontSize: "0.9rem",
+                                                        }}
+                                                    >
+                                                        🏷️
+                                                    </motion.button>
+                                                )}
+                                                <motion.button
+                                                    whileHover={{ scale: 1.15 }}
+                                                    whileTap={{ scale: 0.9 }}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setSelectedOrder(order);
+                                                    }}
+                                                    style={{
+                                                        background: `${C.accent}15`,
+                                                        border: `1px solid ${C.accent}30`,
+                                                        borderRadius: 8,
+                                                        width: 32,
+                                                        height: 32,
+                                                        cursor: "pointer",
+                                                        display: "flex",
+                                                        alignItems: "center",
+                                                        justifyContent: "center",
+                                                        color: C.accent,
+                                                        fontSize: "0.85rem",
+                                                    }}
+                                                >
+                                                    →
+                                                </motion.button>
+                                            </div>
                                         </td>
                                     </motion.tr>
                                 )) : (
@@ -1222,8 +1304,18 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId, marketplaceId: scop
                                         value: getOrderStatusLabelTr(selectedOrder.status || t("orders.unknown")),
                                         icon: "📦",
                                     },
-                                    { label: t("orders.trackingNo"), value: selectedOrder.trackingNumber || selectedOrder.orderNumber || t("orders.none"), icon: "🚚" },
-                                    ...(selectedOrder.cargoCompany ? [{ label: t("orders.cargoCompany"), value: selectedOrder.cargoCompany, icon: "📮" }] : []),
+                                    {
+                                        label: t("orders.trackingNo"),
+                                        value:
+                                            selectedOrder.cargoTrackingNumber ||
+                                            selectedOrder.trackingNumber ||
+                                            selectedOrder.orderNumber ||
+                                            t("orders.none"),
+                                        icon: "🚚",
+                                    },
+                                    ...(selectedOrder.cargoCompany
+                                        ? [{ label: t("orders.cargoCompany"), value: selectedOrder.cargoCompany, icon: "📮" }]
+                                        : []),
                                 ].map((item, i) => (
                                     <div key={i} style={{
                                         background: C.glass, border: `1px solid ${C.glassBr}`,
@@ -1280,6 +1372,30 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId, marketplaceId: scop
                                     </div>
                                 </div>
                             ) : null}
+
+                            {supportsCargoLabel(selectedOrder.marketplace) && (
+                                <div style={{ marginBottom: "1.25rem" }}>
+                                    <motion.button
+                                        type="button"
+                                        whileHover={{ scale: 1.02 }}
+                                        whileTap={{ scale: 0.98 }}
+                                        onClick={() => setLabelOrder(selectedOrder)}
+                                        style={{
+                                            width: "100%",
+                                            padding: "0.75rem 1rem",
+                                            borderRadius: 12,
+                                            border: `1px solid ${C.purple}45`,
+                                            background: `${C.purple}18`,
+                                            color: C.purple,
+                                            fontWeight: 800,
+                                            fontSize: "0.88rem",
+                                            cursor: "pointer",
+                                        }}
+                                    >
+                                        🏷️ {t("orders.cargoLabelTitle")}
+                                    </motion.button>
+                                </div>
+                            )}
 
                             {/* ── FATURA BİLGİSİ ── */}
                             <div style={{
@@ -1385,6 +1501,15 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId, marketplaceId: scop
                     </motion.div>
                 )}
             </AnimatePresence>
+
+            {labelOrder && (
+                <ShippingLabelModal
+                    order={labelOrder}
+                    onClose={() => setLabelOrder(null)}
+                    C={C}
+                    t={t}
+                />
+            )}
         </div>
     );
 };

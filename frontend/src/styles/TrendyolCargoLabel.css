@@ -1,0 +1,221 @@
+.ty-cargo-label {
+    background: #fff;
+    color: #1a1a1a;
+    font-family: "Segoe UI", system-ui, -apple-system, Arial, sans-serif;
+    padding: 20px 22px;
+    border-radius: 12px;
+    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.06);
+}
+
+.ty-cargo-label__warn {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    background: #fff8e6;
+    border: 1px solid #f0d78c;
+    border-radius: 8px;
+    padding: 12px 14px;
+    margin-bottom: 18px;
+    font-size: 12px;
+    line-height: 1.5;
+    color: #333;
+}
+
+.ty-cargo-label__warn-icon {
+    color: #c90;
+    font-weight: 700;
+    font-size: 15px;
+    flex-shrink: 0;
+}
+
+.ty-cargo-label__warn p {
+    margin: 0;
+}
+
+.ty-cargo-label__head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 20px;
+}
+
+.ty-cargo-label__logo-main {
+    font-size: 26px;
+    font-weight: 800;
+    color: #f27a1a;
+    letter-spacing: -0.02em;
+}
+
+.ty-cargo-label--ciceksepeti .ty-cargo-label__logo-main {
+    color: #e91e63;
+}
+
+.ty-cargo-label--n11 .ty-cargo-label__logo-main {
+    color: #7b2d8e;
+}
+
+.ty-cargo-label--hepsiburada .ty-cargo-label__logo-main {
+    color: #ff6000;
+}
+
+.ty-cargo-label--amazon .ty-cargo-label__logo-main {
+    color: #232f3e;
+}
+
+.ty-cargo-label--pttavm .ty-cargo-label__logo-main {
+    color: #d4a017;
+}
+
+.ty-cargo-label__logo-cargo {
+    text-align: right;
+    font-size: 14px;
+    font-weight: 700;
+    color: #f27a1a;
+    line-height: 1.2;
+}
+
+.ty-cargo-label__logo-cargo span {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: #333;
+    margin-top: 2px;
+}
+
+.ty-cargo-label__logo-cargo--yurtici {
+    color: #0066b3;
+    font-size: 20px;
+    font-weight: 800;
+    line-height: 1.1;
+}
+
+.ty-cargo-label__logo-cargo--yurtici span {
+    color: #0066b3;
+    font-size: 20px;
+    font-weight: 800;
+}
+
+.ty-cargo-label__logo-cargo--ptt {
+    color: #d4a017;
+    font-size: 20px;
+    font-weight: 800;
+}
+
+.ty-cargo-label__logo-cargo--ptt span {
+    color: #c41e3a;
+    font-weight: 800;
+}
+
+.ty-cargo-label__logo-cargo--aras {
+    color: #e30613;
+    font-size: 20px;
+    font-weight: 800;
+}
+
+.ty-cargo-label__logo-cargo--mng {
+    color: #004a8f;
+    font-size: 20px;
+    font-weight: 800;
+}
+
+.ty-cargo-label__logo-cargo--surat {
+    color: #0054a6;
+    font-size: 18px;
+    font-weight: 800;
+}
+
+.ty-cargo-label__logo-cargo--horoz {
+    color: #f39200;
+    font-size: 18px;
+    font-weight: 800;
+}
+
+.ty-cargo-label__logo-cargo--kolay {
+    color: #7b2cbf;
+    font-size: 16px;
+    font-weight: 800;
+}
+
+.ty-cargo-label__logo-cargo--ceva,
+.ty-cargo-label__logo-cargo--dhl,
+.ty-cargo-label__logo-cargo--generic {
+    color: #333;
+    font-size: 17px;
+    font-weight: 800;
+}
+
+.ty-cargo-label__grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+}
+
+@media (max-width: 560px) {
+    .ty-cargo-label__grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.ty-cargo-label__box {
+    border: 1px solid #d8d8d8;
+    border-radius: 10px;
+    padding: 16px 18px;
+    min-height: 200px;
+}
+
+.ty-cargo-label__box h3 {
+    margin: 0 0 14px;
+    font-size: 14px;
+    font-weight: 700;
+    color: #222;
+}
+
+.ty-cargo-label__row {
+    margin-bottom: 12px;
+}
+
+.ty-cargo-label__row:last-child {
+    margin-bottom: 0;
+}
+
+.ty-cargo-label__row dt {
+    font-size: 11px;
+    font-weight: 600;
+    color: #666;
+    margin-bottom: 3px;
+}
+
+.ty-cargo-label__row dd {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.45;
+    word-break: break-word;
+}
+
+.ty-cargo-label__box--barcode {
+    display: flex;
+    flex-direction: column;
+}
+
+.ty-cargo-label__barcode {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding-top: 8px;
+}
+
+.ty-cargo-label__barcode svg {
+    max-width: 100%;
+    height: auto;
+}
+
+.ty-cargo-label__barcode-num {
+    margin-top: 10px;
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: #111;
+}
+

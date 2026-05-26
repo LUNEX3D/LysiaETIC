@@ -7,7 +7,9 @@ import { AdapterDateFns } from "@mui/x-date-pickers/AdapterDateFns";
 import App from "./App";
 import { initClientProtection } from "./utils/clientProtection";
 import { register as registerSW } from "./utils/serviceWorkerRegistration";
+import { suppressWalletExtensionErrors } from "./utils/suppressWalletExtensionErrors";
 
+suppressWalletExtensionErrors();
 initClientProtection();
 
 const root = ReactDOM.createRoot(document.getElementById("root"));

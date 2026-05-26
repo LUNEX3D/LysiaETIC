@@ -10,7 +10,9 @@ export const BRAND_ADMIN_TAG = "SaaS Yönetim Konsolu";
 export const BRAND_AI = "Dashtock AI";
 export const BRAND_RADAR = "Dashtock Radar";
 export const BRAND_AGENT = "Dashtock Agent";
-export const BRAND_LOGO_SRC = "/brand/dashtock-logo.svg?v=dashtock3";
+export const BRAND_LOGO_VERSION = "dashtock4";
+export const BRAND_LOGO_SRC = `/brand/dashtock-logo.svg?v=${BRAND_LOGO_VERSION}`;
+export const BRAND_LOGO_FULL_SRC = `/brand/dashtock-logo-full.svg?v=${BRAND_LOGO_VERSION}`;
 /** Doğrulama ve iletişim */
 export const BRAND_EMAIL = "info@dashtock.com";
 export const BRAND_MAIL_DOMAIN = "dashtock.com";

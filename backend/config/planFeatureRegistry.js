@@ -33,7 +33,7 @@ const FEATURES = {
 const MARKETPLACES_BY_PLAN = {
     trial: ["trendyol", "hepsiburada"],
     basic: ["trendyol", "hepsiburada", "n11"],
-    pro: ["trendyol", "hepsiburada", "n11", "amazon", "çiçeksepeti", "ciceksepeti", "morhipo", "pttavm", "epttavm"],
+    pro: ["trendyol", "hepsiburada", "n11", "amazon", "çiçeksepeti", "ciceksepeti", "pttavm", "ozon"],
     enterprise: ["*"]
 };
 

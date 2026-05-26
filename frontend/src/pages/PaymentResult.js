@@ -1,11 +1,8 @@
 /**
  * PaymentResult — Ödeme Sonuç Sayfası
  *
- * PayTR'dan yönlendirme sonrası gösterilir.
- * /payment/success veya /payment/failed
- *
- * ✅ FIX: Başarılı ödemede abonelik durumunu polling ile kontrol et
- * ✅ FIX: Kullanıcıya anlamlı geri bildirim ver
+ * PayTR yönlendirmesi sonrası; sonuç PayTR Durum Sorgu ile doğrulanır.
+ * Başarısız → mesaj + paket seçimine (/subscription) yönlendirme.
  */
 
 import React, { useState, useEffect, useRef } from "react";
@@ -13,92 +10,201 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { FaCheckCircle, FaTimesCircle, FaArrowRight, FaSpinner } from "react-icons/fa";
 import axios from "../services/api";
 
+const PAYTR_OID_KEY = "dashtock_paytr_oid";
+const FAIL_REDIRECT_MS = 3000;
+
 const PaymentResult = () => {
     const navigate = useNavigate();
     const location = useLocation();
-    const isSuccess = location.pathname.includes("success");
+    const isSuccessUrl = location.pathname.includes("success");
+
+    const [phase, setPhase] = useState("verifying");
+    const [message, setMessage] = useState("");
     const [subStatus, setSubStatus] = useState(null);
-    const [checking, setChecking] = useState(isSuccess);
+    const [redirectSec, setRedirectSec] = useState(Math.ceil(FAIL_REDIRECT_MS / 1000));
     const pollRef = useRef(null);
+    const redirectTimerRef = useRef(null);
 
-    // Başarılı ödemede abonelik durumunu kontrol et
+    const scheduleFailRedirect = () => {
+        if (redirectTimerRef.current) clearTimeout(redirectTimerRef.current);
+        setRedirectSec(Math.ceil(FAIL_REDIRECT_MS / 1000));
+        const tick = setInterval(() => {
+            setRedirectSec((s) => (s > 1 ? s - 1 : 1));
+        }, 1000);
+        redirectTimerRef.current = setTimeout(() => {
+            clearInterval(tick);
+            navigate("/subscription", { replace: true });
+        }, FAIL_REDIRECT_MS);
+        return () => {
+            clearInterval(tick);
+            if (redirectTimerRef.current) clearTimeout(redirectTimerRef.current);
+        };
+    };
+
     useEffect(() => {
-        if (!isSuccess) return;
-
         const token = localStorage.getItem("token");
         if (!token) {
-            setChecking(false);
-            return;
+            navigate("/login", { replace: true });
+            return undefined;
         }
 
-        let attempts = 0;
-        const maxAttempts = 15;
+        const params = new URLSearchParams(location.search);
+        const failFromUrl = params.get("fail_message") || params.get("fail_reason") || "";
+        const oid =
+            sessionStorage.getItem(PAYTR_OID_KEY) ||
+            params.get("merchant_oid") ||
+            params.get("oid") ||
+            "";
 
-        pollRef.current = setInterval(async () => {
-            attempts++;
-            try {
-                const res = await axios.get("/paytr/subscription");
-                if (res.data.success && res.data.subscription) {
-                    const sub = res.data.subscription;
-                    setSubStatus(sub);
-                    if (sub.isActive && sub.status === "active" && sub.plan !== "trial") {
-                        clearInterval(pollRef.current);
-                        setChecking(false);
+        let cancelled = false;
+        let cleanupRedirect = null;
+
+        const pollSubscription = () => {
+            let attempts = 0;
+            pollRef.current = setInterval(async () => {
+                attempts++;
+                try {
+                    if (attempts === 2 || attempts === 5) {
+                        await axios.post("/paytr/sync-subscription", oid ? { merchant_oid: oid } : {});
                     }
+                    const res = await axios.get("/paytr/subscription");
+                    if (res.data.success && res.data.subscription?.isActive) {
+                        setSubStatus(res.data.subscription);
+                        setPhase("success");
+                        clearInterval(pollRef.current);
+                    }
+                } catch {
+                    /* sessiz */
                 }
-            } catch {
-                // Token yoksa veya hata varsa sessizce devam et
-            }
+                if (attempts >= 12) clearInterval(pollRef.current);
+            }, 2000);
+        };
 
-            if (attempts >= maxAttempts) {
-                clearInterval(pollRef.current);
-                setChecking(false);
+        const showFailed = (msg) => {
+            setPhase("failed");
+            setMessage(msg || "Ödeme başarısız. Paket seçimine yönlendiriliyorsunuz.");
+            sessionStorage.removeItem(PAYTR_OID_KEY);
+            cleanupRedirect = scheduleFailRedirect();
+        };
+
+        const runVerify = async () => {
+            try {
+                const res = await axios.post("/paytr/verify-payment", {
+                    ...(oid ? { merchant_oid: oid } : {}),
+                });
+                if (cancelled) return;
+
+                const data = res.data;
+
+                if (data.paymentStatus === "success") {
+                    sessionStorage.removeItem(PAYTR_OID_KEY);
+                    setSubStatus(data.subscription || null);
+                    setPhase("success");
+                    return;
+                }
+
+                if (data.paymentStatus === "pending_activation") {
+                    setPhase("success");
+                    setMessage(data.message || "Ödeme alındı, paket aktifleştiriliyor...");
+                    pollSubscription();
+                    return;
+                }
+
+                if (data.paymentStatus === "failed") {
+                    showFailed(data.message || failFromUrl);
+                    return;
+                }
+
+                showFailed(
+                    data.message ||
+                        failFromUrl ||
+                        (isSuccessUrl
+                            ? "Ödeme doğrulanamadı. Lütfen paket seçiminden tekrar deneyin."
+                            : "Ödeme başarısız.")
+                );
+            } catch (err) {
+                if (cancelled) return;
+                const apiMsg = err.response?.data?.message;
+                if (isSuccessUrl) {
+                    showFailed(
+                        apiMsg ||
+                            failFromUrl ||
+                            "Ödeme PayTR üzerinden doğrulanamadı. Paket seçimine yönlendiriliyorsunuz."
+                    );
+                } else {
+                    showFailed(apiMsg || failFromUrl || "Ödeme başarısız.");
+                }
             }
-        }, 2000);
+        };
+
+        runVerify();
 
         return () => {
+            cancelled = true;
             if (pollRef.current) clearInterval(pollRef.current);
+            if (cleanupRedirect) cleanupRedirect();
+            if (redirectTimerRef.current) clearTimeout(redirectTimerRef.current);
         };
-    }, [isSuccess]);
+    }, [location.pathname, location.search, navigate, isSuccessUrl]);
+
+    const isVerifying = phase === "verifying";
+    const isSuccess = phase === "success";
+    const isFailed = phase === "failed";
 
     return (
         <div style={S.page}>
             <div style={S.card}>
-                <div style={S.iconWrap(isSuccess)}>
-                    {isSuccess ? <FaCheckCircle /> : <FaTimesCircle />}
+                <div style={S.iconWrap(isSuccess && !isVerifying)}>
+                    {isVerifying ? (
+                        <FaSpinner style={{ animation: "spin 1s linear infinite" }} />
+                    ) : isSuccess ? (
+                        <FaCheckCircle />
+                    ) : (
+                        <FaTimesCircle />
+                    )}
                 </div>
                 <h1 style={S.title}>
-                    {isSuccess ? "Ödeme Başarılı!" : "Ödeme Başarısız"}
+                    {isVerifying
+                        ? "Ödeme doğrulanıyor"
+                        : isSuccess
+                          ? "Ödeme Başarılı!"
+                          : "Ödeme Başarısız"}
                 </h1>
                 <p style={S.desc}>
-                    {isSuccess
-                        ? checking
-                            ? "Aboneliğiniz aktifleştiriliyor, lütfen bekleyin..."
-                            : subStatus?.isActive
-                                ? `${(subStatus.plan || "").toUpperCase()} paketiniz başarıyla aktifleştirildi! Artık tüm özellikleri kullanabilirsiniz.`
-                                : "Aboneliğiniz başarıyla aktifleştirildi. Artık tüm özellikleri kullanabilirsiniz."
-                        : "Ödeme işlemi tamamlanamadı. Lütfen tekrar deneyin veya farklı bir ödeme yöntemi kullanın."}
+                    {isVerifying
+                        ? "PayTR üzerinden ödeme durumu sorgulanıyor, lütfen bekleyin..."
+                        : isSuccess
+                          ? message ||
+                            (subStatus?.isActive
+                                ? `${(subStatus.plan || "").toUpperCase()} paketiniz aktifleştirildi. Panele geçebilirsiniz.`
+                                : "Ödemeniz onaylandı. Aboneliğiniz kısa süre içinde aktif olacak.")
+                          : message ||
+                            `Ödeme tamamlanamadı. ${redirectSec} saniye içinde paket seçimine yönlendirileceksiniz.`}
                 </p>
-                {checking && (
+                {isVerifying && (
                     <div style={S.spinner}>
-                        <FaSpinner style={{ animation: "spin 1s linear infinite" }} /> Kontrol ediliyor...
+                        <FaSpinner style={{ animation: "spin 1s linear infinite" }} /> PayTR durum sorgusu...
                         <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
                     </div>
                 )}
                 <div style={S.actions}>
-                    <button
-                        style={S.primaryBtn}
-                        onClick={() => navigate("/dashboard")}
-                    >
-                        Panele Git <FaArrowRight />
-                    </button>
-                    {!isSuccess && (
-                        <button
-                            style={S.secondaryBtn}
-                            onClick={() => navigate("/subscription")}
-                        >
-                            Tekrar Dene
+                    {isSuccess && (
+                        <button style={S.primaryBtn} onClick={() => navigate("/dashboard")}>
+                            Panele Git <FaArrowRight />
                         </button>
+                    )}
+                    {isFailed && (
+                        <>
+                            <button
+                                style={S.primaryBtn}
+                                onClick={() => navigate("/subscription", { replace: true })}
+                            >
+                                Paket seçimine dön <FaArrowRight />
+                            </button>
+                            <button style={S.secondaryBtn} onClick={() => navigate("/dashboard")}>
+                                Panele git
+                            </button>
+                        </>
                     )}
                 </div>
             </div>
@@ -130,7 +236,7 @@ const S = {
         height: "80px",
         borderRadius: "50%",
         background: isSuccess ? "rgba(52,211,153,0.12)" : "rgba(248,113,113,0.12)",
-        color: isSuccess ? "#34d399" : "#f87171",
+        color: isSuccess ? "#34d399" : "#818cf8",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",

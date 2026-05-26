@@ -1,0 +1,3 @@
+labels GET 400 "Cargo company does not provide mutual barcodes."
+barcodes POST 401 ""
+label result: {"format":"marketplace_a4","viewMode":"marketplace_a4","source":"hepsiburada_a4_panel"}

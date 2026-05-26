@@ -769,77 +769,27 @@ exports.resolveForDistribute = async (req, res) => {
             return badRequest(res, "productId ve targetPlatform gerekli");
         }
 
-        const targetSpec = mapTargetPlatformToMappingFields(targetPlatform);
-        if (!targetSpec) {
-            return badRequest(res, "Desteklenmeyen hedef platform");
-        }
-
         const product = await ProductMapping.findOne({ _id: productId, userId }).lean();
         if (!product) return notFound(res, "Ürün bulunamadı");
 
-        let row = null;
-        let matchedBy = null;
+        const { resolveCategoryForDistribute } = require("../services/categoryCenterResolveService");
+        const resolution = await resolveCategoryForDistribute(product, targetPlatform);
 
-        const tyMap = (product.marketplaceMappings || []).find((m) => {
-            const n = normalizePlatformName(m.marketplaceName || "");
-            return n.includes("trendyol");
-        });
-        if (tyMap && tyMap.categoryId != null && String(tyMap.categoryId).trim() !== "") {
-            const tid = parseInt(String(tyMap.categoryId).replace(/[^\d]/g, ""), 10);
-            if (!Number.isNaN(tid)) {
-                row = await MasterCategoryMapping.findOne({ trendyolId: tid }).lean();
-                if (row) matchedBy = "trendyol_listing_category";
-            }
-        }
-
-        const catHint = product.masterProduct && product.masterProduct.category
-            ? String(product.masterProduct.category).trim()
-            : "";
-        if (!row && catHint.length >= 2) {
-            const parts = catHint.split(/\s*>\s*/).map((s) => s.trim()).filter(Boolean);
-            const leafHint = parts.length ? parts[parts.length - 1] : catHint;
-            const q = leafHint.length >= 2 ? leafHint : catHint;
-            const regex = buildMappingSearchRegex(q);
-            row = await MasterCategoryMapping.findOne({
-                $or: [
-                    { masterPath: regex },
-                    { masterName: regex },
-                    { trendyolPath: regex }
-                ]
-            })
-                .sort({ masterPath: 1 })
-                .lean();
-            if (row) matchedBy = "master_product_category_text";
-        }
-
-        if (!row) {
-            return ok(res, "Kategori merkezinde eşleşme bulunamadı", {
+        if (!resolution.resolved) {
+            return ok(res, resolution.message || "Kategori merkezinde eşleşme bulunamadı", {
                 resolved: false,
                 matchedBy: null,
                 master: null,
-                hint: catHint || null,
-                platformCategory: null
+                hint: resolution.hint || null,
+                platformCategory: null,
             });
         }
 
-        const idVal = row[targetSpec.idKey];
-        const pathVal = row[targetSpec.pathKey] || "";
-        const platformCategory = {
-            platform: targetSpec.label,
-            categoryId: idVal != null && idVal !== "" ? String(idVal) : null,
-            categoryPath: decodeHtmlEntities(String(pathVal || "")),
-            isComplete: idVal != null && idVal !== ""
-        };
-
         return ok(res, "Kategori merkezi eşlemesi hazır", {
             resolved: true,
-            matchedBy,
-            master: {
-                masterId: row.masterId,
-                masterName: decodeHtmlEntities(row.masterName),
-                masterPath: decodeHtmlEntities(row.masterPath)
-            },
-            platformCategory
+            matchedBy: resolution.matchedBy,
+            master: resolution.master,
+            platformCategory: resolution.platformCategory,
         });
     } catch (error) {
         logger.error("[CATEGORY CENTER] resolve-for-distribute hatası:", error.message);

@@ -22,7 +22,7 @@ const translations = {
         "sidebar.advancedAnalytics": "Gelişmiş Analiz",
         "sidebar.aiAssistant": "AI Asistan",
         "sidebar.roketfy": "Dashtock Radar",
-        "sidebar.radarPro": "Fırsat Radar",
+        "sidebar.radarPro": "AI Fırsat Radarı",
         "sidebar.management": "Yönetim",
         "sidebar.userMgmt": "Kullanıcı Yönetimi",
         "sidebar.billing": "Faturalandırma",
@@ -408,6 +408,14 @@ const translations = {
         "orders.fromApi": "API Siparişleri",
         "orders.switchToDb": "DB Grnm (Fatura Durumlu)",
         "orders.switchToApi": "API Grnm",
+        "orders.cargoLabelTitle": "Kargo Etiketi",
+        "orders.cargoLabelBtn": "Etiket",
+        "orders.cargoLabelLoading": "Etiket yükleniyor...",
+        "orders.cargoLabelPrint": "Yazdır",
+        "orders.cargoLabelDownload": "İndir",
+        "orders.cargoLabelError": "Kargo etiketi alınamadı.",
+        "orders.cargoLabelPreviewFail": "Etiket önizlemesi oluşturulamadı; ZPL dosyasını indirip termal yazıcıdan yazdırabilirsiniz.",
+        "orders.cargoLabelZplHint": "Termal yazıcı için ZPL dosyasını indirin.",
 
         // Finance Page
         "finance.pageTitle": "Finans Yönetimi",
@@ -1086,6 +1094,14 @@ const translations = {
         "orders.fromApi": "API Orders",
         "orders.switchToDb": "DB View (With Invoice Status)",
         "orders.switchToApi": "API View",
+        "orders.cargoLabelTitle": "Shipping Label",
+        "orders.cargoLabelBtn": "Label",
+        "orders.cargoLabelLoading": "Loading label...",
+        "orders.cargoLabelPrint": "Print",
+        "orders.cargoLabelDownload": "Download",
+        "orders.cargoLabelError": "Could not fetch shipping label.",
+        "orders.cargoLabelPreviewFail": "Preview failed; download the ZPL file for your thermal printer.",
+        "orders.cargoLabelZplHint": "Download the ZPL file for your thermal printer.",
 
         // Finance Page
         "finance.pageTitle": "Finance Management",

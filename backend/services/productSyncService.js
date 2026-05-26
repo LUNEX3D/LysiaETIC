@@ -207,6 +207,7 @@ const normalizeMarketplaceName = (name) => {
     if (n === "n11")                               return "N11";
     if (n === "amazon" || n === "amazon türkiye" || n === "amazon europe" || n === "amazon usa") return "Amazon";
     if (n === "çiçeksepeti" || n === "ciceksepeti") return "ÇiçekSepeti";
+    if (n === "ozon") return "Ozon";
     return name.trim();
 };
 
@@ -231,8 +232,12 @@ const fetchProductsFromMarketplace = async (marketplace) => {
                 return await fetchN11Products(credentials);
             case "ÇiçekSepeti":
                 return await fetchCicekSepetiProducts(credentials);
+            case "Ozon":
+                return await fetchOzonProductsForSync(credentials);
             default:
-                throw new Error(`Desteklenmeyen pazaryeri: ${marketplaceName}. Desteklenen pazaryerleri: Trendyol, Hepsiburada, N11, ÇiçekSepeti`);
+                throw new Error(
+                    `Desteklenmeyen pazaryeri: ${marketplaceName}. Desteklenen pazaryerleri: Trendyol, Hepsiburada, N11, ÇiçekSepeti, Ozon`
+                );
         }
     } catch (error) {
         const statusCode = error.response?.status;
@@ -688,6 +693,52 @@ const fetchCicekSepetiProducts = async (credentials) => {
     }
 
     return products;
+};
+
+const fetchOzonProductsForSync = async (credentials) => {
+    const { fetchAllOzonProducts } = require("./ozon/ozonService");
+    const items = await fetchAllOzonProducts(credentials, 80);
+    return items.map((p) => ({
+        marketplaceProductId: String(p.productId || ""),
+        barcode: p.offerId,
+        sku: p.offerId,
+        name: p.name,
+        price: 0,
+        listPrice: 0,
+        stock: 0,
+        categoryId: "",
+        images: [],
+        attributes: {},
+    }));
+};
+
+const uploadProductToOzon = async (credentials, product) => {
+    const {
+        importOzonProduct,
+        buildOzonImportItem,
+    } = require("./ozon/ozonService");
+
+    const mpMapping = (product.marketplaceMappings || []).find(
+        (m) => String(m.marketplaceName || "").toLowerCase() === "ozon"
+    );
+    const categoryId =
+        mpMapping?.categoryId ||
+        product.ozonCategoryId ||
+        product.categoryId;
+    const typeId = mpMapping?.typeId || product.ozonTypeId || product.typeId;
+
+    try {
+        const item = buildOzonImportItem(product, categoryId, typeId);
+        const result = await importOzonProduct(credentials, { items: [item] });
+        return {
+            success: true,
+            message: "Ozon ürün içe aktarma görevi oluşturuldu",
+            taskId: result.taskId,
+            batchId: result.taskId,
+        };
+    } catch (err) {
+        return { success: false, error: err.message };
+    }
 };
 
 // Ürünleri eşleştir ve kaydet
@@ -2889,13 +2940,15 @@ const uploadProductToMarketplace = async (marketplace, product, userId = null) =
                 return await uploadProductToN11(credentials, productForUpload, userId);
             case "ÇiçekSepeti":
                 return await uploadProductToCicekSepeti(credentials, productForUpload);
+            case "Ozon":
+                return await uploadProductToOzon(credentials, productForUpload);
             default:
                 logger.warn(`[UPLOAD] ${marketplaceName} için ürün oluşturma API'si yok — yükleme yapılmadı`);
                 return {
                     success: false,
                     error:
                         `${marketplaceName}: Bu pazaryeri için ürün yükleme entegrasyonu henüz yok. ` +
-                        `Desteklenenler: Trendyol, Hepsiburada, N11, ÇiçekSepeti.`
+                        `Desteklenenler: Trendyol, Hepsiburada, N11, ÇiçekSepeti, Ozon.`
                 };
         }
     } catch (error) {

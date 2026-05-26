@@ -1,0 +1,7 @@
+{
+  "status": "İade Tedarikçide",
+  "statusBucket": "returned",
+  "isReturned": true,
+  "classify": "returned",
+  "cacheInvalidated": true
+}

@@ -2,7 +2,8 @@ const express = require("express");
 const router = express.Router();
 const { authMiddleware } = require("../middlewares/authMiddleware");
 const { subscriptionMiddleware } = require("../middlewares/subscriptionMiddleware");
-const { getAllOrders, syncAllOrders, getDbOrders } = require("../controllers/ordersController");
+const { getAllOrders, syncAllOrders, syncRecentOrders, getDbOrders } = require("../controllers/ordersController");
+const { getShippingLabel } = require("../controllers/shippingLabelController");
 
 // ✅ FIX H6: subscriptionMiddleware eklendi
 // ✅ FIX H2: :userId kaldırıldı (controller'da req.user._id kullanılıyor)
@@ -17,5 +18,7 @@ router.get("/db-orders", authMiddleware, subscriptionMiddleware, getDbOrders);
 // Gelismis Analiz sayfasi acildiginda cagirilir
 // ✅ SEC: subscriptionMiddleware eklendi — süresi dolmuş kullanıcılar erişemez
 router.get("/sync-all", authMiddleware, subscriptionMiddleware, syncAllOrders);
+router.get("/sync-recent", authMiddleware, subscriptionMiddleware, syncRecentOrders);
+router.get("/shipping-label", authMiddleware, subscriptionMiddleware, getShippingLabel);
 
 module.exports = router;

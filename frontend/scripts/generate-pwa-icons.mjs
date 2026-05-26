@@ -29,6 +29,9 @@ for (const size of sizes) {
 }
 
 // Tarayıcı varsayılanı /favicon.ico — 32px PNG (çoğu tarayıcı kabul eder)
-await sharp(svg).resize(32, 32, { fit: "contain", background: { r: 15, g: 118, b: 110, alpha: 255 } }).png().toFile(path.join(root, "public", "favicon.png"));
+await sharp(svg)
+    .resize(32, 32, { fit: "contain", background: { r: 96, g: 37, b: 190, alpha: 255 } })
+    .png()
+    .toFile(path.join(root, "public", "favicon.png"));
 
 console.log("\nTamamlandı. index.html favicon linklerini yenileyin gerekirse.");

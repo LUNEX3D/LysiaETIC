@@ -1,0 +1,34 @@
+{
+  "totalCount": 2,
+  "limit": 2,
+  "offset": 0,
+  "pageCount": 1,
+  "items": [
+    {
+      "Id": "6a0b1274-252d-068e-f3fb-fbc406060606",
+      "Barcode": "62754775033760",
+      "PackageNumber": "5477503376",
+      "OrderNumber": "4381688459",
+      "OrderNumbers": [
+        "4381688459"
+      ],
+      "MerchantId": "825f9afd-e1c5-4416-9dbd-632f70730568",
+      "ShippedDate": "2026-05-25T13:28:24",
+      "Deci": 1,
+      "EtgbNo": ""
+    },
+    {
+      "Id": "6a0b1390-9b68-894d-c2cb-06ef06060606",
+      "Barcode": "62754775057566",
+      "PackageNumber": "5477505756",
+      "OrderNumber": "4303450218",
+      "OrderNumbers": [
+        "4303450218"
+      ],
+      "MerchantId": "825f9afd-e1c5-4416-9dbd-632f70730568",
+      "ShippedDate": "2026-05-25T13:28:46",
+      "Deci": 1,
+      "EtgbNo": ""
+    }
+  ]
+}

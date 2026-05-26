@@ -13,13 +13,18 @@ function readSeoFile(name) {
     return fs.readFileSync(filePath, "utf8");
 }
 
+const FALLBACK_ROBOTS = `User-agent: *
+Allow: /
+Sitemap: https://dashtock.com/sitemap.xml
+`;
+
 router.get("/robots.txt", (req, res) => {
     try {
         res.set("Content-Type", "text/plain; charset=utf-8");
         res.set("Cache-Control", "public, max-age=3600");
         res.send(readSeoFile("robots.txt"));
     } catch (err) {
-        res.status(500).type("text/plain").send("User-agent: *\nDisallow:\n");
+        res.status(200).type("text/plain").send(FALLBACK_ROBOTS);
     }
 });
 
@@ -29,7 +34,7 @@ router.get("/sitemap.xml", (req, res) => {
         res.set("Cache-Control", "public, max-age=3600");
         res.send(readSeoFile("sitemap.xml"));
     } catch (err) {
-        res.status(500).type("application/xml").send('<?xml version="1.0"?><urlset/>');
+        res.redirect(302, "https://dashtock.com/sitemap.xml");
     }
 });
 

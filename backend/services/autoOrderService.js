@@ -991,6 +991,8 @@ module.exports = {
     getCiceksepetiCargoCompanies,
     getN11CargoCompanies,
     resolveTrendyolCargoId,
+    resolveTrendyolCargoProviderCode,
+    buildTrendyolPickingLines,
     processOrders,
     processTrendyolOrders,
     processHepsiburadaOrders,

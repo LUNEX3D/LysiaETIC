@@ -28,6 +28,7 @@ const normalizeMarketplaceName = (name) => {
     if (n === "n11") return "N11";
     if (n === "amazon" || n.startsWith("amazon")) return name.trim();
     if (n === "çiçeksepeti" || n === "ciceksepeti") return "ÇiçekSepeti";
+    if (n === "ozon") return "Ozon";
     return name.trim();
 };
 
@@ -813,6 +814,16 @@ const updateStockOnMarketplace = async (marketplace, productId, newStock, priceU
                 return await updateN11Stock(credentials, productId, newStock, priceUpdate);
             case "ÇiçekSepeti":
                 return await updateCicekSepetiStock(credentials, productId, newStock, priceUpdate);
+            case "Ozon": {
+                const { updateOzonStock } = require("./ozon/ozonService");
+                const offerId =
+                    typeof productId === "object"
+                        ? productId.offerId || productId.sku
+                        : productId;
+                const pid =
+                    typeof productId === "object" ? productId.productId : null;
+                return await updateOzonStock(credentials, offerId, newStock, pid);
+            }
             case "Noon":
                 return await updateNoonStock(credentials, productId, newStock, priceUpdate);
             case "AliExpress":
