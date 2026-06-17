@@ -1,0 +1,350 @@
+/**
+ * Grapes editör — ec-theme-editor-v6 (İkas) kabuğu içinde minimal ekler
+ */
+
+/* Grapes tuvali önizleme alanını doldurur */
+.ec-theme-editor-v6 .ikas-live-preview--editor .ec-grapes-host {
+    flex: 1;
+    min-height: 0;
+    height: 100%;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
+.ec-theme-editor-v6 .ikas-live-preview--editor .ec-grapes-host .gjs-editor {
+    flex: 1;
+    min-height: 0;
+}
+
+/* Grapes seçim — parent DOM */
+.ec-grapes-host--storefront {
+    --gjs-color-blue: #0d9488;
+}
+
+.ec-grapes-host--storefront .gjs-highlighter {
+    outline: 2px dashed rgba(13, 148, 136, 0.75) !important;
+    outline-offset: 0 !important;
+    background: rgba(13, 148, 136, 0.04) !important;
+}
+
+.ec-grapes-host--storefront .gjs-highlighter-sel {
+    outline: 3px solid #0d9488 !important;
+    outline-offset: 0 !important;
+    background: rgba(13, 148, 136, 0.1) !important;
+    box-shadow: 0 0 0 6px rgba(13, 148, 136, 0.18) !important;
+}
+
+.ec-grapes-host--storefront .gjs-badge,
+.ec-grapes-host--storefront .gjs-toolbar,
+.ec-grapes-host--storefront .gjs-resizer,
+.ec-grapes-host--storefront .gjs-offset-v {
+    display: none !important;
+}
+
+.pte-gjs-hidden {
+    position: absolute !important;
+    width: 0 !important;
+    height: 0 !important;
+    overflow: hidden !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+}
+
+/* Sağ panel sekmeleri */
+.ec-theme-editor-v6 .ec-editor-right-panel .sb-v5-prop-tabs {
+    display: flex;
+    flex-shrink: 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.ec-theme-editor-v6 .ec-editor-right-panel .sb-v5-prop-tabs button {
+    flex: 1;
+    padding: 10px 8px;
+    border: none;
+    background: transparent;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+}
+
+.ec-theme-editor-v6 .ec-editor-right-panel .sb-v5-prop-body {
+    padding: 4px 0 20px;
+}
+
+.ec-theme-editor-v6 .grapes-ik-selection-tools {
+    display: flex;
+    gap: 4px;
+    padding: 8px 14px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.ec-theme-editor-v6 .grapes-ik-selection-tools button {
+    flex: 1;
+    min-height: 34px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.04);
+    color: #cbd5e1;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.ec-theme-editor-v6 .grapes-ik-selection-tools button:hover:not(:disabled) {
+    background: rgba(13, 148, 136, 0.15);
+    border-color: rgba(45, 212, 191, 0.3);
+    color: #5eead4;
+}
+
+.ec-theme-editor-v6 .grapes-ik-selection-tools button:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+.ec-theme-editor-v6 .grapes-ik-selection-tools button.is-danger:hover:not(:disabled) {
+    background: rgba(239, 68, 68, 0.15);
+    border-color: rgba(248, 113, 113, 0.35);
+    color: #fca5a5;
+}
+
+.ec-theme-editor-v6 .wb-te-flat-sections-empty {
+    padding: 20px 14px;
+    text-align: center;
+    color: #94a3b8;
+    font-size: 0.84rem;
+    line-height: 1.5;
+}
+
+.ec-theme-editor-v6 .wb-te-flat-sections-empty strong {
+    color: #e2e8f0;
+}
+
+.ec-theme-editor-v6 .grapes-ik-left-footer-row {
+    display: flex;
+    gap: 8px;
+    padding: 0 12px 4px;
+}
+
+.ec-theme-editor-v6 .grapes-ik-left-footer-row .wb-te-theme-settings-btn {
+    flex: 1;
+    width: auto;
+    margin: 0;
+}
+
+/* Bölüm ekleme sheet */
+.pte-sheet-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    background: rgba(15, 23, 42, 0.45);
+    display: flex;
+    align-items: stretch;
+    justify-content: flex-start;
+    backdrop-filter: blur(2px);
+}
+
+.pte-sheet {
+    width: min(420px, 92vw);
+    max-width: 100%;
+    background: #fff;
+    box-shadow: 8px 0 40px rgba(15, 23, 42, 0.18);
+    display: flex;
+    flex-direction: column;
+    animation: grapes-ik-sheet-in 0.22s ease;
+}
+
+.pte-sheet--wide {
+    width: min(480px, 96vw);
+}
+
+@keyframes grapes-ik-sheet-in {
+    from { transform: translateX(-16px); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+}
+
+.pte-sheet__head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 20px 20px 16px;
+    border-bottom: 1px solid #eef1f5;
+}
+
+.pte-sheet__head h2 {
+    margin: 0 0 4px;
+    font-size: 18px;
+    font-weight: 800;
+    color: #0f172a;
+}
+
+.pte-sheet__head p {
+    margin: 0;
+    font-size: 13px;
+    color: #64748b;
+    line-height: 1.4;
+}
+
+.pte-sheet__close {
+    width: 36px;
+    height: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    background: #fff;
+    color: #64748b;
+    cursor: pointer;
+}
+
+.pte-sheet__body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 12px 16px 20px;
+}
+
+.pte-sheet__body--flush {
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.pte-block-group {
+    margin-bottom: 14px;
+}
+
+.pte-block-group__head {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-bottom: 8px;
+    padding: 0 2px;
+}
+
+.pte-block-group__head strong {
+    font-size: 13px;
+    font-weight: 800;
+    color: #0f172a;
+}
+
+.pte-block-group__head span {
+    font-size: 11px;
+    color: #94a3b8;
+    line-height: 1.35;
+}
+
+.pte-block-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.pte-block-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 12px 14px;
+    border: 1px solid #e8ecf1;
+    border-radius: 12px;
+    background: #fff;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.pte-block-card__icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    background: linear-gradient(135deg, #f1f5f9, #e2e8f0);
+    flex-shrink: 0;
+}
+
+.pte-block-card__body {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.pte-block-card__body strong {
+    font-size: 13px;
+    font-weight: 700;
+    color: #0f172a;
+}
+
+.pte-block-card__body small {
+    font-size: 11px;
+    color: #64748b;
+    line-height: 1.35;
+}
+
+.pte-block-card:hover:not(:disabled) {
+    border-color: #0d9488;
+    box-shadow: 0 4px 14px rgba(13, 148, 136, 0.12);
+}
+
+.pte-block-card:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.ec-theme-editor-v6 .ikas-editor-canvas__loading {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(241, 245, 249, 0.85);
+    z-index: 5;
+}
+
+.ec-theme-editor-v6 .grapes-ik-align-btns {
+    display: flex;
+    gap: 6px;
+}
+
+.ec-theme-editor-v6 .grapes-ik-align-btns button {
+    flex: 1;
+    min-height: 38px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    background: #0f172a;
+    color: #94a3b8;
+    cursor: pointer;
+}
+
+.ec-theme-editor-v6 .grapes-ik-align-btns button.active {
+    background: rgba(13, 148, 136, 0.2);
+    border-color: rgba(45, 212, 191, 0.4);
+    color: #5eead4;
+}
+
+.ec-theme-editor-v6 .grapes-ik-check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.84rem;
+    color: #cbd5e1;
+    margin-top: 8px;
+    cursor: pointer;
+}
+
+.ec-theme-editor-v6 .grapes-ik-check input {
+    accent-color: #0d9488;
+}
+
+.dashboard-container--ec-platform .ec-theme-editor-v6.ec-grapes-embedded {
+    height: 100% !important;
+    min-height: 100% !important;
+    flex: 1;
+}

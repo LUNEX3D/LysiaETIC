@@ -1,0 +1,107 @@
+.ec-exit-erp {
+    position: fixed;
+    top: calc(12px + env(safe-area-inset-top));
+    left: 16px;
+    z-index: 1200;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    border: 1px solid #d1d5db;
+    border-radius: 10px;
+    background: #fff;
+    color: #1f2937;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 2px 12px rgba(15, 23, 42, 0.12);
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.ec-exit-erp:hover {
+    background: #f9fafb;
+    border-color: #9ca3af;
+}
+
+.ec-exit-erp--platform {
+    left: calc(var(--ec-p-sidebar-w, 220px) + 12px);
+}
+
+.ec-exit-erp--bare {
+    left: 16px;
+}
+
+.ec-wb-channel-main {
+    min-height: calc(100dvh - env(safe-area-inset-top));
+    background: #f4f4f5;
+    overflow-x: hidden;
+}
+
+.ec-wb-channel-main .sb-v5-center {
+    max-width: none;
+    padding: 24px 28px 48px;
+}
+
+.ec-wb-channel-main--workspace .wb-ikas-page--premium-ec {
+    padding: 24px 28px 40px;
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+.ec-wb-channel-main--workspace .wb-ikas-page--premium-ec .wb-ikas-card {
+    border-radius: 16px;
+    border: 1px solid #e4e4e7;
+    box-shadow: 0 4px 24px rgba(15, 23, 42, 0.06);
+}
+
+.ec-wb-channel-main--workspace .wb-ikas-page--premium-ec .wb-ikas-btn-primary {
+    border-radius: 10px;
+    font-weight: 600;
+    padding: 10px 20px;
+}
+
+.dashboard-container--ec-wb-channel .content-area--ec-wb-channel {
+    left: 240px !important;
+    background: #f1f5f9;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    padding: 0 !important;
+    overflow: hidden;
+}
+
+.dashboard-container--ec-wb-channel .content-area--ec-wb-channel .ec-wb-channel-main--workspace {
+    height: 100%;
+    min-height: 0;
+}
+
+.ec-workspace-channel--active {
+    background: rgba(255, 255, 255, 0.08) !important;
+    color: #fff !important;
+}
+
+.dashboard-container--ec-wb-fullbleed .content-area--ec-wb-fullbleed {
+    left: 0 !important;
+    right: 0;
+    width: 100%;
+    max-width: 100%;
+    padding: 0 !important;
+    padding-top: env(safe-area-inset-top) !important;
+    background: #0c0c0e;
+    overflow: hidden;
+}
+
+.dashboard-container--ec-wb-fullbleed .wb-theme-editor-root--embedded.wb-theme-editor-root--premium-ui {
+    min-height: 100dvh;
+    height: 100dvh;
+    background: #0c0c0e;
+}
+
+.dashboard-container--ec-wb-fullbleed .wb-theme-editor-root--embedded.wb-theme-editor-root--premium-ui .wb-theme-editor-body--ikas,
+.dashboard-container--ec-wb-fullbleed .wb-theme-editor-root--embedded.wb-theme-editor-root--premium-ui .wb-theme-editor-body--v4 {
+    height: calc(100dvh - 52px);
+}
+
+.dashboard-container--ec-wb-fullbleed .wb-theme-editor-root--embedded.wb-theme-editor-root--premium-ui .wb-theme-editor-left--v4 {
+    background: #111113 !important;
+    border-right-color: rgba(255, 255, 255, 0.06) !important;
+}

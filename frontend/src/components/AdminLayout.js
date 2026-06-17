@@ -5,7 +5,7 @@ import {
     FaUserShield, FaCog, FaSignOutAlt, FaBars, FaTimes,
     FaExternalLinkAlt, FaBuilding, FaCrown, FaCreditCard,
     FaPlug, FaTachometerAlt, FaChartBar, FaBullhorn,
-    FaHistory, FaTicketAlt, FaShieldAlt, FaBug, FaCoins, FaTag
+    FaHistory, FaTicketAlt, FaShieldAlt, FaBug, FaCoins, FaTag, FaSignInAlt
 } from "react-icons/fa";
 import { logoutUser } from "../services/api";
 import DashtockLogo from "./brand/DashtockLogo";
@@ -67,6 +67,7 @@ const AdminLayout = ({ title, subtitle, actions, children }) => {
         {
             label: "İletişim",
             items: [
+                { to: "/admin/login-page", label: "Giriş Sayfası", icon: <FaSignInAlt /> },
                 { to: "/admin/announcements", label: "Duyurular", icon: <FaBullhorn /> },
                 { to: "/admin/tickets", label: "Destek Talepleri", icon: <FaTicketAlt /> },
             ]

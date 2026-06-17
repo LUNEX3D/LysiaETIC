@@ -234,9 +234,14 @@ const fetchProductsFromMarketplace = async (marketplace) => {
                 return await fetchCicekSepetiProducts(credentials);
             case "Ozon":
                 return await fetchOzonProductsForSync(credentials);
+            case "Amazon":
+            case "Amazon Türkiye":
+            case "Amazon Europe":
+            case "Amazon USA":
+                return await fetchAmazonProductsForSync(credentials, rawName);
             default:
                 throw new Error(
-                    `Desteklenmeyen pazaryeri: ${marketplaceName}. Desteklenen pazaryerleri: Trendyol, Hepsiburada, N11, ÇiçekSepeti, Ozon`
+                    `Desteklenmeyen pazaryeri: ${marketplaceName}. Desteklenen pazaryerleri: Trendyol, Hepsiburada, N11, ÇiçekSepeti, Ozon, Amazon`
                 );
         }
     } catch (error) {
@@ -695,6 +700,53 @@ const fetchCicekSepetiProducts = async (credentials) => {
     return products;
 };
 
+const fetchAmazonProductsForSync = async (credentials, marketplaceName = "Amazon") => {
+    const amazonService = require("./amazon/amazonSpApiService");
+    const listings = await amazonService.searchAllListingsItems(credentials, {
+        marketplaceName,
+        maxPages: 200,
+    });
+
+    return listings.map((item) => {
+        const summary = (item.summaries || []).find(
+            (s) => String(s.marketplaceId || "") === String(credentials.marketplaceId || "")
+        ) || item.summaries?.[0] || {};
+        const offer = (item.offers || [])[0] || {};
+        const stockEntry = (item.fulfillmentAvailability || [])[0] || {};
+        const priceAmount = Number(
+            offer?.price?.amount ??
+            offer?.listingPrice?.amount ??
+            offer?.buyingPrice?.amount ??
+            0
+        );
+        const listPrice = Number(
+            offer?.maximumRetailPrice?.amount ??
+            offer?.listPrice?.amount ??
+            priceAmount
+        );
+
+        return {
+            marketplaceProductId: summary.asin || item.sku || "",
+            barcode: summary.asin || "",
+            sku: item.sku || summary.asin || "",
+            name: summary.itemName || item.sku || "Amazon ürün",
+            description: "",
+            price: Number(priceAmount) || 0,
+            listPrice: Number(listPrice) || Number(priceAmount) || 0,
+            stock: Number(stockEntry.quantity ?? stockEntry.fulfillableQuantity ?? 0) || 0,
+            category: "",
+            categoryId: summary.productType || "",
+            brand: summary.brand || "",
+            images: summary.mainImage?.link ? [summary.mainImage.link] : [],
+            attributes: {
+                productType: summary.productType || "",
+                status: summary.status || "",
+                asin: summary.asin || "",
+            },
+        };
+    });
+};
+
 const fetchOzonProductsForSync = async (credentials) => {
     const { fetchAllOzonProducts } = require("./ozon/ozonService");
     const items = await fetchAllOzonProducts(credentials, 80);
@@ -730,14 +782,163 @@ const uploadProductToOzon = async (credentials, product) => {
     try {
         const item = buildOzonImportItem(product, categoryId, typeId);
         const result = await importOzonProduct(credentials, { items: [item] });
+
+        // Görev sonucunu kısa süre bekleyip kontrol et — anlık doğrulama hataları yakalanır
+        if (result.taskId) {
+            const { getOzonImportInfo } = require("./ozon/ozonService");
+            for (let attempt = 0; attempt < 3; attempt++) {
+                await new Promise((r) => setTimeout(r, 2000));
+                try {
+                    const info = await getOzonImportInfo(credentials, result.taskId);
+                    if (info.errors.length > 0) {
+                        return {
+                            success: false,
+                            taskId: result.taskId,
+                            error: `Ozon import hatası: ${info.errors.slice(0, 5).join(" | ")}`,
+                        };
+                    }
+                    if (!info.pending) {
+                        return {
+                            success: true,
+                            message: "Ozon ürün içe aktarma tamamlandı",
+                            taskId: result.taskId,
+                            batchId: result.taskId,
+                        };
+                    }
+                } catch (e) {
+                    logger.warn(`[UPLOAD OZON] import/info kontrolü başarısız: ${e.message}`);
+                    break;
+                }
+            }
+        }
+
         return {
             success: true,
-            message: "Ozon ürün içe aktarma görevi oluşturuldu",
+            message: "Ozon ürün içe aktarma görevi oluşturuldu (sonuç işleniyor)",
             taskId: result.taskId,
             batchId: result.taskId,
         };
     } catch (err) {
         return { success: false, error: err.message };
+    }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AMAZON ÜRÜN YÜKLEME — Listings Items API (putListingsItem)
+// Ürün kartındaki Amazon eşlemesinden productType + ASIN okunur.
+// ─────────────────────────────────────────────────────────────────────────────
+const resolveAmazonOfferContext = (marketplaceName) => {
+    const n = String(marketplaceName || "").toLowerCase();
+    if (n.includes("usa") || n.includes("us") || n.includes("amerika")) {
+        return { currency: "USD", languageTag: "en_US" };
+    }
+    if (n.includes("europe") || n.includes("eu") || n.includes("almanya") || n.includes("de")) {
+        return { currency: "EUR", languageTag: "de_DE" };
+    }
+    return { currency: "TRY", languageTag: "tr_TR" };
+};
+
+const uploadProductToAmazon = async (credentials, product, marketplaceName) => {
+    const amazonService = require("./amazon/amazonSpApiService");
+
+    const mpMapping = (product.marketplaceMappings || []).find((m) =>
+        String(m.marketplaceName || "").toLowerCase().startsWith("amazon")
+    );
+    const ca = mpMapping?.customAttributes || {};
+    const productType = String(
+        ca.amazonProductType || ca.productType || product.amazonProductType || ""
+    ).trim();
+    const asin = String(ca.asin || product.asin || "").trim();
+
+    const sku = String(product.stockCode || product.sku || product.barcode || "").trim();
+    const name = String(product.name || product.title || "").trim();
+    const barcode = String(product.barcode || "").trim();
+    const brandName = resolveProductBrandName(product) || String(product.brand || "").trim();
+    const price = Number(product.price || product.salePrice || 0);
+    const stock = Math.max(0, parseInt(product.stock || product.quantity || 0, 10) || 0);
+
+    if (!sku) return { success: false, error: "Amazon: SKU (stok kodu) zorunlu" };
+    if (!name) return { success: false, error: "Amazon: ürün adı zorunlu" };
+    if (!productType) {
+        return {
+            success: false,
+            error:
+                "Amazon: productType eşlemesi gerekli. Ürün Yönetimi → Amazon eşlemesinde " +
+                "'amazonProductType' belirleyin (ör. SHIRT, HOME, PHONE_ACCESSORY).",
+        };
+    }
+    if (!asin && !barcode) {
+        return {
+            success: false,
+            error: "Amazon: ASIN veya barkod (EAN/GTIN) gerekli — ürün eşleştirme için zorunlu.",
+        };
+    }
+
+    const { currency, languageTag } = resolveAmazonOfferContext(marketplaceName);
+
+    const attributes = {
+        condition_type: [{ value: "new_new" }],
+        item_name: [{ value: name.slice(0, 200), language_tag: languageTag }],
+        fulfillment_availability: [{ fulfillment_channel_code: "DEFAULT", quantity: stock }],
+    };
+    if (brandName) {
+        attributes.brand = [{ value: brandName, language_tag: languageTag }];
+    }
+    if (price > 0) {
+        attributes.purchasable_offer = [
+            {
+                currency,
+                our_price: [{ schedule: [{ value_with_tax: price }] }],
+            },
+        ];
+    }
+    if (asin) {
+        attributes.merchant_suggested_asin = [{ value: asin }];
+    } else if (barcode) {
+        const idType = barcode.length === 12 ? "UPC" : "EAN";
+        attributes.externally_assigned_product_identifier = [{ type: idType, value: barcode }];
+    }
+    const description = String(product.description || "").trim();
+    if (description) {
+        attributes.product_description = [
+            { value: description.replace(/<[^>]*>/g, " ").slice(0, 2000), language_tag: languageTag },
+        ];
+    }
+    const images = (product.images || [])
+        .map((img) => (typeof img === "string" ? img : img?.url))
+        .filter(Boolean);
+    if (images[0]) {
+        attributes.main_product_image_locator = [{ media_location: images[0] }];
+        images.slice(1, 9).forEach((url, i) => {
+            attributes[`other_product_image_locator_${i + 1}`] = [{ media_location: url }];
+        });
+    }
+
+    try {
+        const result = await amazonService.putListingsItem(
+            { ...credentials, marketplaceName },
+            sku,
+            attributes,
+            productType
+        );
+        const status = result?.status || result?.data?.status;
+        const issues = result?.issues || result?.data?.issues || [];
+        const errorIssues = issues.filter((i) => String(i.severity).toUpperCase() === "ERROR");
+        if (String(status).toUpperCase() === "INVALID" || errorIssues.length > 0) {
+            return {
+                success: false,
+                error:
+                    "Amazon listing reddedildi: " +
+                    errorIssues.slice(0, 5).map((i) => i.message || i.code).join(" | "),
+            };
+        }
+        return {
+            success: true,
+            message: `Amazon listing gönderildi (${status || "ACCEPTED"})`,
+            submissionId: result?.submissionId,
+        };
+    } catch (err) {
+        return { success: false, error: `Amazon: ${err.message}` };
     }
 };
 
@@ -953,8 +1154,17 @@ const syncProductsFromMarketplace = async (userId, marketplaceId, marketplaceNam
                             if (!merged.applied && merged.skippedIdentity) {
                                 logger.warn(`[SYNC] ${merged.reason}`);
                             }
-                            mapping.marketplaceMappings[mpIndex].isSynced = prevMp.isSynced;
-                            mapping.marketplaceMappings[mpIndex].syncStatus = prevMp.syncStatus || "pending";
+                            mapping.marketplaceMappings[mpIndex].isSynced =
+                                prevMp.isSynced === true || String(prevMp.syncStatus || "").toLowerCase() === "synced";
+                            const prevSt = String(prevMp.syncStatus || "").toLowerCase();
+                            if (mapping.marketplaceMappings[mpIndex].isSynced) {
+                                mapping.marketplaceMappings[mpIndex].syncStatus = "synced";
+                            } else if (prevSt === "error") {
+                                mapping.marketplaceMappings[mpIndex].syncStatus = "pulled";
+                                mapping.marketplaceMappings[mpIndex].syncError = undefined;
+                            } else {
+                                mapping.marketplaceMappings[mpIndex].syncStatus = prevMp.syncStatus || "pulled";
+                            }
                         } else {
                             const newMp = { ...mpData, isSynced: false, syncStatus: "pulled" };
                             alignMarketplaceIdentityFromMaster(newMp, mapping.masterProduct);
@@ -1058,9 +1268,17 @@ const syncProductsFromMarketplace = async (userId, marketplaceId, marketplaceNam
                                     mpData,
                                     finalCheck.masterProduct
                                 );
-                                finalCheck.marketplaceMappings[mpIdx].isSynced = prevMp.isSynced;
-                                finalCheck.marketplaceMappings[mpIdx].syncStatus =
-                                    prevMp.syncStatus || "pending";
+                                finalCheck.marketplaceMappings[mpIdx].isSynced =
+                                    prevMp.isSynced === true || String(prevMp.syncStatus || "").toLowerCase() === "synced";
+                                const prevSt = String(prevMp.syncStatus || "").toLowerCase();
+                                if (finalCheck.marketplaceMappings[mpIdx].isSynced) {
+                                    finalCheck.marketplaceMappings[mpIdx].syncStatus = "synced";
+                                } else if (prevSt === "error") {
+                                    finalCheck.marketplaceMappings[mpIdx].syncStatus = "pulled";
+                                    finalCheck.marketplaceMappings[mpIdx].syncError = undefined;
+                                } else {
+                                    finalCheck.marketplaceMappings[mpIdx].syncStatus = prevMp.syncStatus || "pulled";
+                                }
                             } else {
                                 const newMp = { ...mpData, isSynced: false, syncStatus: "pulled" };
                                 alignMarketplaceIdentityFromMaster(newMp, finalCheck.masterProduct);
@@ -1463,8 +1681,11 @@ const distributeProductToMarketplaces = async (userId, productMappingId, targetM
                     const mpDataForUpload = {
                         categoryId: catNorm.id,
                         categoryName: catNorm.name,
-                        categoryPath: Array.isArray(catNorm.path) ? catNorm.path : []
+                        categoryPath: Array.isArray(catNorm.path) ? catNorm.path : [],
                     };
+                    if (catNorm.typeId) {
+                        mpDataForUpload.typeId = catNorm.typeId;
+                    }
 
                     if (existingMapping) {
                         Object.assign(existingMapping, mpDataForUpload);
@@ -1859,6 +2080,30 @@ const normalizeTyAttrCompare = (s) =>
         .replace(/ç/g, "c")
         .replace(/[\s\-_'.]+/g, "");
 
+/** Ürün kartı marka adından Trendyol brandId — yalnızca net eşleşme */
+const resolveTrendyolBrandIdByName = async (credentials, actualSellerId, brandName) => {
+    const text = String(brandName || "").trim();
+    if (!text || isPlaceholderBrand(text)) return null;
+    const target = normalizeTyAttrCompare(text);
+    if (!target || target.length < 2) return null;
+    try {
+        const list = await fetchTrendyolBrands(credentials, actualSellerId, { name: text, size: 50 });
+        if (!list.length) return null;
+        const exact = list.find((b) => normalizeTyAttrCompare(b.name) === target);
+        if (exact && Number(exact.id) > 0) return Number(exact.id);
+        if (target.length >= 5) {
+            const sub = list.find((b) => {
+                const n = normalizeTyAttrCompare(b.name);
+                return n.length >= 5 && (n === target || n.includes(target) || target.includes(n));
+            });
+            if (sub && Number(sub.id) > 0) return Number(sub.id);
+        }
+    } catch (err) {
+        logger.warn(`[UPLOAD TRENDYOL] Marka ID araması başarısız ("${text}"): ${err.message}`);
+    }
+    return null;
+};
+
 /** Kategori "Marka" zorunlu özelliği (Web Color vb. hariç) */
 const isTrendyolMarkaAttributeName = (attrName) => {
     const n = String(attrName || "").toLowerCase().trim();
@@ -2031,16 +2276,6 @@ const buildTrendyolAttributesForCreate = (categoryData, product, tyMapping) => {
                     );
                     continue;
                 }
-                const fallbackMarka = pickFallbackTrendyolMarkaValue(values);
-                if (fallbackMarka && Number(fallbackMarka.id) > 0) {
-                    pushAttr({ attributeId: attrId, attributeValueId: Number(fallbackMarka.id) });
-                    warnings.push(
-                        `Trendyol Marka "${attrName}" (${attrId}): "${brandText}" listede yok — ` +
-                            `yedek liste değeri "${fallbackMarka.name}" (id=${fallbackMarka.id}). ` +
-                            `Doğru görünüm için Trendyol onaylı markanızı sihirbazda "Marka"dan seçin veya marka ID kullanın.`
-                    );
-                    continue;
-                }
                 missing.push(
                     `${attrName} (attributeId=${attrId}): "${brandText}" Trendyol marka listesinde yok; ` +
                         `liste-only kategori — sihirbazda "Marka" satırından uygun değeri seçin veya onaylı Trendyol marka ID kullanın.`
@@ -2061,13 +2296,9 @@ const buildTrendyolAttributesForCreate = (categoryData, product, tyMapping) => {
                 warnings.push(`Trendyol zorunlu özellik "${attrName}" (${attrId}) için otomatik metin: "${text}"`);
                 continue;
             }
-            const firstBrand = values.find((x) => x && Number(x.id) > 0);
-            if (firstBrand) {
-                pushAttr({ attributeId: attrId, attributeValueId: Number(firstBrand.id) });
-                warnings.push(
-                    `Trendyol zorunlu özellik "${attrName}" (${attrId}): marka bilgisi yok — son çare "${firstBrand.name}" (id=${firstBrand.id}).`
-                );
-            }
+            missing.push(
+                `${attrName} (attributeId=${attrId}): ürün markası boş — liste-only kategori; sihirbazdan marka seçin.`
+            );
             continue;
         }
 
@@ -2107,6 +2338,8 @@ const buildTrendyolAttributesForCreate = (categoryData, product, tyMapping) => {
     if (attrs.length === 0 && rows.length > 0) {
         const candidate = rows.find((r) => {
             const vals = r.attributeValues;
+            const attrName = r.attribute?.name || "";
+            if (isTrendyolMarkaAttributeName(attrName)) return false;
             return r.attribute?.id && Array.isArray(vals) && vals.length > 0;
         });
         if (candidate) {
@@ -2166,7 +2399,7 @@ const uploadProductToTrendyol = async (credentials, product) => {
         return { success: false, error: msg };
     }
 
-    // ── brandId — Map veya düz obje customAttributes.brandId ──
+    // ── brandId — önce mapping, sonra ürün kartı marka adı API araması, son çare Diğer (7651) ──
     let brandId = 7651;
     const caBrand = normalizeTyMappingCustomAttrs(tyMapping?.customAttributes);
     if (caBrand.brandId != null && String(caBrand.brandId).trim() !== "") {
@@ -2175,10 +2408,16 @@ const uploadProductToTrendyol = async (credentials, product) => {
     }
     const masterBrandName = resolveProductBrandName(product) || String(product.brand || "").trim();
     if (brandId === 7651 && masterBrandName) {
-        logger.warn(
-            `[UPLOAD TRENDYOL] createProducts brandId=7651 (varsayılan "Diğer"); ürün marka adı: "${masterBrandName}". ` +
-                `Panelde üst marka yanlışsa sihirbazda "Trendyol marka ID" alanına Trendyol’daki sayısal marka kodunu girin.`
-        );
+        const resolvedId = await resolveTrendyolBrandIdByName(credentials, actualSellerId, masterBrandName);
+        if (resolvedId && resolvedId > 0) {
+            brandId = resolvedId;
+            logger.info(`[UPLOAD TRENDYOL] brandId=${brandId} ← ürün markası "${masterBrandName}"`);
+        } else {
+            logger.warn(
+                `[UPLOAD TRENDYOL] createProducts brandId=7651 (Diğer); ürün markası "${masterBrandName}" Trendyol listesinde bulunamadı. ` +
+                    `Onaylı markanız varsa sihirbazda Trendyol marka ID girin.`
+            );
+        }
     }
 
     let cargoCompanyId = 10;
@@ -2942,13 +3181,15 @@ const uploadProductToMarketplace = async (marketplace, product, userId = null) =
                 return await uploadProductToCicekSepeti(credentials, productForUpload);
             case "Ozon":
                 return await uploadProductToOzon(credentials, productForUpload);
+            case "Amazon":
+                return await uploadProductToAmazon(credentials, productForUpload, marketplace.marketplaceName);
             default:
                 logger.warn(`[UPLOAD] ${marketplaceName} için ürün oluşturma API'si yok — yükleme yapılmadı`);
                 return {
                     success: false,
                     error:
                         `${marketplaceName}: Bu pazaryeri için ürün yükleme entegrasyonu henüz yok. ` +
-                        `Desteklenenler: Trendyol, Hepsiburada, N11, ÇiçekSepeti, Ozon.`
+                        `Desteklenenler: Trendyol, Hepsiburada, N11, ÇiçekSepeti, Ozon, Amazon.`
                 };
         }
     } catch (error) {
@@ -3343,6 +3584,42 @@ const checkPendingHepsiburadaUploads = async (userId) => {
 
                 if (poll.kind === "failed") {
                     const detail = poll.detail || "Hepsiburada tracking sonucu başarısız";
+                    const noUpdateErr =
+                        hbService.isHbCatalogImportNoUpdateError(detail) ||
+                        hbService.isHbCatalogImportNoUpdateError(poll.sum.messages);
+                    const ms = String(hbMapping.marketplaceSku || product.masterProduct?.sku || "").trim();
+                    if (noUpdateErr && ms) {
+                        const recovered = await hbService.recoverHbUploadFromExistingMpop(
+                            hbCreds.merchantId,
+                            hbCreds.secretKey,
+                            hbCreds.userAgent,
+                            ms,
+                            hbCreds,
+                            { trackingId: trId }
+                        );
+                        if (recovered?.success) {
+                            hbMapping.syncStatus = recovered.listingReady === true ? "synced" : "pending";
+                            hbMapping.isSynced = recovered.listingReady === true;
+                            hbMapping.syncError =
+                                recovered.listingReady === true
+                                    ? undefined
+                                    : (recovered.message || "Hepsiburada: MPOP onay sürecinde").substring(0, 500);
+                            hbMapping.hepsiburadaListingReady = recovered.listingReady === true;
+                            hbMapping.hepsiburadaTrackingStatus =
+                                recovered.hbMpopProductStatus || poll.sum.importStatus || "MPOP_OK";
+                            if (recovered.hepsiburadaSku) {
+                                hbMapping.marketplaceProductId = String(recovered.hepsiburadaSku);
+                            }
+                            if (recovered.listingReady === true) updated++;
+                            else inProgress++;
+                            await product.save();
+                            logger.info(
+                                `[HB PENDING CHECK] ✅ MPOP kurtarma — "${product.masterProduct?.name}" | ` +
+                                `sku=${ms} listingReady=${recovered.listingReady === true}`
+                            );
+                            continue;
+                        }
+                    }
                     hbMapping.syncStatus = "error";
                     hbMapping.isSynced = false;
                     hbMapping.hepsiburadaListingReady = false;
@@ -3643,6 +3920,19 @@ const deleteProductFromMarketplaces = async (userId, productMapping, targetPlatf
                     // ✅ Amazon: Listing'i tamamen sil (DELETE API)
                     const amazonService = require("./amazon/amazonSpApiService");
                     deleteResult = await amazonService.deleteListingsItem(credentials, productId);
+                    break;
+                }
+
+                case "Ozon": {
+                    // ✅ Ozon: önce arşivle, sonra sil (offer_id = SKU/barkod)
+                    const { deleteOzonProduct } = require("./ozon/ozonService");
+                    const ozonOfferId = mp.marketplaceSku || mp.marketplaceBarcode || sku || barcodeStr;
+                    const ozonProductId = mp.marketplaceProductId || null;
+                    if (!ozonOfferId) {
+                        deleteResult = { success: false, error: "Ozon offer_id bulunamadı" };
+                        break;
+                    }
+                    deleteResult = await deleteOzonProduct(credentials, ozonOfferId, ozonProductId);
                     break;
                 }
 

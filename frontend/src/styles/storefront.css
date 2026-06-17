@@ -1,0 +1,118 @@
+.sf-root {
+    min-height: 100vh;
+    background: var(--sf-bg, #0f1419);
+    color: var(--sf-text, #e2e8f0);
+    font-family: var(--sf-font, Inter, sans-serif);
+}
+
+.sf-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.sf-header h1 {
+    margin: 0;
+    font-size: 1.25rem;
+}
+
+.sf-header a {
+    color: var(--sf-accent, #4ecdc4);
+    text-decoration: none;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.sf-main {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+.sf-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 16px;
+}
+
+.sf-card {
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    overflow: hidden;
+    background: rgba(255, 255, 255, 0.03);
+    cursor: pointer;
+    transition: border-color 0.2s;
+}
+
+.sf-card:hover {
+    border-color: var(--sf-accent, #4ecdc4);
+}
+
+.sf-card img {
+    width: 100%;
+    aspect-ratio: 1;
+    object-fit: cover;
+    background: #1a1f35;
+}
+
+.sf-card-body {
+    padding: 12px;
+}
+
+.sf-card-body h3 {
+    margin: 0 0 6px;
+    font-size: 14px;
+}
+
+.sf-price {
+    font-weight: 800;
+    color: var(--sf-accent, #4ecdc4);
+}
+
+.sf-btn {
+    display: inline-block;
+    padding: 10px 18px;
+    border-radius: 10px;
+    border: none;
+    background: var(--sf-accent, #4ecdc4);
+    color: #0f1419;
+    font-weight: 700;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+.sf-btn.outline {
+    background: transparent;
+    border: 1px solid var(--sf-accent, #4ecdc4);
+    color: var(--sf-accent, #4ecdc4);
+}
+
+.sf-form input,
+.sf-form textarea {
+    width: 100%;
+    padding: 10px;
+    margin-bottom: 10px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(0, 0, 0, 0.3);
+    color: #fff;
+    box-sizing: border-box;
+}
+
+.sf-cart-line {
+    display: flex;
+    justify-content: space-between;
+    padding: 10px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    font-size: 14px;
+}
+
+.sf-pay-frame {
+    width: 100%;
+    min-height: 520px;
+    border: none;
+    border-radius: 12px;
+    background: #fff;
+}

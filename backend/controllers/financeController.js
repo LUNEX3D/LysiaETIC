@@ -576,7 +576,8 @@ const fetchN11Finance = async (mp, start, end) => {
         const endDate = end;     // zaten timestamp
 
         // N11 status parametresi tek deger alir — her status icin ayri istek
-        const statuses = ["New", "Approved", "Rejected", "Shipped", "Delivered", "Completed"];
+        // ⚠️ Gecerli degerler: Created, Picking, Shipped, Cancelled, Delivered, UnPacked, UnSupplied
+        const statuses = ["Created", "Picking", "Shipped", "Cancelled", "Delivered", "UnPacked", "UnSupplied"];
         let allPackages = [];
 
         for (const status of statuses) {

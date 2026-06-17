@@ -598,6 +598,60 @@ const getListingsItem = async (credentials, sku) => {
 };
 
 /**
+ * Satıcı listing'lerini sayfalı listele (ürün çekme / senkron)
+ * GET /listings/2021-08-01/items/{sellerId}
+ */
+const searchListingsItems = async (credentials, params = {}) => {
+    const { marketplaceId } = resolveEndpoint(credentials);
+    const sellerId = credentials.sellerId;
+    if (!sellerId) throw new Error("Amazon sellerId eksik");
+
+    const query = {
+        marketplaceIds: marketplaceId,
+        issueLocale: "tr_TR",
+        includedData: "summaries,attributes,offers,fulfillmentAvailability",
+        pageSize: Math.min(Math.max(parseInt(params.pageSize, 10) || 20, 1), 20),
+    };
+    if (params.pageToken) query.pageToken = params.pageToken;
+
+    const result = await rateLimitedRequest({
+        credentials,
+        path: `/listings/2021-08-01/items/${encodeURIComponent(sellerId)}`,
+        query,
+        marketplaceName: params.marketplaceName,
+    });
+
+    return {
+        items: result?.items || [],
+        pagination: result?.pagination || {},
+    };
+};
+
+/**
+ * Tüm seller listing'lerini çek (maxPages güvenlik sınırı)
+ */
+const searchAllListingsItems = async (credentials, options = {}) => {
+    const maxPages = Math.min(Math.max(parseInt(options.maxPages, 10) || 100, 1), 500);
+    const all = [];
+    let pageToken = null;
+
+    for (let page = 0; page < maxPages; page++) {
+        const batch = await searchListingsItems(credentials, {
+            pageToken,
+            pageSize: 20,
+            marketplaceName: options.marketplaceName,
+        });
+        const items = batch.items || [];
+        all.push(...items);
+        pageToken = batch.pagination?.nextToken || null;
+        if (!pageToken || items.length === 0) break;
+    }
+
+    logger.info(`[Amazon] searchAllListingsItems: ${all.length} listing`);
+    return all;
+};
+
+/**
  * Listing fiyat güncelle (PATCH)
  * PATCH /listings/2021-08-01/items/{sellerId}/{sku}
  * Java karşılığı: listingsApi.patchListingsItem() — SubmitPriceHandler.java
@@ -1400,6 +1454,8 @@ module.exports = {
 
     // Listings
     getListingsItem,
+    searchListingsItems,
+    searchAllListingsItems,
     updateListingPrice,
     updateListingStock,
     putListingsItem,

@@ -1,0 +1,540 @@
+/**
+ * Website Builder V5.5 — Professional Store Designer
+ */
+@import "../designSystem/lysiaDesignSystem.css";
+
+/* İkas 3 sütun grid → V5 tek workspace (canvas + floating panel) */
+.wb-theme-editor-root--v55.wb-theme-editor-root--ikas .wb-theme-editor-body--ikas,
+.wb-theme-editor-root--v55.wb-theme-editor-root--v4 .wb-theme-editor-body--v4 {
+  display: grid;
+  grid-template-columns: var(--lysia-editor-left-width) minmax(0, 1fr);
+  flex: 1;
+  min-height: 0;
+}
+
+.wb-theme-editor-root--v55 .wb-te-v4-workspace {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.wb-theme-editor-root--v55 .wb-theme-editor-canvas-wrap--v4 {
+  flex: 1;
+  min-height: 0;
+  padding-right: min(380px, 30vw);
+}
+
+/* ─── Canvas 75% viewport ─── */
+.wb-theme-editor-root--v55 .wb-te-v4-workspace {
+  padding: 8px 12px 12px;
+}
+
+.wb-theme-editor-root--v55 .wb-te-live-preview__viewport--v4 {
+  padding: 16px 24px;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(180deg, #e8e8ed 0%, #dfe1e8 100%);
+}
+
+.wb-theme-editor-root--v55 .wb-te-browser-frame {
+  width: 75%;
+  max-width: min(75vw, 1320px);
+  min-width: 320px;
+  margin: 0 auto;
+  transition:
+    max-width var(--lysia-duration-slow) var(--lysia-ease-out),
+    width var(--lysia-duration-slow) var(--lysia-ease-out);
+}
+
+.wb-theme-editor-root--v55 .wb-te-browser-frame.device-tablet {
+  width: 58%;
+  max-width: 768px;
+}
+
+.wb-theme-editor-root--v55 .wb-te-browser-frame.device-mobile {
+  width: 32%;
+  max-width: 390px;
+}
+
+/* Device shells (Apple-style) */
+.wb-te-device-shell {
+  border-radius: var(--lysia-radius-xl);
+  box-shadow: var(--lysia-shadow-xl);
+}
+
+.wb-theme-editor-root--v55 .wb-te-device-shell--desktop .wb-te-browser-chrome {
+  border-radius: 12px 12px 0 0;
+}
+
+.wb-theme-editor-root--v55 .wb-te-device-shell--tablet {
+  padding: 14px 10px;
+  background: linear-gradient(145deg, #2d2d30, #1c1c1e);
+  border-radius: 22px;
+}
+
+.wb-theme-editor-root--v55 .wb-te-device-shell--tablet .wb-te-store-canvas {
+  border-radius: 8px;
+}
+
+.wb-theme-editor-root--v55 .wb-te-device-shell--mobile {
+  padding: 12px 8px 16px;
+  background: linear-gradient(160deg, #1a1a1c, #0a0a0b);
+  border-radius: 36px;
+  position: relative;
+}
+
+.wb-theme-editor-root--v55 .wb-te-device-shell--mobile::before {
+  content: "";
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 72px;
+  height: 5px;
+  background: #3f3f46;
+  border-radius: 999px;
+}
+
+.wb-theme-editor-root--v55 .wb-te-device-shell--mobile .wb-te-store-canvas {
+  border-radius: 20px;
+  margin-top: 12px;
+}
+
+/* Section outline on canvas */
+.wb-theme-editor-root--v55 .wb-theme-canvas-section--v4.hovered .wb-theme-canvas-outline,
+.wb-theme-editor-root--v55 .wb-theme-canvas-section--v4.selected .wb-theme-canvas-outline {
+  border: 2px solid #3b82f6;
+  box-shadow:
+    0 0 0 4px rgba(59, 130, 246, 0.25),
+    0 0 24px rgba(59, 130, 246, 0.15);
+}
+
+.wb-theme-editor-root--v55 .wb-theme-canvas-fab {
+  box-shadow: var(--lysia-shadow-float);
+}
+
+/* Floating panel compact */
+.wb-theme-editor-root--v55 .wb-te-floating-panel.wb-theme-editor-right--v4 {
+  position: absolute;
+  width: min(360px, 28vw);
+  top: 12px;
+  right: 12px;
+  bottom: 12px;
+  z-index: 30;
+}
+
+.wb-theme-editor-root--v55 .wb-prop-accordion__trigger {
+  font-size: var(--lysia-text-xs);
+  padding: 10px 14px;
+}
+
+.wb-theme-editor-root--v55 .wb-prop-accordion__panel {
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+/* Page tree V5.5 */
+.wb-store-section-node {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  margin-bottom: 2px;
+  border-radius: var(--lysia-radius-md);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid transparent;
+  transition:
+    background var(--lysia-duration-fast) var(--lysia-ease-out),
+    border-color var(--lysia-duration-fast) var(--lysia-ease-out);
+}
+
+.wb-store-section-node:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.wb-store-section-node.is-active {
+  background: rgba(99, 102, 241, 0.2);
+  border-color: rgba(129, 140, 248, 0.4);
+}
+
+.wb-store-section-node.is-hidden {
+  opacity: 0.45;
+}
+
+.wb-store-section-node__drag {
+  border: none;
+  background: transparent;
+  color: #71717a;
+  cursor: grab;
+  padding: 2px;
+  display: flex;
+}
+
+.wb-store-section-node__chev {
+  color: #52525b;
+  flex-shrink: 0;
+}
+
+.wb-store-section-node__label {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: #e4e4e7;
+  font-size: var(--lysia-text-sm);
+  font-weight: var(--lysia-weight-medium);
+  text-align: left;
+  cursor: pointer;
+  padding: 2px 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wb-store-section-node__actions {
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity var(--lysia-duration-fast) var(--lysia-ease-out);
+}
+
+.wb-store-section-node:hover .wb-store-section-node__actions,
+.wb-store-section-node.is-active .wb-store-section-node__actions {
+  opacity: 1;
+}
+
+.wb-store-section-node__actions button {
+  border: none;
+  background: rgba(255, 255, 255, 0.08);
+  color: #a1a1aa;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.wb-store-section-node__actions button:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+}
+
+.wb-store-section-node__danger:hover {
+  background: rgba(239, 68, 68, 0.2) !important;
+  color: #f87171 !important;
+}
+
+.wb-store-page-tree__root-chev {
+  color: #71717a;
+  margin-left: auto;
+}
+
+/* Slider slide card editor */
+.wb-slide-card-editor__layout {
+  display: grid;
+  grid-template-columns: 140px minmax(0, 1fr);
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.wb-slide-card-editor__list-panel {
+  border: 1px solid var(--lysia-border);
+  border-radius: var(--lysia-radius-lg);
+  overflow: hidden;
+  background: var(--lysia-gray-50);
+}
+
+.wb-slide-card-editor__list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--lysia-border);
+  font-size: var(--lysia-text-xs);
+  font-weight: var(--lysia-weight-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--lysia-text-secondary);
+}
+
+.wb-slide-card-editor__add {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: none;
+  background: var(--lysia-brand-600);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.wb-slide-card-editor__add:hover {
+  background: var(--lysia-brand-700);
+}
+
+.wb-slide-card-editor__list {
+  padding: 6px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.wb-slide-card-editor__item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  border-radius: var(--lysia-radius-md);
+  border: 1px solid transparent;
+  margin-bottom: 4px;
+  background: #fff;
+  transition: border-color var(--lysia-duration-fast), box-shadow var(--lysia-duration-fast);
+}
+
+.wb-slide-card-editor__item.is-selected {
+  border-color: var(--lysia-brand-500);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+}
+
+.wb-slide-card-editor__drag {
+  border: none;
+  background: transparent;
+  color: var(--lysia-text-muted);
+  cursor: grab;
+  padding: 0;
+}
+
+.wb-slide-card-editor__thumb-btn {
+  border: none;
+  padding: 0;
+  width: 40px;
+  height: 32px;
+  border-radius: 4px;
+  overflow: hidden;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.wb-slide-card-editor__thumb-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.wb-slide-card-editor__thumb-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--lysia-gray-200);
+  color: var(--lysia-text-muted);
+}
+
+.wb-slide-card-editor__meta {
+  flex: 1;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+}
+
+.wb-slide-card-editor__meta-title {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--lysia-text-secondary);
+}
+
+.wb-slide-card-editor__meta-sub {
+  display: block;
+  font-size: 11px;
+  color: var(--lysia-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wb-slide-card-editor__remove {
+  border: none;
+  background: transparent;
+  color: var(--lysia-text-muted);
+  cursor: pointer;
+  padding: 2px;
+}
+
+.wb-slide-card-editor__remove:hover {
+  color: var(--lysia-danger);
+}
+
+.wb-slide-card-editor__detail {
+  border: 1px solid var(--lysia-border);
+  border-radius: var(--lysia-radius-lg);
+  padding: 12px;
+  background: #fff;
+}
+
+.wb-slide-card-editor__detail-title {
+  margin: 0 0 10px;
+  font-size: var(--lysia-text-sm);
+  font-weight: var(--lysia-weight-bold);
+}
+
+.wb-slide-card-editor__colors {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+/* Section library showcase */
+.wb-section-picker-v2--showcase .wb-section-picker-v2__head h3 {
+  font-size: var(--lysia-text-lg);
+}
+
+.wb-section-picker-v2--showcase .wb-section-picker-v2__grid {
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  padding: 12px;
+}
+
+.wb-section-picker-v2--showcase .wb-section-picker-v2__card {
+  border-radius: var(--lysia-radius-lg);
+  border: 1px solid var(--lysia-border);
+  overflow: hidden;
+  text-align: left;
+  transition:
+    transform var(--lysia-duration-normal) var(--lysia-ease-out),
+    box-shadow var(--lysia-duration-normal) var(--lysia-ease-out);
+}
+
+.wb-section-picker-v2--showcase .wb-section-picker-v2__card:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--lysia-shadow-md);
+  border-color: var(--lysia-brand-200);
+}
+
+.wb-section-picker-v2--showcase .wb-section-picker-v2__thumb {
+  min-height: 88px;
+  aspect-ratio: 16 / 9;
+}
+
+.wb-section-picker-v2--showcase .wb-section-picker-v2__name {
+  display: block;
+  padding: 10px 12px;
+  font-size: var(--lysia-text-sm);
+  font-weight: var(--lysia-weight-semibold);
+}
+
+.wb-section-picker-v2--showcase .wb-section-picker-v2__thumb-label {
+  font-size: 10px;
+  opacity: 0.7;
+}
+
+/* Kompakt bildirimler — tam Mongoose dökümü yerine */
+.wb-te-toast-stack {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 12px 0;
+  pointer-events: none;
+}
+
+.wb-te-toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: var(--lysia-radius-lg);
+  font-size: var(--lysia-text-sm);
+  line-height: 1.45;
+  box-shadow: var(--lysia-shadow-md);
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.wb-te-toast--error {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #991b1b;
+}
+
+.wb-te-toast--success {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  color: #166534;
+}
+
+.wb-te-toast__close {
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  opacity: 0.65;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  padding: 0 2px;
+}
+
+.wb-te-toast__close:hover {
+  opacity: 1;
+}
+
+/* Sayfa sekmeleri — üstte kaydırılabilir şerit */
+.wb-theme-editor-root--v55 .wb-te-page-switcher {
+  padding: 6px 12px;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--lysia-border);
+  scrollbar-width: thin;
+}
+
+.wb-theme-editor-root--v55 .wb-te-page-switcher__tab {
+  font-size: 12px;
+  padding: 6px 14px;
+}
+
+/* Page tree — Header / Footer (Shopify-style) */
+.wb-store-global-node {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: calc(100% - 16px);
+  margin: 4px 8px;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--lysia-radius-md);
+  background: rgba(255, 255, 255, 0.04);
+  color: #a1a1aa;
+  font-size: var(--lysia-text-sm);
+  font-weight: var(--lysia-weight-medium);
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--lysia-duration-fast), border-color var(--lysia-duration-fast);
+}
+
+.wb-store-global-node:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #e4e4e7;
+}
+
+.wb-store-global-node.is-active {
+  background: rgba(99, 102, 241, 0.2);
+  border-color: rgba(129, 140, 248, 0.4);
+  color: #fff;
+}

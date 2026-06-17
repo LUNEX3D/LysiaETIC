@@ -1,0 +1,23 @@
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:esmm="http://foriba.com/eSmm/">
+   <soapenv:Header/>
+   <soapenv:Body>
+      <esmm:sendDocumentRequest>
+         <esmm:VKN_TCKN>1111111111</esmm:VKN_TCKN>
+         <esmm:Branch>default</esmm:Branch>
+         <!--1 or more repetitions:-->
+         <esmm:SendDocDetails>
+            <esmm:UUID>DD543066-6B73-492B-AEB6-2CB8A114A983</esmm:UUID>
+            <esmm:Type>SMM</esmm:Type>
+            <esmm:DocType>XML</esmm:DocType>
+            <esmm:DocData>cid:54222901050</esmm:DocData>
+            <!--Optional:-->
+            <esmm:ViewType>PDF</esmm:ViewType>
+            <!--Zero or more repetitions:-->
+            <esmm:Parameters>
+               <esmm:Name>MAIL_TO</esmm:Name>
+               <esmm:Value>abc@foriba.com</esmm:Value>
+            </esmm:Parameters>
+         </esmm:SendDocDetails>
+      </esmm:sendDocumentRequest>
+   </soapenv:Body>
+</soapenv:Envelope>

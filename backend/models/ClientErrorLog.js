@@ -15,4 +15,7 @@ const clientErrorLogSchema = new mongoose.Schema({
     timestamps: true
 });
 
+// 30 günden eski istemci hatalarını otomatik sil (Atlas kotası)
+clientErrorLogSchema.index({ createdAt: 1 }, { expireAfterSeconds: 30 * 24 * 60 * 60 });
+
 module.exports = mongoose.model("ClientErrorLog", clientErrorLogSchema);

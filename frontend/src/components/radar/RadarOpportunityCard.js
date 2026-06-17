@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import {
     FaLightbulb, FaChevronDown, FaChevronUp, FaPlay, FaTimes,
+    FaChartLine, FaUsers, FaPercent, FaExpandAlt,
 } from "react-icons/fa";
 import {
     scoreEmoji, scoreLabel, expansionLabel, trendIcon,
@@ -8,27 +9,12 @@ import {
 import RadarScoreBar from "./RadarScoreBar";
 import { scoreColor, formatMoney, trendDirectionLabel } from "./radarUtils";
 
-function ScoreRing({ score, color }) {
-    const r = 26;
-    const c = 2 * Math.PI * r;
-    const pct = Math.min(100, Math.max(0, score || 0)) / 100;
+function ScoreBadge({ score, color }) {
     return (
-        <div className="rp-ring" style={{ "--rp-ring-color": color }}>
-            <svg viewBox="0 0 60 60" aria-hidden>
-                <circle className="rp-ring-track" cx="30" cy="30" r={r} />
-                <circle
-                    className="rp-ring-fill"
-                    cx="30"
-                    cy="30"
-                    r={r}
-                    strokeDasharray={c}
-                    strokeDashoffset={c * (1 - pct)}
-                />
-            </svg>
-            <div className="rp-ring-label">
-                <span>{scoreEmoji(score)}</span>
-                <strong>{score}</strong>
-            </div>
+        <div className="rp-score-badge" style={{ "--score-color": color }}>
+            <span className="rp-score-badge-emoji">{scoreEmoji(score)}</span>
+            <strong>{score}</strong>
+            <small>skor</small>
         </div>
     );
 }
@@ -48,27 +34,31 @@ export default function RadarOpportunityCard({
     return (
         <article
             className="rp-opp-card"
-            style={{ "--rp-score": sc, "--rp-delay": `${Math.min(index, 6) * 40}ms` }}
+            style={{ "--score-color": sc, "--anim-delay": `${Math.min(index, 8) * 45}ms` }}
         >
-            <div className="rp-opp-top">
-                <ScoreRing score={opp.totalScore} color={sc} />
-                <div className="rp-opp-intro">
-                    <button
-                        type="button"
-                        className="rp-opp-keyword"
-                        onClick={() => onKeywordClick?.(opp.keyword)}
-                        title="Bu kelimeyle filtrele"
-                    >
-                        {opp.keyword}
-                    </button>
-                    <span className="rp-opp-tier" style={{ color: sc }}>{tier}</span>
-                    <div className="rp-opp-tags">
+            <div className="rp-opp-accent" aria-hidden />
+
+            <div className="rp-opp-head">
+                <ScoreBadge score={opp.totalScore} color={sc} />
+                <div className="rp-opp-head-body">
+                    <div className="rp-opp-title-row">
+                        <button
+                            type="button"
+                            className="rp-opp-keyword"
+                            onClick={() => onKeywordClick?.(opp.keyword)}
+                            title="Bu kelimeyle filtrele"
+                        >
+                            {opp.keyword}
+                        </button>
+                        <span className="rp-opp-tier" style={{ color: sc }}>{tier}</span>
+                    </div>
+                    <div className="rp-tag-row">
                         <span className="rp-tag" style={{ "--tag-color": exp.color }}>
                             {exp.icon} {exp.text}
                         </span>
-                        {opp.nicheLabel && <span className="rp-tag rp-tag--accent">{opp.nicheLabel}</span>}
+                        {opp.nicheLabel && <span className="rp-tag rp-tag--highlight">{opp.nicheLabel}</span>}
                         {opp.category && <span className="rp-tag">{opp.category}</span>}
-                        <span className="rp-tag">
+                        <span className="rp-tag rp-tag--trend">
                             {trendIcon(opp.trendData?.trendDirection)}{" "}
                             {trendDirectionLabel(opp.trendData?.trendDirection)}
                         </span>
@@ -76,18 +66,27 @@ export default function RadarOpportunityCard({
                 </div>
             </div>
 
-            <div className="rp-opp-metrics">
-                <div className="rp-metric">
-                    <span>Ort. fiyat</span>
-                    <strong>{formatMoney(opp.marketData?.avgPrice)}</strong>
+            <div className="rp-opp-stats">
+                <div className="rp-stat-pill">
+                    <FaChartLine />
+                    <div>
+                        <span>Ort. fiyat</span>
+                        <strong>{formatMoney(opp.marketData?.avgPrice)}</strong>
+                    </div>
                 </div>
-                <div className="rp-metric">
-                    <span>Satıcı</span>
-                    <strong>{opp.marketData?.sellerCount || 0}</strong>
+                <div className="rp-stat-pill">
+                    <FaUsers />
+                    <div>
+                        <span>Satıcı</span>
+                        <strong>{opp.marketData?.sellerCount || 0}</strong>
+                    </div>
                 </div>
-                <div className="rp-metric rp-metric--profit">
-                    <span>Kâr marjı</span>
-                    <strong>%{opp.profitAnalysis?.estimatedMargin || 0}</strong>
+                <div className="rp-stat-pill rp-stat-pill--profit">
+                    <FaPercent />
+                    <div>
+                        <span>Kâr marjı</span>
+                        <strong>%{opp.profitAnalysis?.estimatedMargin || 0}</strong>
+                    </div>
                 </div>
             </div>
 
@@ -106,20 +105,22 @@ export default function RadarOpportunityCard({
                         <span>AI özeti</span>
                         <small>%{opp.aiConfidence || 50} güven</small>
                     </div>
-                    <p className={expanded ? "is-open" : ""}>{opp.aiExplanation}</p>
+                    <p className={expanded ? "is-expanded" : ""}>{opp.aiExplanation}</p>
                 </div>
             )}
 
             {expanded && (
-                <div className="rp-opp-expand">
-                    <div className="rp-opp-pros-cons">
-                        <div>
+                <div className="rp-opp-detail">
+                    <div className="rp-opp-columns">
+                        <div className="rp-opp-column">
                             <h4>Avantajlar</h4>
-                            {(opp.aiBenefits || []).map((b, i) => (
-                                <p key={i}>✓ {b}</p>
-                            ))}
+                            {(opp.aiBenefits || []).length === 0 ? (
+                                <p className="rp-muted">—</p>
+                            ) : (
+                                opp.aiBenefits.map((b, i) => <p key={i}>✓ {b}</p>)
+                            )}
                         </div>
-                        <div>
+                        <div className="rp-opp-column">
                             <h4>Riskler</h4>
                             {(opp.aiRisks || []).length === 0 ? (
                                 <p className="rp-muted">Belirgin risk yok</p>
@@ -128,17 +129,17 @@ export default function RadarOpportunityCard({
                             )}
                         </div>
                     </div>
-                    <div className="rp-opp-market-detail">
+                    <div className="rp-opp-market-grid">
                         {[
-                            ["Min", formatMoney(opp.marketData?.minPrice)],
-                            ["Max", formatMoney(opp.marketData?.maxPrice)],
-                            ["Puan", (opp.marketData?.avgRating || 0).toFixed(1)],
-                            ["Ürün", (opp.marketData?.totalProducts || 0).toLocaleString("tr-TR")],
-                            ["Öneri", formatMoney(opp.profitAnalysis?.suggestedPrice)],
-                        ].map(([l, v]) => (
-                            <div key={l}>
-                                <span>{l}</span>
-                                <strong>{v}</strong>
+                            ["Min fiyat", formatMoney(opp.marketData?.minPrice)],
+                            ["Max fiyat", formatMoney(opp.marketData?.maxPrice)],
+                            ["Ort. puan", (opp.marketData?.avgRating || 0).toFixed(1)],
+                            ["Ürün sayısı", (opp.marketData?.totalProducts || 0).toLocaleString("tr-TR")],
+                            ["Öneri fiyat", formatMoney(opp.profitAnalysis?.suggestedPrice)],
+                        ].map(([label, val]) => (
+                            <div key={label} className="rp-market-cell">
+                                <span>{label}</span>
+                                <strong>{val}</strong>
                             </div>
                         ))}
                     </div>
@@ -146,14 +147,19 @@ export default function RadarOpportunityCard({
             )}
 
             <footer className="rp-opp-foot">
-                <button type="button" className="rp-action" onClick={() => setExpanded(!expanded)}>
-                    {expanded ? <FaChevronUp /> : <FaChevronDown />}
+                <button type="button" className="rp-btn-ghost" onClick={() => setExpanded(!expanded)}>
+                    {expanded ? <FaChevronUp /> : <FaExpandAlt />}
                     {expanded ? "Daralt" : "Detay"}
                 </button>
-                <button type="button" className="rp-action rp-action--primary" onClick={() => onSimulate?.(opp)}>
+                <button type="button" className="rp-btn-primary" onClick={() => onSimulate?.(opp)}>
                     <FaPlay /> Simülasyon
                 </button>
-                <button type="button" className="rp-action rp-action--muted" onClick={() => onDismiss?.(opp._id)}>
+                <button
+                    type="button"
+                    className="rp-btn-icon"
+                    onClick={() => onDismiss?.(opp._id)}
+                    aria-label="Kaldır"
+                >
                     <FaTimes />
                 </button>
             </footer>

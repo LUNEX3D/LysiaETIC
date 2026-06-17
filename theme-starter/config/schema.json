@@ -1,0 +1,41 @@
+{
+  "name": "Lysia Theme Starter",
+  "version": "1.0.0",
+  "meta": {
+    "author": "team",
+    "description": "Basit bir starter tema. Block/section tanımları JSON tabanlıdır."
+  },
+  "settings": {
+    "colors": {
+      "label": "Renk Paleti",
+      "type": "palette",
+      "default": {
+        "primary": "#0ea5a4",
+        "accent": "#2563eb",
+        "text": "#0f172a"
+      }
+    },
+    "fonts": {
+      "label": "Font",
+      "type": "select",
+      "options": ["Inter", "Roboto", "Poppins"],
+      "default": "Inter"
+    }
+  },
+  "sections": {
+    "hero": {
+      "name": "Hero",
+      "blocks": ["heading", "text", "button", "image"],
+      "settings": {
+        "height": { "type": "number", "default": 480 }
+      }
+    },
+    "product-grid": {
+      "name": "Product Grid",
+      "blocks": ["product-card"],
+      "settings": {
+        "columns": { "type": "number", "default": 4 }
+      }
+    }
+  }
+}

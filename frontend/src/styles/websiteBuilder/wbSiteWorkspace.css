@@ -1,0 +1,371 @@
+/* İkas tarzı site çalışma alanı — koyu sidebar, açık workspace */
+
+.wb-site-workspace-layout {
+  isolation: isolate;
+}
+
+.wb-site-workspace-sidebar {
+  width: 220px;
+  flex-shrink: 0;
+  min-height: calc(100vh - 64px);
+  background: #000000;
+  color: #fafafa;
+  display: flex;
+  flex-direction: column;
+  border-right: none;
+  z-index: 2;
+}
+
+/* ERP E-Ticaret — satış kanalı (xxx.com) gömülü sidebar */
+.wb-site-workspace-sidebar--embedded {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 240px;
+  height: 100vh;
+  height: 100dvh;
+  min-height: 100dvh;
+  z-index: 1001;
+  padding-top: env(safe-area-inset-top);
+  box-sizing: border-box;
+}
+
+.wb-site-workspace-sidebar--embedded .wb-site-workspace-sidebar-head {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.wb-site-workspace-sidebar--embedded .wb-site-workspace-back {
+  flex: 1 1 auto;
+  min-width: 0;
+  justify-content: flex-start;
+  color: #fafafa;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.wb-site-workspace-sidebar--embedded .wb-site-workspace-back:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.wb-site-workspace-sidebar--ikas .wb-site-workspace-sidebar-head {
+  padding: 16px 14px;
+  border-bottom: none;
+}
+
+.wb-site-workspace-sidebar--ikas .wb-site-workspace-host {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.wb-site-workspace-sidebar--ikas .wb-site-workspace-nav-item {
+  border-radius: 10px;
+  margin: 0 8px 2px;
+  width: calc(100% - 16px);
+  padding: 10px 12px;
+  font-size: 14px;
+  color: #a1a1aa;
+}
+
+.wb-site-workspace-sidebar--ikas .wb-site-workspace-nav-item.active {
+  background: #27272a;
+  color: #ffffff;
+  box-shadow: inset 3px 0 0 #8b5cf6;
+}
+
+.wb-site-workspace-sidebar--ikas .wb-site-workspace-nav {
+  padding-top: 12px;
+}
+
+.wb-site-workspace-main--wide {
+  background: #f1f5f9;
+}
+
+.wb-site-workspace-main--editor {
+  background: #f1f5f9;
+}
+
+.wb-site-workspace-sidebar-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 12px 12px;
+  border-bottom: 1px solid #1e293b;
+}
+
+.wb-site-workspace-back {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #94a3b8;
+  cursor: pointer;
+}
+
+.wb-site-workspace-back:hover {
+  background: #1e293b;
+  color: #fff;
+}
+
+.wb-site-workspace-exit-erp {
+  flex-shrink: 0;
+  padding: 4px 8px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #e2e8f0;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+
+.wb-site-workspace-exit-erp:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(148, 163, 184, 0.55);
+  color: #fff;
+}
+
+.wb-site-workspace-site-chip {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.wb-site-workspace-head-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.wb-site-workspace-host {
+  font-size: 13px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #fff;
+}
+
+.wb-site-workspace-name {
+  font-size: 11px;
+  color: #71717a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wb-site-workspace-nav-section {
+  padding: 12px 14px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #52525b;
+}
+
+.wb-site-workspace-nav-group {
+  margin-bottom: 8px;
+}
+
+.wb-site-workspace-sidebar--v3 .wb-site-workspace-nav-group-label {
+  padding: 10px 16px 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #52525b;
+}
+
+.wb-site-workspace-sidebar--v3 .wb-site-workspace-nav-item.primary {
+  color: #e4e4e7;
+  font-weight: 600;
+}
+
+.wb-site-workspace-sidebar--v3 .wb-site-workspace-nav-item.primary.active {
+  background: linear-gradient(90deg, #3f3f46 0%, #27272a 100%);
+  color: #fff;
+  box-shadow: inset 3px 0 0 #a78bfa;
+}
+
+/* V4 — Lysia design system sidebar */
+.wb-site-workspace-sidebar--v4 {
+  width: var(--lysia-sidebar-width);
+  background: var(--lysia-sidebar-bg);
+  font-family: var(--lysia-font-sans);
+}
+
+.wb-site-workspace-sidebar--v4 .wb-site-workspace-nav-group-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px 4px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.wb-site-workspace-sidebar--v4 .wb-site-workspace-nav-group-label {
+  font-size: var(--lysia-text-xs);
+  font-weight: var(--lysia-weight-bold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--lysia-sidebar-group-label);
+  padding: 0;
+}
+
+.wb-site-workspace-sidebar--v4 .wb-site-workspace-nav-group-chevron {
+  color: var(--lysia-sidebar-group-label);
+  transition: transform var(--lysia-duration-normal) var(--lysia-ease-out);
+}
+
+.wb-site-workspace-sidebar--v4 .wb-site-workspace-nav-group-toggle.is-open .wb-site-workspace-nav-group-chevron {
+  transform: rotate(180deg);
+}
+
+.wb-site-workspace-sidebar--v4 .wb-site-workspace-nav-item {
+  color: var(--lysia-sidebar-text);
+  border-radius: var(--lysia-radius-md);
+  margin: 0 8px 2px;
+  width: calc(100% - 16px);
+  font-size: var(--lysia-text-sm);
+}
+
+.wb-site-workspace-sidebar--v4 .wb-site-workspace-nav-item:hover {
+  background: var(--lysia-sidebar-item-hover);
+  color: var(--lysia-sidebar-text-active);
+}
+
+.wb-site-workspace-sidebar--v4 .wb-site-workspace-nav-item.active {
+  background: var(--lysia-sidebar-item-active);
+  color: var(--lysia-sidebar-text-active);
+  box-shadow: inset 3px 0 0 var(--lysia-sidebar-accent);
+}
+
+.wb-site-workspace-sidebar--v4 .wb-site-workspace-nav-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+.wb-site-workspace-sidebar--v4 .wb-site-workspace-host {
+  font-size: var(--lysia-text-sm);
+}
+
+.wb-site-workspace-sidebar--v4 .wb-site-workspace-live-link {
+  border-radius: var(--lysia-radius-md);
+  font-size: var(--lysia-text-xs);
+  font-weight: var(--lysia-weight-semibold);
+}
+
+.wb-site-workspace-nav {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 6px 16px;
+}
+
+.wb-site-workspace-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 12px;
+  margin-bottom: 2px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.wb-site-workspace-nav-item.sub {
+  padding-left: 28px;
+  font-size: 12px;
+}
+
+.wb-site-workspace-nav-item:hover {
+  background: #171717;
+  color: #e2e8f0;
+}
+
+.wb-site-workspace-nav-item.active {
+  background: #27272a;
+  color: #ffffff;
+  box-shadow: inset 3px 0 0 #8b5cf6;
+}
+
+.wb-site-workspace-nav-item.highlight:not(.disabled) {
+  color: #c4b5fd;
+}
+
+.wb-site-workspace-nav-item.disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.wb-site-workspace-nav-icon {
+  font-size: 18px !important;
+  opacity: 0.85;
+}
+
+.wb-site-workspace-footer {
+  padding: 12px;
+  border-top: 1px solid #1e293b;
+}
+
+.wb-site-workspace-live-link {
+  display: block;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: #a78bfa;
+  text-decoration: none;
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid #334155;
+}
+
+.wb-site-workspace-live-link:hover {
+  background: #171717;
+  color: #c4b5fd;
+}
+
+.wb-onboarding-in-workspace {
+  width: 100%;
+}
+
+@media (max-width: 900px) {
+  .wb-site-workspace-sidebar {
+    width: 56px;
+  }
+
+  .wb-site-workspace-host,
+  .wb-site-workspace-nav-item span,
+  .wb-site-workspace-live-link {
+    display: none;
+  }
+
+  .wb-site-workspace-nav-item {
+    justify-content: center;
+    padding: 10px;
+  }
+}

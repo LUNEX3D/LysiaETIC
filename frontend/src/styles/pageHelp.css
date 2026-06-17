@@ -217,6 +217,204 @@
     filter: brightness(1.06);
 }
 
+/* E-Ticaret — ikas tarzı kullanım rehberi (sağ panel) */
+.ec-guide-trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin-left: 0.65rem;
+    padding: 0.3rem 0.65rem;
+    border: 1px solid var(--ec-border, rgba(148, 163, 184, 0.35));
+    border-radius: 999px;
+    background: transparent;
+    color: var(--ec-muted, #94a3b8);
+    font-size: 0.72rem;
+    font-weight: 500;
+    cursor: pointer;
+    vertical-align: middle;
+    transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.ec-guide-trigger:hover {
+    border-color: var(--ec-accent, #4ecdc4);
+    color: var(--ec-text, #e2e8f0);
+    background: rgba(78, 205, 196, 0.08);
+}
+
+.ec-guide-trigger svg {
+    font-size: 0.75rem;
+    opacity: 0.85;
+}
+
+.ec-guide-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1350;
+    display: flex;
+    justify-content: flex-end;
+}
+
+.ec-guide-backdrop__shade {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    pointer-events: none;
+}
+
+.ec-guide-panel {
+    position: relative;
+    z-index: 1;
+    width: min(400px, 100vw);
+    height: 100dvh;
+    max-height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    background: var(--ec-card, #1a2332);
+    color: var(--ec-text, #e2e8f0);
+    border-left: 1px solid var(--ec-border, rgba(148, 163, 184, 0.2));
+    box-shadow: -12px 0 40px rgba(0, 0, 0, 0.45);
+}
+
+.ec-guide-panel__head {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1.1rem 1.25rem;
+    border-bottom: 1px solid var(--ec-border, rgba(148, 163, 184, 0.2));
+}
+
+.ec-guide-panel__head h2 {
+    margin: 0;
+    font-size: 1.05rem;
+    font-weight: 700;
+}
+
+.ec-guide-panel__close {
+    width: 2rem;
+    height: 2rem;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--ec-muted, #94a3b8);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.ec-guide-panel__close:hover {
+    background: var(--ec-hover, rgba(255, 255, 255, 0.06));
+    color: var(--ec-text, #f1f5f9);
+}
+
+.ec-guide-panel__body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 1.15rem 1.25rem 1.5rem;
+}
+
+.ec-guide-intro {
+    margin: 0 0 0.85rem;
+    font-size: 0.88rem;
+    line-height: 1.6;
+    color: var(--ec-text, #cbd5e1);
+}
+
+.ec-guide-toc {
+    margin: 1rem 0 1.25rem;
+    padding: 0.85rem 1rem;
+    border-radius: 10px;
+    background: var(--ec-glass, rgba(255, 255, 255, 0.04));
+    border: 1px solid var(--ec-border, rgba(148, 163, 184, 0.15));
+}
+
+.ec-guide-toc h3 {
+    margin: 0 0 0.5rem;
+    font-size: 0.78rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--ec-muted, #94a3b8);
+}
+
+.ec-guide-toc ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.ec-guide-toc li + li {
+    margin-top: 0.25rem;
+}
+
+.ec-guide-toc button {
+    border: none;
+    background: none;
+    padding: 0;
+    color: var(--ec-accent, #4ecdc4);
+    font-size: 0.85rem;
+    cursor: pointer;
+    text-align: left;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.ec-guide-toc button:hover {
+    color: var(--ec-text, #f1f5f9);
+}
+
+.ec-guide-section {
+    margin-bottom: 1.35rem;
+    scroll-margin-top: 0.5rem;
+}
+
+.ec-guide-section h3 {
+    margin: 0 0 0.65rem;
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: var(--ec-text, #f1f5f9);
+}
+
+.ec-guide-p {
+    margin: 0 0 0.65rem;
+    font-size: 0.85rem;
+    line-height: 1.6;
+    color: var(--ec-muted, #94a3b8);
+}
+
+.ec-guide-steps,
+.ec-guide-tips {
+    margin: 0;
+    padding-left: 1.25rem;
+    font-size: 0.85rem;
+    line-height: 1.6;
+    color: var(--ec-text, #cbd5e1);
+}
+
+.ec-guide-steps li,
+.ec-guide-tips li {
+    margin-bottom: 0.5rem;
+}
+
+.ec-guide-section--tips {
+    padding-top: 1rem;
+    border-top: 1px solid var(--ec-border, rgba(148, 163, 184, 0.15));
+}
+
+.ec-cat-list-head h1 {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+}
+
+.ec-cat-list-head h1 .ec-guide-trigger {
+    margin-left: 0;
+}
+
 /* Ürün merkezi — okunabilir form / modal */
 .ud-pm-modal--readable {
     font-size: 14px;

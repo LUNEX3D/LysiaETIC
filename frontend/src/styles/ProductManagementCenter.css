@@ -45,51 +45,25 @@
     overflow-x: hidden;
     min-height: min-content;
     background: var(--ud-pm-bg);
-    padding: clamp(8px, 1.5vw, 20px);
+    /* Ana sayfa dashboard-home-body ile aynı kenar boşlukları */
+    padding: 0 clamp(0.65rem, 2vw, 1.25rem);
+    padding-bottom: max(1rem, env(safe-area-inset-bottom));
+    padding-left: max(clamp(0.65rem, 2vw, 1.25rem), env(safe-area-inset-left));
+    padding-right: max(clamp(0.65rem, 2vw, 1.25rem), env(safe-area-inset-right));
     color: var(--ud-pm-text);
     font-family: 'Inter', 'Segoe UI', sans-serif;
 }
 
-.ud-pm-root--scroll-layout {
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-    min-height: 0;
-    max-height: 100%;
-    padding: clamp(8px, 1.5vw, 16px);
-    box-sizing: border-box;
+/* content-area--dashboard: dış padding yok; üst safe-area üst container’da */
+.content-area.content-area--dashboard .ud-pm-root {
+    padding-top: clamp(0.75rem, 2vw, 1.25rem);
 }
 
-.ud-pm-root-sticky {
-    flex-shrink: 0;
-    z-index: 25;
-    background: var(--ud-pm-bg);
-    margin: 0 calc(-1 * clamp(8px, 1.5vw, 16px));
-    padding: 0 clamp(8px, 1.5vw, 16px) 8px;
-    border-bottom: 1px solid var(--ud-pm-border);
+@media (max-width: 768px) {
+    .content-area.content-area--dashboard .ud-pm-root {
+        padding-top: clamp(0.5rem, 2vw, 0.85rem);
+    }
 }
-
-.ud-pm-root-sticky .ud-pm-dash-grid {
-    margin-bottom: 12px;
-}
-
-.ud-pm-root-sticky .ud-pm-tabs-rail {
-    position: static;
-    margin-bottom: 0;
-    box-shadow: none;
-    border: none;
-    padding: 0 0 4px;
-    background: transparent;
-}
-
-.ud-pm-root-scroll {
-    flex: 1;
-    min-height: 0;
-    overflow-y: auto;
-    overflow-x: hidden;
-    -webkit-overflow-scrolling: touch;
-}
-
 
 /* ─── Page header ──────────────────────────────────────────── */
 .ud-pm-header {
@@ -176,9 +150,8 @@
 
 /* ─── Tab Bar ─────────────────────────────────────────────── */
 .ud-pm-tabs-rail {
-    position: sticky;
-    top: 0;
-    z-index: 20;
+    position: relative;
+    z-index: 1;
     margin-bottom: 18px;
     padding: 8px;
     border-radius: 14px;
@@ -459,6 +432,98 @@
 
 .ud-pm-spacer {
     flex: 1;
+}
+
+/* ─── Gelişmiş stok filtresi (segment / pill) ─────────────── */
+.ud-pm-stockseg {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px;
+    border-radius: 12px;
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid var(--ud-pm-glass-border);
+    flex: 0 0 auto;
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+
+.ud-pm-stockseg::-webkit-scrollbar {
+    display: none;
+}
+
+.ud-pm-stockseg__btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 12px;
+    border: 1px solid transparent;
+    border-radius: 9px;
+    background: transparent;
+    color: var(--ud-pm-text-dim);
+    font-size: 11.5px;
+    font-weight: 700;
+    font-family: inherit;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.18s ease, color 0.18s ease, border-color 0.18s ease, transform 0.12s ease;
+}
+
+.ud-pm-stockseg__btn svg {
+    font-size: 12px;
+    flex-shrink: 0;
+}
+
+.ud-pm-stockseg__btn:hover {
+    color: var(--ud-pm-text);
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.ud-pm-stockseg__btn:active {
+    transform: scale(0.96);
+}
+
+.ud-pm-stockseg__btn.active {
+    color: #fff;
+    background: rgba(78, 205, 196, 0.16);
+    border-color: var(--ud-pm-border-hover);
+}
+
+.ud-pm-stockseg__btn.active[data-variant="all"] {
+    background: rgba(78, 205, 196, 0.18);
+    color: var(--ud-pm-accent);
+    border-color: rgba(78, 205, 196, 0.4);
+}
+
+.ud-pm-stockseg__btn.active[data-variant="inStock"] {
+    background: rgba(34, 197, 94, 0.16);
+    color: #4ade80;
+    border-color: rgba(34, 197, 94, 0.4);
+}
+
+.ud-pm-stockseg__btn.active[data-variant="lowStock"] {
+    background: rgba(234, 179, 8, 0.16);
+    color: #facc15;
+    border-color: rgba(234, 179, 8, 0.4);
+}
+
+.ud-pm-stockseg__btn.active[data-variant="outOfStock"] {
+    background: rgba(239, 68, 68, 0.16);
+    color: #f87171;
+    border-color: rgba(239, 68, 68, 0.4);
+}
+
+@media (max-width: 560px) {
+    .ud-pm-stockseg__btn span {
+        display: none;
+    }
+    .ud-pm-stockseg__btn {
+        padding: 8px 10px;
+    }
+    .ud-pm-stockseg__btn.active span {
+        display: inline;
+    }
 }
 
 /* ─── Buttons ─────────────────────────────────────────────── */

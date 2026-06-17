@@ -8,16 +8,40 @@ import React from "react";
 import { motion } from "framer-motion";
 import {
     FaCheckCircle, FaTimesCircle, FaClock, FaArrowRight,
-    FaDownload, FaFileInvoice, FaSpinner, FaExclamationTriangle,
+    FaDownload, FaFileInvoice, FaSpinner, FaExclamationTriangle, FaInfoCircle,
 } from "react-icons/fa";
-import { colors, pillStyle, glassCardStyle, emptyStateStyle, alertStyle } from "../styles";
+import { colors, pillStyle, glassCardStyle, emptyStateStyle, alertStyle, selectStyle, selectOptionStyle } from "../styles";
 import { DOC_TYPES, STATUS_MAP } from "../constants";
+import { resolveSovosStatusLabel, resolveSovosMappedStatus } from "../sovosStatusCodes";
 
 /* ═══════════════════════════════════════════════════════════
    PILL — Renkli etiket
    ═══════════════════════════════════════════════════════════ */
 export const Pill = ({ color, children, style: extraStyle }) => (
     <span style={{ ...pillStyle(color), ...extraStyle }}>{children}</span>
+);
+
+/* ═══════════════════════════════════════════════════════════
+   BILLING SELECT — Okunaklı açılır liste
+   ═══════════════════════════════════════════════════════════ */
+export const BillingSelect = ({ value, onChange, options = [], style, className = "", ...rest }) => (
+    <select
+        className={`billing-select ${className}`.trim()}
+        value={value}
+        onChange={onChange}
+        style={{ ...selectStyle, ...style }}
+        {...rest}
+    >
+        {options.map((opt) => {
+            const val = typeof opt === "string" ? opt : opt.value;
+            const label = typeof opt === "string" ? opt : opt.label;
+            return (
+                <option key={val} value={val} style={selectOptionStyle}>
+                    {label}
+                </option>
+            );
+        })}
+    </select>
 );
 
 /* ═══════════════════════════════════════════════════════════
@@ -38,13 +62,20 @@ const STATUS_ICONS = {
     draft: <FaFileInvoice />,
 };
 
-export const StatusBadge = ({ status }) => {
-    const s = (status || "").toLowerCase();
+export const StatusBadge = ({ status, statusCode, provider, profileId }) => {
+    const codeLabel = provider === "sovos" && statusCode != null && String(statusCode) !== ""
+        ? resolveSovosStatusLabel(statusCode)
+        : "";
+    const mappedFromCode = codeLabel
+        ? resolveSovosMappedStatus(statusCode, status)
+        : (status || "").toLowerCase();
+    const s = mappedFromCode || (status || "").toLowerCase();
     const config = STATUS_MAP[s] || { color: colors.dim, label: status || "Bilinmiyor" };
     const icon = STATUS_ICONS[s] || <FaFileInvoice />;
+    const label = codeLabel ? (codeLabel + " (" + statusCode + ")") : config.label;
     return (
         <Pill color={config.color}>
-            {icon} {config.label}
+            {icon} {label}
         </Pill>
     );
 };
@@ -55,6 +86,76 @@ export const StatusBadge = ({ status }) => {
 export const TypeBadge = ({ type }) => {
     const config = DOC_TYPES[type] || { color: colors.dim, label: type };
     return <Pill color={config.color}>{config.label}</Pill>;
+};
+
+/** Etiket yanında hover ile açıklama — otomatik kesim gecikmesi vb. */
+export const InfoTooltip = ({ label, children, width = 320 }) => (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: "0.35rem", position: "relative" }}>
+        {label && <span>{label}</span>}
+        <span
+            title=""
+            style={{
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: 18,
+                height: 18,
+                borderRadius: "50%",
+                background: colors.accent + "22",
+                border: "1px solid " + colors.accent + "44",
+                color: colors.accent,
+                fontSize: "0.65rem",
+                cursor: "help",
+                flexShrink: 0,
+            }}
+            className="billing-info-tooltip-trigger"
+        >
+            <FaInfoCircle />
+            <span
+                className="billing-info-tooltip-body"
+                style={{
+                    display: "none",
+                    position: "absolute",
+                    left: 0,
+                    top: "calc(100% + 8px)",
+                    zIndex: 50,
+                    width,
+                    maxWidth: "min(92vw, " + width + "px)",
+                    padding: "0.75rem 0.85rem",
+                    background: "rgba(15,23,42,0.98)",
+                    border: "1px solid " + colors.accent + "40",
+                    borderRadius: 10,
+                    color: colors.text,
+                    fontSize: "0.76rem",
+                    lineHeight: 1.55,
+                    fontWeight: 400,
+                    boxShadow: "0 8px 32px rgba(0,0,0,0.45)",
+                    pointerEvents: "none",
+                }}
+            >
+                {children}
+            </span>
+        </span>
+        <style>{`
+            .billing-info-tooltip-trigger:hover .billing-info-tooltip-body,
+            .billing-info-tooltip-trigger:focus-within .billing-info-tooltip-body {
+                display: block !important;
+            }
+        `}</style>
+    </span>
+);
+
+/** Sovos portal — İptal Edildi Mi? */
+export const SovosCancelBadge = ({ cancelled, provider, profileId }) => {
+    const isEarsiv = String(profileId || "").toUpperCase().includes("EARSIV")
+        || String(profileId || "").toLowerCase().includes("arsiv");
+    if (provider !== "sovos" && !isEarsiv) return null;
+    const yes = cancelled === true || cancelled === "yes" || cancelled === "Evet";
+    return (
+        <Pill color={yes ? colors.red : colors.green}>
+            {yes ? "Evet" : "Hayır"}
+        </Pill>
+    );
 };
 
 /* ═══════════════════════════════════════════════════════════

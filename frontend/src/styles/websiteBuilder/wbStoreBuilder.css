@@ -1,0 +1,183 @@
+@import "../designSystem/lysiaDesignSystem.css";
+
+/* Store Builder sidebar */
+.wb-store-sidebar__brand {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.wb-store-sidebar__brand-title {
+  font-size: var(--lysia-text-xs);
+  font-weight: var(--lysia-weight-bold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--lysia-brand-400);
+}
+
+.wb-store-sidebar__group-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wb-site-workspace-nav-group-toggle.has-active .wb-store-sidebar__group-left {
+  color: var(--lysia-sidebar-text-active);
+}
+
+/* Page tree */
+.wb-store-page-tree {
+  padding: 8px 10px 12px;
+}
+
+.wb-store-page-tree__root {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--lysia-radius-md);
+  background: rgba(99, 102, 241, 0.15);
+  border: 1px solid rgba(129, 140, 248, 0.35);
+  margin-bottom: 8px;
+}
+
+.wb-store-page-tree__root-icon {
+  color: var(--lysia-brand-400);
+  flex-shrink: 0;
+}
+
+.wb-store-page-tree__root-label {
+  font-size: var(--lysia-text-sm);
+  font-weight: var(--lysia-weight-bold);
+  color: #fff;
+}
+
+.wb-store-page-tree__branch {
+  padding-left: 12px;
+  border-left: 2px solid rgba(255, 255, 255, 0.08);
+  margin-left: 10px;
+}
+
+.wb-te-structure-tree--nested .wb-te-structure-item {
+  margin-left: 0;
+}
+
+/* Pages manager */
+.wb-store-pages__table {
+  border: 1px solid var(--lysia-border);
+  border-radius: var(--lysia-radius-xl);
+  overflow: hidden;
+}
+
+.wb-store-pages__slug {
+  font-family: var(--lysia-font-mono);
+  font-size: var(--lysia-text-xs);
+  color: var(--lysia-text-secondary);
+}
+
+/* Onboarding */
+.wb-store-onboarding {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: var(--lysia-space-6);
+}
+
+.wb-store-onboarding__progress {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: var(--lysia-space-6);
+}
+
+.wb-store-onboarding__step-dot {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--lysia-radius-full);
+  border: 2px solid var(--lysia-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--lysia-text-xs);
+  font-weight: var(--lysia-weight-bold);
+  color: var(--lysia-text-muted);
+  background: var(--lysia-surface-base);
+  transition: all var(--lysia-duration-normal) var(--lysia-ease-out);
+}
+
+.wb-store-onboarding__step-dot.active {
+  border-color: var(--lysia-brand-500);
+  color: var(--lysia-brand-600);
+  background: var(--lysia-brand-50);
+}
+
+.wb-store-onboarding__step-dot.done {
+  background: var(--lysia-brand-600);
+  border-color: var(--lysia-brand-600);
+  color: #fff;
+}
+
+.wb-store-onboarding__card {
+  padding: var(--lysia-space-8);
+  border-radius: var(--lysia-radius-xl);
+  border: 1px solid var(--lysia-border);
+}
+
+.wb-store-section-library-page__picker {
+  min-height: 520px;
+  border: 1px solid var(--lysia-border);
+  border-radius: var(--lysia-radius-xl);
+  overflow: hidden;
+}
+
+/* Store overview status */
+.wb-store-status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--lysia-space-4);
+  margin-bottom: var(--lysia-space-6);
+}
+
+.wb-store-status-card {
+  padding: var(--lysia-space-5);
+  border-radius: var(--lysia-radius-xl);
+  border: 1px solid var(--lysia-border);
+  background: var(--lysia-surface-base);
+  box-shadow: var(--lysia-shadow-xs);
+  transition: box-shadow var(--lysia-duration-normal) var(--lysia-ease-out);
+}
+
+.wb-store-status-card:hover {
+  box-shadow: var(--lysia-shadow-sm);
+}
+
+.wb-store-status-card__label {
+  font-size: var(--lysia-text-xs);
+  font-weight: var(--lysia-weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--lysia-text-secondary);
+  margin-bottom: var(--lysia-space-2);
+}
+
+.wb-store-status-card__value {
+  font-size: var(--lysia-text-lg);
+  font-weight: var(--lysia-weight-bold);
+  color: var(--lysia-text-primary);
+}
+
+.wb-store-status-card__value--ok {
+  color: var(--lysia-success);
+}
+
+.wb-store-status-card__value--warn {
+  color: var(--lysia-warning);
+}
+
+.wb-store-quick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--lysia-space-3);
+  margin-bottom: var(--lysia-space-6);
+}

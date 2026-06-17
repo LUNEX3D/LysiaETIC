@@ -190,6 +190,10 @@ exports.unblockUser = async (req, res) => {
 
         try {
             const clientInfo = extractClientInfo(req);
+            await AccessIncident.updateMany(
+                { userId, type: "help_request", resolved: false },
+                { $set: { resolved: true, resolvedAt: new Date(), resolvedBy: adminId, resolutionNote: note || "Engel kaldırıldı" } }
+            );
             await AccessIncident.create({
                 userId,
                 type: "admin_unblock",
@@ -846,13 +850,20 @@ exports.requestHelp = async (req, res) => {
                     message: `${user.name || userEmail} hesap erişimi için yardım istedi. Cihaz: ${summarizeDevice(clientInfo.device)} — IP: ${clientInfo.ip || "?"}`,
                     icon: "🆘",
                     actionLink: "/admin/access-control",
+                    metadata: { incidentId: String(inc._id), targetUserId: String(user._id), filter: "help_request" },
                 })));
             }
         } catch (e) {
             logger.warn(`[AdminAccess] help_request notification hata: ${e.message}`);
         }
 
-        res.json({ success: true, message: "Yardım talebiniz admin'e iletildi. En kısa sürede dönüş yapılacak.", incidentId: inc._id });
+        logger.info(`[AdminAccess] help_request user=${userEmail} incident=${inc._id}`);
+
+        res.json({
+            success: true,
+            message: "Yardım talebiniz yöneticiye iletildi. Erişim Kontrolü sayfasından incelenecek.",
+            incidentId: inc._id,
+        });
     } catch (err) {
         logger.error("[AdminAccess] requestHelp hata: " + err.message);
         res.status(500).json({ success: false, message: "Yardım talebi gönderilemedi: " + err.message });

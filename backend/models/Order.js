@@ -122,6 +122,10 @@ const OrderSchema = new mongoose.Schema({
     invoiceNumber: { type: String, default: "" },
     invoiceStatus: { type: String, enum: ["", "pending", "created", "error"], default: "" },
 
+    // ── Bildirim takibi ───────────────────────────────────────────────────────
+    // Yeni sipariş bilgilendirme e-postası gönderildiyse zamanı (idempotent — çift mail engeli)
+    newOrderEmailSentAt: { type: Date },
+
     // ── İade/İptal bilgisi ──────────────────────────────────────────────────
     isReturned:    { type: Boolean, default: false },
     isCancelled:   { type: Boolean, default: false },

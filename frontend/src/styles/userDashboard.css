@@ -439,6 +439,100 @@
     white-space: nowrap;
 }
 
+.submenu-section-label {
+    padding: 0.55rem 0.8rem 0.25rem;
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.38);
+}
+
+.submenu-item-badge {
+    font-size: 0.6rem;
+    padding: 0.1rem 0.35rem;
+    border-radius: 4px;
+    background: rgba(245, 158, 11, 0.15);
+    color: #fbbf24;
+    flex-shrink: 0;
+}
+
+.submenu--ecommerce .submenu-inner {
+    max-height: min(70vh, 520px);
+    overflow-y: auto;
+}
+
+.content-area--store-ec {
+    padding: 0.75rem 1rem 1.5rem !important;
+    max-width: none;
+}
+
+.content-area--ec-home {
+    padding: 0 !important;
+    max-width: none;
+    width: 100%;
+}
+
+.content-area--ec-stores {
+    padding: 0 !important;
+    max-width: none;
+    width: 100%;
+    min-height: 100vh;
+    overflow: hidden;
+}
+
+/* E-Ticaret → Satış Kanalları (ikas) */
+.menu-sales-channels-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.65rem 0.85rem 0.35rem;
+    margin-top: 0.15rem;
+}
+
+.menu-sales-channels-head span {
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.38);
+}
+
+.menu-sales-channels-add {
+    width: 26px;
+    height: 26px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.04);
+    color: rgba(255, 255, 255, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 0.7rem;
+    padding: 0;
+}
+
+.menu-sales-channels-add:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+}
+
+.menu-item--channel {
+    margin: 0.15rem 0.35rem 0.5rem;
+    border-radius: 10px;
+}
+
+.menu-item--channel.active {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.menu-channel-icon {
+    background: linear-gradient(135deg, rgba(139, 92, 246, 0.35), rgba(99, 102, 241, 0.45)) !important;
+    border-radius: 8px !important;
+    color: #c4b5fd !important;
+}
+
 /* ── Collapsed Sidebar ── */
 .sidebar.closed .menu-item {
     justify-content: center;
@@ -567,19 +661,7 @@
     overflow-x: hidden;
 }
 
-/* Ürün Yönetim Merkezi — üst özet + sekmeler sabit, liste kayar */
-.content-area.content-area--wizard-flush {
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    padding: 0;
-    padding-top: max(6px, env(safe-area-inset-top));
-    padding-left: max(8px, env(safe-area-inset-left));
-    padding-right: max(8px, env(safe-area-inset-right));
-    padding-bottom: max(8px, env(safe-area-inset-bottom));
-}
-
-/* Ana sayfa — sidebar ile viewport arası; yatay taşma yok */
+/* Ana sayfa + Ürün Yönetim Merkezi — tam genişlik, dış kenar boşluğu yok */
 .content-area.content-area--dashboard {
     padding: 0;
     padding-top: env(safe-area-inset-top);
@@ -590,12 +672,50 @@
     z-index: 1;
 }
 
-/* Dashtock Radar — tam genişlik, normal dikey kaydırma (ürün listesi kesilmesin) */
+/* Faturalandırma — ana sayfa gibi tam genişlik */
+.billing-page--full {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+}
+
+.content-area.content-area--billing {
+    padding: 0;
+    padding-top: env(safe-area-inset-top);
+    overflow-x: hidden;
+    overflow-y: auto;
+    background: #050a12;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+}
+
+.billing-page--embedded {
+    width: 100%;
+    max-width: 100%;
+    min-height: auto;
+    box-sizing: border-box;
+}
+
+.billing-page--embedded .billing-page-header {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+}
+
+@media (max-width: 1024px) {
+    .content-area.content-area--dashboard {
+        padding: 0;
+        padding-top: env(safe-area-inset-top);
+    }
+}
+
+/* Dashtock Radar — dashboard içinde tam genişlik kart */
 .content-area.content-area--radar {
-    padding: clamp(0.75rem, 1.5vw, 1.25rem);
-    padding-top: calc(clamp(0.75rem, 1.5vw, 1.25rem) + env(safe-area-inset-top));
+    padding: clamp(0.5rem, 1vw, 0.85rem);
+    padding-top: calc(clamp(0.5rem, 1vw, 0.85rem) + env(safe-area-inset-top));
     overflow-y: auto;
     overflow-x: hidden;
+    background: transparent;
 }
 
 .dashboard-home-layout {
@@ -1982,12 +2102,6 @@
         padding-top: calc(60px + env(safe-area-inset-top)) !important;
     }
 
-    .content-area.content-area--wizard-flush {
-        padding-left: max(6px, env(safe-area-inset-left));
-        padding-right: max(6px, env(safe-area-inset-right));
-        padding-bottom: max(6px, env(safe-area-inset-bottom));
-    }
-
     .sidebar.closed + .content-area,
     .sidebar.open + .content-area {
         left: 0 !important;
@@ -2257,6 +2371,129 @@
     .layout-grid.two-thirds {
         grid-template-columns: 1fr;
     }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   WEBSITE BUILDER — ERP sidebar workspace entry
+   ═══════════════════════════════════════════════════════════ */
+.wb-erp-nav-wrap {
+    position: relative;
+    margin: 2px 0;
+}
+
+.menu-item--wb-workspace {
+    border: 1px solid transparent;
+    transition: background 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.menu-item--wb-workspace:hover {
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.14) 0%, rgba(59, 130, 246, 0.1) 100%);
+    border-color: rgba(99, 102, 241, 0.25);
+    box-shadow: 0 2px 12px rgba(99, 102, 241, 0.12);
+}
+
+.menu-item--wb-workspace:focus-visible {
+    outline: 2px solid rgba(99, 102, 241, 0.55);
+    outline-offset: 2px;
+}
+
+.icon-wrapper--wb {
+    background: linear-gradient(135deg, #6366f1 0%, #3b82f6 100%);
+    color: #fff !important;
+    box-shadow: 0 2px 8px rgba(99, 102, 241, 0.35);
+}
+
+.menu-item--wb-workspace:hover .icon-wrapper--wb {
+    box-shadow: 0 4px 14px rgba(99, 102, 241, 0.45);
+    transform: translateY(-1px);
+}
+
+.menu-item-wb-newtab {
+    font-size: 0.65rem;
+    opacity: 0.45;
+    margin-left: auto;
+    flex-shrink: 0;
+    transition: opacity 0.15s ease, color 0.15s ease;
+}
+
+.menu-item--wb-workspace:hover .menu-item-wb-newtab {
+    opacity: 0.9;
+    color: #a5b4fc;
+}
+
+.wb-erp-quick-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    z-index: 1100;
+}
+
+.wb-erp-quick-actions--inline {
+    margin: 4px 0 6px 0.5rem;
+    padding: 6px;
+    border-radius: 10px;
+    background: rgba(15, 23, 42, 0.55);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    animation: wbQuickIn 0.15s ease-out;
+}
+
+.wb-erp-quick-actions--flyout {
+    position: absolute;
+    left: calc(100% + 8px);
+    top: 0;
+    min-width: 168px;
+    padding: 6px;
+    border-radius: 10px;
+    background: rgba(12, 15, 25, 0.97);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+    animation: wbQuickIn 0.12s ease-out;
+}
+
+.sidebar.closed .wb-erp-quick-actions--flyout {
+    left: calc(100% + 6px);
+}
+
+@keyframes wbQuickIn {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.wb-erp-quick-action {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
+    padding: 0.45rem 0.55rem;
+    border: none;
+    border-radius: 7px;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.82);
+    font-size: 0.76rem;
+    font-weight: 500;
+    cursor: pointer;
+    text-align: left;
+    transition: background 0.15s ease;
+}
+
+.wb-erp-quick-action:hover:not(:disabled) {
+    background: rgba(99, 102, 241, 0.2);
+    color: #fff;
+}
+
+.wb-erp-quick-action--disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.wb-erp-quick-action-icon {
+    font-size: 0.6rem;
+    opacity: 0.55;
+}
+
+.sidebar.closed .menu-item--wb-workspace:hover .wb-sidebar-tooltip-wb {
+    display: block !important;
 }
 
 /* ═══════════════════════════════════════════════════════════

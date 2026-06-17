@@ -13,6 +13,7 @@ import { BrowserRouter as Router, Route, Routes, Navigate, useLocation, useNavig
 import { CssBaseline, Container, ThemeProvider, createTheme } from "@mui/material";
 import { AppProvider } from "./context/AppContext";
 import { enforceCanonicalDomain } from "./utils/legacyDomainRedirect";
+import { isWbCustomDomainHost } from "./utils/wbStorefrontHost";
 
 // PWA & Responsive
 import PWAInstallPrompt from "./components/PWAInstallPrompt";
@@ -70,6 +71,7 @@ const SaasIntegrations       = lazy(() => import("./pages/SaasIntegrations"));
 const SaasUsage              = lazy(() => import("./pages/SaasUsage"));
 const SaasReports            = lazy(() => import("./pages/SaasReports"));
 const SaasAnnouncements      = lazy(() => import("./pages/SaasAnnouncements"));
+const AdminLoginPage         = lazy(() => import("./pages/AdminLoginPage"));
 const SaasTickets            = lazy(() => import("./pages/SaasTickets"));
 const SaasAuditLogs          = lazy(() => import("./pages/SaasAuditLogs"));
 const AdminClientErrors      = lazy(() => import("./pages/AdminClientErrors"));
@@ -101,6 +103,48 @@ const RadarProPage           = lazy(() => import("./pages/RadarProPage"));
 // LysiaBrain2 — Standalone test page (UserDashboard dışında)
 const LysiaBrain2Page        = lazy(() => import("./pages/LysiaBrain2Page"));
 const LunexeticLoginPreview  = lazy(() => import("./pages/LunexeticLoginPreview"));
+
+// Dashtock Store — müşteri vitrin (public)
+const StorefrontLayout       = lazy(() => import("./pages/storefront/StorefrontLayout"));
+
+// Website Builder — public vitrin (WBSite slug)
+const WbStorefrontLayout     = lazy(() => import("./pages/wbStorefront/WbStorefrontLayout"));
+const WbSitePage             = lazy(() => import("./pages/wbStorefront/WbSitePage"));
+const WbProductPublicPage    = lazy(() => import("./pages/wbStorefront/WbProductPublicPage"));
+const WbBlogListPage         = lazy(() => import("./pages/wbStorefront/WbBlogListPage"));
+const WbBlogPostPage         = lazy(() => import("./pages/wbStorefront/WbBlogPostPage"));
+const WbCustomDomainApp      = lazy(() => import("./pages/wbStorefront/WbCustomDomainApp"));
+const SiteAnalytics          = lazy(() => import("./pages/websiteBuilder/SiteAnalytics"));
+
+// ─── Website Builder ─────────────────────────────────────────────────────────
+const WebsiteBuilderDashboard = lazy(() => import("./pages/websiteBuilder/WebsiteBuilderDashboard"));
+const WBLayout                = lazy(() => import("./components/websiteBuilder/layout/WBLayout"));
+const SiteOverview            = lazy(() => import("./pages/websiteBuilder/SiteOverview"));
+const SiteCreateWizard        = lazy(() => import("./pages/websiteBuilder/SiteCreateWizard"));
+const OnboardingWizard        = lazy(() => import("./pages/websiteBuilder/OnboardingWizard"));
+const PagesManager            = lazy(() => import("./pages/websiteBuilder/PagesManager"));
+const PageEditor              = lazy(() => import("./pages/websiteBuilder/PageEditor"));
+const ProductPageEditor       = lazy(() => import("./pages/websiteBuilder/ProductPageEditor"));
+const ThemeStudioPage        = lazy(() => import("./theme-builder/studio/ThemeStudioPage"));
+const ThemeMarketplacePage   = lazy(() => import("./theme-builder/pages/ThemeMarketplacePage"));
+const MyThemesPage           = lazy(() => import("./theme-builder/pages/MyThemesPage"));
+const StoreBuilderOnboarding  = lazy(() => import("./pages/websiteBuilder/StoreBuilderOnboarding"));
+const StoreEditorRedirect     = lazy(() => import("./pages/websiteBuilder/StoreEditorRedirect"));
+const NavigationBuilder       = lazy(() => import("./pages/websiteBuilder/NavigationBuilder"));
+const PopupCenter             = lazy(() => import("./pages/websiteBuilder/PopupCenter"));
+const FormCenter              = lazy(() => import("./pages/websiteBuilder/FormCenter"));
+const BlogPostList            = lazy(() => import("./pages/websiteBuilder/BlogPostList"));
+const BlogPostEditor          = lazy(() => import("./pages/websiteBuilder/BlogPostEditor"));
+const MediaLibrary            = lazy(() => import("./pages/websiteBuilder/MediaLibrary"));
+const DomainSettings          = lazy(() => import("./pages/websiteBuilder/DomainSettings"));
+const SEOCenter               = lazy(() => import("./pages/websiteBuilder/SEOCenter"));
+const SiteSettings            = lazy(() => import("./pages/websiteBuilder/SiteSettings"));
+const AIContentStudio         = lazy(() => import("./pages/websiteBuilder/AIContentStudio"));
+const StoreShopPage          = lazy(() => import("./pages/storefront/StoreShopPage"));
+const StoreProductPage       = lazy(() => import("./pages/storefront/StoreProductPage"));
+const StoreCartPage          = lazy(() => import("./pages/storefront/StoreCartPage"));
+const StoreCheckoutPage      = lazy(() => import("./pages/storefront/StoreCheckoutPage"));
+const StoreOrderResultPage   = lazy(() => import("./pages/storefront/StoreOrderResultPage"));
 
 // ✅ WEB APP FIRST: Responsive theme with mobile-first breakpoints
 const theme = createTheme({
@@ -306,7 +350,24 @@ const AppContent = () => {
         isLegalRoute ||
         isBlogRoute ||
         integrationRoutes.some((s) => location.pathname === `/${s}`);
-    const isAuthRoute = ["/" , "/home", "/login", "/login-lunexetic", "/register", "/verify-email", "/payment/success", "/payment/failed", "/subscription"].includes(location.pathname) || isPublicMarketingRoute;
+    const isStorefrontRoute = location.pathname.startsWith("/shop/");
+    const isWbStorefrontRoute = location.pathname.startsWith("/site/");
+    const isWbCustomDomain = isWbCustomDomainHost();
+    const isAuthRoute =
+        isWbCustomDomain ||
+        ["/" , "/home", "/login", "/login-lunexetic", "/register", "/verify-email", "/payment/success", "/payment/failed"].includes(location.pathname) ||
+        isPublicMarketingRoute ||
+        isStorefrontRoute ||
+        isWbStorefrontRoute;
+
+    if (isWbCustomDomain) {
+        return (
+            <Suspense fallback={<LazyFallback />}>
+                <SeoHead />
+                <WbCustomDomainApp />
+            </Suspense>
+        );
+    }
 
     const routes = (
         <Suspense fallback={<LazyFallback />}>
@@ -364,6 +425,7 @@ const AppContent = () => {
             <Route path="/admin/products/upload" element={<ProtectedRoute requiredRoles={["admin","dev"]}><ProductWizard /></ProtectedRoute>} />
 
             {/* İletişim */}
+            <Route path="/admin/login-page" element={<ProtectedRoute requiredRoles={["admin","dev"]}><AdminLoginPage /></ProtectedRoute>} />
             <Route path="/admin/announcements" element={<ProtectedRoute requiredRoles={["admin","dev"]}><SaasAnnouncements /></ProtectedRoute>} />
             <Route path="/admin/tickets" element={<ProtectedRoute requiredRoles={["admin","dev"]}><SaasTickets /></ProtectedRoute>} />
 
@@ -379,7 +441,7 @@ const AppContent = () => {
 
             {/* Finans Modülü — Giriş gerekli */}
             <Route path="/finance" element={<ProtectedRoute><FinancePage /></ProtectedRoute>} />
-            <Route path="/billing" element={<ProtectedRoute><BillingPage /></ProtectedRoute>} />
+            <Route path="/billing" element={<ProtectedRoute><Navigate to="/dashboard?panel=billing" replace /></ProtectedRoute>} />
 
             {/* Ürün Yönetimi — Giriş gerekli */}
             <Route path="/product-management" element={<ProtectedRoute><ProductManagementPage /></ProtectedRoute>} />
@@ -399,6 +461,65 @@ const AppContent = () => {
             <Route path="/errors" element={<Navigate to="/journal" replace />} />
             <Route path="/payment/success" element={<PaymentResult />} />
             <Route path="/payment/failed" element={<PaymentResult />} />
+
+            {/* ─── Website Builder ──────────────────────────────────────────── */}
+            <Route path="/website-builder" element={<ProtectedRoute><WebsiteBuilderDashboard /></ProtectedRoute>} />
+            <Route path="/website-builder/onboarding" element={<ProtectedRoute><OnboardingWizard /></ProtectedRoute>} />
+            <Route path="/website-builder/create" element={<ProtectedRoute><SiteCreateWizard /></ProtectedRoute>} />
+            <Route path="/website-builder/:siteId/themes/editor" element={<ProtectedRoute><ThemeStudioPage /></ProtectedRoute>} />
+            <Route path="/website-builder/:siteId" element={<ProtectedRoute><WBLayout /></ProtectedRoute>}>
+                <Route path="onboarding" element={<OnboardingWizard />} />
+                <Route index element={<SiteOverview />} />
+                <Route path="pages" element={<PagesManager />} />
+                <Route path="store/pages/:pageId/edit" element={<PageEditor />} />
+                <Route path="store/onboarding" element={<StoreBuilderOnboarding />} />
+                <Route path="design/styles" element={<Navigate to="../themes/editor" replace />} />
+                <Route path="sections" element={<Navigate to="../themes/editor" replace />} />
+                <Route path="editor" element={<StoreEditorRedirect />} />
+                <Route path="product-page" element={<ProductPageEditor />} />
+                <Route path="themes" element={<ThemeMarketplacePage />} />
+                <Route path="themes/my" element={<MyThemesPage />} />
+                <Route path="themes/customize" element={<Navigate to="../../themes/editor" replace />} />
+                <Route path="navigation" element={<NavigationBuilder />} />
+                <Route path="popups" element={<PopupCenter />} />
+                <Route path="forms" element={<FormCenter />} />
+                <Route path="blog" element={<BlogPostList />} />
+                <Route path="blog/new" element={<BlogPostEditor />} />
+                <Route path="blog/:postId" element={<BlogPostEditor />} />
+                <Route path="media" element={<MediaLibrary />} />
+                <Route path="domain" element={<DomainSettings />} />
+                <Route path="seo" element={<SEOCenter />} />
+                <Route path="analytics" element={<SiteAnalytics />} />
+                <Route path="settings" element={<SiteSettings />} />
+                <Route path="ai" element={<AIContentStudio />} />
+            </Route>
+
+            {/* Website Builder public vitrin — /site/:siteSlug */}
+            <Route path="/site/:siteSlug" element={<WbStorefrontLayout />}>
+                <Route index element={<WbSitePage />} />
+                <Route path="page/:pageSlug" element={<WbSitePage />} />
+                <Route path="products" element={<WbSitePage fixedSlug="products" />} />
+                <Route path="collections" element={<WbSitePage fixedSlug="collections" />} />
+                <Route path="about" element={<WbSitePage fixedSlug="about" />} />
+                <Route path="contact" element={<WbSitePage fixedSlug="contact" />} />
+                <Route path="faq" element={<WbSitePage fixedSlug="faq" />} />
+                <Route path="cart" element={<WbSitePage fixedSlug="cart" />} />
+                <Route path="checkout" element={<WbSitePage fixedSlug="checkout" />} />
+                <Route path="search" element={<WbSitePage fixedSlug="search" />} />
+                <Route path="urun/:productSlug" element={<WbProductPublicPage />} />
+                <Route path="blog" element={<WbSitePage fixedSlug="blog" />} />
+                <Route path="blog/:postSlug" element={<WbBlogPostPage />} />
+            </Route>
+
+            {/* Web mağaza vitrin — herkese açık */}
+            <Route path="/shop/:slug" element={<StorefrontLayout />}>
+                <Route index element={<StoreShopPage />} />
+                <Route path="urun/:productSlug" element={<StoreProductPage />} />
+                <Route path="cart" element={<StoreCartPage />} />
+                <Route path="checkout" element={<StoreCheckoutPage />} />
+                <Route path="order/success" element={<StoreOrderResultPage />} />
+                <Route path="order/failed" element={<StoreOrderResultPage />} />
+            </Route>
 
             {/* Admin Abonelik Yönetimi — eski URL yönlendirmesi */}
             <Route path="/admin/subscription-manager" element={<Navigate to="/admin/subscriptions" replace />} />

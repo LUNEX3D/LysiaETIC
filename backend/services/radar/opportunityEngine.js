@@ -284,6 +284,7 @@ async function analyzeOpportunities(userId, opts = {}) {
 
         // ── 6. DB'ye kaydet ──
         const savedOpportunities = [];
+        let persistErrors = 0;
         for (const opp of sorted) {
             try {
                 const saved = await OpportunityResult.findOneAndUpdate(
@@ -301,7 +302,17 @@ async function analyzeOpportunities(userId, opts = {}) {
                 );
                 savedOpportunities.push(saved);
             } catch (saveErr) {
+                persistErrors++;
                 logger.warn(`[OpportunityEngine] Kaydetme hatası "${opp.keyword}": ${saveErr.message}`);
+                // DB kotası dolu olsa bile ekranda göster (geçici kayıt)
+                savedOpportunities.push({
+                    ...opp,
+                    _id: `ephemeral-${hashString32(`${userId}|${opp.keyword}`)}`,
+                    userId,
+                    status: "active",
+                    dataFreshness: new Date(),
+                    ephemeral: true,
+                });
             }
         }
 
@@ -339,10 +350,16 @@ async function analyzeOpportunities(userId, opts = {}) {
             `(Google: ${stats.dataSources.googleTrends}, Social: ${stats.dataSources.socialMedia}, Amazon: ${stats.dataSources.amazon})`
         );
 
+        if (persistErrors > 0) {
+            stats.persistWarning =
+                `Veritabanı kotası nedeniyle ${persistErrors} fırsat geçici olarak gösteriliyor. Temizlik veya plan yükseltmesi sonrası kalıcı kaydedilir.`;
+        }
+
         return {
             opportunities: rotateOpportunitiesForDisplay(savedOpportunities, userId),
-            stats: { ...stats, poolSize: savedOpportunities.length },
+            stats: { ...stats, poolSize: savedOpportunities.length, persistErrors },
             fromCache: false,
+            persisted: persistErrors === 0,
             displayRotation: getDisplayRotationMeta(),
         };
     } catch (err) {
@@ -434,6 +451,10 @@ async function getOpportunities(userId, filters = {}) {
 async function recordAction(userId, opportunityId, action) {
     const validActions = ["viewed", "simulated", "added_to_store", "dismissed"];
     if (!validActions.includes(action)) return null;
+
+    if (String(opportunityId || "").startsWith("ephemeral-")) {
+        return { _id: opportunityId, userAction: action, ephemeral: true };
+    }
 
     const update = {
         userAction: action,

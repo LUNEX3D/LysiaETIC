@@ -231,8 +231,10 @@ API.interceptors.response.use(
 
         if (error.response?.status === 401 && !originalRequest._retry) {
             const currentPath = window.location.pathname;
-            // Login sayfasındayken sonsuz döngü olmasın
-            if (currentPath === "/login" || currentPath === "/register" || currentPath === "/") {
+            const requestUrl = String(originalRequest?.url || "");
+            const isProviderLogin = /\/e-invoice\/(sovos|qnb|trendyol|parasut|odeal)\/login/i.test(requestUrl);
+            // Login sayfasındayken sonsuz döngü olmasın; sağlayıcı login 401'i JWT yenileme tetiklemesin
+            if (currentPath === "/login" || currentPath === "/register" || currentPath === "/" || isProviderLogin) {
                 return Promise.reject(error);
             }
 

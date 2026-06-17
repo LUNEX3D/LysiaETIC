@@ -396,7 +396,11 @@ exports.login = async (req, res) => {
 
         if (!user.emailVerified && !["admin", "dev"].includes(user.role)) {
             logger.warn(`[LOGIN-OUT] 403 — e-posta doğrulanmamış: ${email} (emailVerified=${user.emailVerified})`);
-            return forbidden(res, "E-posta adresiniz henüz doğrulanmamış. Lütfen gelen kutunuzu kontrol edin.");
+            return res.status(403).json({
+                success: false,
+                needsVerification: true,
+                message: "E-posta adresiniz henüz doğrulanmamış. Lütfen gelen kutunuzu kontrol edin.",
+            });
         }
 
         // Abonelik durumu kontrolü — süresi dolmuşsa atomik güncelle (version conflict önlenir)

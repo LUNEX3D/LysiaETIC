@@ -1,4 +1,5 @@
-﻿import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import ReactDOM from "react-dom";
 import { getUserMarketplaces, fetchDashboardData, syncRecentOrders } from "../services/marketplaceApi";
 import { getProductManagementDashboard } from "../services/productManagementApi";
@@ -7,6 +8,7 @@ import API, { logoutUser } from "../services/api";
 import { useApp } from "../context/AppContext";
 import MarketplaceIntegration from "../pages/MarketplaceIntegration";
 import OrdersPage from "../pages/OrdersPage";
+import ReturnsManagementPage from "../pages/ReturnsManagementPage";
 import InventoryPage from "../pages/StockManagement";
 import FinancePage from "../pages/FinancePage";
 import CargoTrackingPage from "../pages/CargoTrackingPage";
@@ -19,6 +21,57 @@ import AIChatWidget from "../components/AIChatWidget";
 import { PageHelpProvider } from "../context/PageHelpContext";
 import PageHelpButton, { PageHelpFloating } from "../components/help/PageHelpButton";
 import ProductManagementCenter from "../pages/ProductManagementCenter";
+import StoreEcommerceRouter from "../pages/store/StoreEcommerceRouter";
+import EcommerceSectionPage from "../pages/ecommerce/EcommerceSectionPage";
+import EcommerceHomePage from "../pages/ecommerce/EcommerceHomePage";
+import EcommerceStoresPickerPage from "../pages/ecommerce/EcommerceStoresPickerPage";
+import StoreCreationWizard from "../pages/ecommerce/onboarding/StoreCreationWizard";
+import AppearanceMarketplacePage from "../pages/ecommerce/platform/AppearanceMarketplacePage";
+import DomainWizardPage from "../pages/ecommerce/platform/DomainWizardPage";
+import AppsMarketplacePage from "../pages/ecommerce/platform/AppsMarketplacePage";
+import EcSalesChannelWorkspace from "./ecommerce/platform/EcSalesChannelWorkspace";
+import EcommerceWbChannelHub from "../pages/ecommerce/EcommerceWbChannelHub";
+import { isEcSalesChannelWorkspacePanel } from "../constants/ecStoreChannelNav";
+import EcommercePlatformShell from "../components/ecommerce/platform/EcommercePlatformShell";
+import EcommerceStoreSettingsHub from "../pages/ecommerce/platform/EcommerceStoreSettingsHub";
+import EcommerceStoreReportsPage from "../pages/ecommerce/platform/EcommerceStoreReportsPage";
+import { getActiveEcSite, setActiveEcSite, clearActiveEcSite } from "../utils/ecStoreContext";
+import "../styles/ecommerceWbChannel.css";
+import "../styles/ecommercePlatform.css";
+import EcommerceProductsHub from "../pages/ecommerce/products/EcommerceProductsHub";
+import EcommerceOrdersHub from "../pages/ecommerce/orders/EcommerceOrdersHub";
+import EcommerceCustomersHub from "../pages/ecommerce/customers/EcommerceCustomersHub";
+import EcommerceDiscountsHub from "../pages/ecommerce/discounts/EcommerceDiscountsHub";
+import EcommerceInboxHub from "../pages/ecommerce/inbox/EcommerceInboxHub";
+import MarketingHub from "../pages/marketing/MarketingHub";
+import "../styles/ecommerceTheme.css";
+import SellerVerificationPage from "../pages/store/SellerVerificationPage";
+import {
+    isStoreChannelView,
+    isEcommerceMainPanel,
+    normalizeStorePanel,
+    getStoreNavLabel,
+    getStoreRouterSection,
+    buildEcommerceMainSubmenu,
+    isEcommerceProductsPanel,
+    isEcommerceOrdersPanel,
+    isEcommerceCustomersPanel,
+    isEcommerceDiscountsPanel,
+    isEcommerceInboxPanel,
+    STORE_CHANNEL_PANEL,
+    ECOMMERCE_DEFAULT_PANEL,
+    isEcWbChannelPanel,
+    isEcWbFullBleedPanel,
+    EC_WB_DEFAULT_PANEL,
+    EC_WB_THEMES_EDITOR_PANEL,
+    EC_WB_THEMES_MARKETPLACE_PANEL,
+} from "../constants/ecommerceMenu";
+import { isEcPlatformEditorPanel } from "../constants/ecommercePlatform";
+import {
+    buildMarketingSubmenu,
+    isMarketingPanel,
+    MARKETING_DEFAULT_PANEL,
+} from "../constants/marketingMenu";
 import CategoryCenterPage from "../pages/CategoryCenterPage";
 import SettingsPage from "../pages/SettingsPage";
 import SupportTicketsPage from "../pages/SupportTicketsPage";
@@ -34,8 +87,9 @@ import {
     FaTruck, FaUsers, FaFileInvoice, FaPlug,
     FaChevronDown, FaBox, FaCrown,
     FaBrain, FaChartBar, FaBell, FaRocket, FaCrosshairs,
-    FaCubes, FaSitemap, FaSignOutAlt, FaUserShield,
-    FaCloudUploadAlt, FaHeadset, FaBug, FaBookOpen, FaLock, FaArrowRight
+    FaCubes, FaSitemap, FaSignOutAlt, FaUserShield, FaStore,
+    FaCloudUploadAlt, FaHeadset, FaBug, FaBookOpen, FaLock, FaArrowRight,
+    FaGlobe, FaBullhorn, FaPalette, FaUndoAlt,
 } from "react-icons/fa";
 import { motion, AnimatePresence } from "framer-motion";
 import Particles from "react-tsparticles";
@@ -60,6 +114,7 @@ import {
     DashboardOrderTimeline
 } from "../components/dashboard/DashboardHomeParts";
 import ShippingLabelModal, { supportsCargoLabel } from "../components/orders/ShippingLabelModal";
+import BulkShippingLabelModal from "../components/orders/BulkShippingLabelModal";
 import "../styles/userDashboard.css";
 import "../styles/dashboardHome.css";
 
@@ -99,6 +154,32 @@ const PANEL_DOC_TITLE = {
     finance: "Finans",
     "pm-center": "Ürün Merkezi",
     "product-upload": "Ürün Yükle",
+    ecommerce: "E-Ticaret",
+    "ec-home": "Giriş",
+    "ec-stores": "Mağazalarım",
+    "ec-store-create": "Yeni mağaza",
+    "ec-products": "Ürünler",
+    "ec-products-purchase": "Satın Alma",
+    "ec-product-add-simple": "Basit Ürün Ekle",
+    "ec-product-add-variant": "Varyantlı Ürün Ekle",
+    "ec-orders": "Siparişler",
+    "ec-customers": "Müşteriler",
+    "ec-discounts": "İndirimler",
+    "ec-inbox": "Gelen Kutusu",
+    "ec-reports": "Raporlar",
+    "ec-settings": "Ayarlar",
+    "store-channel": "Satış Kanalı",
+    "store-themes": "Temalarım",
+    "store-seo-domain": "SEO ve Alan Adı",
+    "store-automations": "Otomasyonlar",
+    "store-notifications": "Bildirimler",
+    "store-localization": "Lokalizasyon",
+    "store-payments": "Ödeme Ayarları",
+    "store-seller-verify": "Satıcı Doğrulaması",
+    "store-customers": "Müşteri Ayarları",
+    "store-shipping": "Kargo Ayarları",
+    "store-plugins": "Eklentiler",
+    "store-blog": "Blog",
     "category-center": "Kategori Merkezi",
     "advanced-analytics": "Gelişmiş Analitik",
     "lysia-brain": "Dashtock AI",
@@ -113,8 +194,11 @@ const PANEL_DOC_TITLE = {
     "admin-panel": "Admin",
 };
 
-function resolveDashboardDocumentTitle(activePanel, marketplaces) {
+function resolveDashboardDocumentTitle(activePanel, marketplaces, language = "tr") {
     if (!activePanel) return formatBrandPageTitle(BRAND_PANEL_SUB);
+    if (isEcommerceMainPanel(activePanel) || isEcWbChannelPanel(activePanel) || isStoreChannelView(activePanel)) {
+        return formatBrandPageTitle(`E-Ticaret · ${getStoreNavLabel(activePanel, language)}`);
+    }
     const dash = activePanel.indexOf("-");
     if (dash > 0) {
         const type = activePanel.slice(0, dash);
@@ -178,11 +262,16 @@ const playNotificationSound = () => {
 const resolvePanelFeatureId = (panelId) => {
     if (!panelId) return null;
     if (MENU_FEATURE_MAP[panelId]) return MENU_FEATURE_MAP[panelId];
+    if (panelId === "store-payments") return "store_checkout";
+    if (isMarketingPanel(panelId)) return "store_marketing";
+    if (isEcommerceMainPanel(panelId)) return "own_storefront";
+    if (panelId === STORE_CHANNEL_PANEL || panelId.startsWith("store-") || panelId === "store-hub") return "own_storefront";
     const base = String(panelId).split("-")[0];
     return MENU_FEATURE_MAP[base] || null;
 };
 
 const UserDashboard = () => {
+    const navigate = useNavigate();
     const { theme: C, t, language, resolvedTheme } = useApp();
     const {
         loading: entitlementsLoading,
@@ -193,6 +282,8 @@ const UserDashboard = () => {
     const isDark = resolvedTheme === "dark";
     const [menuOpen, setMenuOpen] = useState(true);
     const [activePanel, setActivePanel] = useState(getInitialDashboardPanel);
+    const [ecActiveSite, setEcActiveSiteState] = useState(() => getActiveEcSite());
+    const [ecWbEditorIntent, setEcWbEditorIntent] = useState(null);
     const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
     const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
     const userRole = localStorage.getItem("userRole") || "user";
@@ -209,13 +300,24 @@ const UserDashboard = () => {
     const [accessBlocked, setAccessBlocked] = useState(null);
     const [helpSending, setHelpSending] = useState(false);
     const [helpSent, setHelpSent] = useState(false);
+    const [helpError, setHelpError] = useState("");
     const [pmDashboard, setPmDashboard] = useState(null);
 
     // Tek bir state ile tüm submenu'leri yönet — aynı anda sadece 1 submenu açık
     const [openSubmenu, setOpenSubmenu] = useState(null);
+    const [marketingGroupOpen, setMarketingGroupOpen] = useState({
+        "mkt-campaigns-group": false,
+    });
+    const [ecommerceGroupOpen, setEcommerceGroupOpen] = useState({
+        "ec-products-group": false,
+        "ec-orders-group": false,
+        "ec-customers-group": false,
+        "ec-discounts-group": false,
+    });
 
     const [showOrderDetailsModal, setShowOrderDetailsModal] = useState(false);
     const [labelOrder, setLabelOrder] = useState(null);
+    const [bulkLabelOpen, setBulkLabelOpen] = useState(false);
     const [selectedOrderTab, setSelectedOrderTab] = useState("all");
 
     // ── Bildirim Sistemi (Persistent Backend) ──
@@ -259,10 +361,38 @@ const UserDashboard = () => {
         const handler = (e) => {
             setAccessBlocked(e.detail || { message: "Erişiminiz engellendi." });
             setHelpSent(false);
+            setHelpError("");
         };
         window.addEventListener("api:access-blocked", handler);
         return () => window.removeEventListener("api:access-blocked", handler);
     }, []);
+
+    // Blok banner açıkken durum bilgisini soft-auth endpoint ile güncelle (403 döngüsünden bağımsız)
+    useEffect(() => {
+        if (!accessBlocked) return;
+        let cancelled = false;
+        (async () => {
+            try {
+                const res = await API.get("/access/my-status");
+                if (cancelled || !res.data?.success) return;
+                const acc = res.data.accessStatus || {};
+                const blockedReason = res.data.reasons?.find((r) => r.code === "ACCESS_BLOCKED");
+                setAccessBlocked((prev) => ({
+                    ...(prev || {}),
+                    message: blockedReason?.detail || prev?.message,
+                    expiresAt: acc.blockExpiresAt || prev?.expiresAt,
+                    note: acc.blockNote || prev?.note,
+                    reason: acc.blockReason || prev?.reason,
+                    canRequestHelp: true,
+                }));
+                const hadHelp = (res.data.recentIncidents || []).some(
+                    (i) => i.type === "help_request" && Date.now() - new Date(i.createdAt).getTime() < 24 * 60 * 60 * 1000
+                );
+                if (hadHelp) setHelpSent(true);
+            } catch (_) { /* sessiz */ }
+        })();
+        return () => { cancelled = true; };
+    }, [accessBlocked?.timestamp, accessBlocked?.reason]);
 
     // ── Responsive (matchMedia — orientation / tarayıcı chrome uyumlu) ──
     const shell = useMobileShell({ lockScroll: true, scrollLocked: menuOpen, setHtmlClasses: false });
@@ -277,19 +407,124 @@ const UserDashboard = () => {
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     const handlePanelChange = useCallback((panelId) => {
-        const featureId = resolvePanelFeatureId(panelId);
+        let nextPanel = panelId;
+        if (panelId === STORE_CHANNEL_PANEL) {
+            nextPanel = STORE_CHANNEL_PANEL;
+        } else if (panelId && (panelId.startsWith("store-") || panelId === "store-hub")) {
+            nextPanel = normalizeStorePanel(panelId);
+        }
+        const featureId = resolvePanelFeatureId(nextPanel);
         if (featureId && !entitlementsLoading && !canAccess(featureId)) {
             setActivePanel("subscription");
             if (isMobile) setMenuOpen(false);
             return;
         }
-        setActivePanel(panelId);
+        setActivePanel(nextPanel);
         if (isMobile) setMenuOpen(false);
     }, [isMobile, entitlementsLoading, canAccess]);
 
+    const enterEcStore = useCallback(
+        (site) => {
+            const ctx = setActiveEcSite(site);
+            setEcActiveSiteState(ctx);
+            handlePanelChange("ec-home");
+        },
+        [handlePanelChange]
+    );
+
+    const exitToMainProgram = useCallback(() => {
+        clearActiveEcSite();
+        setEcActiveSiteState(null);
+        handlePanelChange("dashboard");
+    }, [handlePanelChange]);
+
+    const inEcPicker = activePanel === "ec-stores";
+    const inEcWbFullBleed = isEcWbFullBleedPanel(activePanel);
+    const inEcEditor = isEcPlatformEditorPanel(activePanel);
+    /** V6 — tek platform kabuğu (ec-* + ec-wb-* birlikte) */
+    const inEcPlatformWorkspace =
+        !!ecActiveSite &&
+        activePanel !== "ec-stores" &&
+        isEcommerceMainPanel(activePanel);
+    const hideErpSidebar = inEcPicker || inEcPlatformWorkspace;
+
     useEffect(() => {
-        document.title = resolveDashboardDocumentTitle(activePanel, marketplaces);
-    }, [activePanel, marketplaces]);
+        if (
+            isEcommerceMainPanel(activePanel) &&
+            activePanel !== "ec-stores" &&
+            activePanel !== "ec-store-create" &&
+            !ecActiveSite
+        ) {
+            handlePanelChange("ec-stores");
+        }
+    }, [activePanel, ecActiveSite, handlePanelChange]);
+
+    const openEcStoreChannel = useCallback(() => {
+        handlePanelChange(EC_WB_DEFAULT_PANEL);
+    }, [handlePanelChange]);
+
+    const openEcStoreEditor = useCallback((intent) => {
+        if (ecActiveSite?.id) {
+            navigate(`/website-builder/${ecActiveSite.id}/themes/editor`);
+            return;
+        }
+        setEcWbEditorIntent(intent || null);
+        handlePanelChange(EC_WB_THEMES_EDITOR_PANEL);
+    }, [ecActiveSite, navigate, handlePanelChange]);
+
+    useEffect(() => {
+        document.title = resolveDashboardDocumentTitle(activePanel, marketplaces, language);
+    }, [activePanel, marketplaces, language]);
+
+    useEffect(() => {
+        if (isEcommerceMainPanel(activePanel)) setOpenSubmenu("ecommerce");
+        if (isMarketingPanel(activePanel)) setOpenSubmenu("marketing");
+    }, [activePanel]);
+
+    useEffect(() => {
+        try {
+            const params = new URLSearchParams(window.location.search);
+            const panel = params.get("panel");
+            const oauth = params.get("inbox_oauth");
+            if (panel) {
+                setActivePanel(panel);
+                localStorage.setItem(DASHBOARD_PANEL_STORAGE_KEY, panel);
+                if (panel.startsWith("ec-inbox")) setOpenSubmenu("ecommerce");
+            }
+            if (oauth) {
+                sessionStorage.setItem("inbox_oauth_result", oauth);
+                const err = params.get("inbox_error");
+                if (err) sessionStorage.setItem("inbox_oauth_error", err);
+                const kind = params.get("inbox_oauth_kind");
+                if (kind) sessionStorage.setItem("inbox_oauth_kind", kind);
+            }
+            if (panel || oauth) {
+                const url = new URL(window.location.href);
+                url.searchParams.delete("panel");
+                url.searchParams.delete("inbox_oauth");
+                url.searchParams.delete("inbox_error");
+                url.searchParams.delete("inbox_oauth_kind");
+                window.history.replaceState({}, "", url.pathname + url.search + url.hash);
+            }
+        } catch {
+            /* ignore */
+        }
+    }, []);
+
+    useEffect(() => {
+        const removed = ["ec-marketing", "ec-apps", "app-store", "my-apps", "marketing-email", "marketing-automation", "marketing-segments", "marketing-popup", "marketing-discounts"];
+        if (
+            removed.includes(activePanel) ||
+            activePanel?.startsWith("ecommerce-")
+        ) {
+            setActivePanel(
+                activePanel?.startsWith("ec-") || activePanel?.startsWith("ecommerce-")
+                    ? ECOMMERCE_DEFAULT_PANEL
+                    : "dashboard"
+            );
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- yalnızca kayıtlı panel geri yükleme
+    }, []);
 
     // Refresh sonrası aynı panelde kalması için activePanel'i sakla
     useEffect(() => {
@@ -541,10 +776,10 @@ const UserDashboard = () => {
         [marketplaceIdByKey]
     );
 
-    const openDashboardCargoLabel = useCallback(
+    const normalizeDashboardOrderForLabel = useCallback(
         (order) => {
             const orderNo = String(order.orderNumber || formatOrderNumberForDisplay(order) || "").trim();
-            setLabelOrder({
+            return {
                 marketplace: order.marketplace || order.marketplaceName,
                 marketplaceName: order.marketplace || order.marketplaceName,
                 marketplaceId: resolveDashboardMarketplaceId(order),
@@ -556,9 +791,17 @@ const UserDashboard = () => {
                 shipmentPackageId: order.shipmentPackageId || "",
                 cargoTrackingLink: order.cargoTrackingLink || "",
                 orderItemId: order.orderItemId || "",
-            });
+                customerName: order.customerName || order.customer || "",
+            };
         },
         [resolveDashboardMarketplaceId]
+    );
+
+    const openDashboardCargoLabel = useCallback(
+        (order) => {
+            setLabelOrder(normalizeDashboardOrderForLabel(order));
+        },
+        [normalizeDashboardOrderForLabel]
     );
 
     // ── Bildirim Polling ──
@@ -985,18 +1228,33 @@ const UserDashboard = () => {
                                 )}
                             </div>
                         </div>
+                        {helpError && (
+                            <div style={{ color: "#fca5a5", fontSize: "0.8rem", marginBottom: 8, width: "100%" }}>
+                                {helpError}
+                            </div>
+                        )}
                         {accessBlocked.canRequestHelp !== false && (
                             <button
                                 onClick={async () => {
                                     if (helpSending || helpSent) return;
                                     setHelpSending(true);
+                                    setHelpError("");
                                     try {
-                                        await API.post("/access/help", {
+                                        const res = await API.post("/access/help", {
+                                            email: localStorage.getItem("userEmail") || undefined,
                                             message: "Hesap erişim engelinin açılması için yardım talebi.",
                                         });
+                                        if (res.data?.success === false) {
+                                            throw new Error(res.data?.message || "Talep iletilemedi");
+                                        }
                                         setHelpSent(true);
                                     } catch (err) {
-                                        alert("Talep gönderilemedi: " + (err.response?.data?.message || err.message));
+                                        const msg = err.response?.data?.message || err.message || "Talep gönderilemedi";
+                                        if (err.response?.status === 401) {
+                                            setHelpError("Oturum süresi dolmuş olabilir. Çıkış yapıp tekrar giriş yapın, ardından yardım talebini yenileyin.");
+                                        } else {
+                                            setHelpError(msg);
+                                        }
                                     } finally {
                                         setHelpSending(false);
                                     }
@@ -1312,11 +1570,40 @@ const UserDashboard = () => {
                                     <h2 style={{ background: `linear-gradient(135deg, ${C.accent}, ${C.purple})`, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", fontSize: isMobile ? "1rem" : "1.3rem", fontWeight: 800, margin: 0 }}>
                                         📦 {t("dashboard.totalOrders")} ({allOrders.total})
                                     </h2>
-                                    <motion.button whileHover={{ scale: 1.1, rotate: 90 }} whileTap={{ scale: 0.9 }}
-                                        onClick={() => setShowOrderDetailsModal(false)}
-                                        style={{ background: `${C.red}15`, border: `1px solid ${C.red}30`, borderRadius: "50%", width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: C.red, fontSize: "1.2rem", fontWeight: 700 }}>
-                                        ✕
-                                    </motion.button>
+                                    <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                                        {/* Toplu kargo etiketi — yalnızca "İşlemde" sekmesinde */}
+                                        {selectedOrderTab === "processing" && (() => {
+                                            const procLabelOrders = (allOrders.byStatus.processing || []).filter((o) => supportsCargoLabel(o.marketplace));
+                                            return (
+                                                <motion.button
+                                                    type="button"
+                                                    whileHover={{ scale: procLabelOrders.length ? 1.04 : 1 }}
+                                                    whileTap={{ scale: procLabelOrders.length ? 0.96 : 1 }}
+                                                    onClick={() => procLabelOrders.length && setBulkLabelOpen(true)}
+                                                    disabled={!procLabelOrders.length}
+                                                    title={procLabelOrders.length ? "İşlemdeki siparişlerin kargo etiketlerini topluca yazdır" : "İşlemde, etiket destekli sipariş yok"}
+                                                    style={{
+                                                        display: "flex", alignItems: "center", gap: "0.4rem",
+                                                        background: procLabelOrders.length ? `linear-gradient(135deg, ${C.accent}, ${C.purple})` : C.glass,
+                                                        color: procLabelOrders.length ? "#000" : C.muted,
+                                                        border: `1px solid ${procLabelOrders.length ? "transparent" : C.glassBr}`,
+                                                        borderRadius: 10, padding: isMobile ? "0.4rem 0.6rem" : "0.5rem 0.85rem",
+                                                        fontSize: isMobile ? "0.7rem" : "0.78rem", fontWeight: 800,
+                                                        cursor: procLabelOrders.length ? "pointer" : "not-allowed", whiteSpace: "nowrap",
+                                                    }}>
+                                                    🏷️ {isMobile ? "Toplu Etiket" : "Toplu Kargo Etiketi"}
+                                                    <span style={{ background: procLabelOrders.length ? "rgba(0,0,0,0.18)" : `${C.muted}30`, borderRadius: 7, padding: "0.1rem 0.4rem", fontSize: "0.68rem", fontWeight: 800 }}>
+                                                        {procLabelOrders.length}
+                                                    </span>
+                                                </motion.button>
+                                            );
+                                        })()}
+                                        <motion.button whileHover={{ scale: 1.1, rotate: 90 }} whileTap={{ scale: 0.9 }}
+                                            onClick={() => setShowOrderDetailsModal(false)}
+                                            style={{ background: `${C.red}15`, border: `1px solid ${C.red}30`, borderRadius: "50%", width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: C.red, fontSize: "1.2rem", fontWeight: 700, flexShrink: 0 }}>
+                                            ✕
+                                        </motion.button>
+                                    </div>
                                 </div>
 
                                 {/* Status Tabs */}
@@ -1494,6 +1781,18 @@ const UserDashboard = () => {
                     <ShippingLabelModal
                         order={labelOrder}
                         onClose={() => setLabelOrder(null)}
+                        C={C}
+                        t={t}
+                    />
+                )}
+
+                {bulkLabelOpen && (
+                    <BulkShippingLabelModal
+                        orders={(allOrders.byStatus.processing || [])
+                            .filter((o) => supportsCargoLabel(o.marketplace))
+                            .map((o) => normalizeDashboardOrderForLabel(o))}
+                        onClose={() => setBulkLabelOpen(false)}
+                        onPrintSingle={(o) => setLabelOrder(o)}
                         C={C}
                         t={t}
                     />
@@ -1702,6 +2001,7 @@ const UserDashboard = () => {
         { type: "divider", label: t("sidebar.marketplace") },
         { id: "integration", icon: <FaPlug />, text: t("sidebar.integrations") },
         { id: "orders", icon: <FaClipboardList />, text: t("sidebar.orders"), hasSubmenu: true },
+        { id: "returns", icon: <FaUndoAlt />, text: t("sidebar.returns") },
         { id: "inventory", icon: <FaBoxOpen />, text: t("sidebar.inventory"), hasSubmenu: true },
         { id: "shipping", icon: <FaTruck />, text: t("sidebar.shipping"), hasSubmenu: true },
         { id: "finance", icon: <FaMoneyBillWave />, text: t("sidebar.finance"), hasSubmenu: true },
@@ -1709,7 +2009,8 @@ const UserDashboard = () => {
         { id: "pm-center", icon: <FaCubes />, text: t("sidebar.productCenter") },
         { id: "product-upload", icon: <FaCloudUploadAlt />, text: t("sidebar.productUpload") },
         { id: "category-center", icon: <FaSitemap />, text: t("sidebar.categoryCenter") },
-
+        { type: "divider", label: language === "en" ? "E-Commerce" : "E-Ticaret" },
+        { type: "ecommerce-btn" },
         { type: "divider", label: t("sidebar.analytics") },
         { id: "advanced-analytics", icon: <FaChartBar />, text: t("sidebar.advancedAnalytics") },
         { id: "lysia-brain", icon: <FaBrain />, text: "Dashtock AI" },
@@ -1727,6 +2028,367 @@ const UserDashboard = () => {
             { id: "admin-panel", icon: <FaUserShield />, text: t("sidebar.adminPanel") },
         ] : []),
     ];
+
+    const ECOMMERCE_MAIN_SUBMENU = useMemo(() => buildEcommerceMainSubmenu(language), [language]);
+    const MARKETING_SUBMENU = useMemo(() => buildMarketingSubmenu(language), [language]);
+
+    useEffect(() => {
+        if (isEcommerceProductsPanel(activePanel)) {
+            setEcommerceGroupOpen((o) => ({ ...o, "ec-products-group": true }));
+        }
+        if (isEcommerceOrdersPanel(activePanel)) {
+            setEcommerceGroupOpen((o) => ({ ...o, "ec-orders-group": true }));
+        }
+        if (isEcommerceCustomersPanel(activePanel)) {
+            setEcommerceGroupOpen((o) => ({ ...o, "ec-customers-group": true }));
+        }
+        if (isEcommerceDiscountsPanel(activePanel)) {
+            setEcommerceGroupOpen((o) => ({ ...o, "ec-discounts-group": true }));
+        }
+        if (isEcommerceInboxPanel(activePanel)) {
+            setEcommerceGroupOpen((o) => ({ ...o, "ec-inbox-group": true }));
+        }
+        if (activePanel === "mkt-campaigns-email" || activePanel === "mkt-campaigns-sms") {
+            setMarketingGroupOpen((o) => ({ ...o, "mkt-campaigns-group": true }));
+        }
+    }, [activePanel]);
+
+    const renderMarketingSubmenu = (isOpen) => (
+        <div className={`submenu submenu--ecommerce ${isOpen ? "submenu--open" : ""}`}>
+            <div className="submenu-inner">
+                {MARKETING_SUBMENU.map((item) => {
+                    if (item.children?.length) {
+                        const subOpen = isOpen && marketingGroupOpen[item.id];
+                        const groupActive =
+                            activePanel === "mkt-campaigns-email" || activePanel === "mkt-campaigns-sms";
+                        return (
+                            <React.Fragment key={item.id}>
+                                <div
+                                    className={`submenu-item submenu-item--parent ${groupActive ? "active" : ""}`}
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        setMarketingGroupOpen((o) => ({
+                                            ...o,
+                                            [item.id]: !o[item.id],
+                                        }));
+                                    }}
+                                >
+                                    <span className="submenu-item-text">{item.label}</span>
+                                    <FaChevronDown
+                                        className={`submenu-chevron ${subOpen ? "submenu-chevron--open" : ""}`}
+                                        style={{ marginLeft: "auto", fontSize: 10 }}
+                                    />
+                                </div>
+                                {subOpen &&
+                                    item.children.map((child) => (
+                                        <div
+                                            key={child.id}
+                                            className={`submenu-item submenu-item--child ${activePanel === child.id ? "active" : ""}`}
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handlePanelChange(child.id);
+                                            }}
+                                        >
+                                            <span className="submenu-item-text">{child.label}</span>
+                                        </div>
+                                    ))}
+                            </React.Fragment>
+                        );
+                    }
+                    const childActive =
+                        activePanel === item.id || (item.id === "mkt-automations" && activePanel?.startsWith("mkt-automation-"));
+                    return (
+                        <div
+                            key={item.id}
+                            className={`submenu-item ${childActive ? "active" : ""}`}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                handlePanelChange(item.id);
+                            }}
+                        >
+                            <span className="submenu-item-text">{item.label}</span>
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
+
+    const renderEcommerceMainSubmenu = (isOpen) => (
+        <div className={`submenu submenu--ecommerce ${isOpen ? "submenu--open" : ""}`}>
+            <div className="submenu-inner">
+                {ECOMMERCE_MAIN_SUBMENU.map((item) => {
+                    if (item.children?.length) {
+                        const subOpen = isOpen && ecommerceGroupOpen[item.id];
+                        const groupActive =
+                            item.id === "ec-products-group"
+                                ? isEcommerceProductsPanel(activePanel)
+                                : item.id === "ec-orders-group"
+                                  ? isEcommerceOrdersPanel(activePanel)
+                                  : item.id === "ec-customers-group"
+                                    ? isEcommerceCustomersPanel(activePanel)
+                                    : item.id === "ec-discounts-group"
+                                      ? isEcommerceDiscountsPanel(activePanel)
+                                      : item.id === "ec-inbox-group"
+                                        ? isEcommerceInboxPanel(activePanel)
+                                        : false;
+                        const isChildActive = (child) => {
+                            if (activePanel === child.id) return true;
+                            if (child.id === "ec-orders" && activePanel?.startsWith("ec-order-"))
+                                return true;
+                            if (
+                                child.id === "ec-orders-gift-cards" &&
+                                activePanel?.startsWith("ec-gift-card")
+                            )
+                                return true;
+                            if (
+                                child.id === "ec-customers" &&
+                                activePanel?.startsWith("ec-customer-")
+                            )
+                                return true;
+                            if (
+                                child.id === "ec-discounts-campaigns" &&
+                                (activePanel === "ec-discounts-campaigns" ||
+                                    activePanel === "ec-discounts" ||
+                                    activePanel === "ec-campaign-auto-create" ||
+                                    (activePanel?.startsWith("ec-campaign-") &&
+                                        activePanel !== "ec-campaign-code-create"))
+                            )
+                                return true;
+                            if (
+                                child.id === "ec-discounts-coupons" &&
+                                (activePanel === "ec-discounts-coupons" ||
+                                    activePanel === "ec-campaign-code-create")
+                            )
+                                return true;
+                            if (
+                                child.id === "ec-inbox-messages" &&
+                                (activePanel === "ec-inbox-messages" || activePanel === "ec-inbox")
+                            )
+                                return true;
+                            if (child.id === "ec-inbox-settings" && activePanel === "ec-inbox-settings")
+                                return true;
+                            return false;
+                        };
+                        return (
+                            <React.Fragment key={item.id}>
+                                <div
+                                    className={`submenu-item submenu-item--parent ${groupActive ? "active" : ""}`}
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        const next = !ecommerceGroupOpen[item.id];
+                                        setEcommerceGroupOpen((o) => ({
+                                            ...o,
+                                            [item.id]: next,
+                                        }));
+                                        if (next && item.children[0]) {
+                                            handlePanelChange(item.children[0].id);
+                                        }
+                                    }}
+                                >
+                                    <span className="submenu-item-text">{item.label}</span>
+                                    <FaChevronDown
+                                        className={`menu-chevron ${subOpen ? "menu-chevron--open" : ""}`}
+                                        style={{ marginLeft: "auto", fontSize: 10 }}
+                                    />
+                                </div>
+                                {subOpen &&
+                                    item.children.map((child) => (
+                                        <div
+                                            key={child.id}
+                                            className={`submenu-item submenu-item--child ${isChildActive(child) ? "active" : ""}`}
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handlePanelChange(child.id);
+                                            }}
+                                        >
+                                            <span className="submenu-item-text">{child.label}</span>
+                                        </div>
+                                    ))}
+                            </React.Fragment>
+                        );
+                    }
+                    return (
+                        <div
+                            key={item.id}
+                            className={`submenu-item ${activePanel === item.id ? "active" : ""}`}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                handlePanelChange(item.id);
+                            }}
+                        >
+                            <span className="submenu-item-text">{item.label}</span>
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
+
+    const renderEcommerceMainPanel = (panelId) => {
+        if (panelId === "ec-store-create") {
+            return (
+                <PlanFeatureGate featureId="own_storefront" canAccess={canAccess} planDisplayName={planDisplayName} upgradeHint={upgradeHint} onUpgrade={() => handlePanelChange("subscription")}>
+                    <StoreCreationWizard
+                        language={language}
+                        onCancel={() => handlePanelChange("ec-stores")}
+                        onComplete={() => handlePanelChange("ec-home")}
+                    />
+                </PlanFeatureGate>
+            );
+        }
+        if (panelId === "ec-appearance-marketplace") {
+            return (
+                <PlanFeatureGate featureId="own_storefront" canAccess={canAccess} planDisplayName={planDisplayName} upgradeHint={upgradeHint} onUpgrade={() => handlePanelChange("subscription")}>
+                    <AppearanceMarketplacePage siteId={ecActiveSite?.id} onNavigate={handlePanelChange} onExitToProgram={exitToMainProgram} />
+                </PlanFeatureGate>
+            );
+        }
+        if (panelId === "ec-domain-wizard") {
+            return (
+                <PlanFeatureGate featureId="own_storefront" canAccess={canAccess} planDisplayName={planDisplayName} upgradeHint={upgradeHint} onUpgrade={() => handlePanelChange("subscription")}>
+                    <DomainWizardPage language={language} onNavigate={handlePanelChange} />
+                </PlanFeatureGate>
+            );
+        }
+        if (panelId === "ec-apps-marketplace") {
+            return (
+                <PlanFeatureGate featureId="own_storefront" canAccess={canAccess} planDisplayName={planDisplayName} upgradeHint={upgradeHint} onUpgrade={() => handlePanelChange("subscription")}>
+                    <AppsMarketplacePage language={language} />
+                </PlanFeatureGate>
+            );
+        }
+        if (isEcSalesChannelWorkspacePanel(panelId)) {
+            return (
+                <PlanFeatureGate featureId="own_storefront" canAccess={canAccess} planDisplayName={planDisplayName} upgradeHint={upgradeHint} onUpgrade={() => handlePanelChange("subscription")}>
+                    <EcSalesChannelWorkspace
+                        panelId={panelId}
+                        siteId={ecActiveSite?.id}
+                        activeSite={ecActiveSite}
+                        language={language}
+                        onNavigate={handlePanelChange}
+                        onExitToProgram={exitToMainProgram}
+                        onOpenEditor={openEcStoreEditor}
+                        editorIntent={ecWbEditorIntent}
+                        onEditorIntentConsumed={() => setEcWbEditorIntent(null)}
+                    />
+                </PlanFeatureGate>
+            );
+        }
+        if (isEcWbChannelPanel(panelId)) {
+            return (
+                <PlanFeatureGate featureId="own_storefront" canAccess={canAccess} planDisplayName={planDisplayName} upgradeHint={upgradeHint} onUpgrade={() => handlePanelChange("subscription")}>
+                    <EcommerceWbChannelHub
+                        key={panelId}
+                        panelId={panelId}
+                        siteId={ecActiveSite?.id}
+                        onNavigate={handlePanelChange}
+                        onExitToProgram={exitToMainProgram}
+                        onOpenEditor={openEcStoreEditor}
+                        editorIntent={ecWbEditorIntent}
+                        onEditorIntentConsumed={() => setEcWbEditorIntent(null)}
+                    />
+                </PlanFeatureGate>
+            );
+        }
+        if (panelId === "ec-stores") {
+            return (
+                <PlanFeatureGate featureId="own_storefront" canAccess={canAccess} planDisplayName={planDisplayName} upgradeHint={upgradeHint} onUpgrade={() => handlePanelChange("subscription")}>
+                    <EcommerceStoresPickerPage
+                        language={language}
+                        onEnterStore={enterEcStore}
+                        onCreateStore={() => handlePanelChange("ec-store-create")}
+                        onExitToProgram={exitToMainProgram}
+                    />
+                </PlanFeatureGate>
+            );
+        }
+        if (panelId === "ec-home") {
+            return (
+                <PlanFeatureGate featureId="own_storefront" canAccess={canAccess} planDisplayName={planDisplayName} upgradeHint={upgradeHint} onUpgrade={() => handlePanelChange("subscription")}>
+                    <EcommerceHomePage onNavigate={handlePanelChange} />
+                </PlanFeatureGate>
+            );
+        }
+        if (isEcommerceProductsPanel(panelId)) {
+            return (
+                <PlanFeatureGate featureId="own_storefront" canAccess={canAccess} planDisplayName={planDisplayName} upgradeHint={upgradeHint} onUpgrade={() => handlePanelChange("subscription")}>
+                    <EcommerceProductsHub panelId={panelId} onNavigate={handlePanelChange} />
+                </PlanFeatureGate>
+            );
+        }
+        if (isEcommerceOrdersPanel(panelId)) {
+            return (
+                <PlanFeatureGate featureId="orders" canAccess={canAccess} planDisplayName={planDisplayName} upgradeHint={upgradeHint} onUpgrade={() => handlePanelChange("subscription")}>
+                    <EcommerceOrdersHub panelId={panelId} onNavigate={handlePanelChange} />
+                </PlanFeatureGate>
+            );
+        }
+        if (isEcommerceCustomersPanel(panelId)) {
+            return (
+                <PlanFeatureGate featureId="own_storefront" canAccess={canAccess} planDisplayName={planDisplayName} upgradeHint={upgradeHint} onUpgrade={() => handlePanelChange("subscription")}>
+                    <EcommerceCustomersHub panelId={panelId} onNavigate={handlePanelChange} />
+                </PlanFeatureGate>
+            );
+        }
+        if (isEcommerceDiscountsPanel(panelId)) {
+            return (
+                <PlanFeatureGate featureId="own_storefront" canAccess={canAccess} planDisplayName={planDisplayName} upgradeHint={upgradeHint} onUpgrade={() => handlePanelChange("subscription")}>
+                    <EcommerceDiscountsHub panelId={panelId} onNavigate={handlePanelChange} />
+                </PlanFeatureGate>
+            );
+        }
+        if (isEcommerceInboxPanel(panelId)) {
+            const inboxPanel = panelId === "ec-inbox" ? "ec-inbox-messages" : panelId;
+            return (
+                <PlanFeatureGate featureId="own_storefront" canAccess={canAccess} planDisplayName={planDisplayName} upgradeHint={upgradeHint} onUpgrade={() => handlePanelChange("subscription")}>
+                    <EcommerceInboxHub panelId={inboxPanel} onNavigate={handlePanelChange} />
+                </PlanFeatureGate>
+            );
+        }
+        if (panelId === "ec-reports") {
+            return (
+                <PlanFeatureGate featureId="profit_analytics" canAccess={canAccess} planDisplayName={planDisplayName} upgradeHint={upgradeHint} onUpgrade={() => handlePanelChange("subscription")}>
+                    <EcommerceStoreReportsPage />
+                </PlanFeatureGate>
+            );
+        }
+        if (panelId === "ec-store-settings") {
+            return (
+                <PlanFeatureGate featureId="own_storefront" canAccess={canAccess} planDisplayName={planDisplayName} upgradeHint={upgradeHint} onUpgrade={() => handlePanelChange("subscription")}>
+                    <EcommerceStoreSettingsHub onNavigate={handlePanelChange} />
+                </PlanFeatureGate>
+            );
+        }
+        if (panelId === "ec-settings") {
+            return (
+                <PlanFeatureGate featureId="own_storefront" canAccess={canAccess} planDisplayName={planDisplayName} upgradeHint={upgradeHint} onUpgrade={() => handlePanelChange("subscription")}>
+                    <EcommerceStoreSettingsHub onNavigate={handlePanelChange} />
+                </PlanFeatureGate>
+            );
+        }
+        return (
+            <PlanFeatureGate featureId="own_storefront" canAccess={canAccess} planDisplayName={planDisplayName} upgradeHint={upgradeHint} onUpgrade={() => handlePanelChange("subscription")}>
+                <EcommerceSectionPage panelId={panelId} />
+            </PlanFeatureGate>
+        );
+    };
+
+    const renderStorePanel = (panelId) => (
+        <PlanFeatureGate
+            featureId="own_storefront"
+            canAccess={canAccess}
+            planDisplayName={planDisplayName}
+            upgradeHint={upgradeHint}
+            onUpgrade={() => handlePanelChange("subscription")}
+        >
+            <StoreEcommerceRouter
+                section={getStoreRouterSection(panelId)}
+                onNavigate={handlePanelChange}
+                onBack={() => handlePanelChange("dashboard")}
+            />
+        </PlanFeatureGate>
+    );
 
     /* ── Submenu render ── */
     const renderMarketplaceSubmenu = (type, isOpen) => (
@@ -1811,9 +2473,57 @@ const UserDashboard = () => {
             const marketplace = marketplaces.find(m => m._id === marketplaceId);
             return <MarketplaceIntegration userId={userId} marketplaceId={marketplaceId} marketplace={marketplace} />;
         }
+        if (isEcommerceMainPanel(activePanel)) {
+            const panel = renderEcommerceMainPanel(activePanel);
+            if (inEcPlatformWorkspace) {
+                return (
+                    <EcommercePlatformShell
+                        activePanel={activePanel}
+                        activeSite={ecActiveSite}
+                        language={language}
+                        onNavigate={handlePanelChange}
+                        onSwitchStore={() => handlePanelChange("ec-stores")}
+                        onExitToProgram={exitToMainProgram}
+                    >
+                        {panel}
+                    </EcommercePlatformShell>
+                );
+            }
+            return panel;
+        }
+        if (isMarketingPanel(activePanel)) {
+            return (
+                <PlanFeatureGate
+                    featureId="store_marketing"
+                    canAccess={canAccess}
+                    planDisplayName={planDisplayName}
+                    upgradeHint={upgradeHint}
+                    onUpgrade={() => handlePanelChange("subscription")}
+                >
+                    <MarketingHub panelId={activePanel} onNavigate={handlePanelChange} />
+                </PlanFeatureGate>
+            );
+        }
+        if (activePanel === "store-seller-verify") {
+            return (
+                <PlanFeatureGate
+                    featureId="own_storefront"
+                    canAccess={canAccess}
+                    planDisplayName={planDisplayName}
+                    upgradeHint={upgradeHint}
+                    onUpgrade={() => handlePanelChange("subscription")}
+                >
+                    <SellerVerificationPage onBack={() => handlePanelChange("ec-home")} />
+                </PlanFeatureGate>
+            );
+        }
+        if (isStoreChannelView(activePanel)) {
+            return renderStorePanel(activePanel);
+        }
 
         switch (activePanel) {
             case "orders": return <OrdersPage key="orders-all" userId={userId} marketplaces={marketplacesForOrdersPage} />;
+            case "returns": return <ReturnsManagementPage marketplaces={marketplaces} />;
             case "finance": return <FinancePage userId={userId} marketplaces={marketplaces} />;
             case "integration": return <MarketplaceIntegration userId={userId} />;
             case "users": return <UserProfilePage userId={userId} marketplaces={marketplaces} />;
@@ -1831,7 +2541,7 @@ const UserDashboard = () => {
             case "product-upload": return <ProductManagementCenter userId={userId} initialTab="newProduct" />;
             case "category-center": return <CategoryCenterPage userId={userId} />;
             case "settings": return <SettingsPage userId={userId} />;
-            case "billing": return <BillingPage userId={userId} />;
+            case "billing": return <BillingPage embedded />;
             case "subscription": return <SubscriptionPage />;
             case "error-center": return <ErrorCenterPage />;
             case "support": return <SupportTicketsPage />;
@@ -1853,7 +2563,9 @@ const UserDashboard = () => {
 
     return (
         <PageHelpProvider activePanel={activePanel}>
-        <div className={`dashboard-container${isMobile ? " dashboard-container--mobile" : ""}`}>
+        <div
+            className={`dashboard-container${isMobile ? " dashboard-container--mobile" : ""}${inEcPlatformWorkspace ? " dashboard-container--ec-platform" : ""}${inEcWbFullBleed ? " dashboard-container--ec-wb-fullbleed" : ""}${inEcPicker ? " dashboard-container--ec-picker" : ""}`}
+        >
             {isImpersonating && (
                 <div style={{ position: "fixed", top: 8, left: "50%", transform: "translateX(-50%)", zIndex: 12000, background: "rgba(99,102,241,0.95)", color: "#fff", border: "1px solid rgba(165,180,252,0.45)", borderRadius: 999, padding: "8px 14px", display: "flex", alignItems: "center", gap: 10, fontSize: 12 }}>
                     Admin olarak kullanıcı görünümündesiniz
@@ -1879,6 +2591,7 @@ const UserDashboard = () => {
             )}
 
             {/* ── Mobile Hamburger Button ── */}
+            {!hideErpSidebar && (
             <button
                 className={`mobile-hamburger ${menuOpen && isMobile ? 'hidden' : ''}`}
                 onClick={() => setMenuOpen(true)}
@@ -1886,6 +2599,7 @@ const UserDashboard = () => {
             >
                 <FaBars />
             </button>
+            )}
 
             {/* ── Mobile Overlay ── */}
             <div
@@ -1893,6 +2607,28 @@ const UserDashboard = () => {
                 onClick={() => setMenuOpen(false)}
             />
 
+
+            {(inEcPlatformWorkspace || inEcPicker) && (
+                <button
+                    type="button"
+                    className={`ec-exit-erp${inEcEditor || inEcWbFullBleed || inEcPicker ? " ec-exit-erp--bare" : " ec-exit-erp--platform"}`}
+                    onClick={exitToMainProgram}
+                >
+                    ← {language === "en" ? "Dashtock Home" : "Dashtock Ana Sayfa"}
+                </button>
+            )}
+
+            {inEcWbFullBleed && activePanel !== EC_WB_THEMES_MARKETPLACE_PANEL && !inEcPlatformWorkspace && (
+                <button
+                    type="button"
+                    className="ec-exit-erp"
+                    onClick={exitToMainProgram}
+                >
+                    ← {language === "en" ? "Back to main program" : "Ana programa dön"}
+                </button>
+            )}
+
+            {!hideErpSidebar && (
             <motion.aside
                 className={`sidebar ${menuOpen ? "open" : "closed"}${isMobile ? " sidebar--mobile" : ""}`}
                 animate={isMobile ? {} : { width: menuOpen ? 260 : 72 }}
@@ -1918,18 +2654,75 @@ const UserDashboard = () => {
                             );
                         }
 
+                        if (item.type === "ecommerce-btn") {
+                            const ecActive = isEcommerceMainPanel(activePanel);
+                            const ecLocked = !entitlementsLoading && !canAccess("own_storefront");
+                            const ecLabel = language === "en" ? "E-Commerce" : "E-Ticaret";
+                            return (
+                                <div
+                                    key="ecommerce-btn"
+                                    role="button"
+                                    tabIndex={0}
+                                    className={`menu-item menu-item--channel menu-item--ecommerce-btn ${ecActive ? "active" : ""} ${ecLocked ? "menu-item--locked" : ""}`}
+                                    onClick={() => {
+                                        if (ecLocked) {
+                                            handlePanelChange("subscription");
+                                            return;
+                                        }
+                                        setOpenSubmenu(null);
+                                        handlePanelChange(ecActiveSite ? "ec-home" : ECOMMERCE_DEFAULT_PANEL);
+                                    }}
+                                    onKeyDown={(e) => {
+                                        if (e.key === "Enter" || e.key === " ") {
+                                            e.preventDefault();
+                                            if (ecLocked) handlePanelChange("subscription");
+                                            else handlePanelChange(ecActiveSite ? "ec-home" : ECOMMERCE_DEFAULT_PANEL);
+                                        }
+                                    }}
+                                >
+                                    <div className="icon-wrapper menu-channel-icon">
+                                        <FaGlobe />
+                                    </div>
+                                    <span className="menu-text">{ecLabel}</span>
+                                    {ecLocked && (
+                                        <FaLock style={{ fontSize: 10, opacity: 0.55, marginLeft: 4 }} title="Paket yükseltmesi gerekli" />
+                                    )}
+                                    <span className="sidebar-tooltip">{ecLabel}</span>
+                                </div>
+                            );
+                        }
+
                         const hasSubmenu = !!item.hasSubmenu;
                         const isSubmenuOpen = openSubmenu === item.id;
-                        const featureId = resolvePanelFeatureId(item.id);
+                        const featureId = item.href
+                            ? (MENU_FEATURE_MAP[item.id] || "website_builder")
+                            : resolvePanelFeatureId(item.id);
                         const isLocked = featureId && !entitlementsLoading && !canAccess(featureId);
 
                         return (
                             <React.Fragment key={item.id}>
                                 <div
-                                    className={`menu-item ${activePanel === item.id || activePanel.startsWith(item.id + "-") ? "active" : ""} ${hasSubmenu && isSubmenuOpen ? "submenu-open" : ""} ${isLocked ? "menu-item--locked" : ""}`}
+                                    className={`menu-item ${activePanel === item.id || activePanel.startsWith(item.id + "-") || (item.id === "ecommerce" && isEcommerceMainPanel(activePanel)) || (item.id === "ecommerce" && isEcommerceProductsPanel(activePanel)) || (item.id === "ecommerce" && isEcommerceOrdersPanel(activePanel)) || (item.id === "ecommerce" && isEcommerceCustomersPanel(activePanel)) || (item.id === "ecommerce" && isEcommerceDiscountsPanel(activePanel)) || (item.id === "ecommerce" && isEcommerceInboxPanel(activePanel)) || (item.id === "marketing" && isMarketingPanel(activePanel)) ? "active" : ""} ${hasSubmenu && isSubmenuOpen ? "submenu-open" : ""} ${isLocked ? "menu-item--locked" : ""}`}
                                     onClick={() => {
+                                        if (item.href) {
+                                            if (isLocked) {
+                                                handlePanelChange("subscription");
+                                                return;
+                                            }
+                                            setOpenSubmenu(null);
+                                            if (isMobile) setMenuOpen(false);
+                                            navigate(item.href);
+                                            return;
+                                        }
                                         if (hasSubmenu) {
-                                            setOpenSubmenu(isSubmenuOpen ? null : item.id);
+                                            const opening = !isSubmenuOpen;
+                                            setOpenSubmenu(opening ? item.id : null);
+                                            if (item.id === "ecommerce" && opening) {
+                                                handlePanelChange(ECOMMERCE_DEFAULT_PANEL);
+                                            }
+                                            if (item.id === "marketing" && opening) {
+                                                handlePanelChange(MARKETING_DEFAULT_PANEL);
+                                            }
                                         } else {
                                             setOpenSubmenu(null);
                                             handlePanelChange(item.id);
@@ -1949,7 +2742,9 @@ const UserDashboard = () => {
                                     <span className="sidebar-tooltip">{item.text}</span>
                                 </div>
 
-                                {hasSubmenu && renderMarketplaceSubmenu(item.id, isSubmenuOpen)}
+                                {hasSubmenu && item.id === "ecommerce" && renderEcommerceMainSubmenu(isSubmenuOpen)}
+                                {hasSubmenu && item.id === "marketing" && renderMarketingSubmenu(isSubmenuOpen)}
+                                {hasSubmenu && item.id !== "ecommerce" && item.id !== "marketing" && renderMarketplaceSubmenu(item.id, isSubmenuOpen)}
                             </React.Fragment>
                         );
                     })}
@@ -1970,6 +2765,7 @@ const UserDashboard = () => {
                     </div>
                 </nav>
             </motion.aside>
+            )}
 
             {/* Logout Confirmation Modal */}
             <AnimatePresence>
@@ -2028,7 +2824,7 @@ const UserDashboard = () => {
             <AnimatePresence mode="wait">
                 <motion.main
                     key={activePanel}
-                    className={`content-area${isMobile ? " content-area--mobile" : ""}${activePanel === "integration" ? " content-area--galaxy" : ""}${activePanel === "lysia-brain" ? " content-area--brain" : ""}${activePanel === "product-upload" || activePanel === "pm-center" ? " content-area--wizard-flush" : ""}${activePanel === "dashboard" ? " content-area--dashboard" : ""}${activePanel === "roketfy" || activePanel === "radar-pro" ? " content-area--radar" : ""}`}
+                    className={`content-area${isMobile ? " content-area--mobile" : ""}${inEcPlatformWorkspace ? " content-area--ec-platform" : ""}${inEcEditor ? " content-area--ec-editor" : ""}${inEcWbFullBleed ? " content-area--ec-wb-fullbleed" : ""}${activePanel === "integration" ? " content-area--galaxy" : ""}${activePanel === "lysia-brain" ? " content-area--brain" : ""}${activePanel === "dashboard" || activePanel === "pm-center" || activePanel === "product-upload" || activePanel === "store-seller-verify" || isEcommerceMainPanel(activePanel) || isEcommerceProductsPanel(activePanel) || isEcommerceOrdersPanel(activePanel) || isEcommerceCustomersPanel(activePanel) || isEcommerceDiscountsPanel(activePanel) || isEcommerceInboxPanel(activePanel) || isMarketingPanel(activePanel) || isStoreChannelView(activePanel) ? " content-area--dashboard" : ""}${isStoreChannelView(activePanel) ? " content-area--store-ec" : ""}${activePanel === "ec-home" ? " content-area--ec-home" : ""}${activePanel === "ec-stores" ? " content-area--ec-stores" : ""}${activePanel === "roketfy" || activePanel === "radar-pro" ? " content-area--radar" : ""}${activePanel === "billing" ? " content-area--billing" : ""}`}
                     initial={{ opacity: 0, y: 12 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -8 }}

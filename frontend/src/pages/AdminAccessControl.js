@@ -7,14 +7,14 @@
  * Tasarım kuralı (Dashtock AI ile aynı dil): sade KPI'lar, filtre çubuğu, kart listesi.
  */
 
-import React, { useEffect, useState, useMemo, useCallback } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import {
     FaShieldAlt, FaBan, FaUnlock, FaSearch, FaSyncAlt, FaUser,
     FaExclamationTriangle, FaCheckCircle, FaInfoCircle, FaHistory,
     FaDesktop, FaGlobe, FaClock, FaTimesCircle, FaStethoscope,
     FaUserSlash, FaFire, FaLightbulb
 } from "react-icons/fa";
-import axios from "../services/api";
+import API from "../services/api";
 import AdminLayout from "../components/AdminLayout";
 
 /* ─────────────── Yardımcı renkler/tema ─────────────── */
@@ -182,39 +182,32 @@ const AdminAccessControl = () => {
     // Modal
     const [historyUser, setHistoryUser] = useState(null);
 
-    const authHeader = useMemo(() => ({
-        Authorization: `Bearer ${localStorage.getItem("token")}`,
-    }), []);
-
     const loadBlocked = useCallback(async () => {
         setLoading(true); setError("");
         try {
-            const res = await axios.get("/access/blocked-users", { headers: authHeader });
+            const res = await API.get("/access/blocked-users");
             setBlockedUsers(res.data?.data || []);
         } catch (e) {
             setError(e.response?.data?.message || "Bloklu kullanıcılar yüklenemedi.");
         } finally { setLoading(false); }
-    }, [authHeader]);
+    }, []);
 
     const loadTroubled = useCallback(async () => {
         setLoading(true); setError("");
         try {
-            const res = await axios.get("/access/troubled-users", { headers: authHeader });
+            const res = await API.get("/access/troubled-users");
             setTroubledUsers(res.data?.data || []);
         } catch (e) {
             setError(e.response?.data?.message || "Sorunlu kullanıcılar yüklenemedi.");
         } finally { setLoading(false); }
-    }, [authHeader]);
+    }, []);
 
     const runDiagnose = useCallback(async (emailOverride) => {
         const email = String(emailOverride || diagEmail || "").trim();
         if (!email) { setError("E-posta gerekli."); return; }
         setDiagLoading(true); setError(""); setDiagResult(null);
         try {
-            const res = await axios.get("/access/diagnose", {
-                params: { email },
-                headers: authHeader,
-            });
+            const res = await API.get("/access/diagnose", { params: { email } });
             setDiagResult(res.data);
         } catch (e) {
             setDiagResult({
@@ -223,7 +216,7 @@ const AdminAccessControl = () => {
                 hint: e.response?.data?.hint || "",
             });
         } finally { setDiagLoading(false); }
-    }, [authHeader, diagEmail]);
+    }, [diagEmail]);
 
     const loadIncidents = useCallback(async () => {
         setLoading(true); setError("");
@@ -233,14 +226,18 @@ const AdminAccessControl = () => {
             if (severity) params.severity = severity;
             if (resolved !== "") params.resolved = resolved;
             if (query.trim()) params.q = query.trim();
-            const res = await axios.get("/access/incidents", { params, headers: authHeader });
+            const res = await API.get("/access/incidents", { params });
             setIncidents(res.data?.data || []);
             if (res.data?.counts) setCounts(res.data.counts);
             if (res.data?.labels) setLabels(res.data.labels);
         } catch (e) {
             setError(e.response?.data?.message || "Olaylar yüklenemedi.");
         } finally { setLoading(false); }
-    }, [authHeader, type, severity, resolved, query]);
+    }, [type, severity, resolved, query]);
+
+    useEffect(() => {
+        loadBlocked();
+    }, [loadBlocked]);
 
     useEffect(() => {
         if (tab === "blocked") loadBlocked();
@@ -251,9 +248,11 @@ const AdminAccessControl = () => {
     const handleUnblock = async (userId) => {
         if (!window.confirm("Bu kullanıcının erişim engelini kaldırmak istediğinize emin misiniz?")) return;
         try {
-            await axios.post(`/access/users/${userId}/unblock`, { note: "Admin paneli üzerinden açıldı." }, { headers: authHeader });
+            await API.post(`/access/users/${userId}/unblock`, { note: "Admin paneli üzerinden açıldı." });
             await loadBlocked();
+            if (tab === "troubled") await loadTroubled();
             if (tab === "incidents") await loadIncidents();
+            alert("Kullanıcı erişimi açıldı.");
         } catch (e) {
             alert("Açma başarısız: " + (e.response?.data?.message || e.message));
         }
@@ -261,7 +260,7 @@ const AdminAccessControl = () => {
 
     const handleResolve = async (incidentId) => {
         try {
-            await axios.post(`/access/incidents/${incidentId}/resolve`, { note: "İncelendi." }, { headers: authHeader });
+            await API.post(`/access/incidents/${incidentId}/resolve`, { note: "İncelendi." });
             await loadIncidents();
         } catch (e) {
             alert("İşlem başarısız: " + (e.response?.data?.message || e.message));
@@ -281,9 +280,9 @@ const AdminAccessControl = () => {
         const dur = window.prompt("Süre (dakika) — boş bırakırsanız süresiz:", "");
         const expiresInMinutes = dur && Number(dur) > 0 ? Number(dur) : null;
         try {
-            await axios.post(`/access/users/${userId}/block`, {
+            await API.post(`/access/users/${userId}/block`, {
                 reason: reasonKey, note, expiresInMinutes,
-            }, { headers: authHeader });
+            });
             await loadBlocked();
         } catch (e) {
             alert("Bloklama başarısız: " + (e.response?.data?.message || e.message));
@@ -292,7 +291,7 @@ const AdminAccessControl = () => {
 
     const openHistory = async (userId, userName) => {
         try {
-            const res = await axios.get(`/access/users/${userId}/history`, { headers: authHeader });
+            const res = await API.get(`/access/users/${userId}/history`);
             setHistoryUser({ ...res.data, displayName: userName });
         } catch (e) {
             alert("Geçmiş yüklenemedi: " + (e.response?.data?.message || e.message));
@@ -337,7 +336,13 @@ const AdminAccessControl = () => {
                     <FaStethoscope /> Diagnoz Aracı
                 </Btn>
                 <Btn onClick={() => setTab("blocked")} kind={tab === "blocked" ? "primary" : "default"}>
-                    <FaBan /> Bloklu Kullanıcılar
+                    <FaBan /> Bloklu Kullanıcılar {blockedUsers.length > 0 ? `(${blockedUsers.length})` : ""}
+                </Btn>
+                <Btn
+                    onClick={() => { setTab("incidents"); setType("help_request"); setResolved("false"); }}
+                    kind={tab === "incidents" && type === "help_request" ? "primary" : "default"}
+                >
+                    🆘 Yardım Talepleri
                 </Btn>
                 <Btn onClick={() => setTab("incidents")} kind={tab === "incidents" ? "primary" : "default"}>
                     <FaHistory /> Olay Akışı

@@ -1,0 +1,204 @@
+/**
+ * Lysia Design System — İkas / Shopify seviyesi SaaS tokenları
+ * Website Builder V4 ve tüm mağaza düzenleyici yüzeyleri
+ */
+
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap");
+
+:root {
+  /* Typography — Inter, heading scale */
+  --lysia-font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --lysia-font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+
+  --lysia-text-xs: 12px;
+  --lysia-text-sm: 14px;
+  --lysia-text-base: 16px;
+  --lysia-text-lg: 18px;
+  --lysia-text-xl: 20px;
+  --lysia-text-2xl: 24px;
+  --lysia-text-3xl: 32px;
+  --lysia-text-4xl: 40px;
+
+  --lysia-leading-tight: 1.25;
+  --lysia-leading-normal: 1.5;
+  --lysia-leading-relaxed: 1.625;
+
+  --lysia-weight-normal: 400;
+  --lysia-weight-medium: 500;
+  --lysia-weight-semibold: 600;
+  --lysia-weight-bold: 700;
+  --lysia-weight-extrabold: 800;
+
+  /* Color — neutral + brand */
+  --lysia-color-white: #ffffff;
+  --lysia-color-black: #09090b;
+
+  --lysia-gray-50: #fafafa;
+  --lysia-gray-100: #f4f4f5;
+  --lysia-gray-200: #e4e4e7;
+  --lysia-gray-300: #d4d4d8;
+  --lysia-gray-400: #a1a1aa;
+  --lysia-gray-500: #71717a;
+  --lysia-gray-600: #52525b;
+  --lysia-gray-700: #3f3f46;
+  --lysia-gray-800: #27272a;
+  --lysia-gray-900: #18181b;
+  --lysia-gray-950: #09090b;
+
+  --lysia-brand-50: #eef2ff;
+  --lysia-brand-100: #e0e7ff;
+  --lysia-brand-200: #c7d2fe;
+  --lysia-brand-400: #818cf8;
+  --lysia-brand-500: #6366f1;
+  --lysia-brand-600: #4f46e5;
+  --lysia-brand-700: #4338ca;
+
+  --lysia-success: #22c55e;
+  --lysia-warning: #f59e0b;
+  --lysia-danger: #ef4444;
+  --lysia-info: #0ea5e9;
+
+  /* Semantic tokens */
+  --lysia-text-primary: var(--lysia-gray-900);
+  --lysia-text-secondary: var(--lysia-gray-500);
+  --lysia-text-muted: var(--lysia-gray-400);
+  --lysia-text-inverse: var(--lysia-color-white);
+
+  --lysia-border: var(--lysia-gray-200);
+  --lysia-border-strong: var(--lysia-gray-300);
+  --lysia-border-focus: var(--lysia-brand-500);
+
+  /* Radius scale */
+  --lysia-radius-none: 0;
+  --lysia-radius-xs: 4px;
+  --lysia-radius-sm: 6px;
+  --lysia-radius-md: 8px;
+  --lysia-radius-lg: 12px;
+  --lysia-radius-xl: 16px;
+  --lysia-radius-2xl: 20px;
+  --lysia-radius-full: 9999px;
+
+  /* Elevation scale */
+  --lysia-shadow-xs: 0 1px 2px rgba(9, 9, 11, 0.04);
+  --lysia-shadow-sm: 0 2px 8px rgba(9, 9, 11, 0.06);
+  --lysia-shadow-md: 0 8px 24px rgba(9, 9, 11, 0.08);
+  --lysia-shadow-lg: 0 16px 40px rgba(9, 9, 11, 0.12);
+  --lysia-shadow-xl: 0 24px 56px rgba(9, 9, 11, 0.16);
+  --lysia-shadow-float: 0 12px 32px rgba(9, 9, 11, 0.14), 0 2px 8px rgba(9, 9, 11, 0.06);
+  --lysia-shadow-inset: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+
+  /* Surface system */
+  --lysia-surface-base: var(--lysia-color-white);
+  --lysia-surface-muted: var(--lysia-gray-50);
+  --lysia-surface-subtle: var(--lysia-gray-100);
+  --lysia-surface-elevated: var(--lysia-color-white);
+  --lysia-surface-overlay: rgba(9, 9, 11, 0.4);
+
+  /* Workspace tokens */
+  --lysia-workspace-bg: #ececef;
+  --lysia-workspace-canvas: var(--lysia-color-white);
+  --lysia-workspace-rail: var(--lysia-gray-950);
+  --lysia-workspace-topbar: var(--lysia-color-white);
+  --lysia-workspace-gap: 16px;
+  --lysia-workspace-padding: 20px;
+
+  /* Sidebar tokens */
+  --lysia-sidebar-width: 240px;
+  --lysia-sidebar-bg: #0a0a0c;
+  --lysia-sidebar-border: rgba(255, 255, 255, 0.06);
+  --lysia-sidebar-text: #a1a1aa;
+  --lysia-sidebar-text-active: #ffffff;
+  --lysia-sidebar-item-hover: rgba(255, 255, 255, 0.06);
+  --lysia-sidebar-item-active: rgba(99, 102, 241, 0.18);
+  --lysia-sidebar-accent: var(--lysia-brand-400);
+  --lysia-sidebar-group-label: #52525b;
+
+  /* Card tokens */
+  --lysia-card-bg: var(--lysia-color-white);
+  --lysia-card-border: var(--lysia-border);
+  --lysia-card-radius: var(--lysia-radius-xl);
+  --lysia-card-shadow: var(--lysia-shadow-sm);
+  --lysia-card-shadow-hover: var(--lysia-shadow-md);
+  --lysia-card-padding: 20px;
+
+  /* Editor tokens */
+  --lysia-editor-left-width: 300px;
+  --lysia-editor-panel-width: 340px;
+  --lysia-editor-left-bg: #111113;
+  --lysia-editor-left-text: #e4e4e7;
+  --lysia-editor-floating-panel-bg: var(--lysia-color-white);
+
+  /* Motion */
+  --lysia-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --lysia-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --lysia-duration-fast: 120ms;
+  --lysia-duration-normal: 200ms;
+  --lysia-duration-slow: 320ms;
+
+  /* Spacing (4px grid) */
+  --lysia-space-1: 4px;
+  --lysia-space-2: 8px;
+  --lysia-space-3: 12px;
+  --lysia-space-4: 16px;
+  --lysia-space-5: 20px;
+  --lysia-space-6: 24px;
+  --lysia-space-8: 32px;
+  --lysia-space-10: 40px;
+}
+
+/* Base typography application for WB surfaces */
+.wb-lysia-root,
+.wb-theme-editor-root--v4,
+.wb-site-workspace-sidebar--v4,
+.wb-mp-page {
+  font-family: var(--lysia-font-sans);
+  font-size: var(--lysia-text-sm);
+  line-height: var(--lysia-leading-normal);
+  color: var(--lysia-text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.lysia-h-xs { font-size: var(--lysia-text-xs); font-weight: var(--lysia-weight-semibold); }
+.lysia-h-sm { font-size: var(--lysia-text-sm); font-weight: var(--lysia-weight-semibold); }
+.lysia-h-base { font-size: var(--lysia-text-base); font-weight: var(--lysia-weight-semibold); }
+.lysia-h-lg { font-size: var(--lysia-text-lg); font-weight: var(--lysia-weight-bold); }
+.lysia-h-xl { font-size: var(--lysia-text-xl); font-weight: var(--lysia-weight-bold); }
+.lysia-h-2xl { font-size: var(--lysia-text-2xl); font-weight: var(--lysia-weight-bold); letter-spacing: -0.02em; }
+.lysia-h-3xl { font-size: var(--lysia-text-3xl); font-weight: var(--lysia-weight-extrabold); letter-spacing: -0.03em; }
+.lysia-h-4xl { font-size: var(--lysia-text-4xl); font-weight: var(--lysia-weight-extrabold); letter-spacing: -0.04em; }
+
+/* Skeleton */
+.lysia-skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--lysia-gray-100) 0%,
+    var(--lysia-gray-200) 50%,
+    var(--lysia-gray-100) 100%
+  );
+  background-size: 200% 100%;
+  animation: lysia-skeleton-shimmer 1.2s ease-in-out infinite;
+  border-radius: var(--lysia-radius-md);
+}
+
+@keyframes lysia-skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* Focus ring */
+.lysia-focus-ring:focus-visible {
+  outline: 2px solid var(--lysia-border-focus);
+  outline-offset: 2px;
+}
+
+/* Transitions utility */
+.lysia-transition {
+  transition:
+    color var(--lysia-duration-normal) var(--lysia-ease-out),
+    background-color var(--lysia-duration-normal) var(--lysia-ease-out),
+    border-color var(--lysia-duration-normal) var(--lysia-ease-out),
+    box-shadow var(--lysia-duration-normal) var(--lysia-ease-out),
+    transform var(--lysia-duration-fast) var(--lysia-ease-out),
+    opacity var(--lysia-duration-fast) var(--lysia-ease-out);
+}

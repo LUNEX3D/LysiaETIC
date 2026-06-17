@@ -199,7 +199,7 @@ const checkN11Orders = async (userId, credentials) => {
         // ESKİ: Tüm açık siparişler çekiliyordu → performans sorunu
         // YENİ: Son 2 saatteki siparişler filtreleniyor
         const result = await n11Service.getOrders(credentials, {
-            status: "New,Approved",
+            status: "Created,Picking",
             page: 0,
             size: 50,
             orderDateStart: moment().subtract(2, "hours").format("DD/MM/YYYY HH:mm"),
@@ -219,8 +219,9 @@ const checkN11Orders = async (userId, credentials) => {
 
                 // ✅ Sadece stok etkileyen durumları işle
                 const orderStatus = order.shipmentPackageStatus || order.status || "";
-                const cancelStatuses = ["Rejected", "Cancelled", "CancelledByBuyer", "CancelRequest", "CancelledBySeller"];
-                const newOrderStatuses = ["New", "Approved", "WaitingForApproval"];
+                // ⚠️ N11 REST gerçek statüleri: Created (yeni), Picking (onaylandı), Cancelled, UnSupplied
+                const cancelStatuses = ["Cancelled", "UnSupplied", "Rejected", "CancelledByBuyer", "CancelRequest", "CancelledBySeller"];
+                const newOrderStatuses = ["Created", "Picking", "New", "Approved", "WaitingForApproval"];
 
                 const isCancelled = cancelStatuses.includes(orderStatus);
                 const isNewOrder = newOrderStatuses.includes(orderStatus);
@@ -349,88 +350,119 @@ const checkHepsiburadaOrders = async (userId, credentials) => {
  *   Teslim: Teslim Edildi, Tamamlandı
  *   İptal/İade: İptal Edildi, İade …
  */
+const logCsCronApiIssue = (errMsg) => {
+    const msg = String(errMsg || "");
+    if (/401|unauthorized|gecersiz|invalid/i.test(msg)) return;
+    if (/limit a[şs][ıi]m[ıi]|rate\s?limit|too many/i.test(msg)) {
+        logger.debug(`[STOCK CRON] ÇiçekSepeti rate limit (atlandı): ${msg}`);
+        return;
+    }
+    logger.warn(`[STOCK CRON] ÇiçekSepeti sipariş kontrolü: ${msg}`);
+};
+
 const checkCicekSepetiOrders = async (userId, credentials) => {
     const results = [];
 
     try {
+        const ciceksepetiService = require("./ciceksepeti/ciceksepetiService");
+        const { formatCsApiDate } = require("../utils/ciceksepetiOrders");
+
         const apiKey = credentials.apiKey || credentials.apiSecret;
-        const sellerId = credentials.sellerId || credentials.supplierId;
-        const integratorName = credentials.integratorName || "";
         if (!apiKey) return results;
 
-        // ÇiçekSepeti API header'ları: x-api-key + user-agent (ASCII only)
-        const cleanSellerId = String(sellerId || '').replace(/[^\x00-\x7F]/g, '');
-        const cleanIntegrator = integratorName ? String(integratorName).replace(/[^\x00-\x7F]/g, '') : '';
-        const userAgent = cleanIntegrator ? `${cleanSellerId} - ${cleanIntegrator}` : (cleanSellerId || "CicekSepetiIntegration");
-
-        const headers = {
-            "x-api-key": apiKey,
-            "user-agent": userAgent,
-            "Content-Type": "application/json"
+        const creds = {
+            apiKey,
+            sellerId: credentials.sellerId || credentials.supplierId,
+            integratorName: credentials.integratorName || "",
+            isTestMode: credentials.isTestMode || false,
         };
 
-        // Son 2 saatteki siparişleri kontrol et
-        const endDate = moment().toISOString();
-        const startDate = moment().subtract(2, "hours").toISOString();
+        const endMs = Date.now();
+        const startMs = endMs - 2 * 60 * 60 * 1000;
+        const startDate = formatCsApiDate(startMs);
+        const endDate = formatCsApiDate(endMs);
 
-        const response = await axios.post(
-            "https://apis.ciceksepeti.com/api/v1/Order/GetOrders",
-            {
-                startDate,
-                endDate,
-                pageSize: 100,
-                page: 0
-            },
-            { headers, timeout: 30000 }
-        );
+        const cancelStatuses = ["İptal Edildi", "İade Edildi", "İade Sürecinde", "İade Onaylandı", "Cancelled", "Returned"];
+        const newOrderStatuses = ["Yeni", "Hazırlanıyor", "Onaylandı", "New", "Approved", "Preparing"];
 
-        const orders = response.data?.supplierOrderListWithBranch || [];
-
-        for (const order of orders) {
-            // ÇiçekSepeti her satır ayrı bir "order" objesi olarak döner (flat list)
+        const processCsLine = async (order, forceCancelled = false) => {
             const barcode = order.barcode || order.stockCode || order.productCode;
-            if (!barcode) continue;
+            if (!barcode) return;
 
             const orderId = order.orderId || order.orderItemId;
-            if (!orderId) continue;
+            if (!orderId) return;
 
-            // ✅ Sipariş+ürün bazlı tekrar işleme koruması (in-memory)
             const orderItemKey = `cs_${orderId}_${order.orderItemId || barcode}`;
-            if (processedOrders.has(orderItemKey)) continue;
+            if (processedOrders.has(orderItemKey)) return;
 
-            // ✅ Sadece stok etkileyen durumları işle
-            const orderStatus = order.orderProductStatus || "";
+            const orderStatus = order.orderProductStatus || order.orderItemStatusName || "";
+            const isCancelled =
+                forceCancelled || cancelStatuses.some((s) => orderStatus.includes(s));
+            const isNewOrder = !isCancelled && newOrderStatuses.some((s) => orderStatus.includes(s));
 
-            // ÇiçekSepeti Türkçe status değerleri
-            const cancelStatuses = ["İptal Edildi", "İade Edildi", "İade Sürecinde", "İade Onaylandı", "Cancelled", "Returned"];
-            const newOrderStatuses = ["Yeni", "Hazırlanıyor", "Onaylandı", "New", "Approved", "Preparing"];
-
-            const isCancelled = cancelStatuses.some(s => orderStatus.includes(s));
-            const isNewOrder = newOrderStatuses.some(s => orderStatus.includes(s));
-
-            // Ne yeni sipariş ne iptal → stok değişikliği yok, atla
             if (!isCancelled && !isNewOrder) {
                 processedOrders.set(orderItemKey, Date.now());
-                continue;
+                return;
             }
-
-            const quantity = order.quantity || 1;
 
             await applyCronOrderStockLine({
                 userId,
                 marketplaceName: "ÇiçekSepeti",
                 orderNumber: String(orderId),
                 barcode,
-                quantity,
+                quantity: order.quantity || 1,
                 isCancelled,
                 orderItemKey,
-                results
+                results,
+            });
+        };
+
+        let orderResult = await ciceksepetiService.getOrders(creds, {
+            startDate,
+            endDate,
+            pageSize: 100,
+            page: 0,
+            isOrderStatusActive: true,
+        });
+
+        if (!orderResult.success) {
+            logCsCronApiIssue(orderResult.error);
+            orderResult = await ciceksepetiService.getOrders(creds, {
+                statusId: 1,
+                pageSize: 100,
+                page: 0,
             });
         }
-    } catch (error) {
-        if (error.response?.status !== 401) {
-            logger.error(`[STOCK CRON] ÇiçekSepeti sipariş kontrolü hatası: ${error.message}`);
+
+        if (orderResult.success) {
+            for (const order of orderResult.orders || []) {
+                await processCsLine(order);
+            }
+        } else {
+            logCsCronApiIssue(orderResult.error);
         }
+
+        const cancelResult = await ciceksepetiService.getCanceledOrders(creds, {
+            startDate,
+            endDate,
+            pageSize: 100,
+            page: 0,
+        });
+        if (cancelResult.success) {
+            for (const item of cancelResult.orders || []) {
+                await processCsLine(item, true);
+            }
+        } else {
+            logCsCronApiIssue(cancelResult.error);
+        }
+    } catch (error) {
+        const st = error.response?.status;
+        const apiMsg =
+            error.response?.data?.Message ||
+            error.response?.data?.message ||
+            error.message;
+        if (st === 401) return results;
+        logCsCronApiIssue(apiMsg);
     }
 
     return results;

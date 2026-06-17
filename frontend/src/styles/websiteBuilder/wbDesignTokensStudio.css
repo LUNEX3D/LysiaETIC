@@ -1,0 +1,97 @@
+@import "../designSystem/lysiaDesignSystem.css";
+
+.wb-dts-studio .wb-customizer-v4-topbar .wb-ikas-page-header,
+.wb-dts-studio .wb-customizer-v4-topbar {
+  display: none;
+}
+
+.wb-dts-studio.wb-customizer-v4 {
+  min-height: 600px;
+}
+
+.wb-dts-studio .wb-customizer-v4-body {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr) 1fr;
+  min-height: 560px;
+}
+
+.wb-dts-studio .wb-customizer-v4-nav {
+  padding: 16px;
+  background: var(--lysia-gray-50);
+  border-right: 1px solid var(--lysia-border);
+}
+
+.wb-dts-studio__title {
+  margin: 0 0 4px;
+  font-size: var(--lysia-text-lg);
+  font-weight: var(--lysia-weight-extrabold);
+  letter-spacing: -0.02em;
+}
+
+.wb-dts-studio__sub {
+  margin: 0 0 16px;
+  font-size: var(--lysia-text-xs);
+  color: var(--lysia-text-secondary);
+}
+
+.wb-dts-studio__cards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.wb-dts-token-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--lysia-border);
+  border-radius: var(--lysia-radius-lg);
+  background: var(--lysia-surface-base);
+  cursor: pointer;
+  text-align: left;
+  transition:
+    border-color var(--lysia-duration-normal) var(--lysia-ease-out),
+    box-shadow var(--lysia-duration-normal) var(--lysia-ease-out),
+    transform var(--lysia-duration-fast) var(--lysia-ease-out);
+}
+
+.wb-dts-token-card:hover {
+  border-color: var(--lysia-brand-200);
+  box-shadow: var(--lysia-shadow-sm);
+}
+
+.wb-dts-token-card.is-active {
+  border-color: var(--lysia-brand-500);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+  background: var(--lysia-brand-50);
+}
+
+.wb-dts-token-card__icon {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--lysia-radius-md);
+  background: var(--lysia-gray-100);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--lysia-brand-600);
+  flex-shrink: 0;
+}
+
+.wb-dts-token-card.is-active .wb-dts-token-card__icon {
+  background: var(--lysia-brand-100);
+}
+
+.wb-dts-token-card__label {
+  font-size: var(--lysia-text-sm);
+  font-weight: var(--lysia-weight-bold);
+  color: var(--lysia-text-primary);
+}
+
+.wb-dts-token-card__desc {
+  font-size: var(--lysia-text-xs);
+  color: var(--lysia-text-secondary);
+  margin-top: 2px;
+}

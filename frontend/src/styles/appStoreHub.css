@@ -1,0 +1,275 @@
+.app-store-hub {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 0 2rem;
+}
+
+.app-store-hero {
+    background: linear-gradient(135deg, rgba(78, 205, 196, 0.12) 0%, rgba(99, 102, 241, 0.08) 100%);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 16px;
+    padding: 1.75rem 2rem;
+    margin-bottom: 1.5rem;
+}
+
+.app-store-hero h1 {
+    margin: 0 0 0.35rem;
+    font-size: 1.5rem;
+    font-weight: 700;
+}
+
+.app-store-hero p {
+    margin: 0;
+    opacity: 0.75;
+    font-size: 0.9rem;
+}
+
+.app-store-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    align-items: center;
+    margin-bottom: 1.25rem;
+}
+
+.app-store-search {
+    flex: 1;
+    min-width: 200px;
+    max-width: 360px;
+    padding: 0.55rem 1rem;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(0, 0, 0, 0.25);
+    color: inherit;
+    font-size: 0.9rem;
+}
+
+.app-store-categories {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.app-store-cat-pill {
+    padding: 0.4rem 0.85rem;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: transparent;
+    color: inherit;
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.app-store-cat-pill:hover,
+.app-store-cat-pill.active {
+    background: rgba(78, 205, 196, 0.15);
+    border-color: rgba(78, 205, 196, 0.45);
+}
+
+.app-store-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 1rem;
+}
+
+.app-store-card {
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 14px;
+    padding: 1.15rem;
+    background: rgba(0, 0, 0, 0.2);
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+    transition: border-color 0.2s, transform 0.2s;
+}
+
+.app-store-card:hover {
+    border-color: rgba(78, 205, 196, 0.35);
+    transform: translateY(-2px);
+}
+
+.app-store-card-head {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.85rem;
+}
+
+.app-store-card-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.25rem;
+    flex-shrink: 0;
+    color: #fff;
+}
+
+.app-store-card h3 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.app-store-card-desc {
+    margin: 0;
+    font-size: 0.82rem;
+    opacity: 0.72;
+    line-height: 1.45;
+    flex: 1;
+}
+
+.app-store-card-actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.25rem;
+}
+
+.app-store-btn {
+    padding: 0.45rem 0.9rem;
+    border-radius: 8px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    border: none;
+    transition: opacity 0.15s;
+}
+
+.app-store-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.app-store-btn--primary {
+    background: linear-gradient(135deg, #4ecdc4, #45b7d1);
+    color: #0f172a;
+}
+
+.app-store-btn--ghost {
+    background: rgba(255, 255, 255, 0.06);
+    color: inherit;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.app-store-badge {
+    display: inline-block;
+    font-size: 0.65rem;
+    padding: 0.15rem 0.45rem;
+    border-radius: 4px;
+    background: rgba(245, 158, 11, 0.2);
+    color: #fbbf24;
+    margin-left: 0.35rem;
+    vertical-align: middle;
+}
+
+.app-store-badge--installed {
+    background: rgba(34, 197, 94, 0.2);
+    color: #4ade80;
+}
+
+.app-store-empty {
+    text-align: center;
+    padding: 3rem 1rem;
+    opacity: 0.65;
+}
+
+.app-store-my-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.app-store-my-row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem 1.15rem;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    background: rgba(0, 0, 0, 0.15);
+}
+
+.app-store-my-row .app-store-card-icon {
+    width: 44px;
+    height: 44px;
+    font-size: 1.1rem;
+}
+
+.app-store-my-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.app-store-my-info h3 {
+    margin: 0 0 0.2rem;
+    font-size: 0.95rem;
+}
+
+.app-store-my-info p {
+    margin: 0;
+    font-size: 0.8rem;
+    opacity: 0.7;
+}
+
+.app-store-error {
+    padding: 0.75rem 1rem;
+    border-radius: 8px;
+    background: rgba(239, 68, 68, 0.12);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    color: #fca5a5;
+    margin-bottom: 1rem;
+    font-size: 0.85rem;
+}
+
+.marketing-hub {
+    max-width: 960px;
+    margin: 0 auto;
+}
+
+.marketing-hub-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin-bottom: 1.5rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    padding-bottom: 0.75rem;
+}
+
+.marketing-hub-tab {
+    padding: 0.45rem 0.85rem;
+    border-radius: 8px;
+    border: none;
+    background: transparent;
+    color: inherit;
+    font-size: 0.85rem;
+    cursor: pointer;
+    opacity: 0.7;
+}
+
+.marketing-hub-tab.active {
+    opacity: 1;
+    background: rgba(168, 85, 247, 0.15);
+}
+
+.marketing-coming {
+    text-align: center;
+    padding: 3rem 2rem;
+    border: 1px dashed rgba(255, 255, 255, 0.12);
+    border-radius: 16px;
+}
+
+.marketing-coming h2 {
+    margin: 0 0 0.5rem;
+    font-size: 1.25rem;
+}
+
+.marketing-coming p {
+    margin: 0;
+    opacity: 0.7;
+    max-width: 420px;
+    margin-left: auto;
+    margin-right: auto;
+}

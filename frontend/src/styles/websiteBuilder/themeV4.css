@@ -1,0 +1,385 @@
+/* ─── Theme Editor V4 ─────────────────────────────────────────────────────── */
+
+.wb-theme-editor-root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: calc(100vh - 64px);
+  margin: 0;
+  background: #f1f5f9;
+}
+
+.wb-theme-editor-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 24px;
+  background: #ffffff;
+  border-bottom: 1px solid #e4e4e7;
+  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.wb-theme-editor-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr) 300px;
+}
+
+.wb-theme-editor-left {
+  border-right: 1px solid #e2e8f0;
+  background: #ffffff;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.wb-theme-editor-right {
+  border-left: 1px solid #e2e8f0;
+  background: #ffffff;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.wb-theme-editor-right-inner {
+  padding: 16px;
+}
+
+.wb-theme-editor-right-inner .wb-inspector {
+  border: none;
+  width: 100%;
+}
+
+.wb-theme-editor-right-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+  padding: 24px 16px;
+}
+
+.wb-theme-editor-canvas-wrap {
+  min-width: 0;
+  overflow: auto;
+  background: #e2e8f0;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+}
+
+.wb-theme-tree-group-header {
+  background: transparent !important;
+}
+
+.wb-theme-tree-group--active .wb-theme-tree-group-header {
+  background: #eff6ff !important;
+}
+
+.wb-theme-tree-item.Mui-selected {
+  background: #eff6ff !important;
+}
+
+.wb-theme-canvas-viewport {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  justify-content: stretch;
+}
+
+.wb-theme-canvas-device {
+  background: var(--preview-bg, #fff);
+  color: var(--preview-text, #0f172a);
+  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.12);
+  border-radius: 8px;
+  overflow: hidden;
+  width: 100%;
+  max-width: none;
+  min-height: calc(100vh - 140px);
+  transition: max-width 0.25s ease;
+}
+
+.wb-theme-canvas-device.device-tablet {
+  max-width: 768px;
+}
+
+.wb-theme-canvas-device.device-mobile {
+  max-width: 390px;
+}
+
+.wb-theme-canvas-section {
+  position: relative;
+  border: 2px solid transparent;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.wb-theme-canvas-section.hovered {
+  border-color: #3b82f6;
+  outline: 1px solid rgba(59, 130, 246, 0.4);
+}
+
+.wb-theme-canvas-section.selected {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.25);
+}
+
+.wb-theme-canvas-zone-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 12;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  background: #2563eb;
+  color: #fff;
+  border-radius: 4px;
+  pointer-events: none;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.35);
+}
+
+.wb-theme-preview-readable {
+  font-size: 16px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+.wb-theme-preview-readable h1,
+.wb-theme-preview-readable .MuiTypography-h1 {
+  font-size: clamp(1.75rem, 3vw, 2.5rem) !important;
+  font-weight: 700 !important;
+  color: #0f172a !important;
+}
+
+.wb-theme-preview-readable h2,
+.wb-theme-preview-readable .MuiTypography-h2 {
+  font-size: clamp(1.35rem, 2.5vw, 1.85rem) !important;
+  font-weight: 700 !important;
+}
+
+.wb-theme-preview-readable p,
+.wb-theme-preview-readable .MuiTypography-body1,
+.wb-theme-preview-readable .MuiTypography-body2 {
+  font-size: 1rem !important;
+  color: #334155 !important;
+  opacity: 1 !important;
+}
+
+.wb-theme-preview-readable .MuiButton-root {
+  font-size: 0.95rem !important;
+  font-weight: 600 !important;
+}
+
+.wb-theme-canvas-toolbar {
+  position: absolute;
+  top: 36px;
+  right: 8px;
+  z-index: 13;
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+}
+
+.wb-theme-canvas-toolbar .MuiIconButton-root {
+  width: 28px;
+  height: 28px;
+  color: #475569;
+}
+
+.wb-theme-canvas-empty {
+  padding: 80px 24px;
+  text-align: center;
+}
+
+/* ─── Theme Marketplace ───────────────────────────────────────────────────── */
+
+.wb-theme-marketplace {
+  padding-bottom: 32px;
+}
+
+.wb-theme-marketplace-hero {
+  margin-bottom: 24px;
+}
+
+.wb-theme-marketplace-cats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.wb-theme-market-card {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  overflow: hidden;
+  transition: box-shadow 0.2s, border-color 0.2s;
+}
+
+.wb-theme-market-card:hover {
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.1);
+  border-color: #93c5fd;
+}
+
+.wb-theme-market-card--active {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+}
+
+.wb-theme-market-visual {
+  position: relative;
+  height: 200px;
+  background: #f8fafc;
+  overflow: hidden;
+}
+
+.wb-theme-market-desktop {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top center;
+}
+
+.wb-theme-market-mobile-frame {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  width: 72px;
+  height: 120px;
+  border-radius: 10px;
+  border: 2px solid #fff;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  overflow: hidden;
+  background: #fff;
+}
+
+.wb-theme-market-mobile {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top center;
+}
+
+.wb-theme-market-gradient {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+  padding: 16px;
+}
+
+/* ─── Theme Customizer V4 ─────────────────────────────────────────────────── */
+
+.wb-customizer-v4 {
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100vh - 120px);
+  margin: 0;
+  background: #f1f5f9;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid #e2e8f0;
+}
+
+.wb-customizer-v4-topbar {
+  padding: 12px 20px;
+  background: #fff;
+  border-bottom: 1px solid #e2e8f0;
+  flex-shrink: 0;
+}
+
+.wb-customizer-v4-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 260px 1fr;
+}
+
+.wb-customizer-v4-nav {
+  background: #fff;
+  border-right: 1px solid #e2e8f0;
+  overflow-y: auto;
+}
+
+.wb-customizer-v4-nav .MuiListItemButton-root {
+  border-radius: 8px;
+  margin: 2px 8px;
+}
+
+.wb-customizer-v4-nav .Mui-selected {
+  background: #eff6ff !important;
+}
+
+.wb-customizer-v4-panel {
+  padding: 16px 20px;
+  overflow-y: auto;
+  background: #fff;
+  border-right: 1px solid #e2e8f0;
+  max-width: 360px;
+}
+
+.wb-customizer-v4-preview {
+  min-width: 0;
+  min-height: 0;
+  background: #e8eaed;
+}
+
+.wb-customizer-v4-panel label,
+.wb-customizer-v4-panel .MuiTypography-caption {
+  color: #475569 !important;
+}
+
+.wb-customizer-v4-panel .wb-prop-input,
+.wb-customizer-v4-panel .wb-prop-select {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+  color: #0f172a;
+  font-size: 14px;
+}
+
+@media (max-width: 1200px) {
+  .wb-theme-editor-body {
+    grid-template-columns: 220px minmax(0, 1fr) 260px;
+  }
+}
+
+@media (max-width: 1024px) {
+  .wb-theme-editor-body {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr auto;
+  }
+
+  .wb-theme-editor-left {
+    max-height: 240px;
+    border-right: none;
+    border-bottom: 1px solid #e2e8f0;
+  }
+
+  .wb-theme-editor-right {
+    max-height: 320px;
+    border-left: none;
+    border-top: 1px solid #e2e8f0;
+  }
+
+  .wb-customizer-v4-body {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto 1fr;
+  }
+
+  .wb-customizer-v4-panel {
+    max-width: none;
+    border-right: none;
+    border-bottom: 1px solid #e2e8f0;
+  }
+}

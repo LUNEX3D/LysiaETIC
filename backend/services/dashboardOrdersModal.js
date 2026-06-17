@@ -10,6 +10,7 @@ const {
     countActiveOrders,
 } = require("../utils/orderStatus");
 const { isHbInternalId, resolveHepsiburadaOrderNumber } = require("./hepsiburadaService");
+const { dedupeOrderRows } = require("../utils/orderDedupe");
 
 const normalizeName = (name = "") => String(name || "").toLowerCase().trim();
 
@@ -26,8 +27,11 @@ const displayMp = (name = "") => {
 
 const toRow = (o, marketplaceKey) => {
     const mp = normalizeName(o.marketplaceName || marketplaceKey);
+    const isCs = mp.includes("cicek");
     let orderNumber = String(o.orderNumber || o.trackingNumber || "").trim();
-    if (mp.includes("hepsi")) {
+    if (isCs) {
+        orderNumber = String(o.orderItemId || o.trackingNumber || o.orderNumber || "").trim();
+    } else if (mp.includes("hepsi")) {
         orderNumber = resolveHepsiburadaOrderNumber(o) || orderNumber;
     }
     return {
@@ -47,17 +51,7 @@ const toRow = (o, marketplaceKey) => {
     };
 };
 
-const dedupeRows = (rows) => {
-    const map = new Map();
-    rows.forEach((row) => {
-        const mp = normalizeName(row.marketplaceName);
-        const orderNo = row.orderNumber;
-        if (!mp || !orderNo || isHbInternalId(orderNo)) return;
-        const key = `${mp}::${orderNo}`;
-        map.set(key, pickPreferredOrderRecord(map.get(key), row));
-    });
-    return Array.from(map.values());
-};
+const dedupeRows = (rows) => dedupeOrderRows(rows);
 
 const summarizeForMarketplace = (rows, marketplaceKey) => {
     const unique = dedupeRows(rows);

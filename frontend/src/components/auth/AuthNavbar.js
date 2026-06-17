@@ -41,14 +41,10 @@ const AuthNavbar = ({ activeTab, onTabChange, layout = "default" }) => {
                         {TABS.map((tab) => (
                             <a
                                 key={tab.id}
-                                href="/"
+                                href={tab.id === "blog" ? "/blog" : "/login"}
                                 className={activeTab === tab.id ? "lx-active" : ""}
                                 onClick={(e) => {
                                     e.preventDefault();
-                                    if (tab.id === "blog") {
-                                        window.location.href = "/blog";
-                                        return;
-                                    }
                                     onTabChange?.(tab.id);
                                 }}
                             >
@@ -81,13 +77,7 @@ const AuthNavbar = ({ activeTab, onTabChange, layout = "default" }) => {
                         key={tab.id}
                         type="button"
                         className={`auth-navbar-link${activeTab === tab.id ? " active" : ""}`}
-                        onClick={() => {
-                            if (tab.id === "blog") {
-                                window.location.href = "/blog";
-                                return;
-                            }
-                            onTabChange?.(tab.id);
-                        }}
+                        onClick={() => onTabChange?.(tab.id)}
                     >
                         <tab.Icon /> {tab.label}
                     </button>

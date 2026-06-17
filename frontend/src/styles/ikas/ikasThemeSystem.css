@@ -1,0 +1,2131 @@
+/**
+ * İkas tarzı tema sistemi — tek kaynak, temiz panel UI
+ * Satış Kanalları > Temalar > Temayı Düzenle akışı
+ */
+
+:root {
+  --ikas-bg: #f4f5f7;
+  --ikas-surface: #ffffff;
+  --ikas-border: #e4e6eb;
+  --ikas-border-strong: #d0d3db;
+  --ikas-text: #1c1f26;
+  --ikas-muted: #6b7280;
+  --ikas-primary: #0d9488;
+  --ikas-primary-hover: #0f766e;
+  --ikas-primary-soft: rgba(13, 148, 136, 0.1);
+  --ikas-success: #059669;
+  --ikas-success-soft: #ecfdf5;
+  --ikas-warning: #d97706;
+  --ikas-warning-soft: #fef3c7;
+  --ikas-radius: 10px;
+  --ikas-radius-lg: 14px;
+  --ikas-shadow: 0 1px 3px rgba(28, 31, 38, 0.06);
+  --ikas-shadow-lg: 0 8px 32px rgba(28, 31, 38, 0.1);
+  --ikas-editor-left: 260px;
+  --ikas-editor-right: 360px;
+  --ikas-topbar-h: 56px;
+}
+
+.ec-platform {
+  --ikas-primary: #0d9488;
+  --ikas-primary-hover: #0f766e;
+  --ikas-primary-soft: rgba(13, 148, 136, 0.1);
+}
+
+.ec-channel-layout {
+  --ikas-primary: #0d9488;
+  --ikas-primary-hover: #0f766e;
+  --ikas-primary-soft: rgba(13, 148, 136, 0.1);
+}
+
+.ec-platform-main--channel .ikas-themes-page,
+.ec-channel-layout .ikas-themes-page {
+  max-width: none;
+  width: 100%;
+  margin: 0;
+  padding: 28px 32px 48px;
+  box-sizing: border-box;
+  min-height: 100%;
+}
+
+.ec-platform-main--channel .ikas-themes-hero,
+.ec-channel-layout .ikas-themes-hero {
+  grid-template-columns: minmax(280px, 1.1fr) minmax(260px, 0.9fr);
+  margin-bottom: 28px;
+  border-color: #e4e6eb;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.ec-platform-main--channel .ikas-themes-hero__preview,
+.ec-channel-layout .ikas-themes-hero__preview {
+  min-height: 300px;
+  background: linear-gradient(145deg, #e8ecf4 0%, #dfe6f0 100%);
+}
+
+.ec-platform-main--channel .ikas-themes-hero__body,
+.ec-channel-layout .ikas-themes-hero__body {
+  padding: 32px 28px;
+  justify-content: center;
+}
+
+.ec-platform-main--channel .ikas-themes-section__head h2,
+.ec-channel-layout .ikas-themes-section__head h2 {
+  font-size: 20px;
+}
+
+.ec-platform-main--channel .ikas-badge--ready,
+.ec-channel-layout .ikas-badge--ready {
+  background: var(--ikas-success-soft);
+  color: var(--ikas-success);
+}
+
+.ec-platform-main--channel .ikas-themes-marketplace-hint,
+.ec-channel-layout .ikas-themes-marketplace-hint {
+  margin: 24px 0 0;
+  font-size: 13px;
+  color: var(--ikas-muted);
+}
+
+.ec-platform-main--channel .ikas-themes-marketplace-link,
+.ec-channel-layout .ikas-themes-marketplace-link {
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--ikas-primary);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.ec-platform-main--channel .ikas-themes-marketplace-link:hover,
+.ec-channel-layout .ikas-themes-marketplace-link:hover {
+  color: var(--ikas-primary-hover);
+}
+
+.ec-platform-main--channel .ikas-btn--primary,
+.ec-channel-layout .ikas-btn--primary {
+  background: var(--ikas-primary);
+  border-color: var(--ikas-primary);
+}
+
+.ec-platform-main--channel .ikas-btn--primary:hover,
+.ec-channel-layout .ikas-btn--primary:hover {
+  background: var(--ikas-primary-hover);
+}
+
+.ec-platform-main--channel .ikas-badge--live,
+.ec-channel-layout .ikas-badge--live {
+  color: #0d9488;
+  background: rgba(13, 148, 136, 0.1);
+}
+
+.ec-platform-main--channel .ec-platform-settings,
+.ec-channel-layout .ec-platform-settings {
+  max-width: none;
+  padding: 24px 28px 40px;
+}
+
+/* ─── Temalarım sayfası ─── */
+.ikas-themes-page {
+  min-height: 100%;
+  background: var(--ikas-bg);
+  padding: 24px 28px 40px;
+  max-width: 1200px;
+  margin: 0 auto;
+  font-family: "Inter", system-ui, -apple-system, sans-serif;
+  color: var(--ikas-text);
+}
+
+.ikas-themes-page__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.ikas-themes-page__head h1 {
+  margin: 0 0 4px;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.ikas-themes-page__head p {
+  margin: 0;
+  font-size: 14px;
+  color: var(--ikas-muted);
+}
+
+.ikas-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 9px 16px;
+  border-radius: var(--ikas-radius);
+  font-size: 14px;
+  font-weight: 600;
+  border: 1px solid var(--ikas-border);
+  background: var(--ikas-surface);
+  color: var(--ikas-text);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
+  text-decoration: none;
+}
+
+.ikas-btn:hover {
+  background: #f9fafb;
+  border-color: var(--ikas-border-strong);
+}
+
+.ikas-btn--primary {
+  background: var(--ikas-primary);
+  border-color: var(--ikas-primary);
+  color: #fff;
+}
+
+.ikas-btn--primary:hover {
+  background: var(--ikas-primary-hover);
+  border-color: var(--ikas-primary-hover);
+}
+
+.ikas-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.ikas-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.ikas-badge--live {
+  background: var(--ikas-success-soft);
+  color: var(--ikas-success);
+}
+
+.ikas-badge--draft {
+  background: var(--ikas-warning-soft);
+  color: var(--ikas-warning);
+}
+
+.ikas-badge--ready {
+  background: var(--ikas-success-soft);
+  color: var(--ikas-success);
+}
+
+.ikas-themes-hero {
+  display: grid;
+  grid-template-columns: 1.15fr 1fr;
+  background: var(--ikas-surface);
+  border: 1px solid var(--ikas-border);
+  border-radius: var(--ikas-radius-lg);
+  overflow: hidden;
+  box-shadow: var(--ikas-shadow);
+  margin-bottom: 32px;
+}
+
+.ikas-themes-hero__preview {
+  min-height: 340px;
+  background: linear-gradient(145deg, #e8ecf4 0%, #dfe6f0 100%);
+  position: relative;
+}
+
+.ikas-themes-hero__preview .ikas-live-preview {
+  width: 100%;
+  height: 100%;
+  min-height: 340px;
+}
+
+.ikas-themes-hero__body {
+  padding: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.ikas-themes-hero__body h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.ikas-themes-hero__desc {
+  margin: 0;
+  font-size: 14px;
+  color: var(--ikas-muted);
+  line-height: 1.5;
+}
+
+.ikas-themes-hero__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ikas-themes-hero__stats {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  margin: 4px 0;
+}
+
+.ikas-themes-hero__stats dt {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ikas-muted);
+  margin: 0 0 2px;
+}
+
+.ikas-themes-hero__stats dd {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.ikas-themes-hero__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: auto;
+  padding-top: 8px;
+}
+
+.ikas-themes-hero__actions--single .ikas-btn--primary {
+  min-width: 180px;
+}
+
+.ikas-themes-section {
+  margin-bottom: 32px;
+}
+
+.ikas-themes-section__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.ikas-themes-section__head h2 {
+  margin: 0 0 4px;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.ikas-themes-section__head p {
+  margin: 0;
+  font-size: 14px;
+  color: var(--ikas-muted);
+  line-height: 1.45;
+  max-width: 560px;
+}
+
+.ikas-themes-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 18px;
+  background: var(--ikas-surface);
+  border: 1px solid var(--ikas-border);
+  border-radius: var(--ikas-radius-lg);
+  box-shadow: var(--ikas-shadow);
+}
+
+.ikas-themes-row__main {
+  flex: 1;
+  min-width: 0;
+}
+
+.ikas-themes-row__title {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.ikas-themes-row__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.ikas-themes-row__meta span {
+  font-size: 13px;
+  color: var(--ikas-muted);
+}
+
+.ikas-themes-row__actions {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.ikas-themes-row__menu-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 1px solid var(--ikas-border);
+  border-radius: var(--ikas-radius);
+  background: var(--ikas-surface);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ikas-themes-row__menu-btn:hover {
+  background: var(--ikas-bg);
+}
+
+.ikas-themes-row__dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 200px;
+  background: var(--ikas-surface);
+  border: 1px solid var(--ikas-border);
+  border-radius: var(--ikas-radius);
+  box-shadow: var(--ikas-shadow-lg);
+  z-index: 50;
+  padding: 4px;
+}
+
+.ikas-badge--clock {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ikas-themes-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+.ikas-theme-card {
+  background: var(--ikas-surface);
+  border: 1px solid var(--ikas-border);
+  border-radius: var(--ikas-radius-lg);
+  overflow: hidden;
+  transition: box-shadow 0.2s, border-color 0.2s;
+}
+
+.ikas-theme-card:hover {
+  box-shadow: var(--ikas-shadow-lg);
+  border-color: var(--ikas-border-strong);
+}
+
+.ikas-theme-card__visual {
+  aspect-ratio: 4/3;
+  background: #1a1d26;
+  position: relative;
+}
+
+.ikas-theme-card__body {
+  padding: 14px 16px;
+}
+
+.ikas-theme-card__body h3 {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.ikas-theme-card__body p {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--ikas-muted);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.ikas-theme-card__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.ikas-theme-card__actions .ikas-btn {
+  flex: 1;
+  padding: 7px 12px;
+  font-size: 13px;
+}
+
+.ikas-toast {
+  padding: 12px 16px;
+  border-radius: var(--ikas-radius);
+  background: var(--ikas-primary-soft);
+  color: var(--ikas-primary);
+  font-size: 14px;
+  margin-bottom: 16px;
+}
+
+.ikas-toast--error {
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+/* ─── Canlı section önizleme (mock yerine) ─── */
+.ikas-live-preview {
+  overflow: hidden;
+  background: #fff;
+}
+
+.ikas-live-preview--compact {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
+}
+
+.ikas-live-preview--compact .ikas-live-preview__scale-wrap {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 1280px;
+  margin-left: -640px;
+  transform: scale(0.28);
+  transform-origin: top center;
+  pointer-events: none;
+}
+
+.ikas-live-preview--compact .ikas-editor-canvas__frame {
+  min-height: 720px;
+}
+
+.ikas-live-preview iframe,
+.ikas-live-preview .ikas-live-preview__inner {
+  width: 100%;
+  height: 100%;
+  border: none;
+}
+
+/* ─── Tema editörü kabuğu ─── */
+.ikas-editor-root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: #eceef1;
+  font-family: "Inter", system-ui, sans-serif;
+  color: var(--ikas-text);
+  overflow: hidden;
+}
+
+.ec-platform-main--editor .ikas-editor-root {
+  min-height: 100%;
+  height: 100%;
+}
+
+.dashboard-container--ec-platform .content-area--ec-platform {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.dashboard-container--ec-platform .ec-platform {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.dashboard-container--ec-platform .ec-platform__body {
+  flex: 1;
+  min-height: 0;
+}
+
+.dashboard-container--ec-platform .ec-platform-main--editor {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.ikas-editor-topbar {
+  height: var(--ikas-topbar-h);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 20px;
+  background: var(--ikas-surface);
+  border-bottom: 1px solid var(--ikas-border);
+  z-index: 20;
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.04);
+}
+
+.ikas-editor-topbar__left,
+.ikas-editor-topbar__center,
+.ikas-editor-topbar__right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ikas-editor-topbar__left { flex: 0 1 auto; min-width: 0; }
+.ikas-editor-topbar__center {
+  flex: 1;
+  justify-content: center;
+  min-width: 0;
+}
+.ikas-editor-topbar__right { flex-shrink: 0; }
+
+.ikas-editor-page-select__divider {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--ikas-border);
+}
+
+.ikas-editor-page-select__item--muted {
+  color: var(--ikas-muted);
+  font-size: 12px;
+}
+
+.ikas-editor-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: none;
+  background: transparent;
+  color: var(--ikas-muted);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.ikas-editor-back:hover {
+  background: var(--ikas-bg);
+  color: var(--ikas-text);
+}
+
+.ikas-editor-page-select {
+  position: relative;
+}
+
+.ikas-editor-page-select__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border: 1px solid var(--ikas-border);
+  border-radius: var(--ikas-radius);
+  background: var(--ikas-surface);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ikas-editor-page-select__menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 220px;
+  max-height: 360px;
+  overflow-y: auto;
+  background: var(--ikas-surface);
+  border: 1px solid var(--ikas-border);
+  border-radius: var(--ikas-radius);
+  box-shadow: var(--ikas-shadow-lg);
+  z-index: 100;
+  padding: 4px;
+}
+
+.ikas-editor-page-select__item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 9px 12px;
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.ikas-editor-page-select__item:hover,
+.ikas-editor-page-select__item.active {
+  background: var(--ikas-primary-soft);
+  color: var(--ikas-primary);
+  font-weight: 600;
+}
+
+.ikas-device-toggle {
+  display: flex;
+  background: var(--ikas-bg);
+  border: 1px solid var(--ikas-border);
+  border-radius: var(--ikas-radius);
+  padding: 3px;
+  gap: 2px;
+}
+
+.ikas-device-toggle button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  border-radius: 7px;
+  color: var(--ikas-muted);
+  cursor: pointer;
+}
+
+.ikas-device-toggle button.active {
+  background: var(--ikas-surface);
+  color: var(--ikas-primary);
+  box-shadow: var(--ikas-shadow);
+}
+
+.ikas-editor-status {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ikas-muted);
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--ikas-bg);
+}
+
+.ikas-editor-status.is-dirty {
+  color: var(--ikas-warning);
+  background: var(--ikas-warning-soft);
+}
+
+.ikas-editor-status.is-publishing {
+  color: var(--ikas-primary);
+  background: var(--ikas-primary-soft);
+}
+
+.ikas-editor-body {
+  flex: 1;
+  display: grid;
+  grid-template-columns: var(--ikas-editor-left) 1fr var(--ikas-editor-right);
+  min-height: 0;
+  overflow: hidden;
+  height: 100%;
+}
+
+.ikas-editor-body--two-col {
+  grid-template-columns: var(--ikas-editor-left) 1fr;
+}
+
+.ikas-editor-body--two-col .ikas-editor-left {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.ikas-editor-body--two-col .ikas-editor-left .wb-te-ik-left {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  border: none;
+  background: transparent;
+}
+
+.ikas-editor-seo-btn {
+  padding: 6px 12px;
+  border: 1px solid var(--ikas-border);
+  border-radius: var(--ikas-radius);
+  background: var(--ikas-surface);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--ikas-text);
+}
+
+.ikas-editor-seo-btn:hover {
+  background: var(--ikas-bg);
+}
+
+.ikas-editor-site-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: var(--ikas-radius);
+  background: var(--ikas-bg);
+  border: 1px solid var(--ikas-border);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ikas-muted);
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ikas-editor-lang-select {
+  position: relative;
+}
+
+.ikas-editor-lang-select__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 8px;
+  border: 1px solid var(--ikas-border);
+  border-radius: var(--ikas-radius);
+  background: var(--ikas-surface);
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.ikas-editor-lang-select__menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 160px;
+  background: var(--ikas-surface);
+  border: 1px solid var(--ikas-border);
+  border-radius: var(--ikas-radius);
+  box-shadow: var(--ikas-shadow-lg);
+  z-index: 100;
+  padding: 4px;
+}
+
+.ikas-editor-left {
+  background: var(--ikas-surface);
+  border-right: 1px solid var(--ikas-border);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  width: var(--ikas-editor-left);
+  flex-shrink: 0;
+}
+
+.ikas-editor-root .wb-te-ik-left--ikas-clean {
+  background: #fff;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.ikas-editor-left__pages {
+  padding: 12px;
+  border-bottom: 1px solid var(--ikas-border);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ikas-editor-page-pill {
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--ikas-border);
+  background: var(--ikas-surface);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  color: var(--ikas-muted);
+}
+
+.ikas-editor-page-pill.active {
+  background: var(--ikas-primary-soft);
+  border-color: var(--ikas-primary);
+  color: var(--ikas-primary);
+  font-weight: 600;
+}
+
+.ikas-editor-left__tree {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.ikas-editor-left__footer {
+  padding: 12px;
+  border-top: 1px solid var(--ikas-border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ikas-editor-add-section {
+  width: 100%;
+  padding: 10px;
+  border: 1px dashed var(--ikas-border-strong);
+  border-radius: var(--ikas-radius);
+  background: var(--ikas-bg);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ikas-primary);
+  cursor: pointer;
+}
+
+.ikas-editor-add-section:hover {
+  background: var(--ikas-primary-soft);
+  border-color: var(--ikas-primary);
+}
+
+.ikas-editor-theme-settings-btn {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--ikas-border);
+  border-radius: var(--ikas-radius);
+  background: var(--ikas-surface);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ikas-editor-theme-settings-btn:hover {
+  background: var(--ikas-bg);
+}
+
+.ikas-editor-canvas {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  background: #f4f5f7;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  padding: 0;
+}
+
+.ikas-live-preview--editor {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.ikas-live-preview--editor > .wb-te-live-preview {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Masaüstü — tam genişlik, İkas gibi sağ paneli doldurur */
+.ikas-editor-canvas--desktop .ikas-live-preview--editor,
+.ikas-live-preview--editor.ikas-live-preview--device-desktop {
+  background: #fff;
+}
+
+.ikas-editor-root .ikas-editor-canvas--desktop .wb-te-live-preview--v2,
+.ikas-editor-root .ikas-editor-canvas--desktop .wb-te-live-preview--v4,
+.ikas-editor-root .ikas-live-preview--device-desktop .wb-te-live-preview--v2,
+.ikas-editor-root .ikas-live-preview--device-desktop .wb-te-live-preview--v4 {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  width: 100%;
+  background: #fff !important;
+}
+
+.ikas-editor-root .ikas-editor-canvas--desktop .wb-te-live-preview__viewport,
+.ikas-editor-root .ikas-editor-canvas--desktop .wb-te-live-preview__viewport--v4,
+.ikas-editor-root .ikas-live-preview--device-desktop .wb-te-live-preview__viewport,
+.ikas-editor-root .ikas-live-preview--device-desktop .wb-te-live-preview__viewport--v4 {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  padding: 0 !important;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start !important;
+  align-items: stretch !important;
+  overflow: auto;
+  background: #fff !important;
+}
+
+.ikas-editor-root .ikas-editor-canvas--desktop .wb-te-browser-frame,
+.ikas-editor-root .ikas-live-preview--device-desktop .wb-te-browser-frame {
+  width: 100% !important;
+  max-width: none !important;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border: none !important;
+  box-shadow: none !important;
+  background: #fff !important;
+}
+
+.ikas-editor-root .ikas-editor-canvas--desktop .wb-te-storefront-chrome,
+.ikas-editor-root .ikas-live-preview--device-desktop .wb-te-storefront-chrome {
+  width: 100% !important;
+  max-width: none !important;
+  min-height: auto !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+  background: var(--preview-bg, #fff);
+}
+
+.ikas-editor-root .ikas-editor-canvas--desktop .wb-te-store-canvas,
+.ikas-editor-root .ikas-live-preview--device-desktop .wb-te-store-canvas {
+  flex: 1;
+  min-height: 0;
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  background: transparent;
+}
+
+/* Tablet / mobil — cihaz çerçevesi ortada */
+.ikas-editor-canvas--tablet,
+.ikas-editor-canvas--mobile {
+  overflow: auto;
+  padding: 20px;
+  background: #eceef1;
+  align-items: center;
+}
+
+.ikas-live-preview--editor.ikas-live-preview--device-tablet,
+.ikas-live-preview--editor.ikas-live-preview--device-mobile {
+  flex: 0 1 auto;
+  width: 100%;
+  max-width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+.ikas-editor-root .ikas-live-preview--device-tablet .wb-te-browser-frame {
+  width: 100% !important;
+  max-width: 768px !important;
+  margin: 0 auto;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.12);
+  flex: 0 1 auto;
+  background: #fff !important;
+}
+
+.ikas-editor-root .ikas-live-preview--device-mobile .wb-te-browser-frame {
+  width: 100% !important;
+  max-width: 390px !important;
+  margin: 0 auto;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.12);
+  flex: 0 1 auto;
+  background: #fff !important;
+}
+
+.ikas-editor-root .ikas-live-preview--device-tablet .wb-te-live-preview__viewport,
+.ikas-editor-root .ikas-live-preview--device-mobile .wb-te-live-preview__viewport {
+  padding: 0 !important;
+  align-items: center !important;
+  overflow: visible;
+  background: transparent !important;
+}
+
+.ikas-editor-root .ikas-live-preview--device-tablet .wb-te-storefront-chrome,
+.ikas-editor-root .ikas-live-preview--device-mobile .wb-te-storefront-chrome {
+  max-width: 100% !important;
+  min-height: auto !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+}
+
+.ikas-editor-root .wb-te-device-shell {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.ikas-editor-root .wb-te-chrome-main {
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+}
+
+/* Temalarım sayfası compact önizleme çerçevesi */
+.ikas-editor-root .ikas-editor-canvas__frame {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  overflow: hidden;
+}
+
+.ikas-live-preview--compact .ikas-editor-canvas__frame--desktop {
+  max-width: 1280px;
+  margin: 0 auto;
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.12);
+  min-height: 720px;
+}
+
+.ikas-editor-root .wb-block-product-grid {
+  padding: 32px 24px;
+  background: var(--preview-bg, #fff);
+}
+
+.ikas-editor-root .wb-block-product-grid h2 {
+  text-align: center;
+  margin: 0 0 24px;
+  font-size: 1.35rem;
+}
+
+.ikas-editor-root .wb-product-grid {
+  display: grid !important;
+  width: 100%;
+  max-width: var(--preview-container, 1200px);
+  margin: 0 auto;
+  gap: 20px;
+}
+
+.ikas-editor-root .wb-product-grid.cols-1 { grid-template-columns: repeat(1, 1fr); }
+.ikas-editor-root .wb-product-grid.cols-2 { grid-template-columns: repeat(2, 1fr); }
+.ikas-editor-root .wb-product-grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
+.ikas-editor-root .wb-product-grid.cols-4 { grid-template-columns: repeat(4, 1fr); }
+.ikas-editor-root .wb-product-grid.cols-5 { grid-template-columns: repeat(5, 1fr); }
+
+.ikas-editor-root .wb-product-card--editor-preview {
+  max-width: 100%;
+}
+
+.ikas-editor-root .wb-product-card-image--editor-preview {
+  width: 100%;
+  height: auto !important;
+  aspect-ratio: 1 / 1;
+  max-height: 220px;
+  object-fit: cover;
+  display: block;
+  border-radius: 8px 8px 0 0;
+}
+
+.ikas-editor-root .wb-product-grid--carousel .wb-product-grid {
+  display: grid !important;
+  grid-template-columns: repeat(4, 1fr) !important;
+  overflow: visible;
+}
+
+.ikas-editor-root .wb-product-grid--carousel .wb-product-card {
+  flex: unset;
+  scroll-snap-align: unset;
+}
+
+.ikas-editor-root .wb-theme-canvas-viewport {
+  min-height: 100%;
+}
+
+/* Sol panel — İkas flat liste */
+.ikas-editor-root .wb-te-ik-left--ikas-clean {
+  background: #fff;
+}
+
+.ikas-editor-root .wb-te-ik-left--ikas-clean .wb-te-ik-left__page-title {
+  display: none;
+}
+
+.ikas-editor-root .wb-te-ik-left--ikas-clean .wb-te-flat-sections {
+  padding: 0;
+}
+
+.ikas-editor-root .wb-te-ik-left--ikas-clean .wb-te-add-section {
+  margin: 12px 12px 0;
+  border-radius: 10px;
+  padding: 11px 14px;
+}
+
+.ikas-editor-root .wb-te-ik-left--ikas-clean .wb-theme-editor-left-footer {
+  border-top: 1px solid #eceef1;
+  padding: 8px 0 12px;
+  margin-top: 8px;
+}
+
+.ikas-editor-root .wb-te-ik-left--ikas-clean .wb-te-theme-settings-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border: none;
+  background: transparent;
+  width: calc(100% - 24px);
+  margin: 0 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  color: #374151;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.ikas-editor-root .wb-te-ik-left--ikas-clean .wb-te-flat-item {
+  border: none;
+  border-radius: 0;
+  margin-bottom: 0;
+  padding: 12px 16px;
+  background: transparent;
+  box-shadow: none;
+  gap: 0;
+  border-bottom: 1px solid #f0f1f3;
+}
+
+.ikas-editor-root .wb-te-ik-left--ikas-clean .wb-te-flat-item__icon {
+  display: none;
+}
+
+.ikas-editor-root .wb-te-ik-left--ikas-clean .wb-te-flat-item__label {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 500;
+  color: #374151;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ikas-editor-root .wb-te-ik-left--ikas-clean .wb-te-flat-item__chevron {
+  color: #9ca3af;
+  flex-shrink: 0;
+}
+
+.ikas-editor-root .wb-te-ik-left--ikas-clean .wb-te-flat-item.active .wb-te-flat-item__label {
+  color: #0d9488;
+  font-weight: 600;
+}
+
+.ikas-editor-root .wb-te-ik-left--ikas-clean .wb-te-flat-item:hover {
+  background: #f4f5f7;
+}
+
+.ikas-editor-root .wb-te-ik-left--ikas-clean .wb-te-flat-item.active {
+  background: rgba(13, 148, 136, 0.1);
+  border-left: 3px solid #0d9488;
+  padding-left: 13px;
+  box-shadow: none;
+}
+
+.ikas-editor-root .wb-te-ik-left--ikas-clean .wb-te-flat-item--static {
+  margin: 0;
+}
+
+.ikas-editor-root .wb-te-ik-left--ikas-clean .wb-te-ik-left__body {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.ikas-editor-root .wb-te-ik-left--ikas-clean .wb-te-theme-settings-btn:hover {
+  background: #f4f5f7;
+}
+
+.ikas-editor-root .wb-te-ik-left__head {
+  background: #fff;
+  border-bottom: 1px solid #eceef1;
+}
+
+.ikas-editor-root .sb-v5-properties {
+  padding: 12px 14px 24px;
+}
+
+.ikas-editor-right {
+  background: var(--ikas-surface);
+  border-left: 1px solid var(--ikas-border);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.ikas-editor-right__head {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--ikas-border);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.ikas-editor-right__body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+}
+
+.ikas-editor-right__empty {
+  padding: 32px 16px;
+  text-align: center;
+  color: var(--ikas-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* Tema ayarları çekmecesi */
+.ikas-settings-drawer-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(28, 31, 38, 0.4);
+  z-index: 1500;
+  display: flex;
+  align-items: stretch;
+  justify-content: flex-start;
+}
+
+.ikas-settings-drawer {
+  width: min(420px, 100vw);
+  background: var(--ikas-surface);
+  box-shadow: var(--ikas-shadow-lg);
+  display: flex;
+  flex-direction: column;
+  animation: ikasDrawerIn 0.2s ease;
+}
+
+@keyframes ikasDrawerIn {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+
+.ikas-settings-drawer__tabs {
+  display: flex;
+  gap: 4px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--ikas-border);
+  flex-shrink: 0;
+}
+
+.ikas-settings-drawer__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--ikas-border);
+}
+
+.ikas-settings-drawer__head h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.ikas-settings-drawer__close {
+  border: none;
+  background: transparent;
+  font-size: 22px;
+  cursor: pointer;
+  color: var(--ikas-muted);
+  line-height: 1;
+}
+
+.ikas-settings-drawer__body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+/* Section tree — İkas modül listesi */
+.ikas-module-tree {
+  padding: 8px 0;
+}
+
+.ikas-module-tree__page {
+  padding: 8px 12px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ikas-muted);
+}
+
+.ikas-module-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px 10px 8px;
+  margin: 3px 8px;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid transparent;
+  transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
+}
+
+.ikas-module-item:hover {
+  background: #f8f9fb;
+  border-color: var(--ikas-border);
+}
+
+.ikas-module-item.active {
+  background: var(--ikas-primary-soft);
+  border-color: rgba(91, 77, 255, 0.35);
+  box-shadow: 0 0 0 1px rgba(91, 77, 255, 0.12);
+  color: var(--ikas-primary);
+}
+
+.ikas-module-item.is-hidden {
+  opacity: 0.45;
+}
+
+.ikas-module-item__grip {
+  color: var(--ikas-muted);
+  cursor: grab;
+  flex-shrink: 0;
+}
+
+.ikas-module-item__label {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.ikas-module-item__icon {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: #f1f3f6;
+  color: #475569;
+  margin-top: 1px;
+}
+
+.ikas-module-item.active .ikas-module-item__icon {
+  background: #fff;
+  color: var(--ikas-primary);
+}
+
+.ikas-module-item__actions {
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.ikas-module-item:hover .ikas-module-item__actions,
+.ikas-module-item.active .ikas-module-item__actions {
+  opacity: 1;
+}
+
+.ikas-module-item__actions button {
+  border: none;
+  background: transparent;
+  padding: 4px;
+  border-radius: 4px;
+  color: var(--ikas-muted);
+  cursor: pointer;
+  display: flex;
+}
+
+.ikas-module-item__actions button:hover {
+  background: var(--ikas-border);
+  color: var(--ikas-text);
+}
+
+/* Tema mağazası */
+.ikas-marketplace {
+  min-height: 100%;
+  background: var(--ikas-bg);
+  padding: 24px 28px 40px;
+}
+
+.ikas-marketplace__back {
+  margin-bottom: 16px;
+}
+
+.ikas-marketplace__head {
+  margin-bottom: 24px;
+}
+
+.ikas-marketplace__head h1 {
+  margin: 0 0 6px;
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.ikas-marketplace__head p {
+  margin: 0;
+  font-size: 14px;
+  color: var(--ikas-muted);
+}
+
+.ikas-marketplace__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.ikas-marketplace__search {
+  flex: 1;
+  min-width: 200px;
+  padding: 9px 14px;
+  border: 1px solid var(--ikas-border);
+  border-radius: var(--ikas-radius);
+  font-size: 14px;
+}
+
+.ikas-marketplace__chip {
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--ikas-border);
+  background: var(--ikas-surface);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.ikas-marketplace__chip.active {
+  background: var(--ikas-primary);
+  border-color: var(--ikas-primary);
+  color: #fff;
+}
+
+.ikas-marketplace__steps {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 28px;
+}
+
+.ikas-marketplace__step {
+  background: var(--ikas-surface);
+  border: 1px solid var(--ikas-border);
+  border-radius: var(--ikas-radius-lg);
+  padding: 16px;
+}
+
+.ikas-marketplace__step span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--ikas-primary-soft);
+  color: var(--ikas-primary);
+  font-weight: 700;
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+
+.ikas-marketplace__step strong {
+  display: block;
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+
+.ikas-marketplace__step p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ikas-muted);
+}
+
+.ikas-themes-grid--marketplace {
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 20px;
+}
+
+.ikas-theme-card--active {
+  border-color: var(--ikas-primary);
+  box-shadow: 0 0 0 1px var(--ikas-primary);
+}
+
+.ikas-theme-card__active-badge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--ikas-success-soft);
+  color: var(--ikas-success);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.ikas-theme-card__sector {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ikas-primary);
+  margin-bottom: 4px;
+}
+
+.ikas-btn--block {
+  width: 100%;
+}
+
+.ikas-themes-howto {
+  background: var(--ikas-surface);
+  border: 1px solid var(--ikas-border);
+  border-radius: var(--ikas-radius-lg);
+  padding: 24px;
+  margin-top: 8px;
+}
+
+.ikas-themes-howto h3 {
+  margin: 0 0 12px;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.ikas-themes-howto ol {
+  margin: 0 0 20px;
+  padding-left: 20px;
+  color: var(--ikas-muted);
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.ikas-themes-howto li {
+  margin-bottom: 6px;
+}
+
+.ikas-themes-howto strong {
+  color: var(--ikas-text);
+}
+
+.ikas-editor-hint {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 16px;
+  background: var(--ikas-primary-soft);
+  border-bottom: 1px solid #d4d0ff;
+  font-size: 12px;
+  color: var(--ikas-text);
+  flex-shrink: 0;
+}
+
+.ikas-editor-hint p {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.ikas-editor-hint em {
+  font-style: normal;
+  font-weight: 600;
+  color: var(--ikas-primary);
+}
+
+.ikas-themes-library {
+  margin-top: 32px;
+}
+
+.ikas-themes-library h3 {
+  margin: 0 0 6px;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.ikas-themes-library > p {
+  margin: 0 0 16px;
+  font-size: 14px;
+  color: var(--ikas-muted);
+}
+
+.ikas-themes-grid--compact {
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 14px;
+}
+
+.ikas-theme-card--compact .ikas-theme-card__visual {
+  aspect-ratio: 16/10;
+}
+
+.ikas-theme-card--compact .ikas-theme-card__body {
+  padding: 10px 12px;
+}
+
+.ikas-theme-card--compact h3 {
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+
+.ikas-install-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: rgba(28, 31, 38, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ikas-install-overlay__box {
+  background: #fff;
+  border-radius: var(--ikas-radius-lg);
+  padding: 28px 36px;
+  text-align: center;
+  box-shadow: var(--ikas-shadow-lg);
+  max-width: 360px;
+}
+
+.ikas-install-overlay__box p {
+  margin: 0 0 6px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ikas-text);
+}
+
+.ikas-install-overlay__box span {
+  font-size: 13px;
+  color: var(--ikas-muted);
+}
+
+.ikas-editor-hint__close {
+  flex-shrink: 0;
+  padding: 6px 12px;
+  border: 1px solid var(--ikas-primary);
+  border-radius: var(--ikas-radius);
+  background: #fff;
+  color: var(--ikas-primary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ikas-editor-toast {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  border-bottom: 1px solid var(--ikas-border);
+}
+
+.ikas-editor-toast__close {
+  border: none;
+  background: transparent;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  color: inherit;
+  opacity: 0.7;
+  padding: 0 4px;
+}
+
+.ikas-editor-toast__close:hover {
+  opacity: 1;
+}
+
+.ikas-editor-toast--error {
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+.ikas-editor-toast--success {
+  background: var(--ikas-success-soft);
+  color: var(--ikas-success);
+}
+
+.ikas-editor-canvas__loading {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.65);
+}
+
+.ikas-btn--ghost-link {
+  text-decoration: none;
+}
+
+.ikas-themes-hero--empty {
+  grid-template-columns: 1fr !important;
+  padding: 40px;
+  text-align: center;
+}
+
+.ikas-themes-hero--empty h2 {
+  margin: 0 0 8px;
+}
+
+.ikas-themes-hero--empty p {
+  color: var(--ikas-muted);
+  margin: 0 0 20px;
+}
+
+.ikas-themes-hero__menu-wrap {
+  position: relative;
+}
+
+.ikas-themes-hero__menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  background: #fff;
+  border: 1px solid var(--ikas-border);
+  border-radius: 10px;
+  box-shadow: var(--ikas-shadow-lg);
+  padding: 4px;
+  min-width: 180px;
+  z-index: 200;
+}
+
+.ikas-confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10001;
+  background: rgba(28, 31, 38, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.ikas-confirm-dialog {
+  background: #fff;
+  border-radius: var(--ikas-radius-lg);
+  padding: 24px;
+  max-width: 420px;
+  width: 100%;
+  box-shadow: var(--ikas-shadow-lg);
+}
+
+.ikas-confirm-dialog h2 {
+  margin: 0 0 10px;
+  font-size: 18px;
+}
+
+.ikas-confirm-dialog p {
+  margin: 0 0 20px;
+  font-size: 14px;
+  color: var(--ikas-muted);
+  line-height: 1.5;
+}
+
+.ikas-confirm-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+@media (max-width: 1100px) {
+  .ikas-editor-topbar {
+    flex-wrap: wrap;
+    height: auto;
+    min-height: var(--ikas-topbar-h);
+    padding: 8px 12px;
+  }
+  .ikas-editor-topbar__center {
+    order: 3;
+    width: 100%;
+    justify-content: center;
+    padding-top: 4px;
+  }
+  .ikas-editor-topbar__right {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .ikas-editor-status {
+    display: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .ikas-marketplace__steps {
+    grid-template-columns: 1fr;
+  }
+  .ikas-themes-page {
+    padding: 16px;
+  }
+  .ikas-marketplace {
+    padding: 16px;
+  }
+  .ikas-themes-hero {
+    grid-template-columns: 1fr;
+  }
+  .ikas-editor-body {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(160px, 28vh) 1fr minmax(200px, 32vh);
+  }
+  .ikas-editor-left,
+  .ikas-editor-right {
+    max-height: none;
+  }
+}
+
+/* ─── Editör UX v2 — kullanıcı dostu etiketler & inspector ─── */
+.ikas-editor-breadcrumb-sep {
+  color: var(--ikas-muted);
+  font-size: 14px;
+  user-select: none;
+  padding: 0 2px;
+}
+
+.ikas-module-tree__empty {
+  padding: 16px 14px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--ikas-muted);
+  line-height: 1.5;
+}
+
+.ikas-inspector-empty {
+  padding: 28px 20px;
+  text-align: center;
+  color: var(--ikas-muted);
+}
+
+.ikas-inspector-empty strong {
+  display: block;
+  color: var(--ikas-text);
+  font-size: 15px;
+  margin-bottom: 8px;
+}
+
+.ikas-inspector-empty p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.ikas-inspector-head {
+  padding: 16px 16px 12px;
+  border-bottom: 1px solid var(--ikas-border);
+  background: linear-gradient(180deg, #fafbfc 0%, #fff 100%);
+}
+
+.ikas-inspector-head h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ikas-text);
+  letter-spacing: -0.01em;
+}
+
+.ikas-inspector-head__hint {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--ikas-muted);
+  font-weight: 400;
+}
+
+.ikas-editor-right .sb-v5-properties {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.ikas-editor-right .sb-v5-prop-tabs {
+  padding: 0 12px;
+  border-bottom: 1px solid var(--ikas-border);
+  background: #fff;
+}
+
+.ikas-editor-right .sb-v5-prop-tabs button {
+  padding: 10px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ikas-muted);
+  border: none;
+  background: transparent;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+}
+
+.ikas-editor-right .sb-v5-prop-tabs button.active {
+  color: var(--ikas-primary);
+  border-bottom-color: var(--ikas-primary);
+}
+
+.ikas-editor-right .sb-v5-prop-body {
+  padding: 14px 16px 20px;
+}
+
+.ikas-editor-right .wb-schema-field {
+  margin-bottom: 14px;
+}
+
+.ikas-editor-right .wb-schema-field__label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+  margin-bottom: 6px;
+}
+
+.ikas-field-input,
+.ikas-editor-right .wb-te-field__input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--ikas-border);
+  border-radius: 8px;
+  font-size: 14px;
+  background: #fff;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.ikas-field-input:focus,
+.ikas-editor-right .wb-te-field__input:focus {
+  outline: none;
+  border-color: var(--ikas-primary);
+  box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.15);
+}
+
+.ikas-editor-left__footer .ikas-editor-add-section {
+  font-weight: 600;
+}
+
+/* Editör — wbThemeEditorIkas global kurallarını geçersiz kıl */
+.ikas-editor-root .wb-te-live-preview--v2 {
+  height: 100% !important;
+  background: #fff !important;
+}
+
+.ikas-editor-root .wb-te-live-preview__viewport {
+  padding: 0 !important;
+  justify-content: flex-start !important;
+  align-items: stretch !important;
+}
+
+.ikas-editor-root .wb-te-storefront-chrome {
+  max-width: none !important;
+  min-height: auto !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+}
+
+/* ─── V2 Premium polish (editör + kanal) ─── */
+.ikas-editor-root {
+  background: #eef1f5;
+}
+
+.ikas-editor-topbar {
+  height: 60px;
+  padding: 0 24px;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(15, 23, 42, 0.07);
+  box-shadow: 0 4px 24px rgba(15, 23, 42, 0.04);
+}
+
+.ikas-editor-page-select__btn {
+  font-weight: 700;
+  font-size: 14px;
+  border-radius: 10px;
+  padding: 8px 14px;
+  border-color: rgba(15, 23, 42, 0.1);
+}
+
+.ikas-editor-save {
+  background: linear-gradient(135deg, #0d9488, #0f766e) !important;
+  border: none !important;
+  color: #fff !important;
+  font-weight: 700 !important;
+  border-radius: 10px !important;
+  padding: 8px 18px !important;
+  box-shadow: 0 4px 14px rgba(13, 148, 136, 0.35) !important;
+}
+
+.ikas-editor-left {
+  background: #fff;
+  border-right: 1px solid rgba(15, 23, 42, 0.07);
+  box-shadow: 4px 0 24px rgba(15, 23, 42, 0.03);
+}
+
+.ikas-editor-canvas {
+  padding: 24px;
+  background: linear-gradient(180deg, #eef1f5 0%, #e4e9f0 100%);
+}
+
+.ikas-editor-root:not(.ikas-editor-root--pro) .ikas-editor-canvas {
+  padding: 24px;
+  background: linear-gradient(180deg, #eef1f5 0%, #e4e9f0 100%);
+}
+
+.ikas-editor-root--pro .ikas-editor-canvas {
+  padding: 0 !important;
+  background: #f1f5f9 !important;
+}
+
+.ikas-editor-root:not(.ikas-editor-root--pro) .ikas-editor-canvas--desktop .ikas-editor-canvas__frame {
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow:
+    0 0 0 1px rgba(15, 23, 42, 0.06),
+    0 24px 64px rgba(15, 23, 42, 0.14);
+}
+
+.ikas-editor-root .wb-te-ik-left--ikas-clean .wb-te-flat-item {
+  border-radius: 10px;
+  margin-bottom: 4px;
+  border: 1px solid transparent;
+}
+
+.ikas-editor-root .wb-te-ik-left--ikas-clean .wb-te-flat-item.active {
+  background: rgba(13, 148, 136, 0.1);
+  border-color: rgba(13, 148, 136, 0.25);
+}
+
+.ikas-editor-root .wb-te-ik-left--ikas-clean .wb-te-theme-settings-btn {
+  border-radius: 10px;
+  font-weight: 600;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+}
+
+.ikas-themes-row__dropdown {
+  border-radius: 12px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  box-shadow: 0 16px 48px rgba(15, 23, 42, 0.12);
+  overflow: hidden;
+}
+
+.ikas-editor-page-select__menu {
+  border-radius: 12px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  box-shadow: 0 16px 48px rgba(15, 23, 42, 0.12);
+}
+
+.ec-platform-main--editor {
+  background: #eef1f5;
+}
+
+.ec-platform-sidebar--channel {
+  background: #fff !important;
+  border-right: 1px solid rgba(15, 23, 42, 0.08) !important;
+  color: #334155 !important;
+}
+
+.ec-platform-sidebar--channel .ec-platform-sidebar__item {
+  color: #475569 !important;
+}
+
+.ec-platform-sidebar--channel .ec-platform-sidebar__item.active {
+  background: rgba(13, 148, 136, 0.1) !important;
+  color: #0f766e !important;
+  box-shadow: inset 3px 0 0 #0d9488 !important;
+}
+
+.ec-platform-sidebar--channel .ec-platform-sidebar__domain-text {
+  color: #0f172a !important;
+  font-weight: 700;
+}
+

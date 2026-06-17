@@ -17,9 +17,9 @@ export default function RadarTabGuide({ tabKey }) {
     const guide = RADAR_TAB_GUIDES[tabKey];
     const [expanded, setExpanded] = useState(() => {
         try {
-            return localStorage.getItem(storageKey(tabKey)) !== "collapsed";
+            return localStorage.getItem(storageKey(tabKey)) === "open";
         } catch {
-            return true;
+            return false;
         }
     });
 

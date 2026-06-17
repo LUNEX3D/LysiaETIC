@@ -1,0 +1,239 @@
+/**
+ * Premium section variants — Dawn / Shopify storefront polish
+ */
+.wb-block-hero.wb-hero--split,
+.wb-block-hero.wb-hero--dawn-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: center;
+  min-height: 480px;
+}
+
+.wb-block-hero.wb-hero--split .wb-block-hero-content,
+.wb-block-hero.wb-hero--dawn-split .wb-block-hero-content {
+  text-align: left;
+  padding: 48px 40px;
+}
+
+.wb-block-hero.wb-hero--split .wb-hero-split-visual,
+.wb-block-hero.wb-hero--dawn-split .wb-hero-split-visual {
+  min-height: 100%;
+  background: linear-gradient(135deg, #e2e8f0, #cbd5e1);
+}
+
+.wb-block-hero.wb-hero--fashion {
+  display: flex;
+  align-items: flex-end;
+  padding-bottom: 64px;
+}
+
+.wb-block-hero.wb-hero--fashion .wb-block-hero-content {
+  text-align: left;
+  max-width: 640px;
+  padding: 48px;
+}
+
+.wb-block-hero.wb-hero--marketplace .wb-hero-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 20px;
+}
+
+.wb-block-hero.wb-hero--marketplace .wb-hero-badge {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+.wb-product-grid--carousel .wb-product-grid {
+  display: flex;
+  gap: 16px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  padding-bottom: 8px;
+}
+
+.wb-product-grid--carousel .wb-product-card {
+  flex: 0 0 min(260px, 72vw);
+  scroll-snap-align: start;
+}
+
+.wb-product-grid--tabbed .wb-product-tabs {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+.wb-product-grid--tabbed .wb-product-tab {
+  border: 1px solid var(--lysia-border, #e2e8f0);
+  background: #fff;
+  padding: 8px 18px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: default;
+}
+
+.wb-product-grid--tabbed .wb-product-tab.is-active {
+  background: var(--color-primary, #0f172a);
+  color: #fff;
+  border-color: transparent;
+}
+
+.wb-product-grid--fashion .wb-product-card-image {
+  aspect-ratio: 3/4 !important;
+  height: auto !important;
+}
+
+.wb-product-grid--marketplace .wb-product-grid {
+  gap: 12px;
+}
+
+.wb-product-grid--marketplace .wb-product-card {
+  font-size: 13px;
+}
+
+.wb-category-grid--carousel .wb-category-grid {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+}
+
+.wb-category-grid--editorial .wb-category-grid {
+  gap: 20px;
+}
+
+.wb-category-grid--editorial .wb-category-card {
+  aspect-ratio: 3 / 4;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.wb-category-grid--editorial .wb-category-card-label {
+  font-family: Georgia, "Times New Roman", serif;
+  letter-spacing: 0.02em;
+}
+
+.wb-category-grid--showcase .wb-category-card {
+  min-height: 200px;
+  border-radius: 16px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+}
+
+.wb-product-grid--showcase .wb-product-card-image {
+  border-radius: 12px;
+}
+
+.wb-announcement--simple {
+  text-align: center;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 10px 16px;
+}
+
+.wb-trust-badges {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 16px;
+  padding: 32px 24px;
+  max-width: var(--preview-container, 1280px);
+  margin: 0 auto;
+}
+
+.wb-trust-badge {
+  text-align: center;
+  padding: 16px;
+  border-radius: 12px;
+  background: var(--color-surface, #f8fafc);
+  border: 1px solid var(--color-border, #e2e8f0);
+}
+
+.wb-trust-badge__icon {
+  font-size: 28px;
+  display: block;
+  margin-bottom: 8px;
+}
+
+.wb-statistics {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 24px;
+  padding: 48px 24px;
+  text-align: center;
+  max-width: var(--preview-container, 1280px);
+  margin: 0 auto;
+}
+
+@media (max-width: 768px) {
+  .wb-statistics {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .wb-block-hero.wb-hero--split,
+  .wb-block-hero.wb-hero--dawn-split {
+    grid-template-columns: 1fr;
+  }
+}
+
+.wb-statistics__value {
+  font-size: 32px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.wb-statistics__label {
+  font-size: 13px;
+  color: var(--color-text-secondary, #64748b);
+  margin-top: 4px;
+}
+
+.wb-instagram-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 4px;
+  padding: 0 24px 32px;
+  max-width: var(--preview-container, 1280px);
+  margin: 0 auto;
+}
+
+.wb-instagram-grid__cell {
+  aspect-ratio: 1;
+  background: linear-gradient(145deg, #e2e8f0, #cbd5e1);
+  border-radius: 4px;
+}
+
+.wb-footer-block {
+  padding: 40px 24px;
+  border-top: 1px solid var(--color-border, #e2e8f0);
+  background: var(--color-surface, #fafafa);
+}
+
+.wb-footer-block--luxury {
+  text-align: center;
+  letter-spacing: 0.08em;
+  font-size: 12px;
+}
+
+.wb-footer-block--marketplace .wb-footer-payments {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-top: 16px;
+}
+
+.wb-faq-accordion details {
+  border-bottom: 1px solid #e2e8f0;
+  padding: 12px 0;
+}
+
+.wb-faq-accordion summary {
+  font-weight: 600;
+  cursor: pointer;
+}

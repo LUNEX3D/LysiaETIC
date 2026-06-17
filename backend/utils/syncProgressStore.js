@@ -11,7 +11,7 @@ const TTL_MS = 20 * 60 * 1000;
 
 /**
  * @param {import("mongoose").Types.ObjectId|string} userId
- * @param {"marketplace_pull"|"marketplace_pull_all"|"auto_stock_sync"} type
+ * @param {"marketplace_pull"|"marketplace_pull_all"|"auto_stock_sync"|"missing_distribution"} type
  * @param {object} [meta]
  */
 const createJob = (userId, type, meta = {}) => {
@@ -37,8 +37,47 @@ const createJob = (userId, type, meta = {}) => {
 
 const updateJob = (id, patch) => {
     const j = jobs.get(id);
-    if (!j || j.status !== "running") return;
+    if (!j || !["running", "paused"].includes(j.status)) return;
     Object.assign(j, patch, { updatedAt: Date.now() });
+};
+
+const requestPauseJob = (id) => {
+    const j = jobs.get(id);
+    if (!j || j.status !== "running") return false;
+    j.pauseRequested = true;
+    j.updatedAt = Date.now();
+    return true;
+};
+
+const resumeJob = (id) => {
+    const j = jobs.get(id);
+    if (!j || j.status !== "paused") return false;
+    j.pauseRequested = false;
+    j.status = "running";
+    j.message = j.message || "Devam ediliyor…";
+    j.updatedAt = Date.now();
+    return true;
+};
+
+const requestCancelJob = (id) => {
+    const j = jobs.get(id);
+    if (!j || !["running", "paused"].includes(j.status)) return false;
+    j.cancelRequested = true;
+    j.pauseRequested = false;
+    j.updatedAt = Date.now();
+    return true;
+};
+
+const cancelJob = (id, result = null) => {
+    const j = jobs.get(id);
+    if (!j) return;
+    j.status = "cancelled";
+    j.progressPercent = j.progressPercent || 0;
+    j.phase = "cancelled";
+    j.result = result;
+    j.cancelRequested = false;
+    j.pauseRequested = false;
+    j.updatedAt = Date.now();
 };
 
 const completeJob = (id, result) => {
@@ -75,6 +114,10 @@ module.exports = {
     updateJob,
     completeJob,
     failJob,
+    cancelJob,
+    requestPauseJob,
+    resumeJob,
+    requestCancelJob,
     getJob,
     assertJobUser
 };

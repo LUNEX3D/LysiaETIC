@@ -5,11 +5,11 @@
 import React, { useState, useMemo } from "react";
 import { motion } from "framer-motion";
 import {
-    FaSearch, FaPlus, FaSyncAlt, FaEye, FaDownload, FaPrint, FaSpinner,
+    FaSearch, FaPlus, FaSyncAlt, FaEye, FaDownload, FaSpinner, FaInfoCircle,
 } from "react-icons/fa";
 import { colors, buttonPrimary, buttonSecondary } from "../styles";
-import { StatusBadge, TypeBadge, EmptyState, LoadingState } from "./SharedUI";
-import { fmtCurrency, fmtDate, filterInvoices } from "../utils";
+import { StatusBadge, TypeBadge, EmptyState, LoadingState, BillingSelect, SovosCancelBadge } from "./SharedUI";
+import { fmtCurrency, fmtDate, filterInvoices, resolveInvoiceIds } from "../utils";
 
 const InvoiceTable = ({
     invoices,
@@ -18,10 +18,15 @@ const InvoiceTable = ({
     onRefresh,
     onCreateNew,
     onViewDetail,
+    onPreview,
     onDownload,
-    pdfLoading,
+    isDocLoading,
+    isAnyDocLoading,
     showFilters = true,
+    showSovosCancelColumn = false,
     title,
+    emptyTitle,
+    emptyDescription,
 }) => {
     const [filterType, setFilterType] = useState("all");
     const [filterStatus, setFilterStatus] = useState("all");
@@ -39,20 +44,21 @@ const InvoiceTable = ({
         return <LoadingState message="Belgeler yükleniyor..." sub="Sağlayıcınızdan veriler çekiliyor, lütfen bekleyin." />;
     }
 
-    const selectStyle = {
-        background: colors.glass,
-        border: "1px solid " + colors.glassBr,
-        borderRadius: 10,
-        padding: "0.65rem 0.75rem",
-        color: "#fff",
-        fontSize: "0.8rem",
-        outline: "none",
-        cursor: "pointer",
-    };
-    const optionStyle = { background: "#1a1f35" };
+    const selectFieldStyle = { minWidth: 140, flex: "1 1 140px" };
+    const gridCols = showSovosCancelColumn
+        ? "2fr 1fr 1.5fr 1fr 1fr 0.9fr 1fr 0.8fr"
+        : "2fr 1fr 1.5fr 1fr 1fr 1fr 0.8fr";
+    const headers = showSovosCancelColumn
+        ? ["Belge No", "Tip", "Müşteri / VKN", "Tarih", "Tutar", "Durum", "İptal Edildi Mi?", "İşlem"]
+        : ["Belge No", "Tip", "Müşteri / VKN", "Tarih", "Tutar", "Durum", "İşlem"];
 
     return (
-        <div>
+        <div style={{
+            background: colors.cardGradient,
+            border: "1px solid " + colors.border,
+            borderRadius: 16,
+            padding: "1.25rem 1.5rem",
+        }}>
             {/* ── Filtreler ── */}
             {showFilters && (
                 <div style={{ display: "flex", gap: "0.75rem", marginBottom: "1.25rem", flexWrap: "wrap", alignItems: "center" }}>
@@ -76,22 +82,22 @@ const InvoiceTable = ({
                             }}
                         />
                     </div>
-                    <select value={filterType} onChange={(e) => setFilterType(e.target.value)} style={selectStyle}>
-                        <option value="all" style={optionStyle}>Tüm Tipler</option>
-                        <option value="e-arsiv" style={optionStyle}>e-Arşiv</option>
-                        <option value="e-fatura" style={optionStyle}>e-Fatura</option>
-                        <option value="e-fatura-gelen" style={optionStyle}>Gelen e-Fatura</option>
-                        <option value="e-irsaliye" style={optionStyle}>e-İrsaliye</option>
-                    </select>
-                    <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} style={selectStyle}>
-                        <option value="all" style={optionStyle}>Tüm Durumlar</option>
-                        <option value="approved" style={optionStyle}>Onaylandı</option>
-                        <option value="succeed" style={optionStyle}>Başarılı</option>
-                        <option value="sent" style={optionStyle}>Gönderildi</option>
-                        <option value="pending" style={optionStyle}>Beklemede</option>
-                        <option value="cancelled" style={optionStyle}>İptal</option>
-                        <option value="received" style={optionStyle}>Alındı</option>
-                    </select>
+                    <BillingSelect value={filterType} onChange={(e) => setFilterType(e.target.value)} style={selectFieldStyle} options={[
+                        { value: "all", label: "Tüm Tipler" },
+                        { value: "e-arsiv", label: "e-Arşiv" },
+                        { value: "e-fatura", label: "e-Fatura" },
+                        { value: "e-fatura-gelen", label: "Gelen e-Fatura" },
+                        { value: "e-irsaliye", label: "e-İrsaliye" },
+                    ]} />
+                    <BillingSelect value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} style={selectFieldStyle} options={[
+                        { value: "all", label: "Tüm Durumlar" },
+                        { value: "approved", label: "Onaylandı" },
+                        { value: "succeed", label: "Başarılı" },
+                        { value: "sent", label: "Gönderildi" },
+                        { value: "pending", label: "Beklemede" },
+                        { value: "cancelled", label: "İptal" },
+                        { value: "received", label: "Alındı" },
+                    ]} />
                     <motion.button
                         whileHover={{ scale: 1.03 }}
                         whileTap={{ scale: 0.97 }}
@@ -135,16 +141,6 @@ const InvoiceTable = ({
                         >
                             {loading ? <FaSpinner style={{ animation: "spin 1s linear infinite" }} /> : <FaSyncAlt />} Yenile
                         </motion.button>
-                        {onCreateNew && (
-                            <motion.button
-                                whileHover={{ scale: 1.03 }}
-                                whileTap={{ scale: 0.97 }}
-                                onClick={onCreateNew}
-                                style={{ ...buttonPrimary, padding: "0.45rem 1rem", fontSize: "0.78rem" }}
-                            >
-                                <FaPlus /> Yeni Belge
-                            </motion.button>
-                        )}
                     </div>
                 </div>
             )}
@@ -156,14 +152,14 @@ const InvoiceTable = ({
                     <div
                         style={{
                             display: "grid",
-                            gridTemplateColumns: "2fr 1fr 1.5fr 1fr 1fr 1fr 0.8fr",
+                            gridTemplateColumns: gridCols,
                             gap: "0.5rem",
                             padding: "0.6rem 1rem",
                             marginBottom: "0.4rem",
                             borderBottom: "2px solid " + colors.accent + "20",
                         }}
                     >
-                        {["Belge No", "Tip", "Müşteri / VKN", "Tarih", "Tutar", "Durum", "İşlem"].map((h) => (
+                        {headers.map((h) => (
                             <span key={h} style={{ color: colors.dim, fontSize: "0.68rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
                                 {h}
                             </span>
@@ -172,16 +168,20 @@ const InvoiceTable = ({
 
                     {/* Satırlar */}
                     <div style={{ display: "flex", flexDirection: "column", gap: "0.25rem" }}>
-                        {filtered.map((inv, idx) => (
+                        {filtered.map((inv, idx) => {
+                            const ids = resolveInvoiceIds(inv);
+                            const rowKey = ids.lookupId || inv.number || idx;
+                            const loadingKey = ids.lookupId || ids.uuid;
+                            return (
                             <motion.div
-                                key={inv.id}
+                                key={rowKey}
                                 initial={{ opacity: 0 }}
                                 animate={{ opacity: 1 }}
                                 transition={{ delay: Math.min(idx * 0.02, 0.3) }}
                                 whileHover={{ backgroundColor: "rgba(78,205,196,0.04)" }}
                                 style={{
                                     display: "grid",
-                                    gridTemplateColumns: "2fr 1fr 1.5fr 1fr 1fr 1fr 0.8fr",
+                                    gridTemplateColumns: gridCols,
                                     gap: "0.5rem",
                                     alignItems: "center",
                                     padding: "0.7rem 1rem",
@@ -207,71 +207,87 @@ const InvoiceTable = ({
                                 <span style={{ color: colors.green, fontSize: "0.82rem", fontWeight: 700 }}>
                                     {inv.total > 0 ? fmtCurrency(inv.total) : "—"}
                                 </span>
-                                <StatusBadge status={inv.status} />
+                                <StatusBadge status={inv.status} statusCode={inv.statusCode} provider={inv.provider} />
+                                {showSovosCancelColumn && (
+                                    <SovosCancelBadge
+                                        cancelled={inv.sovosCancelled ?? inv.status === "cancelled"}
+                                        provider={inv.provider}
+                                        profileId={inv.raw?.profileId}
+                                    />
+                                )}
                                 <div style={{ display: "flex", gap: "0.3rem" }}>
+                                    {onViewDetail && (
+                                        <motion.button
+                                            whileHover={{ scale: 1.15 }}
+                                            whileTap={{ scale: 0.9 }}
+                                            title="Detay"
+                                            onClick={() => onViewDetail(inv)}
+                                            style={{
+                                                background: colors.glass,
+                                                border: "1px solid " + colors.glassBr,
+                                                borderRadius: 6,
+                                                padding: "0.35rem",
+                                                cursor: "pointer",
+                                                color: colors.muted,
+                                                fontSize: "0.75rem",
+                                                display: "flex",
+                                            }}
+                                        >
+                                            <FaInfoCircle />
+                                        </motion.button>
+                                    )}
                                     <motion.button
                                         whileHover={{ scale: 1.15 }}
                                         whileTap={{ scale: 0.9 }}
-                                        title="Detay Görüntüle"
-                                        onClick={() => onViewDetail && onViewDetail(inv)}
+                                        title="Önizle"
+                                        onClick={() => (onPreview || onViewDetail) && (onPreview ? onPreview(inv) : onViewDetail(inv))}
+                                        disabled={isAnyDocLoading?.(loadingKey)}
                                         style={{
                                             background: colors.glass,
                                             border: "1px solid " + colors.glassBr,
                                             borderRadius: 6,
                                             padding: "0.35rem",
-                                            cursor: "pointer",
+                                            cursor: isAnyDocLoading?.(loadingKey) ? "wait" : "pointer",
                                             color: colors.accent,
                                             fontSize: "0.75rem",
                                             display: "flex",
+                                            opacity: isAnyDocLoading?.(loadingKey) ? 0.5 : 1,
                                         }}
                                     >
-                                        <FaEye />
-                                    </motion.button>
-                                    <motion.button
-                                        whileHover={{ scale: 1.15 }}
-                                        whileTap={{ scale: 0.9 }}
-                                        title="İndir"
-                                        onClick={() => onDownload && onDownload(inv.id, inv.number)}
-                                        disabled={pdfLoading === inv.id}
-                                        style={{
-                                            background: colors.glass,
-                                            border: "1px solid " + colors.glassBr,
-                                            borderRadius: 6,
-                                            padding: "0.35rem",
-                                            cursor: "pointer",
-                                            color: colors.blue,
-                                            fontSize: "0.75rem",
-                                            display: "flex",
-                                            opacity: pdfLoading === inv.id ? 0.5 : 1,
-                                        }}
-                                    >
-                                        {pdfLoading === inv.id ? (
+                                        {isDocLoading?.(loadingKey, "preview") ? (
                                             <FaSpinner style={{ animation: "spin 1s linear infinite" }} />
                                         ) : (
-                                            <FaDownload />
+                                            <FaEye />
                                         )}
                                     </motion.button>
                                     <motion.button
                                         whileHover={{ scale: 1.15 }}
                                         whileTap={{ scale: 0.9 }}
-                                        title="Yazdır"
-                                        onClick={() => onDownload && onDownload(inv.id, inv.number)}
+                                        title="İndir / Görüntüle"
+                                        onClick={() => onDownload && onDownload(inv)}
+                                        disabled={isAnyDocLoading?.(loadingKey)}
                                         style={{
                                             background: colors.glass,
                                             border: "1px solid " + colors.glassBr,
                                             borderRadius: 6,
                                             padding: "0.35rem",
-                                            cursor: "pointer",
-                                            color: colors.muted,
+                                            cursor: isAnyDocLoading?.(loadingKey) ? "wait" : "pointer",
+                                            color: colors.blue,
                                             fontSize: "0.75rem",
                                             display: "flex",
+                                            opacity: isAnyDocLoading?.(loadingKey) ? 0.5 : 1,
                                         }}
                                     >
-                                        <FaPrint />
+                                        {isDocLoading?.(loadingKey, "download") ? (
+                                            <FaSpinner style={{ animation: "spin 1s linear infinite" }} />
+                                        ) : (
+                                            <FaDownload />
+                                        )}
                                     </motion.button>
                                 </div>
                             </motion.div>
-                        ))}
+                            );
+                        })}
                     </div>
 
                     {/* Alt bilgi */}
@@ -296,11 +312,11 @@ const InvoiceTable = ({
             ) : (
                 <EmptyState
                     icon="📭"
-                    title="Belge bulunamadı"
+                    title={emptyTitle || "Belge bulunamadı"}
                     description={
                         loading
                             ? "Belgeler yükleniyor..."
-                            : "Bu kategoride sağlayıcınızda kayıtlı belge bulunamadı. Yeni belge oluşturmak için 'Yeni Belge' butonunu kullanabilirsiniz."
+                            : (emptyDescription || "Bu kategoride sağlayıcınızda kayıtlı belge bulunamadı. Yeni belge oluşturmak için 'Yeni Belge' butonunu kullanabilirsiniz.")
                     }
                 />
             )}

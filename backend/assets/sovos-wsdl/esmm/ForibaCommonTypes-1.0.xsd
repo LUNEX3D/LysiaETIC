@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- ©2019 Foriba -->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns="http://foriba.com/eSmm/" targetNamespace="http://foriba.com/eSmm/" elementFormDefault="qualified" attributeFormDefault="unqualified">
+	<xs:element name="ProcessingFault">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element name="Code" type="xs:int"/>
+				<xs:element name="Message" type="xs:string"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+</xs:schema>
+

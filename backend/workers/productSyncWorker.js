@@ -20,6 +20,7 @@ const {
 } = require("../services/productSyncService");
 const { autoStockSync } = require("../services/stockSyncService");
 const Marketplace = require("../models/Marketplace");
+const { runMissingDistributionJob } = require("../services/missingDistributionService");
 
 if (!isBullEnabled() || !getBullConnection()) {
     logger.error("[SyncWorker] REDIS_URL ve SYNC_USE_BULLMQ=true gerekli.");
@@ -105,6 +106,21 @@ async function main() {
                 });
             });
             return { results };
+        }
+
+        if (type === "missing_distribution") {
+            const options = (meta && meta.options) || {};
+            return runMissingDistributionJob(userId, async (evt) => {
+                await job.updateProgress({
+                    phase: evt.phase,
+                    progressPercent: evt.progressPercent,
+                    current: evt.current,
+                    total: evt.total,
+                    message: evt.message,
+                    platformStats: evt.platformStats,
+                    pendingCount: evt.pendingCount
+                });
+            }, options);
         }
 
         throw new Error(`Bilinmeyen iş tipi: ${type}`);

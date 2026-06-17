@@ -23,8 +23,10 @@ export const colors = {
     pink: "#ff61d8",
     orange: "#ff8c00",
     text: "#e8edf5",
-    muted: "#7a8ba8",
-    dim: "#4a5568",
+    muted: "#a8b4c8",
+    dim: "#8b97ab",
+    textMuted: "#b4c0d4",
+    subtle: "#9aa8be",
     glass: "rgba(255,255,255,0.02)",
     glassBr: "rgba(255,255,255,0.05)",
 };
@@ -42,15 +44,23 @@ export const glassCardStyle = {
 
 export const inputStyle = {
     width: "100%",
-    background: "rgba(255,255,255,0.04)",
-    border: "1px solid rgba(255,255,255,0.1)",
+    background: "rgba(255,255,255,0.06)",
+    border: "1px solid rgba(255,255,255,0.14)",
     borderRadius: 8,
     padding: "0.6rem 0.85rem",
-    color: "#fff",
-    fontSize: "0.82rem",
+    color: "#f4f7fb",
+    fontSize: "0.85rem",
     outline: "none",
     boxSizing: "border-box",
     transition: "border-color 0.2s",
+};
+
+export const textareaStyle = {
+    ...inputStyle,
+    minHeight: "130px",
+    resize: "vertical",
+    lineHeight: 1.55,
+    fontFamily: "inherit",
 };
 
 export const inputFocusStyle = {
@@ -58,11 +68,58 @@ export const inputFocusStyle = {
 };
 
 export const labelStyle = {
-    color: colors.muted,
-    fontSize: "0.75rem",
+    color: colors.textMuted,
+    fontSize: "0.8rem",
     fontWeight: 600,
-    marginBottom: "0.3rem",
+    marginBottom: "0.35rem",
     display: "block",
+    letterSpacing: "0.01em",
+};
+
+export const helpTextStyle = {
+    color: colors.textMuted,
+    fontSize: "0.8rem",
+    lineHeight: 1.55,
+    margin: "0.35rem 0 0",
+};
+
+export const sectionCardStyle = {
+    background: colors.glass,
+    border: "1px solid " + colors.glassBr,
+    borderRadius: 14,
+    padding: "1.15rem 1.25rem",
+    marginBottom: "1rem",
+};
+
+export const formSectionTitleStyle = {
+    color: colors.accent,
+    fontSize: "0.88rem",
+    fontWeight: 700,
+    margin: "0 0 0.85rem",
+    display: "flex",
+    alignItems: "center",
+    gap: "0.45rem",
+};
+
+export const infoBannerStyle = (tone = "accent") => ({
+    background: colors[tone] + "12",
+    border: "1px solid " + colors[tone] + "35",
+    borderRadius: 10,
+    padding: "0.65rem 0.85rem",
+    color: colors[tone],
+    fontSize: "0.78rem",
+    lineHeight: 1.5,
+});
+
+export const chipInactiveStyle = {
+    background: "rgba(255,255,255,0.05)",
+    border: "1px solid rgba(255,255,255,0.12)",
+    color: colors.text,
+};
+
+export const selectOptionStyle = {
+    background: "#1a2438",
+    color: "#f4f7fb",
 };
 
 export const selectStyle = {
@@ -207,14 +264,37 @@ export const alertStyle = (color) => ({
 
 export const sectionTitleStyle = {
     color: "#fff",
-    fontSize: "0.9rem",
+    fontSize: "0.95rem",
     fontWeight: 700,
     margin: "1.5rem 0 0.75rem",
     display: "flex",
     alignItems: "center",
     gap: "0.4rem",
     paddingBottom: "0.5rem",
-    borderBottom: "1px solid rgba(255,255,255,0.06)",
+    borderBottom: "1px solid rgba(255,255,255,0.1)",
+};
+
+export const collapsibleHeaderStyle = (open) => ({
+    width: "100%",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "0.75rem",
+    padding: "0.85rem 1rem",
+    background: open ? "rgba(0,240,255,0.08)" : "rgba(255,255,255,0.04)",
+    border: "1px solid " + (open ? "rgba(0,240,255,0.22)" : "rgba(255,255,255,0.1)"),
+    borderRadius: open ? "12px 12px 0 0" : 12,
+    cursor: "pointer",
+    color: "#fff",
+    textAlign: "left",
+});
+
+export const collapsibleBodyStyle = {
+    padding: "1rem",
+    border: "1px solid rgba(255,255,255,0.1)",
+    borderTop: "none",
+    borderRadius: "0 0 12px 12px",
+    background: "rgba(0,0,0,0.15)",
 };
 
 export const kpiCardStyle = (color) => ({
@@ -230,7 +310,7 @@ export const kpiCardStyle = (color) => ({
 export const emptyStateStyle = {
     textAlign: "center",
     padding: "3rem 1.5rem",
-    color: colors.dim,
+    color: colors.textMuted,
 };
 
 /* ═══════════════════════════════════════════════════════════
@@ -252,6 +332,17 @@ export const globalKeyframes = `
     @keyframes pulse {
         0%, 100% { opacity: 1; }
         50% { opacity: 0.6; }
+    }
+    .billing-page select,
+    .billing-select {
+        color-scheme: dark;
+        color: #f4f7fb !important;
+        background-color: #1a2438 !important;
+    }
+    .billing-page select option,
+    .billing-select option {
+        color: #f4f7fb !important;
+        background-color: #1a2438 !important;
     }
 `;
 

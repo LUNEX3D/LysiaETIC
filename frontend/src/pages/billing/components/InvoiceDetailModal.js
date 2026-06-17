@@ -8,23 +8,35 @@ import {
     FaTimes, FaFileInvoiceDollar, FaBuilding, FaCalendarAlt, FaLink,
     FaCog, FaHashtag, FaClipboardList, FaFileInvoice, FaChevronDown,
     FaInfoCircle, FaEye, FaDownload, FaPrint, FaSpinner, FaExclamationTriangle,
+    FaSyncAlt, FaBan, FaTrash, FaCheck, FaTimesCircle,
 } from "react-icons/fa";
 import { colors, modalOverlay, modalContent } from "../styles";
 import { StatusBadge, TypeBadge, Pill, DetailField } from "./SharedUI";
 import { PROVIDERS } from "../constants";
-import { fmtCurrency, fmtDate } from "../utils";
+import { fmtCurrency, fmtDate, resolveInvoiceIds } from "../utils";
 
 const InvoiceDetailModal = ({
     invoice,
     detailData,
     detailLoading,
-    pdfLoading,
+    isDocLoading,
+    isAnyDocLoading,
     onClose,
     onPreview,
     onDownload,
+    onRefreshStatus,
+    onCancel,
+    onDelete,
+    onRespond,
+    onDownloadSigned,
+    onRetrigger,
+    onDetailedQuery,
+    actionError,
 }) => {
     const [rawDataOpen, setRawDataOpen] = useState(false);
     const [linesOpen, setLinesOpen] = useState(true);
+    const [actionLoading, setActionLoading] = useState("");
+    const [localError, setLocalError] = useState("");
 
     if (!invoice) return null;
 
@@ -37,16 +49,42 @@ const InvoiceDetailModal = ({
     const invNo = (hasDbData ? dbInv.invoiceNumber : invoice.number) || invoice.faturaNo || "—";
     const invUuid = (hasDbData ? dbInv.uuid : invoice.id) || invoice.uuid || "";
     const invStatus = (hasDbData ? dbInv.status : invoice.status) || "";
+    const statusCode = (hasDbData ? dbInv.providerStatusCode : invoice.raw?.statusCode) || (hasDbData ? dbInv.providerResponse?.resultCode : "") || "";
+    const statusLabel = (hasDbData ? dbInv.providerStatusLabel : "") || "";
     const invDate = (hasDbData ? dbInv.issueDate : invoice.date) || invoice.tarih || "";
     const invCurrency = (hasDbData ? dbInv.currency : invoice.currency) || "TRY";
     const invNote = (hasDbData ? dbInv.note : "") || "";
 
     // Profil & tip
     const profileId = (hasDbData ? dbInv.profileId : "") || "";
-    const profileLabels = { EARSIVFATURA: "e-Arşiv Fatura", TICARIFATURA: "Ticari Fatura", TEMELFATURA: "Temel Fatura", IRSALIYE: "İrsaliye" };
+    const profileLabels = {
+        EARSIVFATURA: "e-Arşiv Fatura", TICARIFATURA: "Ticari Fatura", TEMELFATURA: "Temel Fatura",
+        IRSALIYE: "İrsaliye", IHRACAT: "İhracat Fatura", YOLCUBERABERFATURA: "Yolcu Beraber Fatura",
+    };
     const invoiceTypeCode = (hasDbData ? dbInv.invoiceTypeCode : "") || "";
     const typeLabels = { SATIS: "Satış", IADE: "İİade", TEVKIFAT: "Tevkifat", ISTISNA: "İstisna" };
     const invType = invoice.type || (profileId === "EARSIVFATURA" ? "e-arsiv" : "e-fatura");
+    const isEArchive = profileId === "EARSIVFATURA" || invType === "e-arsiv";
+    const direction = (hasDbData ? dbInv.direction : invoice.direction) || invoice.raw?.direction || "outgoing";
+    const isIncoming = direction === "incoming" || invType === "e-fatura-gelen";
+
+    // Sipariş & Sağlayıcı (docRef için önce tanımlanmalı)
+    const providerKey = (hasDbData ? dbInv.provider : invoice.provider) || invoice.raw?.provider || "";
+    const actionTarget = hasDbData ? dbInv : invoice;
+    const docRef = hasDbData
+        ? { ...dbInv, number: invNo, direction, provider: providerKey, env: dbInv.env || "test" }
+        : { ...invoice, direction, provider: providerKey || invoice.provider, env: invoice.env || invoice.raw?.env || "test" };
+    const docIds = resolveInvoiceIds(docRef);
+    const docActionKey = docIds.lookupId || docIds.uuid || "";
+    const previewBusy = isDocLoading?.(docActionKey, "preview");
+    const downloadBusy = isDocLoading?.(docActionKey, "download");
+    const anyDocBusy = isAnyDocLoading?.(docActionKey);
+
+    const canRespond = Boolean(onRespond) && providerKey === "sovos" && isIncoming &&
+        profileId === "TICARIFATURA" &&
+        invStatus !== "accepted" && invStatus !== "rejected" && invStatus !== "cancelled";
+    const canCancel = isEArchive && invStatus !== "cancelled";
+    const canSovosEArchiveTools = providerKey === "sovos" && isEArchive;
 
     // Tutarlar
     const payable = hasDbData ? (dbInv.totals?.payableAmount || 0) : (invoice.total || invoice.tutar || 0);
@@ -65,21 +103,51 @@ const InvoiceDetailModal = ({
     // Kalemler
     const lines = hasDbData ? (dbInv.lines || []) : [];
 
-    // Sipariş & Sağlayıcı
     const orderNo = (hasDbData ? dbInv.orderNumber : "") || "";
     const marketplace = (hasDbData ? dbInv.marketplaceName : "") || "";
-    const providerKey = (hasDbData ? dbInv.provider : invoice.provider) || "";
     const providerLabel = (PROVIDERS.find((p) => p.id === providerKey) || {}).name || providerKey || "—";
     const envLabel = (hasDbData ? dbInv.env : "") === "production" ? "Canlı" : "Test";
     const createdBy = (hasDbData ? dbInv.createdBy : "") || "";
     const createdByLabels = { auto: "Otomatik", manual: "Manuel", "batch-script": "Toplu İşlem" };
 
-    // QNB yanıt
+    // Sağlayıcı yanıt bilgileri
     const provResp = hasDbData ? dbInv.providerResponse : null;
+    const providerResponseTitle =
+        providerKey === "sovos" ? "Sovos Yanıt Bilgileri"
+            : providerKey === "qnb" ? "QNB Yanıt Bilgileri"
+                : "Sağlayıcı Yanıt Bilgileri";
     const faturaURL = (hasDbData ? dbInv.faturaURL : "") || "";
     const errorMsg = (hasDbData ? dbInv.errorMessage : "") || "";
     const createdAt = (hasDbData ? dbInv.createdAt : "") || "";
     const updatedAt = (hasDbData ? dbInv.updatedAt : "") || "";
+
+    const runAction = async (key, fn) => {
+        if (!fn) return;
+        setActionLoading(key);
+        setLocalError("");
+        try {
+            const result = await fn(docRef);
+            if (result?.error) setLocalError(result.error);
+        } finally {
+            setActionLoading("");
+        }
+    };
+
+    const handleCancel = () => {
+        if (!window.confirm("Bu e-Arşiv faturayı iptal etmek (itiraz) istediğinize emin misiniz? Bu işlem geri alınamaz.")) return;
+        runAction("cancel", () => onCancel(docRef));
+    };
+
+    const handleDelete = () => {
+        if (!window.confirm("Bu fatura kaydı LysiaETIC veritabanından silinecek. Sovos/QNB üzerindeki belge silinmez. Devam edilsin mi?")) return;
+        runAction("delete", () => onDelete(docRef));
+    };
+
+    const handleRespond = (code) => {
+        const label = code === "KABUL" ? "kabul" : "red";
+        if (!window.confirm("Bu gelen e-Faturayı " + label + " etmek istediğinize emin misiniz?")) return;
+        runAction(code, () => onRespond(docRef, code));
+    };
 
     return (
         <AnimatePresence>
@@ -114,7 +182,7 @@ const InvoiceDetailModal = ({
                                 <TypeBadge type={invType} />
                             </div>
                             <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
-                                <StatusBadge status={invStatus} />
+                                <StatusBadge status={invStatus} statusCode={statusCode} provider={providerKey} profileId={profileId} />
                                 {profileId && <Pill color={colors.blue}>{profileLabels[profileId] || profileId}</Pill>}
                                 {invoiceTypeCode && <Pill color={colors.orange}>{typeLabels[invoiceTypeCode] || invoiceTypeCode}</Pill>}
                                 {createdBy && <Pill color={colors.dim}>{createdByLabels[createdBy] || createdBy}</Pill>}
@@ -217,16 +285,16 @@ const InvoiceDetailModal = ({
                     {lines.length > 0 && (
                         <div style={{ marginBottom: "1rem" }}>
                             <div onClick={() => setLinesOpen((p) => !p)}
-                                style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.65rem 0.85rem", background: colors.glass, border: "1px solid " + colors.glassBr, borderRadius: linesOpen ? "10px 10px 0 0" : 10, cursor: "pointer" }}>
+                                style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.7rem 0.9rem", background: linesOpen ? "rgba(0,240,255,0.08)" : colors.glass, border: "1px solid " + (linesOpen ? "rgba(0,240,255,0.22)" : colors.glassBr), borderRadius: linesOpen ? "10px 10px 0 0" : 10, cursor: "pointer" }}>
                                 <FaFileInvoice style={{ color: colors.accent, fontSize: "0.8rem" }} />
-                                <span style={{ color: colors.muted, fontSize: "0.78rem", fontWeight: 700, flex: 1 }}>Fatura Kalemleri ({lines.length})</span>
-                                <FaChevronDown style={{ color: colors.dim, fontSize: "0.7rem", transform: linesOpen ? "rotate(180deg)" : "rotate(0)", transition: "transform 0.2s" }} />
+                                <span style={{ color: colors.text, fontSize: "0.82rem", fontWeight: 700, flex: 1 }}>Fatura Kalemleri ({lines.length})</span>
+                                <FaChevronDown style={{ color: colors.textMuted, fontSize: "0.78rem", transform: linesOpen ? "rotate(180deg)" : "rotate(0)", transition: "transform 0.2s" }} />
                             </div>
                             {linesOpen && (
                                 <div style={{ border: "1px solid " + colors.glassBr, borderTop: "none", borderRadius: "0 0 10px 10px", overflow: "hidden" }}>
                                     <div style={{ display: "grid", gridTemplateColumns: "0.4fr 2.5fr 0.6fr 0.6fr 0.8fr 0.6fr 0.7fr 0.9fr", gap: "0.3rem", padding: "0.5rem 0.75rem", background: "rgba(255,255,255,0.03)" }}>
                                         {["#", "Ürün / Hizmet", "Miktar", "Birim", "Birim Fiyat", "KDV %", "KDV", "Toplam"].map((h) => (
-                                            <span key={h} style={{ color: colors.dim, fontSize: "0.62rem", fontWeight: 700, textTransform: "uppercase" }}>{h}</span>
+                                            <span key={h} style={{ color: colors.textMuted, fontSize: "0.7rem", fontWeight: 700, textTransform: "uppercase" }}>{h}</span>
                                         ))}
                                     </div>
                                     {lines.map((line, idx) => (
@@ -249,7 +317,7 @@ const InvoiceDetailModal = ({
                     {/* ── Not ── */}
                     {invNote && (
                         <div style={{ background: colors.glass, border: "1px solid " + colors.glassBr, borderRadius: 10, padding: "0.75rem 0.85rem", marginBottom: "1rem" }}>
-                            <p style={{ color: colors.dim, fontSize: "0.68rem", fontWeight: 600, margin: "0 0 0.25rem" }}>Not</p>
+                            <p style={{ color: colors.textMuted, fontSize: "0.74rem", fontWeight: 600, margin: "0 0 0.25rem" }}>Not</p>
                             <p style={{ color: colors.text, fontSize: "0.8rem", margin: 0, lineHeight: 1.5 }}>{invNote}</p>
                         </div>
                     )}
@@ -257,10 +325,11 @@ const InvoiceDetailModal = ({
                     {/* ── QNB Yanıt ── */}
                     {provResp && (provResp.resultCode || provResp.islemId) && (
                         <div style={{ background: colors.blue + "06", border: "1px solid " + colors.blue + "18", borderRadius: 12, padding: "0.85rem", marginBottom: "1rem" }}>
-                            <p style={{ color: colors.blue, fontSize: "0.72rem", fontWeight: 700, margin: "0 0 0.5rem", textTransform: "uppercase" }}>QNB Yanıt Bilgileri</p>
+                            <p style={{ color: colors.blue, fontSize: "0.72rem", fontWeight: 700, margin: "0 0 0.5rem", textTransform: "uppercase" }}>{providerResponseTitle}</p>
                             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "0.4rem" }}>
                                 {[
-                                    provResp.resultCode && { label: "Sonuç Kodu", value: provResp.resultCode },
+                                    statusCode && { label: "EK3 Statü Kodu", value: statusCode + (statusLabel ? " — " + statusLabel : "") },
+                                    provResp.resultCode && !statusCode && { label: "Sonuç Kodu", value: provResp.resultCode },
                                     provResp.resultText && { label: "Sonuç Mesajı", value: provResp.resultText },
                                     provResp.islemId && { label: "İşlem ID", value: provResp.islemId },
                                     { label: "İmzalı", value: provResp.signedDocument ? "Evet ✅" : "Hayır" },
@@ -296,13 +365,13 @@ const InvoiceDetailModal = ({
                     {(invoice.raw || hasDbData) && (
                         <div style={{ marginBottom: "1.25rem" }}>
                             <div onClick={() => setRawDataOpen((p) => !p)}
-                                style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.65rem 0.85rem", background: colors.glass, border: "1px solid " + colors.glassBr, borderRadius: rawDataOpen ? "10px 10px 0 0" : 10, cursor: "pointer" }}>
+                                style={{ display: "flex", alignItems: "center", gap: "0.5rem", padding: "0.7rem 0.9rem", background: rawDataOpen ? "rgba(0,240,255,0.08)" : colors.glass, border: "1px solid " + (rawDataOpen ? "rgba(0,240,255,0.22)" : colors.glassBr), borderRadius: rawDataOpen ? "10px 10px 0 0" : 10, cursor: "pointer" }}>
                                 <FaInfoCircle style={{ color: colors.accent, fontSize: "0.75rem" }} />
-                                <span style={{ color: colors.muted, fontSize: "0.75rem", fontWeight: 600, flex: 1 }}>Ham Veri (API / DB Response)</span>
-                                <FaChevronDown style={{ color: colors.dim, fontSize: "0.65rem", transform: rawDataOpen ? "rotate(180deg)" : "rotate(0)", transition: "transform 0.2s" }} />
+                                <span style={{ color: colors.text, fontSize: "0.8rem", fontWeight: 600, flex: 1 }}>Ham Veri (API / DB Response)</span>
+                                <FaChevronDown style={{ color: colors.textMuted, fontSize: "0.74rem", transform: rawDataOpen ? "rotate(180deg)" : "rotate(0)", transition: "transform 0.2s" }} />
                             </div>
                             {rawDataOpen && (
-                                <pre style={{ background: "rgba(0,0,0,0.35)", border: "1px solid " + colors.glassBr, borderTop: "none", borderRadius: "0 0 10px 10px", padding: "0.85rem", margin: 0, color: colors.muted, fontSize: "0.68rem", lineHeight: 1.5, maxHeight: 280, overflowY: "auto", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
+                                <pre style={{ background: "rgba(0,0,0,0.4)", border: "1px solid " + colors.glassBr, borderTop: "none", borderRadius: "0 0 10px 10px", padding: "0.85rem", margin: 0, color: colors.textMuted, fontSize: "0.75rem", lineHeight: 1.6, maxHeight: 280, overflowY: "auto", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
                                     {JSON.stringify(hasDbData ? detailData : (invoice.raw || invoice), null, 2)}
                                 </pre>
                             )}
@@ -310,26 +379,91 @@ const InvoiceDetailModal = ({
                     )}
 
                     {/* ── Alt Butonlar ── */}
+                    {(localError || actionError) && (
+                        <div style={{ ...{ background: colors.red + "10", border: "1px solid " + colors.red + "30", borderRadius: 10, padding: "0.65rem 0.85rem", marginBottom: "0.75rem", display: "flex", gap: "0.5rem", alignItems: "flex-start" } }}>
+                            <FaExclamationTriangle style={{ color: colors.red, marginTop: 2, flexShrink: 0 }} />
+                            <span style={{ color: colors.red, fontSize: "0.78rem" }}>{localError || actionError}</span>
+                        </div>
+                    )}
                     <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-                        {(faturaURL || (hasDbData && dbInv.uuid)) && (
+                        {onRefreshStatus && (
                             <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
-                                onClick={() => {
-                                    // faturaURL varsa doğrudan aç — en güvenilir yöntem
-                                    if (faturaURL) window.open(faturaURL, "_blank");
-                                    else if (invUuid) onPreview(invUuid);
-                                    else if (hasDbData && dbInv._id) onDownload(dbInv._id, invNo);
-                                }}
-                                disabled={!!pdfLoading}
-                                style={{ flex: 1, minWidth: 120, background: colors.accent + "15", border: "1px solid " + colors.accent + "30", borderRadius: 10, padding: "0.65rem", cursor: pdfLoading ? "not-allowed" : "pointer", color: colors.accent, fontSize: "0.82rem", fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: "0.4rem", opacity: pdfLoading ? 0.6 : 1 }}>
-                                {pdfLoading ? <FaSpinner style={{ animation: "spin 1s linear infinite" }} /> : <FaEye />} Önizleme
+                                onClick={() => runAction("refresh", () => onRefreshStatus(docRef))}
+                                disabled={!!actionLoading || anyDocBusy}
+                                style={{ flex: 1, minWidth: 120, background: colors.green + "15", border: "1px solid " + colors.green + "30", borderRadius: 10, padding: "0.65rem", cursor: actionLoading ? "not-allowed" : "pointer", color: colors.green, fontSize: "0.82rem", fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: "0.4rem", opacity: actionLoading ? 0.6 : 1 }}>
+                                {actionLoading === "refresh" ? <FaSpinner style={{ animation: "spin 1s linear infinite" }} /> : <FaSyncAlt />} Durum Güncelle
                             </motion.button>
                         )}
-                        {hasDbData && dbInv._id && (
+                        {(faturaURL || docIds.lookupId || docIds.uuid) && onPreview && (
                             <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
-                                onClick={() => onDownload(dbInv._id, invNo)}
-                                disabled={!!pdfLoading}
-                                style={{ flex: 1, minWidth: 120, background: colors.blue + "15", border: "1px solid " + colors.blue + "30", borderRadius: 10, padding: "0.65rem", cursor: pdfLoading ? "not-allowed" : "pointer", color: colors.blue, fontSize: "0.82rem", fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: "0.4rem", opacity: pdfLoading ? 0.6 : 1 }}>
-                                {pdfLoading ? <FaSpinner style={{ animation: "spin 1s linear infinite" }} /> : <FaDownload />} İndir
+                                onClick={() => onPreview(docRef, invNo)}
+                                disabled={anyDocBusy}
+                                style={{ flex: 1, minWidth: 120, background: colors.accent + "15", border: "1px solid " + colors.accent + "30", borderRadius: 10, padding: "0.65rem", cursor: anyDocBusy ? "not-allowed" : "pointer", color: colors.accent, fontSize: "0.82rem", fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: "0.4rem", opacity: previewBusy ? 0.6 : 1 }}>
+                                {previewBusy ? <FaSpinner style={{ animation: "spin 1s linear infinite" }} /> : <FaEye />} Önizleme
+                            </motion.button>
+                        )}
+                        {(docIds.lookupId || docIds.uuid) && onDownload ? (
+                            <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+                                onClick={() => onDownload(docRef, invNo)}
+                                disabled={anyDocBusy}
+                                style={{ flex: 1, minWidth: 120, background: colors.blue + "15", border: "1px solid " + colors.blue + "30", borderRadius: 10, padding: "0.65rem", cursor: anyDocBusy ? "not-allowed" : "pointer", color: colors.blue, fontSize: "0.82rem", fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: "0.4rem", opacity: downloadBusy ? 0.6 : 1 }}>
+                                {downloadBusy ? <FaSpinner style={{ animation: "spin 1s linear infinite" }} /> : <FaDownload />} İndir
+                            </motion.button>
+                        ) : null}
+                        {canRespond && (
+                            <>
+                                <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+                                    onClick={() => handleRespond("KABUL")}
+                                    disabled={!!actionLoading || anyDocBusy}
+                                    style={{ flex: 1, minWidth: 100, background: colors.green + "15", border: "1px solid " + colors.green + "30", borderRadius: 10, padding: "0.65rem", cursor: actionLoading ? "not-allowed" : "pointer", color: colors.green, fontSize: "0.82rem", fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: "0.4rem", opacity: actionLoading ? 0.6 : 1 }}>
+                                    {actionLoading === "KABUL" ? <FaSpinner style={{ animation: "spin 1s linear infinite" }} /> : <FaCheck />} Kabul
+                                </motion.button>
+                                <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+                                    onClick={() => handleRespond("RED")}
+                                    disabled={!!actionLoading || anyDocBusy}
+                                    style={{ flex: 1, minWidth: 100, background: colors.orange + "15", border: "1px solid " + colors.orange + "30", borderRadius: 10, padding: "0.65rem", cursor: actionLoading ? "not-allowed" : "pointer", color: colors.orange, fontSize: "0.82rem", fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: "0.4rem", opacity: actionLoading ? 0.6 : 1 }}>
+                                    {actionLoading === "RED" ? <FaSpinner style={{ animation: "spin 1s linear infinite" }} /> : <FaTimesCircle />} Red
+                                </motion.button>
+                            </>
+                        )}
+                        {canSovosEArchiveTools && onDownloadSigned && (
+                            <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+                                onClick={() => runAction("signed", () => onDownloadSigned(docRef))}
+                                disabled={!!actionLoading || anyDocBusy}
+                                style={{ flex: 1, minWidth: 120, background: colors.purple + "15", border: "1px solid " + colors.purple + "30", borderRadius: 10, padding: "0.65rem", cursor: actionLoading ? "not-allowed" : "pointer", color: colors.purple, fontSize: "0.82rem", fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: "0.4rem", opacity: actionLoading ? 0.6 : 1 }}>
+                                {actionLoading === "signed" ? <FaSpinner style={{ animation: "spin 1s linear infinite" }} /> : <FaDownload />} İmzalı XML
+                            </motion.button>
+                        )}
+                        {canSovosEArchiveTools && onRetrigger && (
+                            <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+                                onClick={() => runAction("retrigger", () => onRetrigger(docRef))}
+                                disabled={!!actionLoading || anyDocBusy}
+                                style={{ flex: 1, minWidth: 120, background: colors.yellow + "15", border: "1px solid " + colors.yellow + "30", borderRadius: 10, padding: "0.65rem", cursor: actionLoading ? "not-allowed" : "pointer", color: colors.yellow, fontSize: "0.82rem", fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: "0.4rem", opacity: actionLoading ? 0.6 : 1 }}>
+                                {actionLoading === "retrigger" ? <FaSpinner style={{ animation: "spin 1s linear infinite" }} /> : <FaSyncAlt />} Yeniden Tetikle
+                            </motion.button>
+                        )}
+                        {canSovosEArchiveTools && onDetailedQuery && (
+                            <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+                                onClick={() => runAction("detailQuery", () => onDetailedQuery(docRef))}
+                                disabled={!!actionLoading || anyDocBusy}
+                                style={{ flex: 1, minWidth: 120, background: colors.blue + "15", border: "1px solid " + colors.blue + "30", borderRadius: 10, padding: "0.65rem", cursor: actionLoading ? "not-allowed" : "pointer", color: colors.blue, fontSize: "0.82rem", fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: "0.4rem", opacity: actionLoading ? 0.6 : 1 }}>
+                                {actionLoading === "detailQuery" ? <FaSpinner style={{ animation: "spin 1s linear infinite" }} /> : <FaInfoCircle />} Detaylı Sorgu
+                            </motion.button>
+                        )}
+                        {canCancel && onCancel && (
+                            <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+                                onClick={handleCancel}
+                                disabled={!!actionLoading || anyDocBusy}
+                                style={{ flex: 1, minWidth: 100, background: colors.red + "15", border: "1px solid " + colors.red + "30", borderRadius: 10, padding: "0.65rem", cursor: actionLoading ? "not-allowed" : "pointer", color: colors.red, fontSize: "0.82rem", fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: "0.4rem", opacity: actionLoading ? 0.6 : 1 }}>
+                                {actionLoading === "cancel" ? <FaSpinner style={{ animation: "spin 1s linear infinite" }} /> : <FaBan />} İptal Et
+                            </motion.button>
+                        )}
+                        {onDelete && (docIds.mongoId || docIds.lookupId) && (
+                            <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+                                onClick={handleDelete}
+                                disabled={!!actionLoading}
+                                style={{ minWidth: 90, background: colors.dim + "12", border: "1px solid " + colors.dim + "30", borderRadius: 10, padding: "0.65rem", cursor: actionLoading ? "not-allowed" : "pointer", color: colors.dim, fontSize: "0.82rem", fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", gap: "0.4rem" }}>
+                                {actionLoading === "delete" ? <FaSpinner style={{ animation: "spin 1s linear infinite" }} /> : <FaTrash />}
                             </motion.button>
                         )}
                         <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}

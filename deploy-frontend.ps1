@@ -45,7 +45,7 @@ if ($LASTEXITCODE -ne 0) { throw "SCP nginx config basarisiz" }
 Write-Host "[2/3] Yuklendi" -ForegroundColor Green
 
 Write-Host "[3/3] Nginx + www + backend build yolu..." -ForegroundColor Yellow
-$nginxDeploy = "set -e; if ! grep -q id=root ~/build/index.html; then echo 'HATA: React build degil'; exit 1; fi; sudo mkdir -p /var/www/html; sudo rm -rf /var/www/html/*; sudo cp -r ~/build/* /var/www/html/; mkdir -p ~/LysiaETIC/frontend/build; rm -rf ~/LysiaETIC/frontend/build/*; cp -r ~/build/* ~/LysiaETIC/frontend/build/; sudo cp ~/nginx-default.conf /etc/nginx/sites-available/default; sudo ln -sf /etc/nginx/sites-available/default /etc/nginx/sites-enabled/default; sudo nginx -t; sudo systemctl reload nginx; sudo chown -R www-data:www-data /var/www/html; sudo chmod -R 755 /var/www/html; grep -o Dashtock /var/www/html/index.html | head -1 || true"
+$nginxDeploy = 'set -e; sudo mkdir -p /var/www/html; sudo rm -rf /var/www/html/*; sudo cp -r ~/build/* /var/www/html/; mkdir -p ~/LysiaETIC/frontend/build; rm -rf ~/LysiaETIC/frontend/build/*; cp -r ~/build/* ~/LysiaETIC/frontend/build/; sudo cp ~/nginx-default.conf /etc/nginx/sites-available/default; sudo ln -sf /etc/nginx/sites-available/default /etc/nginx/sites-enabled/default; sudo nginx -t; sudo systemctl reload nginx; sudo chown -R www-data:www-data /var/www/html; sudo chmod -R 755 /var/www/html; grep -o Dashtock /var/www/html/index.html | head -1 || true'
 ssh -i $Key -o StrictHostKeyChecking=no $Server $nginxDeploy
 if ($LASTEXITCODE -ne 0) { throw "Nginx deploy basarisiz" }
 Write-Host "[3/3] Nginx tamam" -ForegroundColor Green

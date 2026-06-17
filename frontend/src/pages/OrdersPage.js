@@ -1,10 +1,13 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import axios from "../services/api";
+import { syncRecentOrders } from "../services/marketplaceApi";
+import { confirmAmazonShipment } from "../services/claimsApi";
 import { motion, AnimatePresence } from "framer-motion";
 import { FaBox, FaImage } from "react-icons/fa";
 import { useApp } from "../context/AppContext";
 import { classifyOrderStatus, getOrderStatusLabelTr, formatOrderNumberForDisplay } from "../utils/orderStatus";
 import ShippingLabelModal, { supportsCargoLabel } from "../components/orders/ShippingLabelModal";
+import BulkShippingLabelModal from "../components/orders/BulkShippingLabelModal";
 
 const fmtCurrency = (v) => {
     try {
@@ -234,6 +237,7 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId, marketplaceId: scop
     // Modal
     const [selectedOrder, setSelectedOrder] = useState(null);
     const [labelOrder, setLabelOrder] = useState(null);
+    const [bulkLabelOpen, setBulkLabelOpen] = useState(false);
 
     // Aktif veri kaynağı
     const allOrders = apiOrders;
@@ -398,8 +402,9 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId, marketplaceId: scop
 
     const mergeDbIntoLiveOrders = (liveOrders, dbRows) => {
         const invoiceMap = new Map();
-        (dbRows || []).forEach((dbOrder) => {
-            invoiceMap.set(dbOrder.orderNumber, {
+        const mapDbRow = (dbOrder, key) => {
+            if (!key) return;
+            invoiceMap.set(key, {
                 invoiceStatus: dbOrder.invoiceStatus,
                 invoice: dbOrder.invoice,
                 marketplaceInvoiced: dbOrder.marketplaceInvoiced,
@@ -417,11 +422,25 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId, marketplaceId: scop
                 cargoTrackingLink: dbOrder.cargoTrackingLink,
                 _id: dbOrder._id,
             });
+        };
+        (dbRows || []).forEach((dbOrder) => {
+            const mp = String(dbOrder.marketplace || dbOrder.marketplaceName || "").toLowerCase();
+            const isCs = mp.includes("cicek") || mp.includes("çiçek");
+            mapDbRow(dbOrder, dbOrder.orderNumber);
+            if (isCs) {
+                if (dbOrder.orderItemId) mapDbRow(dbOrder, String(dbOrder.orderItemId));
+                if (dbOrder.packageNumber) mapDbRow(dbOrder, String(dbOrder.packageNumber));
+            }
         });
         const isInvalidImg = (url) =>
             !url || url.includes("default-product.jpg") || url.includes("placehold.co");
         liveOrders.forEach((order) => {
-            const dbInfo = invoiceMap.get(order.orderNumber);
+            const mp = String(order.marketplace || "").toLowerCase();
+            const isCs = mp.includes("cicek") || mp.includes("çiçek");
+            const dbInfo =
+                invoiceMap.get(order.orderNumber) ||
+                (isCs && order.orderItemId ? invoiceMap.get(String(order.orderItemId)) : null) ||
+                (isCs && order.packageNumber ? invoiceMap.get(String(order.packageNumber)) : null);
             if (!dbInfo) return;
             if (dbInfo._id && !order._id) order._id = dbInfo._id;
             if (dbInfo.cargoTrackingNumber) order.cargoTrackingNumber = dbInfo.cargoTrackingNumber;
@@ -461,6 +480,38 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId, marketplaceId: scop
             }
         });
         return liveOrders;
+    };
+
+    const orderRowKey = (o) => {
+        const mp = String(o.marketplace || o.marketplaceName || "").toLowerCase();
+        const isCs = mp.includes("cicek") || mp.includes("çiçek");
+        if (isCs) {
+            return `${mp}|${o.orderItemId || o.trackingNumber || o.orderNumber || ""}`;
+        }
+        return `${mp}|${o.orderNumber || o.trackingNumber || ""}`;
+    };
+
+    /** Canlı API eksik döndüğünde (CS kargo/teslim) DB satırlarını listede tut */
+    const mergeLiveWithDbOrders = (liveOrders, dbRows) => {
+        const map = new Map();
+        (dbRows || []).forEach((row) => {
+            const mpName = row.marketplace || row.marketplaceName;
+            const key = orderRowKey({ ...row, marketplace: mpName });
+            if (!key.endsWith("|")) {
+                map.set(key, {
+                    ...row,
+                    marketplace: mpName,
+                    products: row.items || row.products || [],
+                });
+            }
+        });
+        (liveOrders || []).forEach((row) => {
+            const key = orderRowKey(row);
+            if (key.endsWith("|")) return;
+            const prev = map.get(key);
+            map.set(key, prev ? { ...prev, ...row } : row);
+        });
+        return Array.from(map.values());
     };
 
     /* ── Siparişler: önce DB (hızlı), ardından canlı API (arka planda) ── */
@@ -512,46 +563,59 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId, marketplaceId: scop
         }
 
         try {
-            const settled = await Promise.allSettled(
-                mps.map(async (mp) => {
-                    const label = mp.marketplaceName || mp.name || "…";
-                    setLoadingMp(`${label}…`);
-                    const params = new URLSearchParams({
-                        marketplaceId: mp._id,
-                        ...(startDate && { startDate }),
-                        ...(endDate && { endDate }),
-                    });
-                    const response = await axios.get(`/orders/all?${params.toString()}`, {
-                        headers: { Authorization: `Bearer ${token}` },
-                    });
-                    const mpName = response.data?.marketplace || label;
-                    return (response.data?.orders || []).map((o) => ({
-                        ...o,
-                        marketplace: mpName,
-                        marketplaceId: mp._id,
-                    }));
-                })
-            );
+            // DB + kartlar güncellensin (tarayıcı kapalıyken sunucu cron devralır)
+            syncRecentOrders().catch(() => {});
 
-            settled.forEach((result, idx) => {
-                const label = mps[idx]?.marketplaceName || mps[idx]?.name || `#${idx}`;
-                if (result.status === "fulfilled") {
-                    collected.push(...result.value);
-                } else {
+            const fetchOneMarketplace = async (mp) => {
+                const label = mp.marketplaceName || mp.name || "…";
+                setLoadingMp(`${label}…`);
+                const params = new URLSearchParams({
+                    marketplaceId: mp._id,
+                    ...(startDate && { startDate }),
+                    ...(endDate && { endDate }),
+                });
+                const response = await axios.get(`/orders/all?${params.toString()}`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                    timeout: 300000,
+                });
+                const mpName = response.data?.marketplace || label;
+                return (response.data?.orders || []).map((o) => ({
+                    ...o,
+                    marketplace: mpName,
+                    marketplaceId: mp._id,
+                }));
+            };
+
+            const csLast = [...mps].sort((a, b) => {
+                const aCs = /cicek|çiçek/i.test(a.marketplaceName || a.name || "");
+                const bCs = /cicek|çiçek/i.test(b.marketplaceName || b.name || "");
+                if (aCs && !bCs) return 1;
+                if (!aCs && bCs) return -1;
+                return 0;
+            });
+
+            for (const mp of csLast) {
+                const label = mp.marketplaceName || mp.name || "…";
+                try {
+                    const rows = await fetchOneMarketplace(mp);
+                    collected.push(...rows);
+                } catch (err) {
                     const msg =
-                        result.reason?.response?.data?.error ||
-                        result.reason?.response?.data?.details ||
-                        result.reason?.message ||
+                        err?.response?.data?.error ||
+                        err?.response?.data?.details ||
+                        err?.response?.data?.message ||
+                        err?.message ||
                         "İstek başarısız";
                     failedLabels.push(`${label}: ${msg}`);
                 }
-            });
+            }
 
-            if (collected.length === 0 && dbRows.length === 0) {
+            if (collected.length === 0 && dbRows.length === 0 && failedLabels.length > 0) {
                 if (failedLabels.length === mps.length) {
                     setError(
-                        t("orders.allMarketplacesFailed") ||
-                            "Hiçbir pazaryerinden sipariş alınamadı. Bağlantı veya API anahtarlarını kontrol edin."
+                        (t("orders.allMarketplacesFailed") ||
+                            "Hiçbir pazaryerinden sipariş alınamadı. Ağ bağlantınızı ve API / entegrasyon ayarlarını kontrol edin.") +
+                            (failedLabels.length === 1 ? ` (${failedLabels[0]})` : "")
                     );
                 }
             } else if (failedLabels.length > 0) {
@@ -569,7 +633,13 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId, marketplaceId: scop
                     return db - da;
                 });
                 mergeDbIntoLiveOrders(collected, dbRows);
-                setApiOrders(collected);
+                const merged = mergeLiveWithDbOrders(collected, dbRows);
+                merged.sort((a, b) => {
+                    const da = a.orderDate ? new Date(a.orderDate) : new Date(0);
+                    const db = b.orderDate ? new Date(b.orderDate) : new Date(0);
+                    return db - da;
+                });
+                setApiOrders(merged);
             }
         } catch (err) {
             console.warn("Canlı sipariş senkronu:", err.message);
@@ -659,12 +729,51 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId, marketplaceId: scop
         return filteredOrders.reduce((sum, o) => sum + (parseFloat(o.totalPrice) || 0), 0);
     }, [filteredOrders]);
 
+    // Toplu kargo etiketi YALNIZCA "işlemde" statüsündeki, etiket destekli siparişler için
+    const processingLabelOrders = useMemo(() => {
+        return allOrders.filter(
+            (o) => classifyStatus(o.status, o.marketplace) === "processing" && supportsCargoLabel(o.marketplace)
+        );
+    }, [allOrders]);
+
     const handleSort = (field) => {
         if (sortField === field) {
             setSortDir(d => d === "asc" ? "desc" : "asc");
         } else {
             setSortField(field);
             setSortDir("desc");
+        }
+    };
+
+    // ── Amazon kargo bildirimi (confirmShipment) ──
+    // Amazon self-ship siparişlerde takip numarası bildirilmezse hesap sağlığı cezası uygulanır
+    const [amazonShipBusy, setAmazonShipBusy] = useState(false);
+    const handleAmazonShipConfirm = async (order) => {
+        const tracking = window.prompt(
+            `Amazon siparişi ${order.orderNumber} için kargo takip numarası:`,
+            order.cargoTrackingNumber || order.trackingNumber || ""
+        );
+        if (!tracking || !tracking.trim()) return;
+        const carrier = window.prompt(
+            "Kargo firması adı (örn: PTT Kargo, Aras Kargo, UPS):",
+            order.cargoCompany || ""
+        );
+        setAmazonShipBusy(true);
+        try {
+            const result = await confirmAmazonShipment(order.orderNumber, {
+                trackingNumber: tracking.trim(),
+                carrierCode: "Other",
+                carrierName: (carrier || "Other").trim(),
+            });
+            window.alert(
+                result.success
+                    ? "✅ Kargo bildirimi Amazon'a gönderildi."
+                    : `❌ Hata: ${result.error || result.message || "Bildirim gönderilemedi"}`
+            );
+        } catch (err) {
+            window.alert(`❌ Hata: ${err.response?.data?.error || err.response?.data?.message || err.message}`);
+        } finally {
+            setAmazonShipBusy(false);
         }
     };
 
@@ -759,7 +868,41 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId, marketplaceId: scop
                     </p>
                 </div>
 
-                <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
+                <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
+                    {/* ── Toplu kargo etiketi (yalnızca İşlemde sekmesinde) ── */}
+                    {statusFilter === "processing" && (
+                        <motion.button
+                            whileHover={{ scale: processingLabelOrders.length ? 1.04 : 1 }}
+                            whileTap={{ scale: processingLabelOrders.length ? 0.96 : 1 }}
+                            onClick={() => processingLabelOrders.length && setBulkLabelOpen(true)}
+                            disabled={!processingLabelOrders.length}
+                            title={
+                                processingLabelOrders.length
+                                    ? "İşlemdeki siparişlerin kargo etiketlerini topluca yazdır"
+                                    : "İşlemde, etiket destekli sipariş yok"
+                            }
+                            style={{
+                                display: "flex", alignItems: "center", gap: "0.5rem",
+                                background: processingLabelOrders.length
+                                    ? `linear-gradient(135deg, ${C.accent}, ${C.purple})`
+                                    : C.glass,
+                                color: processingLabelOrders.length ? "#000" : C.muted,
+                                border: `1px solid ${processingLabelOrders.length ? "transparent" : C.glassBr}`,
+                                borderRadius: 12, padding: "0.6rem 1rem", fontSize: "0.8rem", fontWeight: 800,
+                                cursor: processingLabelOrders.length ? "pointer" : "not-allowed",
+                                whiteSpace: "nowrap",
+                            }}
+                        >
+                            🏷️ Toplu Kargo Etiketi Yazdır
+                            <span style={{
+                                background: processingLabelOrders.length ? "rgba(0,0,0,0.18)" : `${C.muted}30`,
+                                borderRadius: 8, padding: "0.1rem 0.45rem", fontSize: "0.72rem", fontWeight: 800,
+                            }}>
+                                {processingLabelOrders.length}
+                            </span>
+                        </motion.button>
+                    )}
+
                     {/* ── Özet kartları ── */}
                     {[
                         { label: t("orders.totalLabel"), value: allOrders.length, color: C.accent },
@@ -1119,6 +1262,33 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId, marketplaceId: scop
                                         </td>
                                         <td style={{ padding: "0.75rem 0.5rem", textAlign: "center" }}>
                                             <div style={{ display: "flex", gap: "0.35rem", justifyContent: "center", alignItems: "center" }}>
+                                                {/^amazon/i.test(String(order.marketplace || "")) &&
+                                                    ["new", "processing"].includes(classifyStatus(order.status, order.marketplace)) && (
+                                                    <motion.button
+                                                        whileHover={{ scale: 1.12 }}
+                                                        whileTap={{ scale: 0.9 }}
+                                                        title="Amazon'a kargo bildir (takip no gönder)"
+                                                        disabled={amazonShipBusy}
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleAmazonShipConfirm(order);
+                                                        }}
+                                                        style={{
+                                                            background: "#ff990018",
+                                                            border: "1px solid #ff990040",
+                                                            borderRadius: 8,
+                                                            width: 32,
+                                                            height: 32,
+                                                            cursor: "pointer",
+                                                            display: "flex",
+                                                            alignItems: "center",
+                                                            justifyContent: "center",
+                                                            fontSize: "0.9rem",
+                                                        }}
+                                                    >
+                                                        🚚
+                                                    </motion.button>
+                                                )}
                                                 {supportsCargoLabel(order.marketplace) && (
                                                     <motion.button
                                                         whileHover={{ scale: 1.12 }}
@@ -1506,6 +1676,16 @@ const OrdersPage = ({ marketplaces = [], userId: propUserId, marketplaceId: scop
                 <ShippingLabelModal
                     order={labelOrder}
                     onClose={() => setLabelOrder(null)}
+                    C={C}
+                    t={t}
+                />
+            )}
+
+            {bulkLabelOpen && (
+                <BulkShippingLabelModal
+                    orders={processingLabelOrders}
+                    onClose={() => setBulkLabelOpen(false)}
+                    onPrintSingle={(o) => setLabelOrder(o)}
                     C={C}
                     t={t}
                 />

@@ -5,13 +5,62 @@
  */
 
 const mongoose = require("mongoose");
+const crypto = require("crypto");
+const fs = require("fs");
+const path = require("path");
 const AutoInvoiceConfig = require("../models/AutoInvoiceConfig");
 const Invoice = require("../models/Invoice");
 const Order = require("../models/Order");
 const User = require("../models/User");
-const { processManualBatchInvoice, processAllUninvoiced, normalizeMarketplaceName, MARKETPLACE_STATUS_MAP } = require("../services/autoInvoiceService");
+const { processManualBatchInvoice, processAllUninvoiced, normalizeMarketplaceName, MARKETPLACE_STATUS_MAP, releaseStalePendingOrders, buildUninvoicedOrderFilter, buildUninvoicedListFilter, getUninvoicedStartDate, getUninvoicedListStartDate } = require("../services/autoInvoiceService");
 const qnbService = require("../services/qnbEInvoiceService");
+const sovosService = require("../services/sovosEInvoiceService");
+const sovosEArchiveService = require("../services/sovosEArchiveService");
+const sovosEDespatchService = require("../services/sovosEDespatchService");
+const { isValidGbIdentifier } = require("../utils/sovosApiGuard");
+const { isSovosInactiveModuleError } = require("../utils/sovosSoapFault");
+const { decompressZipEntry } = require("../utils/sovosUblZip");
+const { sniffContentType } = require("../utils/sovosBinaryData");
+const { mapSovosEArchiveStatus } = require("../constants/sovosEArchiveStatuses");
+const { resolveInvoiceTotals, extractTotalsFromUblXml } = require("../utils/invoiceTotals");
 const logger = require("../config/logger");
+
+const PROVIDER_ID_MAP = {
+    "qnb-esolutions": "qnb",
+    qnb: "qnb",
+    sovos: "sovos",
+    trendyol: "trendyol",
+    "trendyol-efaturam": "trendyol",
+    parasut: "parasut",
+    odeal: "odeal",
+};
+
+const clearQnbCredentialFields = () => ({
+    "qnbCredentials.username": "",
+    "qnbCredentials.password": "",
+    "qnbCredentials.earsivUsername": "",
+    "qnbCredentials.earsivPassword": "",
+    "qnbCredentials.efaturaUsername": "",
+    "qnbCredentials.efaturaPassword": "",
+});
+
+const clearSovosCredentialFields = () => ({
+    "sovosCredentials.username": "",
+    "sovosCredentials.password": "",
+    "sovosCredentials.vknTckn": "",
+    "sovosCredentials.senderIdentifier": "",
+    "sovosCredentials.receiverIdentifier": "",
+    "sovosCredentials.branch": "default",
+});
+
+const clearUserQnbFields = () => ({
+    "companyInfo.qnb.username": "",
+    "companyInfo.qnb.password": "",
+    "companyInfo.qnb.earsivUsername": "",
+    "companyInfo.qnb.earsivPassword": "",
+    "companyInfo.qnb.efaturaUsername": "",
+    "companyInfo.qnb.efaturaPassword": "",
+});
 
 /**
  * QNB HTML'ine <base> tag ekle — blob: URL'den açıldığında relative kaynaklar çözülsün
@@ -111,6 +160,12 @@ const fillConfigFromUser = async (userId, config) => {
         if (!config.qnbCredentials.efaturaUsername && qnb.efaturaUsername) config.qnbCredentials.efaturaUsername = qnb.efaturaUsername;
         if (!config.qnbCredentials.efaturaPassword && qnb.efaturaPassword) config.qnbCredentials.efaturaPassword = qnb.efaturaPassword;
         if (qnb.env) config.qnbCredentials.env = qnb.env;
+
+        const sovos = config.sovosCredentials || {};
+        if (!sovos.username && config.provider === "sovos") {
+            /* billing panelinden bağlandıysa config'de zaten var */
+        }
+        if (!config.supplier.vkn && sovos.vknTckn) config.supplier.vkn = sovos.vknTckn;
     } catch (err) {
         logger.warn("[AutoInvoice] fillConfigFromUser hatası: " + err.message);
     }
@@ -163,9 +218,332 @@ const resolveEarsivCredentials = async (userId, configOverride) => {
     return { earsivUsername, earsivPassword, env, vkn, credSource };
 };
 
+const findInvoiceForUser = async (userId, invoiceId) => {
+    if (!invoiceId) return null;
+    const id = String(invoiceId);
+    if (mongoose.Types.ObjectId.isValid(id)) {
+        const byId = await Invoice.findOne({ _id: id, userId }).lean();
+        if (byId) return byId;
+    }
+    return Invoice.findOne({
+        userId,
+        $or: [{ uuid: id }, { invoiceNumber: id }],
+    }).lean();
+};
+
+const resolveSovosCredentials = async (userId, configOverride) => {
+    const config = configOverride || await AutoInvoiceConfig.findOne({ userId }).lean();
+    const sc = config?.sovosCredentials || {};
+    if (!sc.username || !sc.password || !sc.vknTckn) {
+        return null;
+    }
+    return {
+        ...sc,
+        env: sc.env || "test",
+        vkn: config?.supplier?.vkn || sc.vknTckn,
+    };
+};
+
+const persistSovosCapability = async (userId, sessionId, capabilityKey, value) => {
+    if (!userId || !capabilityKey) return;
+    const patch = { [`sovosCredentials.capabilities.${capabilityKey}`]: value };
+    await AutoInvoiceConfig.updateOne({ userId }, { $set: patch }).catch(() => {});
+    if (sessionId) {
+        sovosService.patchSessionCapabilities(sessionId, { [capabilityKey]: value });
+    }
+};
+
+const resolveSovosInvoiceDirection = (invoice, creds) => {
+    if (invoice.direction === "incoming") {
+        return { type: "INBOUND", identifierKey: "receiver" };
+    }
+    if (invoice.direction === "outgoing") {
+        return { type: "OUTBOUND", identifierKey: "sender" };
+    }
+    const ourVkn = String(creds.vknTckn || invoice.customer?.vkn || "").replace(/\D/g, "");
+    const supplierVkn = String(invoice.supplier?.vkn || "").replace(/\D/g, "");
+    if (supplierVkn && ourVkn && supplierVkn !== ourVkn) {
+        return { type: "INBOUND", identifierKey: "receiver" };
+    }
+    return { type: "OUTBOUND", identifierKey: "sender" };
+};
+
+const fileDisposition = (baseName, ext, inline = true) => {
+    const mode = inline ? "inline" : "attachment";
+    const safe = String(baseName || "fatura").replace(/[^\w.-]+/g, "_");
+    return `${mode}; filename="${ext ? safe + "." + ext : safe}"`;
+};
+
+const resolveDocBuffer = (data) => {
+    if (!data) return null;
+    if (data.buffer && Buffer.isBuffer(data.buffer)) return data.buffer;
+    if (data.base64) return Buffer.from(data.base64, "base64");
+    return null;
+};
+
+const sendDocumentBuffer = (res, invoice, data, inline = true) => {
+    const buf = resolveDocBuffer(data);
+    if (!buf || !buf.length) return false;
+
+    const contentType = sniffContentType(buf, data.contentType || "application/octet-stream");
+    let ext = "bin";
+    if (contentType.includes("pdf")) ext = "pdf";
+    else if (contentType.includes("html")) ext = "html";
+    else if (contentType.includes("xml")) ext = "xml";
+    else if (contentType.includes("zip")) ext = "zip";
+
+    res.setHeader("Content-Type", contentType);
+    res.setHeader("Content-Disposition", fileDisposition(invoice.invoiceNumber || invoice.uuid, ext, inline));
+    if (contentType.includes("html")) {
+        res.send(buf.toString("utf8"));
+    } else {
+        res.send(buf);
+    }
+    return true;
+};
+
+const parseSovosInvResponseStatus = (raw) => {
+    const text = JSON.stringify(raw || {}).toUpperCase();
+    if (text.includes("KABUL") || text.includes("ACCEPT")) return { status: "accepted", detail: "Kabul edildi" };
+    if (text.includes("\"RED\"") || text.includes("REJECT")) return { status: "rejected", detail: "Reddedildi" };
+    return { status: "sent", detail: "Yanıt bekleniyor" };
+};
+
+const streamSovosView = async (sessionId, invoice, direction, format) => {
+    return sovosService.getInvoiceView({
+        sessionId,
+        uuid: invoice.uuid,
+        custInvId: invoice.custInvId || invoice.orderNumber || "",
+        type: direction.type,
+        viewFormat: format,
+        identifierKey: direction.identifierKey,
+    });
+};
+
+const isSovosEArchiveProfile = (profileId) => {
+    const profileUpper = String(profileId || "").toUpperCase();
+    if (profileUpper.includes("EARSIV")) return true;
+    if (profileUpper.includes("TICARI") || profileUpper.includes("TEMEL") || profileUpper.includes("KAMU")) return false;
+    if (profileUpper.includes("IHRACAT") || profileUpper.includes("YOLCUBERABER") || profileUpper.includes("IRSALIYE") || profileUpper.includes("İRSALİYE")) {
+        return false;
+    }
+    // Profil kaydı yoksa Sovos e-Arşiv varsay (yalnızca e-Arşiv kullanan hesaplar)
+    return !profileUpper;
+};
+
+const streamSovosUblZip = async (res, sessionId, invoice, direction, inline = true, { requirePdf = false } = {}) => {
+    const ublResult = await sovosService.getUBL({
+        sessionId,
+        uuid: invoice.uuid,
+        docType: "INVOICE",
+        type: direction.type,
+        identifierKey: direction.identifierKey,
+        parameters: ["zip"],
+    });
+    if (!ublResult.success || !ublResult.data?.zipEntries?.length) {
+        return false;
+    }
+    const zipBuf = Buffer.from(ublResult.data.zipEntries[0].base64, "base64");
+    const baseName = invoice.invoiceNumber || invoice.uuid || "fatura";
+    try {
+        const inner = decompressZipEntry(zipBuf);
+        if (inner.length > 4 && inner[0] === 0x25 && inner[1] === 0x50 && inner[2] === 0x44 && inner[3] === 0x46) {
+            res.setHeader("Content-Type", "application/pdf");
+            res.setHeader("Content-Disposition", fileDisposition(baseName, "pdf", inline));
+            res.send(inner);
+            return true;
+        }
+        if (requirePdf) return false;
+        res.setHeader("Content-Type", "application/xml; charset=utf-8");
+        res.setHeader("Content-Disposition", fileDisposition(baseName, "xml", inline));
+        res.send(inner);
+        return true;
+    } catch {
+        res.setHeader("Content-Type", "application/zip");
+        res.setHeader("Content-Disposition", fileDisposition(baseName, "zip", inline));
+        res.send(zipBuf);
+        return true;
+    }
+};
+
+const streamSovosDocumentBuffer = async (res, invoice, creds) => {
+    const session = await sovosService.restoreSession(creds);
+    if (!session.success) {
+        res.status(502).json({ success: false, message: "Sovos oturumu açılamadı: " + session.error });
+        return false;
+    }
+
+    const sessionId = session.sessionId;
+    const vkn = invoice.supplier?.vkn || creds.vknTckn;
+    const profileUpper = String(invoice.profileId || "").toUpperCase();
+    const isEArchive = isSovosEArchiveProfile(invoice.profileId);
+    const isDespatch = profileUpper.includes("IRSALIYE") || profileUpper.includes("İRSALİYE");
+    const lookupParams = {
+        sessionId,
+        vkn,
+        uuid: invoice.uuid,
+        invoiceNumber: invoice.invoiceNumber,
+        custInvID: invoice.custInvId || invoice.orderNumber || "",
+        orderNumber: invoice.orderNumber || "",
+    };
+
+    try {
+        if (isDespatch) {
+            const direction = resolveSovosInvoiceDirection(invoice, creds);
+            const tryDesView = async (format) =>
+                sovosEDespatchService.getDesView({
+                    sessionId,
+                    uuid: invoice.uuid,
+                    custInvId: invoice.custInvId || invoice.orderNumber || "",
+                    type: direction.type,
+                    viewFormat: format,
+                    identifierKey: direction.identifierKey,
+                });
+
+            let viewResult = await tryDesView("PDF");
+            if (!viewResult.success || !viewResult.data?.base64) {
+                viewResult = await tryDesView("HTML");
+                if (viewResult.success && viewResult.data?.base64 && sendDocumentBuffer(res, invoice, viewResult.data)) {
+                    return true;
+                }
+                const ublResult = await sovosEDespatchService.getDesUBL({
+                    sessionId,
+                    uuid: invoice.uuid,
+                    type: direction.type,
+                    identifierKey: direction.identifierKey,
+                });
+                if (ublResult.success && ublResult.data?.zipEntries?.length) {
+                    const zipBuf = Buffer.from(ublResult.data.zipEntries[0].base64, "base64");
+                    res.setHeader("Content-Type", "application/zip");
+                    res.setHeader("Content-Disposition", fileDisposition(invoice.invoiceNumber, "zip"));
+                    res.send(zipBuf);
+                    return true;
+                }
+                res.status(404).json({ success: false, message: viewResult.error || "Sovos e-İrsaliye belgesi alınamadı" });
+                return false;
+            }
+            if (sendDocumentBuffer(res, invoice, viewResult.data)) return true;
+            res.status(404).json({ success: false, message: "Sovos e-İrsaliye belgesi işlenemedi" });
+            return false;
+        }
+
+        if (isEArchive) {
+            const docResult = await sovosEArchiveService.getInvoiceDocument({
+                ...lookupParams,
+                outputType: "PDF",
+            });
+            if (docResult.success && docResult.data && sendDocumentBuffer(res, invoice, docResult.data)) {
+                return true;
+            }
+            const htmlResult = await sovosEArchiveService.getInvoiceDocument({
+                ...lookupParams,
+                outputType: "HTML",
+            });
+            if (htmlResult.success && htmlResult.data && sendDocumentBuffer(res, invoice, htmlResult.data)) {
+                return true;
+            }
+            res.status(404).json({ success: false, message: docResult.error || htmlResult?.error || "Sovos e-Arşiv belgesi alınamadı" });
+            return false;
+        }
+
+        const direction = resolveSovosInvoiceDirection(invoice, creds);
+        const viewDirections = [
+            direction,
+            direction.type === "OUTBOUND"
+                ? { type: "INBOUND", identifierKey: "receiver" }
+                : { type: "OUTBOUND", identifierKey: "sender" },
+        ];
+        const tryView = async (format, dir) => streamSovosView(sessionId, invoice, dir, format);
+
+        let viewResult = null;
+        for (const dir of viewDirections) {
+            for (const format of ["PDF", "HTML"]) {
+                const attempt = await tryView(format, dir);
+                if (attempt.success && attempt.data?.base64) {
+                    viewResult = attempt;
+                    break;
+                }
+                viewResult = attempt;
+            }
+            if (viewResult?.success && viewResult.data?.base64) break;
+        }
+
+        if (viewResult?.success && viewResult.data?.base64) {
+            if (sendDocumentBuffer(res, invoice, viewResult.data)) return true;
+        }
+
+        const eArchiveDoc = await sovosEArchiveService.getInvoiceDocument({
+            ...lookupParams,
+            outputType: "PDF",
+        });
+        if (eArchiveDoc.success && eArchiveDoc.data && sendDocumentBuffer(res, invoice, eArchiveDoc.data)) {
+            return true;
+        }
+        const eArchiveHtml = await sovosEArchiveService.getInvoiceDocument({
+            ...lookupParams,
+            outputType: "HTML",
+        });
+        if (eArchiveHtml.success && eArchiveHtml.data && sendDocumentBuffer(res, invoice, eArchiveHtml.data)) {
+            return true;
+        }
+
+        if (await streamSovosUblZip(res, sessionId, invoice, direction, true, { requirePdf: true })) {
+            return true;
+        }
+        res.status(404).json({
+            success: false,
+            message: viewResult?.error || eArchiveDoc.error || "Sovos fatura görüntüsü alınamadı",
+        });
+        return false;
+    } finally {
+        await sovosService.logout({ sessionId }).catch(() => {});
+    }
+};
+
 // ═══════════════════════════════════════════════════════════════════════════
 //  AYAR YÖNETİMİ (Config CRUD)
 // ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * POST /api/auto-invoice/disconnect-provider
+ * Sağlayıcı bağlantısını kes — DB credential'larını temizler (sayfa yenilemede geri gelmesin)
+ */
+exports.disconnectProvider = async (req, res) => {
+    try {
+        const userId = req.user._id;
+        const { providerId, sessionId } = req.body;
+        const providerKey = PROVIDER_ID_MAP[providerId];
+
+        if (!providerKey) {
+            return res.status(400).json({ success: false, message: "Geçersiz sağlayıcı kimliği" });
+        }
+
+        const config = await AutoInvoiceConfig.findOne({ userId });
+        const $set = providerKey === "sovos"
+            ? clearSovosCredentialFields()
+            : clearQnbCredentialFields();
+
+        await AutoInvoiceConfig.updateOne(
+            { userId },
+            { $set },
+            { upsert: false }
+        );
+
+        if (providerKey === "qnb") {
+            await User.updateOne({ _id: userId }, { $set: clearUserQnbFields() });
+        }
+
+        if (providerKey === "sovos" && sessionId) {
+            await sovosService.logout({ sessionId }).catch(() => {});
+        }
+
+        logger.info("[AutoInvoice] Sağlayıcı bağlantısı kesildi — userId=" + userId + " provider=" + providerKey);
+        res.json({ success: true, message: "Bağlantı kaldırıldı." });
+    } catch (error) {
+        logger.error("[AutoInvoice] disconnectProvider hatası: " + error.message);
+        res.status(500).json({ success: false, message: "Sunucu hatası" });
+    }
+};
 
 /**
  * GET /api/auto-invoice/config
@@ -193,9 +571,16 @@ exports.getConfig = async (req, res) => {
                 supplier: { vkn: "", name: "", taxOffice: "", street: "", district: "", city: "", country: "Turkiye", phone: "", email: "" },
                 defaultCustomer: { vkn: "11111111111", name: "Nihai Tüketici", firstName: "Nihai", lastName: "Tüketici", city: "Istanbul", district: "Merkez", country: "Turkiye" },
                 qnbCredentials: { username: "", password: "", earsivUsername: "", earsivPassword: "", efaturaUsername: "", efaturaPassword: "", env: "test" },
+                sovosCredentials: { username: "", password: "", vknTckn: "", senderIdentifier: "", receiverIdentifier: "", branch: "default", env: "test" },
                 defaultVatRate: 20,
                 pricesIncludeVat: true,
                 defaultNote: "",
+                eArchiveVisuals: {
+                    logoUrl: "",
+                    signatureUrl: "",
+                    signatureName: "",
+                    invoiceDescription: "",
+                },
                 marketplaceSettings: {},
                 stats: { totalInvoicesCreated: 0, consecutiveErrors: 0 },
             };
@@ -223,14 +608,24 @@ exports.saveConfig = async (req, res) => {
         const {
             enabled, provider, enabledMarketplaces, triggerStatuses,
             documentType, invoiceTypeCode, invoiceSeriesCode, currency, sendingType,
-            supplier, defaultCustomer, qnbCredentials,
-            defaultVatRate, pricesIncludeVat, defaultNote,
+            supplier, defaultCustomer, qnbCredentials, sovosCredentials,
+            defaultVatRate, pricesIncludeVat, defaultNote, eArchiveVisuals,
             marketplaceSettings, autoInvoiceStartDate,
             invoiceDelayDays, autoUploadInvoiceToMarketplace,
         } = req.body;
 
         // Validasyon
-        if (enabled && (!supplier || !supplier.vkn)) {
+        if (enabled && provider === "sovos") {
+            const sc = sovosCredentials || {};
+            if (!sc.username || !sc.password || !sc.vknTckn) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Sovos otomatik fatura için web servis kullanıcı adı, şifre ve VKN/TCKN zorunludur.",
+                });
+            }
+        }
+
+        if (enabled && provider !== "sovos" && (!supplier || !supplier.vkn)) {
             return res.status(400).json({
                 success: false,
                 message: "Otomatik fatura aktif edilmek için satıcı VKN bilgisi zorunludur."
@@ -266,9 +661,62 @@ exports.saveConfig = async (req, res) => {
             // Böylece yeni şifre ile hemen tekrar login denenebilir
             qnbService.clearLoginCooldown();
         }
+        if (sovosCredentials) {
+            config.sovosCredentials = {
+                ...config.sovosCredentials.toObject?.() || config.sovosCredentials,
+                ...sovosCredentials,
+            };
+            if (sovosCredentials.vknTckn && (!config.supplier?.vkn)) {
+                config.supplier = { ...config.supplier.toObject?.() || config.supplier, vkn: sovosCredentials.vknTckn };
+            }
+        }
+
+        const activeProvider = provider || config.provider || "qnb";
+        const sc = config.sovosCredentials || {};
+        const credsChanged = sovosCredentials && (
+            sovosCredentials.username !== undefined ||
+            sovosCredentials.password !== undefined ||
+            sovosCredentials.senderIdentifier !== undefined
+        );
+        const verifiedAt = sc.verifiedAt ? new Date(sc.verifiedAt).getTime() : 0;
+        const probeStale = !verifiedAt || (Date.now() - verifiedAt > 60 * 60 * 1000);
+
+        if (activeProvider === "sovos" && sc.username && sc.password && sc.vknTckn && (credsChanged || probeStale)) {
+            try {
+                const probe = await sovosService.login({
+                    username: sc.username,
+                    password: sc.password,
+                    vknTckn: sc.vknTckn,
+                    senderIdentifier: sc.senderIdentifier || "",
+                    receiverIdentifier: sc.receiverIdentifier || "",
+                    branch: sc.branch || "default",
+                    env: sc.env || "test",
+                    loginMode: isValidGbIdentifier(sc.senderIdentifier) ? "auto" : "earsiv",
+                });
+                if (probe.success) {
+                    config.sovosCredentials.capabilities = probe.capabilities || { efatura: false, earsiv: false };
+                    config.sovosCredentials.verifiedAt = new Date();
+                    if (!probe.capabilities?.efatura) {
+                        config.documentType = "EARSIVFATURA";
+                    }
+                    config.markModified("sovosCredentials");
+                }
+            } catch (probeErr) {
+                logger.warn("[AutoInvoice] Sovos yetki doğrulaması atlandı: " + probeErr.message);
+            }
+        }
         if (defaultVatRate !== undefined) config.defaultVatRate = defaultVatRate;
         if (pricesIncludeVat !== undefined) config.pricesIncludeVat = pricesIncludeVat;
         if (defaultNote !== undefined) config.defaultNote = defaultNote;
+        if (eArchiveVisuals && typeof eArchiveVisuals === "object") {
+            config.eArchiveVisuals = {
+                ...(config.eArchiveVisuals?.toObject?.() || config.eArchiveVisuals || {}),
+                logoUrl: eArchiveVisuals.logoUrl || "",
+                signatureUrl: eArchiveVisuals.signatureUrl || "",
+                signatureName: eArchiveVisuals.signatureName || "",
+                invoiceDescription: eArchiveVisuals.invoiceDescription || "",
+            };
+        }
         if (invoiceDelayDays !== undefined) {
             const n = Math.floor(Number(invoiceDelayDays));
             config.invoiceDelayDays = Math.max(0, Math.min(90, Number.isFinite(n) ? n : 0));
@@ -331,12 +779,25 @@ exports.toggleEnabled = async (req, res) => {
             return res.status(404).json({ success: false, message: "Önce ayarları kaydedin." });
         }
 
-        // Açılırken satıcı VKN kontrolü
-        if (!config.enabled && (!config.supplier || !config.supplier.vkn)) {
-            return res.status(400).json({
-                success: false,
-                message: "Satıcı VKN bilgisi eksik. Lütfen önce ayarlardan firma bilgilerinizi girin."
-            });
+        // Açılırken satıcı VKN / sağlayıcı kontrolü
+        if (!config.enabled) {
+            const provider = config.provider || "qnb";
+            const hasVkn = config.supplier?.vkn || config.sovosCredentials?.vknTckn;
+            if (!hasVkn) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Satıcı VKN bilgisi eksik. Lütfen önce ayarlardan firma bilgilerinizi girin.",
+                });
+            }
+            if (provider === "sovos") {
+                const sc = config.sovosCredentials || {};
+                if (!sc.username || !sc.password || !sc.vknTckn) {
+                    return res.status(400).json({
+                        success: false,
+                        message: "Sovos bağlantı bilgileri eksik. Otomatik fatura ayarlarından Sovos bilgilerini girin.",
+                    });
+                }
+            }
         }
 
         config.enabled = !config.enabled;
@@ -435,6 +896,10 @@ exports.processSingleOrder = async (req, res) => {
             return res.status(400).json({ success: false, message: "Bu sipariş zaten faturalandı." });
         }
 
+        if (order.invoiceStatus === "error" || order.invoiceStatus === "pending") {
+            await Order.updateOne({ _id: orderId }, { invoiceStatus: "" });
+        }
+
         logger.info("[AutoInvoice] Tek sipariş faturalama — orderId=" + orderId);
 
         const result = await processManualBatchInvoice(userId, [orderId]);
@@ -443,10 +908,29 @@ exports.processSingleOrder = async (req, res) => {
             return res.status(400).json({ success: false, message: result.error });
         }
 
+        if (result.invoiced === 0) {
+            const cfg = await AutoInvoiceConfig.findOne({ userId }).select("stats.lastError autoInvoiceStartDate").lean();
+            const freshOrder = await Order.findOne({ _id: orderId, user: userId }).lean();
+            let hint = cfg?.stats?.lastError || "Fatura kesilemedi. Sovos bağlantı, şube ve fatura seri kodunu kontrol edin.";
+            if (freshOrder?.invoiceStatus === "pending") {
+                hint = "Sipariş başka bir işlem tarafından kilitlendi (pending). Birkaç dakika sonra tekrar deneyin.";
+            } else if (
+                cfg?.autoInvoiceStartDate &&
+                freshOrder?.orderDate &&
+                new Date(freshOrder.orderDate) < new Date(cfg.autoInvoiceStartDate)
+            ) {
+                hint = "Sipariş, otomatik fatura başlangıç tarihinden (" +
+                    new Date(cfg.autoInvoiceStartDate).toISOString().slice(0, 10) +
+                    ") önce — manuel kesim denendi ama sağlayıcı hatası oluşmuş olabilir: " +
+                    (cfg?.stats?.lastError || "logları kontrol edin");
+            }
+            return res.status(400).json({ success: false, message: hint });
+        }
+
         res.json({
             success: true,
             data: result,
-            message: result.invoiced > 0 ? "Fatura başarıyla kesildi." : "Fatura kesilemedi."
+            message: "Fatura başarıyla kesildi.",
         });
     } catch (error) {
         logger.error("[AutoInvoice Controller] processSingleOrder hatası: " + error.message);
@@ -539,9 +1023,10 @@ exports.getInvoiceDetail = async (req, res) => {
                 .lean();
         }
 
-        // Fatura görüntüleme URL'si yoksa oluştur
+        // Fatura görüntüleme URL'si — yalnızca QNB kayıtları için otomatik üret (Sovos'ta QNB linki kullanılmaz)
         let viewUrl = invoice.faturaURL || "";
-        if (!viewUrl && invoice.uuid && invoice.supplier?.vkn) {
+        const invoiceProvider = invoice.provider || "qnb";
+        if (!viewUrl && invoiceProvider === "qnb" && invoice.uuid && invoice.supplier?.vkn) {
             const env = invoice.env || "test";
             const envPrefix = env === "production" ? "earsiv" : "earsivtest";
             viewUrl = "https://" + envPrefix + ".qnbesolutions.com.tr/earsiv/goruntule.jsp?vkn=" + invoice.supplier.vkn + "&uuid=" + invoice.uuid;
@@ -560,6 +1045,7 @@ exports.getInvoiceDetail = async (req, res) => {
             status: invoice.status || "created",
             createdBy: invoice.createdBy || "manual",
             provider: invoice.provider || "qnb",
+            direction: invoice.direction || "outgoing",
             env: invoice.env || "test",
             note: invoice.note || "",
 
@@ -601,9 +1087,10 @@ exports.getInvoiceDetail = async (req, res) => {
 
             // Sipariş bilgisi
             orderNumber: invoice.orderNumber || "",
+            custInvId: invoice.custInvId || invoice.orderNumber || "",
             marketplaceName: invoice.marketplaceName || "",
 
-            // QNB yanıt bilgileri
+            // Sağlayıcı yanıt bilgileri
             providerResponse: {
                 resultCode: invoice.providerResponse?.resultCode || "",
                 resultText: invoice.providerResponse?.resultText || "",
@@ -611,6 +1098,15 @@ exports.getInvoiceDetail = async (req, res) => {
                 belgeOid: invoice.providerResponse?.belgeOid || "",
                 signedDocument: invoice.providerResponse?.signedDocument || false,
             },
+            providerStatusCode: invoice.providerResponse?.resultCode || "",
+            providerStatusLabel: (() => {
+                const code = invoice.providerResponse?.resultCode;
+                const profileUpper = String(invoice.profileId || "").toUpperCase();
+                if (invoiceProvider === "sovos" && profileUpper.includes("EARSIV") && code) {
+                    return mapSovosEArchiveStatus(code, invoice.providerResponse?.resultText || "").label;
+                }
+                return invoice.providerResponse?.resultText || "";
+            })(),
 
             // URL & hata
             faturaURL: viewUrl,
@@ -630,12 +1126,1161 @@ exports.getInvoiceDetail = async (req, res) => {
 };
 
 /**
+ * POST /api/auto-invoice/invoices/:invoiceId/refresh-status
+ * Sağlayıcıdan fatura durumunu güncelle
+ */
+exports.refreshInvoiceStatus = async (req, res) => {
+    try {
+        const userId = req.user._id;
+        const invoice = await findInvoiceForUser(userId, req.params.invoiceId);
+        if (!invoice) {
+            return res.status(404).json({ success: false, message: "Fatura bulunamadı." });
+        }
+
+        const profileUpper = String(invoice.profileId || "").toUpperCase();
+        const isEArchive = profileUpper.includes("EARSIV");
+        let providerStatus = null;
+        let detail = "";
+        let statusCode = "";
+
+        if (invoice.provider === "sovos" && isEArchive) {
+            const sovosCreds = await resolveSovosCredentials(userId);
+            if (!sovosCreds) {
+                return res.status(400).json({ success: false, message: "Sovos bağlantı bilgileri eksik." });
+            }
+            const session = await sovosService.restoreSession(sovosCreds);
+            if (!session.success) {
+                return res.status(502).json({ success: false, message: "Sovos oturumu açılamadı: " + session.error });
+            }
+            try {
+                const result = await sovosEArchiveService.getStatus({
+                    sessionId: session.sessionId,
+                    vkn: invoice.supplier?.vkn || sovosCreds.vknTckn,
+                    uuid: invoice.uuid,
+                    invoiceNumber: invoice.invoiceNumber,
+                    custInvID: invoice.custInvId || invoice.orderNumber || "",
+                    orderNumber: invoice.orderNumber || "",
+                });
+                if (!result.success) {
+                    return res.status(400).json({ success: false, message: result.error || "Durum sorgulanamadı" });
+                }
+                providerStatus = result.data?.mappedStatus || "sent";
+                detail = result.data?.detail || result.data?.statusLabel || "";
+                statusCode = result.data?.statusCode != null ? String(result.data.statusCode) : "";
+
+                const sovosInvNo = String(result.data?.invoiceNumber || "").trim();
+                const sovosUuid = String(result.data?.uuid || "").trim();
+                const syncFields = {};
+                if (sovosInvNo && sovosInvNo !== invoice.invoiceNumber) {
+                    syncFields.invoiceNumber = sovosInvNo;
+                }
+                if (sovosUuid && sovosUuid !== invoice.uuid) {
+                    syncFields.uuid = sovosUuid;
+                }
+                if (Object.keys(syncFields).length) {
+                    await Invoice.updateOne({ _id: invoice._id }, syncFields);
+                    logger.info(
+                        "[AutoInvoice] Sovos fatura kimliği senkronize edildi — " +
+                        (syncFields.invoiceNumber ? "no=" + syncFields.invoiceNumber + " " : "") +
+                        (syncFields.uuid ? "uuid=" + syncFields.uuid : "")
+                    );
+                }
+            } finally {
+                await sovosService.logout({ sessionId: session.sessionId }).catch(() => {});
+            }
+        } else if (invoice.provider === "sovos" && !isEArchive) {
+            const sovosCreds = await resolveSovosCredentials(userId);
+            if (!sovosCreds) {
+                return res.status(400).json({ success: false, message: "Sovos bağlantı bilgileri eksik." });
+            }
+            const session = await sovosService.restoreSession(sovosCreds);
+            if (!session.success) {
+                return res.status(502).json({ success: false, message: "Sovos oturumu açılamadı: " + session.error });
+            }
+            const isDespatch = profileUpper.includes("IRSALIYE") || profileUpper.includes("İRSALİYE");
+            try {
+                const direction = resolveSovosInvoiceDirection(invoice, sovosCreds);
+                if (isDespatch) {
+                    const envResult = await sovosEDespatchService.getDesEnvelopeStatus({
+                        sessionId: session.sessionId,
+                        uuid: invoice.envUuid || invoice.uuid,
+                    });
+                    if (!envResult.success) {
+                        return res.status(400).json({ success: false, message: envResult.error || "e-İrsaliye zarf durumu sorgulanamadı" });
+                    }
+                    providerStatus = invoice.status === "accepted" || invoice.status === "rejected"
+                        ? invoice.status
+                        : "sent";
+                    detail = "e-İrsaliye zarf durumu güncellendi";
+                } else if (direction.type === "INBOUND") {
+                    const respResult = await sovosService.getInvResponses({
+                        sessionId: session.sessionId,
+                        uuid: invoice.uuid,
+                        type: "INBOUND",
+                        identifierKey: direction.identifierKey,
+                    });
+                    if (!respResult.success) {
+                        return res.status(400).json({ success: false, message: respResult.error || "Yanıt sorgulanamadı" });
+                    }
+                    const parsed = parseSovosInvResponseStatus(respResult.data);
+                    providerStatus = parsed.status;
+                    detail = parsed.detail;
+                } else {
+                    const envResult = await sovosService.getEnvelopeStatus({
+                        sessionId: session.sessionId,
+                        uuid: invoice.envUuid || invoice.uuid,
+                    });
+                    if (!envResult.success) {
+                        return res.status(400).json({ success: false, message: envResult.error || "Zarf durumu sorgulanamadı" });
+                    }
+                    providerStatus = invoice.status === "accepted" || invoice.status === "rejected"
+                        ? invoice.status
+                        : "sent";
+                    detail = "Zarf durumu güncellendi";
+                }
+            } finally {
+                await sovosService.logout({ sessionId: session.sessionId }).catch(() => {});
+            }
+        } else if (invoice.provider === "qnb" && isEArchive) {
+            const creds = await resolveEarsivCredentials(userId);
+            if (!creds) {
+                return res.status(400).json({ success: false, message: "e-Arşiv bağlantı bilgileri eksik." });
+            }
+            const loginResult = await qnbService.login({
+                username: creds.earsivUsername,
+                password: creds.earsivPassword,
+                env: creds.env,
+                service: "earsiv",
+            });
+            if (!loginResult.success) {
+                return res.status(502).json({ success: false, message: "e-Arşiv oturumu açılamadı: " + loginResult.error });
+            }
+            try {
+                const statusResult = await qnbService.queryEArchiveInvoice({
+                    sessionId: loginResult.sessionId,
+                    vkn: invoice.supplier?.vkn || creds.vkn,
+                    uuid: invoice.uuid,
+                    faturaNo: invoice.invoiceNumber,
+                    env: creds.env,
+                });
+                if (!statusResult.success) {
+                    return res.status(400).json({ success: false, message: statusResult.error || "Durum sorgulanamadı" });
+                }
+                const raw = statusResult.data || {};
+                const rawStatus = String(raw.durum || raw.status || raw.faturaDurum || "").toLowerCase();
+                providerStatus = /iptal|cancel/i.test(rawStatus) ? "cancelled" : "sent";
+                detail = raw.aciklama || raw.message || rawStatus || "Sorgulandı";
+            } finally {
+                await qnbService.logout({ sessionId: loginResult.sessionId, env: creds.env, service: "earsiv" }).catch(() => {});
+            }
+        } else {
+            return res.status(400).json({
+                success: false,
+                message: "Bu belge tipi için sağlayıcı durum sorgusu henüz desteklenmiyor.",
+            });
+        }
+
+        await Invoice.updateOne(
+            { _id: invoice._id },
+            {
+                status: providerStatus,
+                "providerResponse.resultText": detail,
+                ...(statusCode ? { "providerResponse.resultCode": statusCode } : {}),
+                ...(providerStatus === "cancelled" ? { "providerResponse.sovosCancelled": true } : {}),
+            }
+        );
+
+        res.json({
+            success: true,
+            data: {
+                status: providerStatus,
+                detail,
+                statusCode: statusCode || undefined,
+                invoiceId: invoice._id,
+            },
+        });
+    } catch (error) {
+        logger.error("[AutoInvoice Controller] refreshInvoiceStatus hatası: " + error.message);
+        res.status(500).json({ success: false, message: "Durum güncellenemedi" });
+    }
+};
+
+/**
+ * Sovos cancelInvoice — resmi API totalAmount = vergiler hariç toplam (LineExtensionAmount)
+ */
+const resolveInvoiceCancelAmount = async (invoice) => {
+    const totals = invoice.totals || {};
+    let amount = Number(totals.lineExtensionAmount || totals.taxExclusiveAmount || 0);
+    if (amount > 0) return amount;
+
+    if (Array.isArray(invoice.lines) && invoice.lines.length) {
+        const lineSum = invoice.lines.reduce((sum, line) => {
+            const qty = Number(line.quantity || 1);
+            const price = Number(line.unitPrice || line.price || 0);
+            return sum + qty * price;
+        }, 0);
+        if (lineSum > 0) return Number(lineSum.toFixed(2));
+    }
+
+    // KDV dahil tutarlar yalnızca son çare — cancelInvoice UBL'den düzeltir
+    amount = Number(totals.payableAmount || totals.taxInclusiveAmount || 0);
+    if (amount > 0) return amount;
+
+    if (invoice.orderId) {
+        const order = await Order.findById(invoice.orderId).select("totalPrice").lean();
+        if (order?.totalPrice > 0) return Number(order.totalPrice);
+    }
+
+    return 0;
+};
+
+/**
+ * POST /api/auto-invoice/invoices/:invoiceId/cancel
+ * e-Arşiv faturayı sağlayıcıda iptal et (itiraz)
+ */
+exports.cancelInvoiceRecord = async (req, res) => {
+    try {
+        const userId = req.user._id;
+        const invoice = await findInvoiceForUser(userId, req.params.invoiceId);
+        if (!invoice) {
+            return res.status(404).json({ success: false, message: "Fatura bulunamadı." });
+        }
+        if (invoice.status === "cancelled") {
+            return res.status(400).json({ success: false, message: "Fatura zaten iptal edilmiş." });
+        }
+        const isEArchive = String(invoice.profileId || "").toUpperCase().includes("EARSIV");
+        if (!isEArchive) {
+            return res.status(400).json({ success: false, message: "Yalnızca e-Arşiv faturalar iptal edilebilir." });
+        }
+
+        const totalAmount = await resolveInvoiceCancelAmount(invoice);
+        if (!(totalAmount > 0)) {
+            return res.status(400).json({
+                success: false,
+                message: "İptal için fatura tutarı bulunamadı. Fatura detayındaki tutar alanını kontrol edin.",
+            });
+        }
+
+        if (invoice.provider === "sovos") {
+            const sovosCreds = await resolveSovosCredentials(userId);
+            if (!sovosCreds) {
+                return res.status(400).json({ success: false, message: "Sovos bağlantı bilgileri eksik." });
+            }
+            const session = await sovosService.restoreSession(sovosCreds);
+            if (!session.success) {
+                return res.status(502).json({ success: false, message: "Sovos oturumu açılamadı: " + session.error });
+            }
+            try {
+                const result = await sovosEArchiveService.cancelInvoice({
+                    sessionId: session.sessionId,
+                    vkn: invoice.supplier?.vkn || sovosCreds.vknTckn,
+                    invoiceNumber: invoice.invoiceNumber,
+                    uuid: invoice.uuid,
+                    totalAmount,
+                    cancelDate: invoice.issueDate || new Date(),
+                    branch: sovosCreds.branch || "default",
+                    custInvID: invoice.custInvId || invoice.orderNumber || "",
+                    orderNumber: invoice.orderNumber || "",
+                });
+                if (!result.success) {
+                    return res.status(400).json({ success: false, message: result.error || "Sovos iptal başarısız" });
+                }
+
+                const syncedInvNo = result.data?.invoiceNumber;
+                const syncedUuid = result.data?.uuid;
+                const verified = result.data?.verifiedStatus;
+                const statusMessage = result.alreadyCancelled
+                    ? (result.data?.message || "Fatura Sovos tarafında zaten iptal edilmiş — kayıt güncellendi.")
+                    : (result.data?.message || "Fatura Sovos'ta iptal edildi.");
+
+                const updateFields = {
+                    status: "cancelled",
+                    providerResponse: {
+                        ...(invoice.providerResponse || {}),
+                        resultCode: verified?.statusCode != null ? String(verified.statusCode) : "140",
+                        resultText: statusMessage,
+                        cancelCode: result.data?.code,
+                    },
+                };
+                if (syncedInvNo && syncedInvNo !== invoice.invoiceNumber) {
+                    updateFields.invoiceNumber = syncedInvNo;
+                }
+                if (syncedUuid && syncedUuid !== invoice.uuid) {
+                    updateFields.uuid = syncedUuid;
+                }
+
+                await Invoice.updateOne({ _id: invoice._id }, updateFields);
+
+                return res.json({
+                    success: true,
+                    message: statusMessage,
+                    data: {
+                        status: "cancelled",
+                        alreadyCancelled: result.alreadyCancelled === true,
+                        sovos: result.data,
+                    },
+                });
+            } finally {
+                await sovosService.logout({ sessionId: session.sessionId }).catch(() => {});
+            }
+        } else if (invoice.provider === "qnb") {
+            const creds = await resolveEarsivCredentials(userId);
+            if (!creds) {
+                return res.status(400).json({ success: false, message: "e-Arşiv bağlantı bilgileri eksik." });
+            }
+            const loginResult = await qnbService.login({
+                username: creds.earsivUsername,
+                password: creds.earsivPassword,
+                env: creds.env,
+                service: "earsiv",
+            });
+            if (!loginResult.success) {
+                return res.status(502).json({ success: false, message: "e-Arşiv oturumu açılamadı: " + loginResult.error });
+            }
+            try {
+                const result = await qnbService.cancelEArchiveInvoice({
+                    sessionId: loginResult.sessionId,
+                    vkn: invoice.supplier?.vkn || creds.vkn,
+                    uuid: invoice.uuid,
+                    faturaNo: invoice.invoiceNumber,
+                    env: creds.env,
+                });
+                if (!result.success) {
+                    return res.status(400).json({ success: false, message: result.error || "İptal başarısız" });
+                }
+            } finally {
+                await qnbService.logout({ sessionId: loginResult.sessionId, env: creds.env, service: "earsiv" }).catch(() => {});
+            }
+        } else {
+            return res.status(400).json({ success: false, message: "Bu sağlayıcı için iptal desteklenmiyor." });
+        }
+
+        await Invoice.updateOne({ _id: invoice._id }, { status: "cancelled" });
+
+        res.json({ success: true, message: "Fatura iptal edildi.", data: { status: "cancelled" } });
+    } catch (error) {
+        logger.error("[AutoInvoice Controller] cancelInvoiceRecord hatası: " + error.message);
+        res.status(500).json({ success: false, message: "İptal işlemi başarısız" });
+    }
+};
+
+/**
+ * POST /api/auto-invoice/invoices/:invoiceId/respond
+ * Gelen ticari e-Faturaya KABUL / RED uygulama yanıtı gönder
+ */
+exports.respondInvoiceRecord = async (req, res) => {
+    try {
+        const userId = req.user._id;
+        const { responseCode } = req.body;
+        const code = String(responseCode || "").toUpperCase();
+        if (code !== "KABUL" && code !== "RED") {
+            return res.status(400).json({ success: false, message: "responseCode: KABUL veya RED olmalıdır" });
+        }
+
+        const invoice = await findInvoiceForUser(userId, req.params.invoiceId);
+        if (!invoice) {
+            return res.status(404).json({ success: false, message: "Fatura bulunamadı." });
+        }
+        if (invoice.provider !== "sovos") {
+            return res.status(400).json({ success: false, message: "Kabul/red yalnızca Sovos gelen e-Fatura için desteklenir." });
+        }
+        if (invoice.status === "accepted" || invoice.status === "rejected") {
+            return res.status(400).json({ success: false, message: "Bu faturaya zaten yanıt verilmiş." });
+        }
+        if (String(invoice.profileId || "").toUpperCase() !== "TICARIFATURA") {
+            return res.status(400).json({
+                success: false,
+                message: "Kabul/red yalnızca ticari (TICARIFATURA) gelen faturalar için geçerlidir.",
+            });
+        }
+
+        const config = await AutoInvoiceConfig.findOne({ userId }).lean();
+        const sovosCreds = await resolveSovosCredentials(userId);
+        if (!sovosCreds) {
+            return res.status(400).json({ success: false, message: "Sovos bağlantı bilgileri eksik." });
+        }
+
+        const direction = resolveSovosInvoiceDirection(invoice, sovosCreds);
+        if (direction.type !== "INBOUND" && invoice.direction !== "incoming") {
+            return res.status(400).json({
+                success: false,
+                message: "Yalnızca gelen e-Faturalara kabul/red yanıtı gönderilebilir.",
+            });
+        }
+
+        const session = await sovosService.restoreSession(sovosCreds);
+        if (!session.success) {
+            return res.status(502).json({ success: false, message: "Sovos oturumu açılamadı: " + session.error });
+        }
+
+        const ourVkn = config?.supplier?.vkn || sovosCreds.vknTckn || "";
+        const supplierVkn = invoice.supplier?.vkn || "";
+        const counterpartyVkn = supplierVkn && supplierVkn !== ourVkn
+            ? supplierVkn
+            : (invoice.customer?.vkn || "");
+
+        if (!counterpartyVkn || counterpartyVkn === ourVkn) {
+            return res.status(400).json({
+                success: false,
+                message: "Gönderici VKN bulunamadı. Faturayı Sovos'tan yeniden senkronize edin.",
+            });
+        }
+
+        try {
+            const result = await sovosService.sendApplicationResponse({
+                sessionId: session.sessionId,
+                invoiceNumber: invoice.invoiceNumber,
+                invoiceIssueDate: invoice.issueDate,
+                responseCode: code,
+                counterpartyVkn,
+                counterpartyName: invoice.supplier?.name || "",
+                ourParty: {
+                    vkn: ourVkn,
+                    name: config?.supplier?.name || "",
+                    taxOffice: config?.supplier?.taxOffice || "",
+                },
+            });
+
+            if (!result.success) {
+                return res.status(400).json({ success: false, message: result.error || "Yanıt gönderilemedi" });
+            }
+
+            const newStatus = code === "KABUL" ? "accepted" : "rejected";
+            await Invoice.updateOne({ _id: invoice._id }, { status: newStatus });
+
+            res.json({
+                success: true,
+                message: code === "KABUL" ? "Fatura kabul edildi" : "Fatura reddedildi",
+                data: { status: newStatus, responseCode: code, uuid: result.uuid },
+            });
+        } finally {
+            await sovosService.logout({ sessionId: session.sessionId }).catch(() => {});
+        }
+    } catch (error) {
+        logger.error("[AutoInvoice Controller] respondInvoiceRecord hatası: " + error.message);
+        res.status(500).json({ success: false, message: "Yanıt gönderilemedi" });
+    }
+};
+
+/**
+ * DELETE /api/auto-invoice/invoices/:invoiceId
+ * Yerel veritabanı kaydını sil (sağlayıcıdaki belge silinmez)
+ */
+exports.deleteInvoiceRecord = async (req, res) => {
+    try {
+        const userId = req.user._id;
+        const invoice = await findInvoiceForUser(userId, req.params.invoiceId);
+        if (!invoice) {
+            return res.status(404).json({ success: false, message: "Fatura bulunamadı." });
+        }
+
+        await Invoice.deleteOne({ _id: invoice._id });
+        if (invoice.orderId) {
+            await Order.updateOne(
+                { _id: invoice.orderId },
+                { $unset: { invoiceId: 1, invoiceNumber: 1 }, $set: { invoiceStatus: "" } }
+            );
+        }
+
+        res.json({ success: true, message: "Fatura kaydı silindi." });
+    } catch (error) {
+        logger.error("[AutoInvoice Controller] deleteInvoiceRecord hatası: " + error.message);
+        res.status(500).json({ success: false, message: "Silme işlemi başarısız" });
+    }
+};
+
+const fmtApiDate = (d) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}${m}${day}`;
+};
+
+const mapLocalTypeToProfile = (localType) => {
+    if (localType === "e-arsiv") return "EARSIVFATURA";
+    if (localType === "e-irsaliye" || localType === "e-irsaliye-gelen") return "IRSALIYE";
+    if (localType === "e-fatura-gelen") return "TEMELFATURA";
+    return "TICARIFATURA";
+};
+
+const normalizeSovosProfileId = (doc, localType, existing) => {
+    const envType = String(doc.envType || doc.raw?.EnvType || "").toUpperCase().trim();
+    if (envType === "TICARIFATURA" || envType === "TEMELFATURA") {
+        return envType;
+    }
+    if (localType === "e-arsiv") return "EARSIVFATURA";
+    if (localType === "e-irsaliye" || localType === "e-irsaliye-gelen") return "IRSALIYE";
+    if (localType === "e-fatura-gelen") {
+        return existing?.profileId && existing.profileId !== "EARSIVFATURA"
+            ? existing.profileId
+            : "TEMELFATURA";
+    }
+    return mapLocalTypeToProfile(localType);
+};
+
+const inferInvoiceDirection = (doc, localType, config, existing) => {
+    if (localType === "e-fatura-gelen") return "incoming";
+    if (localType === "e-irsaliye-gelen") return "incoming";
+    if (localType === "e-fatura" || localType === "e-arsiv" || localType === "e-irsaliye") return "outgoing";
+    if (existing?.direction === "incoming" || existing?.direction === "outgoing") {
+        return existing.direction;
+    }
+    const ourVkn = String(config?.supplier?.vkn || config?.sovosCredentials?.vknTckn || "").replace(/\D/g, "");
+    const supplierVkn = String(
+        doc?.vkn || doc?.raw?.VKN_TCKN || existing?.supplier?.vkn || ""
+    ).replace(/\D/g, "");
+    if (supplierVkn && ourVkn && supplierVkn !== ourVkn) return "incoming";
+    return "outgoing";
+};
+
+const inferStoredInvoiceDirection = (inv, config) => {
+    if (inv.direction === "incoming" || inv.direction === "outgoing") return inv.direction;
+    const ourVkn = String(config?.supplier?.vkn || config?.sovosCredentials?.vknTckn || "").replace(/\D/g, "");
+    const supplierVkn = String(inv.supplier?.vkn || "").replace(/\D/g, "");
+    if (supplierVkn && ourVkn && supplierVkn !== ourVkn) return "incoming";
+    return "outgoing";
+};
+
+const mapSovosLocalTypeToUblRequest = (localType) => {
+    if (localType === "e-fatura-gelen") {
+        return { docType: "INVOICE", type: "INBOUND", identifierKey: "receiver" };
+    }
+    if (localType === "e-fatura") {
+        return { docType: "INVOICE", type: "OUTBOUND", identifierKey: "sender" };
+    }
+    return null;
+};
+
+/** Sovos getUBLList tutar döndürmez — eksik totals için UBL'den doldur */
+const enrichSovosInvoiceTotalsFromUbl = async ({ sessionId, userId, uuid, localType }) => {
+    if (!sessionId || !uuid) return false;
+
+    const inv = await Invoice.findOne({ userId, uuid }).lean();
+    if (!inv) return false;
+
+    const current = resolveInvoiceTotals(inv);
+    if (current.payableAmount > 0) return false;
+
+    const ublReq = mapSovosLocalTypeToUblRequest(localType);
+    if (!ublReq) return false;
+
+    const ublResult = await sovosService.getUBL({
+        sessionId,
+        uuid,
+        docType: ublReq.docType,
+        type: ublReq.type,
+        identifierKey: ublReq.identifierKey,
+    });
+    if (!ublResult.success) return false;
+
+    const entry = ublResult.data?.zipEntries?.[0];
+    const buf = entry?.buffer;
+    if (!buf || buf.length < 20) return false;
+
+    let xmlText = "";
+    try {
+        xmlText = decompressZipEntry(buf).toString("utf8");
+    } catch {
+        xmlText = buf.toString("utf8");
+    }
+
+    const totals = extractTotalsFromUblXml(xmlText);
+    if (!totals || !(totals.payableAmount > 0)) return false;
+
+    await Invoice.updateOne({ _id: inv._id }, { $set: { totals } });
+    return true;
+};
+
+const upsertSovosProviderInvoice = async (userId, doc, { config, env, localType }) => {
+    const uuid = String(doc.uuid || doc.id || "").trim();
+    const invoiceNumber = String(doc.number || "").trim();
+    const custInvId = String(doc.custInvId || doc.raw?.customerInvoiceID || "").trim();
+    if (!uuid && !invoiceNumber) {
+        return { skipped: true, reason: "uuid ve fatura no yok" };
+    }
+
+    const filter = uuid ? { userId, uuid } : { userId, invoiceNumber };
+    const existing = await Invoice.findOne(filter).lean();
+    const profileId = normalizeSovosProfileId(doc, localType, existing);
+    const supplier = config?.supplier || {};
+    const issueDate = doc.date ? new Date(doc.date) : new Date();
+    const isIncoming = localType === "e-fatura-gelen";
+    const direction = inferInvoiceDirection(doc, localType, config, existing);
+    const envUuid = String(doc.envUuid || doc.raw?.EnvUUID || existing?.envUuid || "").trim();
+
+    const payload = {
+        userId,
+        uuid: uuid || existing?.uuid || crypto.randomUUID(),
+        envUuid: envUuid || existing?.envUuid || "",
+        invoiceNumber: invoiceNumber || existing?.invoiceNumber || "",
+        custInvId: custInvId || existing?.custInvId || "",
+        orderNumber: custInvId || existing?.orderNumber || "",
+        profileId,
+        direction: isIncoming ? "incoming" : direction,
+        issueDate: existing?.issueDate || issueDate,
+        currency: existing?.currency || "TRY",
+        provider: "sovos",
+        env: env || "test",
+        supplier: isIncoming
+            ? {
+                vkn: doc.vkn || doc.raw?.VKN_TCKN || existing?.supplier?.vkn || "",
+                name: doc.raw?.senderTitle || existing?.supplier?.name || "",
+                taxOffice: existing?.supplier?.taxOffice || "",
+            }
+            : {
+                vkn: supplier.vkn || config?.sovosCredentials?.vknTckn || "",
+                name: supplier.name || "",
+                taxOffice: supplier.taxOffice || "",
+            },
+        customer: isIncoming
+            ? {
+                vkn: supplier.vkn || config?.sovosCredentials?.vknTckn || existing?.customer?.vkn || "",
+                name: supplier.name || existing?.customer?.name || "",
+                taxOffice: supplier.taxOffice || existing?.customer?.taxOffice || "",
+            }
+            : {
+                vkn: doc.vkn || doc.raw?.receiverId || existing?.customer?.vkn || "",
+                name: doc.customer || doc.raw?.receiverTitle || existing?.customer?.name || "",
+                taxOffice: existing?.customer?.taxOffice || "",
+            },
+        totals: resolveInvoiceTotals({
+            totals: {
+                payableAmount:
+                    Number(doc.total || doc.amount) > 0
+                        ? Number(doc.total || doc.amount)
+                        : Number(existing?.totals?.payableAmount || 0),
+                lineExtensionAmount: Number(existing?.totals?.lineExtensionAmount || 0),
+                totalTax: Number(existing?.totals?.totalTax || 0),
+                taxInclusiveAmount:
+                    Number(doc.total || doc.amount) > 0
+                        ? Number(doc.total || doc.amount)
+                        : Number(existing?.totals?.taxInclusiveAmount || 0),
+            },
+            lines: existing?.lines || [],
+        }),
+        status: existing?.status && existing.status !== "created" ? existing.status : "sent",
+        createdBy: existing?.createdBy || "manual",
+    };
+
+    if (existing) {
+        await Invoice.updateOne({ _id: existing._id }, { $set: payload });
+        return { updated: true, uuid: payload.uuid, invoiceNumber: payload.invoiceNumber };
+    }
+
+    await Invoice.create(payload);
+    return { created: true, uuid: payload.uuid, invoiceNumber: payload.invoiceNumber };
+};
+
+const sovosStatusIndicatesCancelled = (data) => {
+    if (!data) return false;
+    if (data.mappedStatus === "cancelled") return true;
+    const detail = String(data.detail || data.statusLabel || "");
+    return /iptal|itiraz|cancel/i.test(detail);
+};
+
+/** Sovos getStatus ile e-Arşiv iptal bayraklarını güncelle */
+const syncSovosEArchiveCancelFlags = async ({
+    userId,
+    sessionId,
+    supplierVkn,
+    days = 30,
+    maxInvoices = 50,
+}) => {
+    const stats = { checked: 0, cancelled: 0 };
+    if (!sessionId || !supplierVkn) return stats;
+
+    const since = new Date();
+    since.setDate(since.getDate() - Math.max(1, Number(days) || 30));
+
+    const rows = await Invoice.find({
+        userId,
+        provider: "sovos",
+        profileId: /EARSIV/i,
+        status: { $ne: "cancelled" },
+        issueDate: { $gte: since },
+    })
+        .select("_id uuid invoiceNumber custInvId orderNumber")
+        .limit(maxInvoices)
+        .lean();
+
+    for (const inv of rows) {
+        stats.checked++;
+        try {
+            const result = await sovosEArchiveService.getStatus({
+                sessionId,
+                vkn: supplierVkn,
+                uuid: inv.uuid,
+                invoiceNumber: inv.invoiceNumber,
+                custInvID: inv.custInvId || inv.orderNumber || "",
+                orderNumber: inv.orderNumber || "",
+            });
+            if (!result.success || !result.data) continue;
+            if (sovosStatusIndicatesCancelled(result.data)) {
+                await Invoice.updateOne(
+                    { _id: inv._id },
+                    {
+                        status: "cancelled",
+                        "providerResponse.sovosCancelled": true,
+                        "providerResponse.resultText": result.data.detail || result.data.statusLabel || "Sovos: iptal",
+                    }
+                );
+                stats.cancelled++;
+            } else {
+                await Invoice.updateOne(
+                    { _id: inv._id },
+                    { "providerResponse.sovosCancelled": false }
+                );
+            }
+        } catch (err) {
+            logger.debug("[AutoInvoice] Sovos iptal senkron atlandı — " + inv._id + " " + err.message);
+        }
+    }
+    return stats;
+};
+
+/**
+ * e-Arşiv v2.3 tekil liste sunmaz — sipariş no (custInvID) ile Sovos getStatus'tan DB'ye kurtar.
+ */
+const reconcileSovosEArchiveFromOrders = async ({
+    userId,
+    sessionId,
+    config,
+    sovosCreds,
+    env,
+    days = 90,
+    maxOrders = 150,
+}) => {
+    const stats = { recovered: 0, linked: 0, checked: 0, skipped: 0, errors: [] };
+    const supplierVkn = sovosCreds?.vknTckn || config?.supplier?.vkn || "";
+    if (!supplierVkn) {
+        stats.errors.push({ message: "Satıcı VKN eksik — e-Arşiv kurtarma atlandı" });
+        return stats;
+    }
+
+    const end = new Date();
+    const start = new Date(end);
+    start.setDate(start.getDate() - Math.max(1, Number(days) || 90));
+
+    const existingRows = await Invoice.find({ userId })
+        .select("uuid custInvId orderNumber invoiceNumber")
+        .lean();
+    const knownKeys = new Set();
+    for (const inv of existingRows) {
+        if (inv.uuid) knownKeys.add(String(inv.uuid).toLowerCase());
+        if (inv.custInvId) knownKeys.add(String(inv.custInvId));
+        if (inv.orderNumber) knownKeys.add(String(inv.orderNumber));
+        if (inv.invoiceNumber) knownKeys.add(String(inv.invoiceNumber));
+    }
+
+    const orders = await Order.find({
+        user: userId,
+        trackingNumber: { $exists: true, $nin: ["", null] },
+        $or: [
+            { invoiceId: { $exists: false } },
+            { invoiceId: null },
+            { invoiceStatus: "error" },
+        ],
+        orderDate: { $gte: start },
+    })
+        .sort({ orderDate: -1 })
+        .limit(maxOrders)
+        .select("_id trackingNumber orderNumber totalPrice invoiceId invoiceStatus marketplaceName orderDate")
+        .lean();
+
+    for (const order of orders) {
+        const custInvId = String(order.trackingNumber || order.orderNumber || "").trim();
+        if (!custInvId) {
+            stats.skipped++;
+            continue;
+        }
+        if (knownKeys.has(custInvId)) {
+            stats.skipped++;
+            continue;
+        }
+
+        stats.checked++;
+        try {
+            const statusResult = await sovosEArchiveService.getStatus({
+                sessionId,
+                vkn: supplierVkn,
+                custInvID: custInvId,
+                custInvId,
+                orderNumber: custInvId,
+            });
+            const statusData = statusResult.success ? statusResult.data : null;
+            const uuid = String(statusData?.uuid || "").trim();
+            const invoiceNumber = String(statusData?.invoiceNumber || "").trim();
+            if (!uuid && !invoiceNumber) {
+                stats.skipped++;
+                continue;
+            }
+            if (uuid && knownKeys.has(uuid.toLowerCase())) {
+                stats.skipped++;
+                continue;
+            }
+            if (invoiceNumber && knownKeys.has(invoiceNumber)) {
+                stats.skipped++;
+                continue;
+            }
+
+            const upsert = await upsertSovosProviderInvoice(
+                userId,
+                {
+                    uuid,
+                    number: invoiceNumber,
+                    custInvId,
+                    date: order.orderDate || new Date(),
+                    total: order.totalPrice,
+                    type: "e-arsiv",
+                    raw: statusData?.raw || statusData,
+                },
+                { config, env, localType: "e-arsiv" }
+            );
+            if (upsert.skipped) {
+                stats.skipped++;
+                continue;
+            }
+            if (upsert.created || upsert.updated) {
+                stats.recovered++;
+                if (uuid) knownKeys.add(uuid.toLowerCase());
+                knownKeys.add(custInvId);
+                if (invoiceNumber) knownKeys.add(invoiceNumber);
+
+                if (!order.invoiceId) {
+                    const saved = await Invoice.findOne(
+                        uuid ? { userId, uuid } : { userId, invoiceNumber }
+                    ).select("_id invoiceNumber").lean();
+                    if (saved) {
+                        await Order.updateOne(
+                            { _id: order._id },
+                            {
+                                invoiceId: saved._id,
+                                invoiceNumber: saved.invoiceNumber || invoiceNumber,
+                                invoiceStatus: "created",
+                            }
+                        );
+                        stats.linked++;
+                    }
+                }
+            }
+        } catch (reconcileErr) {
+            stats.errors.push({ custInvId, message: reconcileErr.message });
+        }
+    }
+
+    return stats;
+};
+
+/**
+ * POST /api/auto-invoice/sync-sovos
+ * Sovos portalından e-Arşiv + e-Fatura belgelerini çekip DB'ye yazar
+ */
+exports.syncSovosInvoices = async (req, res) => {
+    try {
+        const userId = req.user._id;
+        const days = Math.min(30, Math.max(1, parseInt(req.body.days, 10) || 30));
+        const sovosCreds = await resolveSovosCredentials(userId);
+        if (!sovosCreds) {
+            return res.status(400).json({
+                success: false,
+                message: "Sovos bağlantı bilgileri eksik. Faturalandırma ayarlarından Sovos bilgilerinizi girin.",
+            });
+        }
+
+        const config = await AutoInvoiceConfig.findOne({ userId }).lean();
+        const session = await sovosService.restoreSession(sovosCreds);
+        if (!session.success) {
+            return res.status(502).json({ success: false, message: "Sovos oturumu açılamadı: " + session.error });
+        }
+
+        const sessionId = session.sessionId;
+        const env = sovosCreds.env || "test";
+        const end = new Date();
+        const start = new Date(end);
+        start.setDate(start.getDate() - days);
+        const searchParams = {
+            startDate: fmtApiDate(start),
+            endDate: fmtApiDate(end),
+        };
+
+        const docTypes = [];
+        const caps = session.capabilities || sovosCreds.capabilities || {};
+        const storedCaps = config?.sovosCredentials?.capabilities || {};
+        const edespatchEnabled = caps.edespatch !== false && storedCaps.edespatch !== false;
+        if (caps.earsiv !== false) {
+            docTypes.push({ apiType: "earchive", localType: "e-arsiv" });
+        }
+        const gb = String(sovosCreds.senderIdentifier || "").trim();
+        if (caps.efatura === true && isValidGbIdentifier(gb)) {
+            docTypes.push({ apiType: "outgoing-einvoice", localType: "e-fatura" });
+            if (edespatchEnabled) {
+                docTypes.push({ apiType: "despatch-advice", localType: "e-irsaliye" });
+            }
+            if (sovosCreds.receiverIdentifier) {
+                docTypes.push({ apiType: "incoming-einvoice", localType: "e-fatura-gelen" });
+                if (edespatchEnabled) {
+                    docTypes.push({ apiType: "incoming-despatch", localType: "e-irsaliye-gelen" });
+                }
+            }
+        }
+        if (!docTypes.length) {
+            docTypes.push({ apiType: "earchive", localType: "e-arsiv" });
+        }
+
+        const stats = {
+            created: 0,
+            updated: 0,
+            skipped: 0,
+            errors: [],
+            fetched: 0,
+            earsivRecovered: 0,
+            earsivChecked: 0,
+            earsivLinked: 0,
+            totalsEnriched: 0,
+        };
+        const seen = new Set();
+        let ublEnrichBudget = 15;
+
+        try {
+            for (const dt of docTypes) {
+                if (dt.apiType === "earchive") {
+                    continue;
+                }
+                const result = await sovosService.searchDocuments({
+                    sessionId,
+                    documentType: dt.apiType,
+                    searchParams,
+                    allowBypassCooldown: true,
+                });
+
+                if (!result.success) {
+                    const faultText = String(result.error || result.message || result.detail || "").trim();
+                    if (result.inactiveModule && result.capabilityKey) {
+                        await persistSovosCapability(userId, sessionId, result.capabilityKey, false);
+                        stats.errors.push({ type: dt.localType, message: result.message || "Modül aktif değil", skipped: true });
+                    } else if (isSovosInactiveModuleError(faultText)) {
+                        await persistSovosCapability(userId, sessionId, result.capabilityKey || "edespatch", false);
+                        stats.errors.push({ type: dt.localType, message: "Modül aktif değil — atlandı", skipped: true });
+                    } else if (faultText) {
+                        stats.errors.push({ type: dt.localType, message: faultText });
+                    }
+                    continue;
+                }
+                if (result.skipped) {
+                    stats.errors.push({ type: dt.localType, message: result.message || "Atlandı", skipped: true });
+                    continue;
+                }
+
+                const docs = Array.isArray(result.data) ? result.data : [];
+                stats.fetched += docs.length;
+
+                for (const doc of docs) {
+                    const key = doc.uuid || doc.id || doc.number;
+                    if (key && seen.has(key)) continue;
+                    if (key) seen.add(key);
+
+                    try {
+                        const upsert = await upsertSovosProviderInvoice(userId, doc, {
+                            config,
+                            env,
+                            localType: dt.localType,
+                        });
+                        if (upsert.skipped) stats.skipped++;
+                        else if (upsert.created) stats.created++;
+                        else if (upsert.updated) stats.updated++;
+
+                        if (ublEnrichBudget > 0 && doc.uuid && (dt.localType === "e-fatura" || dt.localType === "e-fatura-gelen")) {
+                            try {
+                                const enriched = await enrichSovosInvoiceTotalsFromUbl({
+                                    sessionId,
+                                    userId,
+                                    uuid: doc.uuid,
+                                    localType: dt.localType,
+                                });
+                                if (enriched) {
+                                    stats.totalsEnriched++;
+                                    ublEnrichBudget--;
+                                }
+                            } catch (enrichErr) {
+                                logger.warn("[AutoInvoice] Sovos UBL tutar zenginleştirme: " + enrichErr.message);
+                            }
+                        }
+                    } catch (upsertErr) {
+                        stats.errors.push({
+                            type: dt.localType,
+                            message: upsertErr.message,
+                            uuid: doc.uuid,
+                        });
+                    }
+                }
+            }
+
+            if (caps.earsiv !== false) {
+                const reconcileDays = Math.max(days, 90);
+                const earsivReconcile = await reconcileSovosEArchiveFromOrders({
+                    userId,
+                    sessionId,
+                    config,
+                    sovosCreds,
+                    env,
+                    days: reconcileDays,
+                });
+                stats.earsivRecovered = earsivReconcile.recovered || 0;
+                stats.earsivChecked = earsivReconcile.checked || 0;
+                stats.earsivLinked = earsivReconcile.linked || 0;
+                stats.created += stats.earsivRecovered;
+                stats.fetched += stats.earsivRecovered;
+                if (stats.earsivRecovered > 0) {
+                    logger.info(
+                        "[AutoInvoice] Sovos e-Arşiv kurtarma — user=" + userId +
+                        " recovered=" + stats.earsivRecovered +
+                        " checked=" + stats.earsivChecked
+                    );
+                }
+                if (earsivReconcile.errors?.length) {
+                    stats.errors.push(...earsivReconcile.errors.map((e) => ({
+                        type: "e-arsiv",
+                        message: e.message,
+                        custInvId: e.custInvId,
+                    })));
+                }
+
+                const cancelSync = await syncSovosEArchiveCancelFlags({
+                    userId,
+                    sessionId,
+                    supplierVkn: sovosCreds.vknTckn || config?.supplier?.vkn || "",
+                    days,
+                });
+                stats.cancelSyncChecked = cancelSync.checked;
+                stats.cancelSyncUpdated = cancelSync.cancelled;
+            }
+        } finally {
+            await sovosService.logout({ sessionId }).catch(() => {});
+        }
+
+        logger.info(
+            "[AutoInvoice] Sovos senkron — user=" + userId +
+            " fetched=" + stats.fetched +
+            " created=" + stats.created +
+            " updated=" + stats.updated +
+            " earsivRecovered=" + stats.earsivRecovered
+        );
+
+        const providerFix = await Invoice.updateMany(
+            { userId, provider: { $ne: "sovos" } },
+            { $set: { provider: "sovos" } }
+        );
+        if (providerFix.modifiedCount) {
+            logger.info("[AutoInvoice] Sovos provider düzeltmesi — " + providerFix.modifiedCount + " kayıt");
+        }
+
+        const parts = [`${stats.created} yeni`, `${stats.updated} güncellenmiş`];
+        if (stats.earsivRecovered > 0) {
+            parts.push(`${stats.earsivRecovered} e-Arşiv Sovos'tan kurtarıldı`);
+        }
+        res.json({
+            success: true,
+            message: parts.join(", ") + ` (Sovos son ${days} gün)`,
+            data: stats,
+        });
+    } catch (error) {
+        logger.error("[AutoInvoice Controller] syncSovosInvoices hatası: " + error.message);
+        res.status(500).json({ success: false, message: "Sovos senkronizasyonu başarısız: " + error.message });
+    }
+};
+
+/**
+ * GET /api/auto-invoice/uninvoiced-orders
+ * Faturalanmamış sipariş listesi (test / manuel kesim için)
+ */
+exports.getUninvoicedOrders = async (req, res) => {
+    try {
+        const userId = req.user._id;
+        const config = await AutoInvoiceConfig.findOne({ userId }).lean();
+
+        await releaseStalePendingOrders(userId);
+
+        const filter = buildUninvoicedListFilter(userId, config);
+        const autoStart = getUninvoicedStartDate(config);
+        const page = Math.max(1, parseInt(req.query.page) || 1);
+        const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 25));
+        const skip = (page - 1) * limit;
+
+        const [orders, total, errorCount, pendingCount, autoEligibleCount] = await Promise.all([
+            Order.find(filter)
+                .select("trackingNumber orderNumber marketplaceName status totalPrice orderDate invoiceStatus customerFirstName customerLastName customerName")
+                .sort({ orderDate: -1 })
+                .skip(skip)
+                .limit(limit)
+                .lean(),
+            Order.countDocuments(filter),
+            Order.countDocuments({
+                user: userId,
+                invoiceId: { $exists: false },
+                invoiceStatus: "error",
+                isCancelled: false,
+                isReturned: false,
+                totalPrice: { $gt: 0 },
+                orderDate: { $gte: getUninvoicedListStartDate() },
+            }),
+            Order.countDocuments({
+                user: userId,
+                invoiceId: { $exists: false },
+                invoiceStatus: "pending",
+                isCancelled: false,
+                isReturned: false,
+                totalPrice: { $gt: 0 },
+                orderDate: { $gte: getUninvoicedListStartDate() },
+            }),
+            Order.countDocuments(buildUninvoicedOrderFilter(userId, config, { includeError: true, includePending: false })),
+        ]);
+
+        const data = orders.map((o) => ({
+            id: o._id.toString(),
+            orderNumber: o.trackingNumber || o.orderNumber || "",
+            marketplaceName: o.marketplaceName || "",
+            status: o.status || "",
+            totalPrice: o.totalPrice || 0,
+            orderDate: o.orderDate,
+            invoiceStatus: o.invoiceStatus || "",
+            customerName: o.customerName ||
+                [o.customerFirstName, o.customerLastName].filter(Boolean).join(" ") ||
+                "",
+        }));
+
+        res.json({
+            success: true,
+            data,
+            summary: {
+                eligible: total,
+                autoEligible: autoEligibleCount,
+                errorCount,
+                pendingCount,
+                listStartDate: getUninvoicedListStartDate(),
+                autoInvoiceStartDate: autoStart,
+            },
+            pagination: {
+                page,
+                limit,
+                total,
+                totalPages: Math.ceil(total / limit) || 0,
+            },
+        });
+    } catch (error) {
+        logger.error("[AutoInvoice Controller] getUninvoicedOrders hatası: " + error.message);
+        res.status(500).json({ success: false, message: "Sipariş listesi alınamadı" });
+    }
+};
+
+/**
  * GET /api/auto-invoice/stats
  * Fatura istatistikleri (dashboard için)
  */
 exports.getStats = async (req, res) => {
     try {
         const userId = req.user._id;
+
+        await releaseStalePendingOrders(userId);
 
         const [config, totalInvoices, todayInvoices, totalAmount, byMarketplace, byStatus] = await Promise.all([
             AutoInvoiceConfig.findOne({ userId }).lean(),
@@ -660,16 +2305,9 @@ exports.getStats = async (req, res) => {
         ]);
 
         // Faturasız sipariş sayısı
-        // autoInvoiceStartDate varsa o tarihten itibaren, yoksa son 30 gün
-        const thirtyDaysAgo = new Date();
-        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-        const startDateFilter = config && config.autoInvoiceStartDate
-            ? config.autoInvoiceStartDate
-            : thirtyDaysAgo;
+        const startDateFilter = getUninvoicedStartDate(config);
 
-        // ✅ FIX: "error" durumundaki siparişleri "faturasız" olarak sayma
-        // Bunlar ayrı "errorOrders" olarak gösterilecek
-        const [uninvoicedOrders, errorOrders] = await Promise.all([
+        const [uninvoicedOrders, errorOrders, pendingOrders] = await Promise.all([
             Order.countDocuments({
                 user: userId,
                 invoiceId: { $exists: false },
@@ -688,18 +2326,32 @@ exports.getStats = async (req, res) => {
                 totalPrice: { $gt: 0 },
                 orderDate: { $gte: startDateFilter },
             }),
+            Order.countDocuments({
+                user: userId,
+                invoiceId: { $exists: false },
+                invoiceStatus: "pending",
+                isCancelled: false,
+                isReturned: false,
+                totalPrice: { $gt: 0 },
+                orderDate: { $gte: startDateFilter },
+            }),
         ]);
 
         // ✅ FIX: Otomatik fatura neden çalışmıyor bilgisi
         // Kullanıcıya "50 faturasız sipariş var" deyip neden faturalanmadığını açıkla
         let autoInvoiceWarning = "";
-        if ((uninvoicedOrders > 0 || errorOrders > 0) && config) {
+        if ((uninvoicedOrders > 0 || errorOrders > 0 || pendingOrders > 0) && config) {
             if (!config.enabled) {
-                autoInvoiceWarning = "Otomatik fatura devre dışı. Ayarlardan aktif edin.";
+                autoInvoiceWarning = "Otomatik fatura devre dışı. Manuel test için 'Faturasız Siparişleri Faturala' kullanabilirsiniz.";
             } else if (config.stats && config.stats.consecutiveErrors >= 5) {
                 autoInvoiceWarning = "Ardışık hata limiti aşıldı (" + config.stats.consecutiveErrors + " hata). Hata sayacını sıfırlayın.";
             } else if (!config.supplier || !config.supplier.vkn) {
                 autoInvoiceWarning = "Satıcı VKN bilgisi eksik. Ayarlardan firma bilgilerinizi girin.";
+            } else if ((config.provider || "qnb") === "sovos") {
+                const sc = config.sovosCredentials || {};
+                if (!sc.username || !sc.password || !sc.vknTckn) {
+                    autoInvoiceWarning = "Sovos web servis bilgileri eksik. Faturalandırma → Sovos bağlantınızı tamamlayın.";
+                }
             } else if (!config.qnbCredentials || (!config.qnbCredentials.earsivUsername && !config.qnbCredentials.username)) {
                 autoInvoiceWarning = "QNB e-Arşiv kullanıcı bilgileri eksik. Ayarlardan QNB bağlantı bilgilerinizi girin.";
             }
@@ -720,6 +2372,8 @@ exports.getStats = async (req, res) => {
                 totalAmount: totalAmount.length > 0 ? totalAmount[0].total : 0,
                 uninvoicedOrders,
                 errorOrders,
+                pendingOrders,
+                autoInvoiceStartDate: startDateFilter,
                 autoInvoiceWarning,
                 byMarketplace: byMarketplace.map(m => ({ marketplace: m._id || "Diğer", count: m.count })),
                 byStatus: byStatus.map(s => ({ status: s._id, count: s.count })),
@@ -788,7 +2442,7 @@ exports.cleanupGhostInvoices = async (req, res) => {
             if (inv.orderId) {
                 await Order.updateOne(
                     { _id: inv.orderId },
-                    { $unset: { invoiceId: 1, invoiceNumber: 1 }, invoiceStatus: "none" }
+                    { $unset: { invoiceId: 1, invoiceNumber: 1 }, $set: { invoiceStatus: "" } }
                 );
             }
 
@@ -821,21 +2475,27 @@ exports.cleanupGhostInvoices = async (req, res) => {
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
-//  QNB'DEN FATURA LİSTESİ ÇEK (DB yerine doğrudan QNB'den)
+//  BELGE LİSTESİ (DB — tüm sağlayıcılar)
 // ═══════════════════════════════════════════════════════════════════════════
 
+const ensureSovosProviderOnInvoices = async (userId) => {
+    const config = await AutoInvoiceConfig.findOne({ userId }).select("provider").lean();
+    if (config?.provider !== "sovos") return 0;
+    const res = await Invoice.updateMany(
+        { userId, provider: { $ne: "sovos" } },
+        { $set: { provider: "sovos" } }
+    );
+    return res.modifiedCount || 0;
+};
+
 /**
- * GET /api/auto-invoice/qnb-invoices
- * Kesilen faturaları DB'den çeker (Invoice modeli).
- * QNB test ortamında faturaListeSorgula raporlama gecikmesi nedeniyle 0 dönebilir,
- * bu yüzden kendi DB'mizdeki kayıtları kullanıyoruz — her kesilen fatura zaten kaydediliyor.
- *
- * Query: ?search=...&page=1&limit=50&startDate=2026-01-01&endDate=2026-04-08
- * Arama: fatura numarası, müşteri adı, sipariş numarası
+ * GET /api/auto-invoice/documents
+ * Kesilen belgeleri DB'den çeker (QNB, Sovos, tüm sağlayıcılar).
  */
-exports.getQnbInvoices = async (req, res) => {
+exports.listBillingDocuments = async (req, res) => {
     try {
         const userId = req.user._id;
+        await ensureSovosProviderOnInvoices(userId);
 
         // ── Filtre oluştur ──────────────────────────────────────────────
         const filter = { userId };
@@ -877,8 +2537,15 @@ exports.getQnbInvoices = async (req, res) => {
             ];
         }
 
-        // Profil filtresi (opsiyonel)
-        if (req.query.profileId) {
+        // Profil / belge tipi filtresi (opsiyonel)
+        const docType = (req.query.documentType || "").toLowerCase();
+        if (docType === "earsiv") {
+            filter.profileId = { $regex: /EARSIV/i };
+        } else if (docType === "efatura") {
+            filter.profileId = { $not: { $regex: /EARSIV|IRSALIYE|İRSALİYE/i } };
+        } else if (docType === "despatch" || docType === "irsaliye") {
+            filter.profileId = { $regex: /IRSALIYE|İRSALİYE/i };
+        } else if (req.query.profileId) {
             filter.profileId = req.query.profileId;
         }
 
@@ -888,36 +2555,64 @@ exports.getQnbInvoices = async (req, res) => {
         const skip = (page - 1) * limit;
 
         // ── DB'den çek ──────────────────────────────────────────────────
-        const [invoices, total] = await Promise.all([
+        const [invoices, total, config] = await Promise.all([
             Invoice.find(filter)
                 .sort({ createdAt: -1 })
                 .skip(skip)
                 .limit(limit)
                 .lean(),
-            Invoice.countDocuments(filter)
+            Invoice.countDocuments(filter),
+            AutoInvoiceConfig.findOne({ userId }).lean(),
         ]);
 
+        const backfillOps = [];
+        for (const inv of invoices) {
+            if (inv.provider !== "sovos") continue;
+            const inferredDirection = inferStoredInvoiceDirection(inv, config);
+            if (inv.direction !== inferredDirection && inferredDirection === "incoming") {
+                backfillOps.push(Invoice.updateOne({ _id: inv._id }, { $set: { direction: "incoming" } }));
+            }
+        }
+        if (backfillOps.length) {
+            Promise.all(backfillOps).catch((err) => {
+                logger.warn("[AutoInvoice] direction backfill hatası: " + err.message);
+            });
+        }
+
         // ── Normalize et (frontend uyumlu format) ───────────────────────
-        const data = invoices.map(inv => ({
+        const data = invoices.map(inv => {
+            const direction = inferStoredInvoiceDirection(inv, config);
+            const totals = resolveInvoiceTotals(inv);
+            return {
             id: inv.uuid || inv._id.toString(),
             faturaNo: inv.invoiceNumber || "",
             uuid: inv.uuid || "",
+            envUuid: inv.envUuid || "",
             aliciAdi: inv.customer ? inv.customer.name : "",
             aliciVkn: inv.customer ? inv.customer.vkn : "",
+            saticiAdi: inv.supplier ? inv.supplier.name : "",
+            saticiVkn: inv.supplier ? inv.supplier.vkn : "",
             tarih: inv.issueDate || inv.createdAt,
-            tutar: inv.totals ? inv.totals.payableAmount : 0,
-            kdvHaric: inv.totals ? inv.totals.lineExtensionAmount : 0,
-            kdv: inv.totals ? inv.totals.totalTax : 0,
+            tutar: totals.payableAmount,
+            kdvHaric: totals.lineExtensionAmount,
+            kdv: totals.totalTax,
+            totals,
+            lines: inv.lines || [],
             durum: inv.status || "created",
+            statusCode: inv.providerResponse?.resultCode || "",
             profileId: inv.profileId || "EARSIVFATURA",
+            direction,
             marketplaceName: inv.marketplaceName || "",
             orderNumber: inv.orderNumber || "",
+            custInvId: inv.custInvId || inv.orderNumber || "",
             faturaURL: inv.faturaURL || "",
             createdBy: inv.createdBy || "manual",
             provider: inv.provider || "qnb",
             currency: inv.currency || "TRY",
+            sovosCancelled: inv.status === "cancelled" || inv.providerResponse?.sovosCancelled === true,
             _id: inv._id,
-        }));
+        };
+        });
 
         logger.info("[AutoInvoice] DB'den " + total + " fatura bulundu, sayfa " + page + "/" + Math.ceil(total / limit));
 
@@ -933,22 +2628,43 @@ exports.getQnbInvoices = async (req, res) => {
         });
 
     } catch (error) {
-        logger.error("[AutoInvoice Controller] getQnbInvoices hatası: " + error.message);
+        logger.error("[AutoInvoice Controller] listBillingDocuments hatası: " + error.message);
         res.status(500).json({ success: false, message: "Fatura listesi alınamadı" });
     }
 };
 
+/** @deprecated qnb-invoices — geriye uyumluluk alias */
+exports.getQnbInvoices = exports.listBillingDocuments;
+
 /**
- * GET /api/auto-invoice/qnb-invoices/:uuid/preview
- * Tek faturanın HTML önizlemesini QNB'den çeker
+ * GET /api/auto-invoice/documents/:documentId/preview
+ * Belge önizlemesi — sağlayıcıya göre QNB veya Sovos
  */
-exports.getQnbInvoicePreview = async (req, res) => {
+exports.getBillingDocumentPreview = async (req, res) => {
     try {
         const userId = req.user._id;
-        const { uuid } = req.params;
+        const documentId = req.params.documentId || req.params.uuid;
 
-        if (!uuid) {
-            return res.status(400).json({ success: false, message: "Fatura UUID gerekli." });
+        if (!documentId) {
+            return res.status(400).json({ success: false, message: "Belge kimliği gerekli." });
+        }
+
+        const dbInvoice = await Invoice.findOne({
+            userId,
+            $or: [{ uuid: documentId }, { _id: mongoose.Types.ObjectId.isValid(documentId) ? documentId : null }],
+        }).lean();
+        const uuid = dbInvoice?.uuid || documentId;
+        if (dbInvoice?.provider === "sovos") {
+            const sovosCreds = await resolveSovosCredentials(userId);
+            if (!sovosCreds) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Sovos bağlantı bilgileri eksik. Faturalandırma ayarlarından Sovos bilgilerinizi girin.",
+                });
+            }
+            const streamed = await streamSovosDocumentBuffer(res, dbInvoice, sovosCreds);
+            if (streamed) return;
+            return;
         }
 
         // ── Credential çözümleme (ortak helper) ─────────────────────────
@@ -1039,8 +2755,162 @@ exports.getQnbInvoicePreview = async (req, res) => {
         }
 
     } catch (error) {
-        logger.error("[AutoInvoice Controller] getQnbInvoicePreview hatası: " + error.message);
+        logger.error("[AutoInvoice Controller] getBillingDocumentPreview hatası: " + error.message);
         res.status(500).json({ success: false, message: "Fatura önizleme hatası" });
+    }
+};
+
+/** @deprecated qnb-invoices/:uuid/preview — geriye uyumluluk alias */
+exports.getQnbInvoicePreview = exports.getBillingDocumentPreview;
+
+/**
+ * GET /api/auto-invoice/invoices/:invoiceId/signed-xml
+ * Sovos e-Arşiv imzalı XML indir
+ */
+exports.downloadSignedInvoiceXml = async (req, res) => {
+    try {
+        const userId = req.user._id;
+        const invoice = await findInvoiceForUser(userId, req.params.invoiceId);
+        if (!invoice) {
+            return res.status(404).json({ success: false, message: "Fatura bulunamadı." });
+        }
+        if (invoice.provider !== "sovos") {
+            return res.status(400).json({ success: false, message: "İmzalı XML yalnızca Sovos e-Arşiv belgeleri için desteklenir." });
+        }
+        const profileUpper = String(invoice.profileId || "").toUpperCase();
+        if (!profileUpper.includes("EARSIV")) {
+            return res.status(400).json({ success: false, message: "İmzalı XML yalnızca e-Arşiv faturalar için desteklenir." });
+        }
+
+        const sovosCreds = await resolveSovosCredentials(userId);
+        if (!sovosCreds) {
+            return res.status(400).json({ success: false, message: "Sovos bağlantı bilgileri eksik." });
+        }
+        const session = await sovosService.restoreSession(sovosCreds);
+        if (!session.success) {
+            return res.status(502).json({ success: false, message: "Sovos oturumu açılamadı: " + session.error });
+        }
+
+        try {
+            const result = await sovosEArchiveService.getSignedInvoice({
+                sessionId: session.sessionId,
+                vkn: invoice.supplier?.vkn || sovosCreds.vknTckn,
+                uuid: invoice.uuid,
+                invoiceNumber: invoice.invoiceNumber,
+                custInvID: invoice.custInvId || invoice.orderNumber || "",
+                orderNumber: invoice.orderNumber || "",
+            });
+            if (!result.success || !(result.data?.buffer || result.data?.base64)) {
+                return res.status(404).json({ success: false, message: result.error || "İmzalı belge alınamadı" });
+            }
+            const buf = result.data.buffer || Buffer.from(result.data.base64, "base64");
+            res.setHeader("Content-Type", result.data.contentType || "application/xml; charset=utf-8");
+            res.setHeader("Content-Disposition", "attachment; filename=\"" + (invoice.invoiceNumber || invoice.uuid) + "-signed.xml\"");
+            return res.send(buf);
+        } finally {
+            await sovosService.logout({ sessionId: session.sessionId }).catch(() => {});
+        }
+    } catch (error) {
+        logger.error("[AutoInvoice Controller] downloadSignedInvoiceXml hatası: " + error.message);
+        res.status(500).json({ success: false, message: "İmzalı belge indirilemedi" });
+    }
+};
+
+/**
+ * POST /api/auto-invoice/invoices/:invoiceId/retrigger
+ * Sovos e-Arşiv yeniden tetikleme (retriggerOperation)
+ */
+exports.retriggerEArchiveInvoice = async (req, res) => {
+    try {
+        const userId = req.user._id;
+        const invoice = await findInvoiceForUser(userId, req.params.invoiceId);
+        if (!invoice) {
+            return res.status(404).json({ success: false, message: "Fatura bulunamadı." });
+        }
+        if (invoice.provider !== "sovos" || !String(invoice.profileId || "").toUpperCase().includes("EARSIV")) {
+            return res.status(400).json({ success: false, message: "Yeniden tetikleme yalnızca Sovos e-Arşiv belgeleri için desteklenir." });
+        }
+
+        const sovosCreds = await resolveSovosCredentials(userId);
+        if (!sovosCreds) {
+            return res.status(400).json({ success: false, message: "Sovos bağlantı bilgileri eksik." });
+        }
+        const session = await sovosService.restoreSession(sovosCreds);
+        if (!session.success) {
+            return res.status(502).json({ success: false, message: "Sovos oturumu açılamadı: " + session.error });
+        }
+
+        try {
+            const result = await sovosEArchiveService.retriggerOperation({
+                sessionId: session.sessionId,
+                vkn: invoice.supplier?.vkn || sovosCreds.vknTckn,
+                branch: sovosCreds.branch || "default",
+                invoiceId: invoice.invoiceNumber,
+                invoiceUUID: invoice.uuid,
+                parameters: req.body?.parameters || [],
+            });
+            if (!result.success) {
+                return res.status(400).json({ success: false, message: result.error || "Yeniden tetikleme başarısız" });
+            }
+            res.json({ success: true, data: result.data });
+        } finally {
+            await sovosService.logout({ sessionId: session.sessionId }).catch(() => {});
+        }
+    } catch (error) {
+        logger.error("[AutoInvoice Controller] retriggerEArchiveInvoice hatası: " + error.message);
+        res.status(500).json({ success: false, message: "Yeniden tetikleme hatası" });
+    }
+};
+
+/**
+ * POST /api/auto-invoice/invoices/:invoiceId/detailed-query
+ * Sovos e-Arşiv getStatus — billing detay entegrasyonu (v2.3 resmi API)
+ */
+exports.detailedEArchiveQuery = async (req, res) => {
+    try {
+        const userId = req.user._id;
+        const invoice = await findInvoiceForUser(userId, req.params.invoiceId);
+        if (!invoice) {
+            return res.status(404).json({ success: false, message: "Fatura bulunamadı." });
+        }
+        if (invoice.provider !== "sovos" || !String(invoice.profileId || "").toUpperCase().includes("EARSIV")) {
+            return res.status(400).json({ success: false, message: "Detaylı sorgu yalnızca Sovos e-Arşiv belgeleri için desteklenir." });
+        }
+
+        const sovosCreds = await resolveSovosCredentials(userId);
+        if (!sovosCreds) {
+            return res.status(400).json({ success: false, message: "Sovos bağlantı bilgileri eksik." });
+        }
+        const session = await sovosService.restoreSession(sovosCreds);
+        if (!session.success) {
+            return res.status(502).json({ success: false, message: "Sovos oturumu açılamadı: " + session.error });
+        }
+
+        try {
+            const statusResult = await sovosEArchiveService.getStatus({
+                sessionId: session.sessionId,
+                vkn: invoice.supplier?.vkn || sovosCreds.vknTckn,
+                uuid: invoice.uuid,
+                invoiceNumber: invoice.invoiceNumber,
+                custInvID: invoice.custInvId || invoice.orderNumber || "",
+                orderNumber: invoice.orderNumber || "",
+            });
+            if (!statusResult.success) {
+                return res.status(400).json({ success: false, message: statusResult.error || "Durum sorgusu başarısız" });
+            }
+            res.json({
+                success: true,
+                data: {
+                    match: statusResult.data || null,
+                    detail: statusResult.data,
+                },
+            });
+        } finally {
+            await sovosService.logout({ sessionId: session.sessionId }).catch(() => {});
+        }
+    } catch (error) {
+        logger.error("[AutoInvoice Controller] detailedEArchiveQuery hatası: " + error.message);
+        res.status(500).json({ success: false, message: "Detaylı sorgu hatası" });
     }
 };
 
@@ -1069,7 +2939,9 @@ exports.processAllOrders = async (req, res) => {
         res.json({
             success: true,
             data: result,
-            message: result.invoiced + " fatura kesildi" +
+            message: result.totalEligible === 0
+                ? (result.hint || "Faturalanabilir sipariş bulunamadı.")
+                : result.invoiced + " fatura kesildi" +
                 (result.skipped > 0 ? ", " + result.skipped + " atlandı" : "") +
                 (result.errors > 0 ? ", " + result.errors + " hata" : "") +
                 " (toplam " + result.totalEligible + " sipariş işlendi)"
@@ -1166,6 +3038,21 @@ exports.getInvoicePdf = async (req, res) => {
 
         if (!invoice) {
             return res.status(404).json({ success: false, message: "Fatura bulunamadı." });
+        }
+
+        if (invoice.provider === "sovos") {
+            const sovosCreds = await resolveSovosCredentials(userId);
+            if (!sovosCreds) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Sovos bağlantı bilgileri eksik. Faturalandırma ayarlarından Sovos bilgilerinizi girin.",
+                });
+            }
+            const streamed = await streamSovosDocumentBuffer(res, invoice, sovosCreds);
+            if (streamed) {
+                logger.info("[AutoInvoice] ✅ Sovos belge döndürüldü — " + (invoice.invoiceNumber || invoice.uuid));
+            }
+            return;
         }
 
         if (!invoice.uuid && !invoice.invoiceNumber) {
@@ -1602,5 +3489,45 @@ exports.getMarketplaceStats = async (req, res) => {
     } catch (error) {
         logger.error("[AutoInvoice Controller] getMarketplaceStats hatası: " + error.message);
         res.status(500).json({ success: false, message: "Sunucu hatası" });
+    }
+};
+
+const E_ARCHIVE_IMAGE_EXT = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif"]);
+const E_ARCHIVE_IMAGE_MIME = new Set(["image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif"]);
+
+/**
+ * POST /api/auto-invoice/e-archive-visuals/upload
+ * e-Arşiv logo veya imza görseli yükle (multipart)
+ */
+exports.uploadEArchiveVisual = async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ success: false, message: "Dosya seçilmedi." });
+        }
+
+        if (!E_ARCHIVE_IMAGE_MIME.has(String(req.file.mimetype || "").toLowerCase())) {
+            return res.status(400).json({ success: false, message: "Yalnızca PNG, JPG, WEBP veya GIF yüklenebilir." });
+        }
+
+        const userId = req.user._id;
+        const assetType = req.body.assetType === "signature" ? "signature" : "logo";
+        const ext = path.extname(req.file.originalname || "").toLowerCase();
+        const safeExt = E_ARCHIVE_IMAGE_EXT.has(ext) ? ext : ".png";
+
+        const baseDir = path.join(__dirname, "..", "uploads", "e-archive-visuals", String(userId));
+        fs.mkdirSync(baseDir, { recursive: true });
+
+        const fileName = `${assetType}-${Date.now()}${safeExt}`;
+        fs.writeFileSync(path.join(baseDir, fileName), req.file.buffer);
+
+        const url = `/uploads/e-archive-visuals/${userId}/${fileName}`;
+        res.json({
+            success: true,
+            data: { url, assetType, fileName },
+            message: assetType === "signature" ? "İmza görseli yüklendi." : "Logo yüklendi.",
+        });
+    } catch (error) {
+        logger.error("[AutoInvoice Controller] uploadEArchiveVisual hatası: " + error.message);
+        res.status(500).json({ success: false, message: "Görsel yüklenemedi." });
     }
 };

@@ -2,6 +2,7 @@ const axios = require("axios");
 const moment = require("moment");
 const logger = require("../config/logger");
 const { resolveProductBrandName, isPlaceholderBrand } = require("../utils/resolveProductBrandName");
+const { requestWithRetry } = require("../utils/apiRetry");
 
 // ═══════════════════════════════════════════════════════════════════════
 // 🏪 HEPSİBURADA API SERVİSİ
@@ -513,11 +514,10 @@ const postInventoryUploadListing = async (opts) => {
     const bodyWrapped = JSON.stringify({ listings: plainRows });
     const passthrough = [(data) => data];
     try {
-        return await axios.post(url, bodyWrapped, {
-            headers,
-            timeout: 15000,
-            transformRequest: passthrough
-        });
+        return await requestWithRetry(
+            () => axios.post(url, bodyWrapped, { headers, timeout: 15000, transformRequest: passthrough }),
+            { label: "inventory-uploads", throttleKey: `hb-inv:${merchantId}` }
+        );
     } catch (err) {
         const st = err.response?.status;
         const raw = JSON.stringify(err.response?.data || {});
@@ -530,11 +530,10 @@ const postInventoryUploadListing = async (opts) => {
         if (!retryRootArray) throw err;
         logger.debug("[HEPSIBURADA] inventory-uploads: listings sarmalı reddedildi — kök dizi gövdesi deneniyor");
         const bodyRoot = JSON.stringify(plainRows);
-        return await axios.post(url, bodyRoot, {
-            headers,
-            timeout: 15000,
-            transformRequest: passthrough
-        });
+        return await requestWithRetry(
+            () => axios.post(url, bodyRoot, { headers, timeout: 15000, transformRequest: passthrough }),
+            { label: "inventory-uploads (root array)", throttleKey: `hb-inv:${merchantId}` }
+        );
     }
 };
 
@@ -1860,11 +1859,15 @@ const pickHbEnumValueForMandatoryMarka = (values, productData) => {
     if (hints.length === 0) return null;
     const hit = pickHbEnumValueFromHints(values, hints);
     if (hit) return hit;
+    // Gevşek includes() yanlış marka eşleşmesine yol açıyordu (ör. LC Waikiki) — yalnızca uzun, net alt dizgi
     for (const h of hints) {
-        if (h.length < 2) continue;
+        if (h.length < 5) continue;
         const found = values.find((v) => {
             const vv = hbNormalizeForMatch(v.value || v.name || "");
-            return vv && (vv.includes(h) || h.includes(vv));
+            if (!vv || vv.length < 5) return false;
+            if (vv === h) return true;
+            if (h.length >= 6 && vv.length >= 6 && (vv.includes(h) || h.includes(vv))) return true;
+            return false;
         });
         if (found) return found;
     }
@@ -2257,6 +2260,12 @@ const augmentHbProductDataWithCategoryMandatoryFields = async (productData, ctx)
     }
     productData._hbCategoryAttributeNamesForImport = importAttrNames;
 
+    const masterBrand = resolveProductBrandName(productData);
+    if (masterBrand) {
+        delete merged.Marka;
+        delete merged.marka;
+    }
+
     productData.hepsiburadaCatalogAttributes = merged;
 };
 
@@ -2432,6 +2441,11 @@ const mergeHbCatalogExtraAttributes = (productData) => {
     }
     if (productData.size != null && String(productData.size).trim() !== "" && out.size == null) {
         out.size = productData.size;
+    }
+    const masterBrand = resolveProductBrandName(productData);
+    if (masterBrand) {
+        delete out.Marka;
+        delete out.marka;
     }
     return out;
 };
@@ -2993,6 +3007,54 @@ const classifyHepsiburadaTrackingPoll = (payload, opts = {}) => {
     return { kind: "processing", detail: sum.productStatus || rootSt || "bekleniyor", sum };
 };
 
+/**
+ * HB katalog import reddi: ürün zaten MATCHED veya katalog sürecindeyken güncelleme kabul edilmez.
+ * Örnek: "Can not update product in matched or in catalog progress status"
+ */
+const isHbCatalogImportNoUpdateError = (detailOrMessages) => {
+    const text = Array.isArray(detailOrMessages)
+        ? detailOrMessages.filter(Boolean).join(" ")
+        : String(detailOrMessages || "");
+    return /can\s*not\s*update\s*product\s*in\s*matched\s*or\s*in\s*catalog\s*progress/i.test(text) ||
+        /matched\s*or\s*in\s*catalog\s*progress/i.test(text);
+};
+
+/**
+ * Tracking/import reddi veya ön kontrol: MPOP'ta ürün varsa katalog import yerine mevcut durumu döndür.
+ */
+const recoverHbUploadFromExistingMpop = async (
+    merchantId,
+    secretKey,
+    userAgent,
+    merchantSku,
+    hbCreds,
+    context = {}
+) => {
+    const probe = await probeMpopProductByMerchantSku(
+        merchantId,
+        secretKey,
+        userAgent,
+        merchantSku,
+        hbCreds
+    );
+    if (!probe.found) return null;
+    const mpRes = buildUploadResultFromMpopProbe(
+        probe,
+        merchantSku,
+        context.trackingId || null,
+        context.uploadResponseData || null
+    );
+    if (!mpRes?.success) return mpRes;
+    mpRes.skippedCatalogImport = true;
+    if (context.recoveryMessage) {
+        mpRes.message = context.recoveryMessage;
+    } else if (mpRes.listingReady) {
+        mpRes.message =
+            "Hepsiburada: ürün zaten MPOP'ta eşleşmiş — katalog import atlandı (güncelleme bu aşamada kabul edilmez).";
+    }
+    return mpRes;
+};
+
 /** GET status/{trackingId} bazen SIT'te sürekli data=[] döner — gerçek boş sayfa mı */
 const isHepsiburadaTrackingPayloadEmpty = (payload) => {
     if (!payload || typeof payload !== "object") return true;
@@ -3245,6 +3307,22 @@ const uploadProductToHepsiburada = async (credentials, productData) => {
         });
         hbCreds.useSit = resolvedUseSit;
 
+        const preExisting = await recoverHbUploadFromExistingMpop(
+            merchantId,
+            secretKey,
+            userAgent,
+            merchantSku,
+            hbCreds,
+            {}
+        );
+        if (preExisting?.success) {
+            logger.info(
+                `[UPLOAD HEPSIBURADA] MPOP'ta mevcut — katalog import atlandı merchantSku=${merchantSku} ` +
+                `status=${preExisting.hbMpopProductStatus || "-"} listingReady=${preExisting.listingReady === true}`
+            );
+            return preExisting;
+        }
+
         let listableCategoryIds = new Set();
         try {
             listableCategoryIds = await loadHepsiburadaListableCategoryIdSet(
@@ -3458,6 +3536,32 @@ const uploadProductToHepsiburada = async (credentials, productData) => {
                     };
                 }
                 if (poll.kind === "failed") {
+                    const noUpdateErr =
+                        isHbCatalogImportNoUpdateError(poll.detail) ||
+                        isHbCatalogImportNoUpdateError(poll.sum.messages);
+                    if (noUpdateErr) {
+                        const recovered = await recoverHbUploadFromExistingMpop(
+                            merchantId,
+                            secretKey,
+                            userAgent,
+                            merchantSku,
+                            hbCreds,
+                            {
+                                trackingId,
+                                uploadResponseData: response.data,
+                                recoveryMessage:
+                                    "Hepsiburada: ürün katalogda işlemde/eşleşmiş — import reddedildi, MPOP kaydı doğrulandı."
+                            }
+                        );
+                        if (recovered?.success) {
+                            logger.info(
+                                `[UPLOAD HEPSIBURADA] ✅ MPOP kurtarma (matched/catalog-progress) — ` +
+                                `merchantSku=${merchantSku} status=${recovered.hbMpopProductStatus || "-"} ` +
+                                `listingReady=${recovered.listingReady === true}`
+                            );
+                            return recovered;
+                        }
+                    }
                     logger.error(
                         `[UPLOAD HEPSIBURADA] ❌ Pazaryeri reddi — trackingId=${trackingId} merchantSku=${merchantSku} ` +
                         `özet=${poll.detail} | raw(500)=${poll.sum.rawSnippet.slice(0, 500)}`
@@ -3870,6 +3974,8 @@ module.exports = {
     resolveHbUseSitAuto,
     validateCredentials,
     classifyHepsiburadaTrackingPoll,
+    isHbCatalogImportNoUpdateError,
+    recoverHbUploadFromExistingMpop,
     summarizeHepsiburadaTrackingPayload,
     isHepsiburadaMappingListedForUi,
     isHepsiburadaMappingVisibleForProductUi,

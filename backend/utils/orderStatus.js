@@ -2,7 +2,7 @@
  * Pazaryeri panel akışı:
  * - Trendyol: Created → Yeni | Picking → İşlemde
  * - Hepsiburada: Paketlenecek (Open/Unpacked) + Gönderime hazır (Packaged) → İşlemde (Yeni değil)
- * - N11: New → Yeni | Approved → İşlemde | Shipped → Kargoda | Delivered/Tamamlandı → Teslim
+ * - N11: Created → Yeni | Picking → İşlemde | Shipped → Kargoda | Delivered → Teslim | Cancelled/UnSupplied → İptal
  * - ÇiçekSepeti: gelen sipariş doğrudan İşlemde (Yeni/Onay yok)
  */
 
@@ -74,7 +74,7 @@ const classifyHepsiburada = (key) => {
     return "processing";
 };
 
-/** N11 REST: New → Approved → Shipped → Delivered | panel: Tamamlandı */
+/** N11 REST: Created → Picking → Shipped → Delivered | Cancelled/UnSupplied | panel: Tamamlandı */
 const classifyN11 = (key) => {
     if (
         includesAny(key, [
@@ -103,13 +103,20 @@ const classifyN11 = (key) => {
     ) {
         return "processing";
     }
-    if (includesAny(key, ["cancel", "reject", "iptal", "redded"])) return "cancelled";
+    if (includesAny(key, ["cancel", "reject", "iptal", "redded", "unsupplied"])) return "cancelled";
     if (includesAny(key, ["return", "iade", "refund"])) return "returned";
-    if (key === "new" || includesAny(key, ["yenisiparis", "waiting", "bekle"])) {
+    /**
+     * N11 REST: yeni siparişler "Created" gelir (panelde "Yeni"),
+     * onaylananlar "Picking" (yukarıda processing'e gider).
+     * "UnPacked" = bölünen ana paket → yeni gibi ele al.
+     */
+    if (
+        key === "created" ||
+        key === "new" ||
+        includesAny(key, ["unpacked", "yenisiparis", "waiting", "bekle"])
+    ) {
         return "new";
     }
-    /** N11 API "Created" göndermez — eski/yanlış sync (Trendyol etiketi) */
-    if (key === "created") return "delivered";
     return "new";
 };
 
@@ -181,14 +188,14 @@ const classifyCiceksepeti = (key) => {
     ) {
         return "returned";
     }
-    if (
-        includesAny(key, [
+    if (includesAny(key, [
             "teslimedildi",
             "teslim",
             "tamamlandi",
             "tamamland",
             "delivered",
             "completed",
+            "teslimedild",
         ])
     ) {
         return "delivered";
@@ -202,7 +209,8 @@ const classifyCiceksepeti = (key) => {
     ) {
         return "shipping";
     }
-    if (includesAny(key, ["hazirlan", "onay", "yeni"])) return "processing";
+    if (key === "yeni" || key === "new") return "new";
+    if (includesAny(key, ["hazirlan", "onay", "onaylandi", "onayland"])) return "processing";
     return "processing";
 };
 
@@ -253,10 +261,16 @@ const getOrderStatusLabelTr = (status, marketplaceName = "") => {
         if (includesAny(key, ["tamamlandi", "tamamland", "delivered", "completed", "teslim"])) {
             return "Tamamlandı";
         }
-        if (includesAny(key, ["onaylandi", "onayland", "approved"])) return "Onaylandı";
-        if (includesAny(key, ["pick", "pack", "hazir"])) return "Hazırlanıyor";
+        if (includesAny(key, ["cancel", "iptal", "unsupplied"])) return "İptal edildi";
         if (includesAny(key, ["ship", "kargo", "transit", "shipped"])) return "Kargoda";
-        if (includesAny(key, ["new", "yeni"])) return "Yeni sipariş";
+        // Picking = N11'de "Onaylandı/Hazırlanıyor"
+        if (includesAny(key, ["onaylandi", "onayland", "approved", "pick", "pack", "hazir"])) {
+            return "Hazırlanıyor";
+        }
+        // Created = N11'de yeni sipariş, UnPacked = bölünen paket
+        if (key === "created" || key === "unpacked" || includesAny(key, ["new", "yeni"])) {
+            return "Yeni sipariş";
+        }
     }
 
     if (mp.includes("cicek")) {

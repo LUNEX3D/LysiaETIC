@@ -18,6 +18,8 @@ const requireAutoMatch = requirePlanFeature("category_auto_match");
 
 // ── Master Eşleştirme Tablosu ──
 router.get("/mappings/export", controller.exportMappings);
+router.get("/mappings/audit", controller.auditMappings);
+router.post("/mappings/repair", requireAutoMatch, controller.repairMappings);
 router.get("/mappings/stats", controller.getMappingStats);
 router.get("/mappings", controller.getMappings);
 router.put("/mappings/:id", controller.updateMapping);

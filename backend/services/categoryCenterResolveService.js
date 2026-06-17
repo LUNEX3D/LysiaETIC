@@ -30,6 +30,7 @@ const mapTargetPlatformToMappingFields = (platformName) => {
     if (n.includes("cicek")) return { idKey: "ciceksepetiId", pathKey: "ciceksepetiPath", label: "ÇiçekSepeti" };
     if (n.includes("hepsiburada")) return { idKey: "hepsiburadaId", pathKey: "hepsiburadaPath", label: "Hepsiburada" };
     if (n.includes("amazon")) return { idKey: "amazonId", pathKey: "amazonPath", label: "Amazon" };
+    if (n.includes("ozon")) return { idKey: "ozonId", pathKey: "ozonPath", label: "Ozon" };
     return null;
 };
 
@@ -113,12 +114,18 @@ const resolveCategoryForDistribute = async (product, targetPlatform) => {
         };
     }
 
+    const idStr = String(idVal).trim();
     const platformCategory = {
         platform: targetSpec.label,
-        categoryId: String(idVal).trim(),
+        categoryId: idStr,
         categoryPath: decodeHtmlEntities(String(pathVal || "")),
         isComplete: true,
     };
+    if (normalizePlatformName(targetPlatform).includes("ozon") && idStr.includes(":")) {
+        const [cid, tid] = idStr.split(":");
+        platformCategory.categoryId = cid || idStr;
+        platformCategory.typeId = tid || "";
+    }
 
     return {
         resolved: true,

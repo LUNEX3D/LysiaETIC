@@ -33,6 +33,18 @@ export const getMappingStats = async () => {
     return res.data;
 };
 
+/** Şüpheli / hatalı platform kategori eşleştirmelerini listele */
+export const auditMappings = async (params = {}) => {
+    const res = await API.get(`${BASE}/mappings/audit`, { params });
+    return res.data;
+};
+
+/** Hatalı eşleştirmeleri otomatik onar (önizleme: dryRun true) */
+export const repairMappings = async (body = { dryRun: true }) => {
+    const res = await API.post(`${BASE}/mappings/repair`, body, { timeout: 600000 });
+    return res.data;
+};
+
 /**
  * Tek bir eşleştirmeyi güncelle
  * @param {string} id - MongoDB _id

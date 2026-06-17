@@ -67,6 +67,27 @@ const MasterCategoryMappingSchema = new mongoose.Schema({
     amazonPath: {
         type: String,
         default: ""
+    },
+    /** Ozon: "categoryId:typeId" bileşik anahtar */
+    ozonId: {
+        type: String,
+        default: null
+    },
+    ozonPath: {
+        type: String,
+        default: ""
+    },
+    // ✅ Manuel koruma: admin panelden elle düzenlenen satırlar işaretlenir.
+    //    Excel re-import bu satırların dolu platform alanlarını EZMEZ.
+    manual: {
+        type: Boolean,
+        default: false,
+        index: true
+    },
+    // "excel" | "manual" | "import" — verinin kaynağı (audit/teşhis için)
+    source: {
+        type: String,
+        default: "excel"
     }
 }, {
     timestamps: true,
@@ -81,7 +102,8 @@ MasterCategoryMappingSchema.index({
     n11Path: "text",
     ciceksepetiPath: "text",
     hepsiburadaPath: "text",
-    amazonPath: "text"
+    amazonPath: "text",
+    ozonPath: "text"
 });
 
 module.exports = mongoose.model("MasterCategoryMapping", MasterCategoryMappingSchema);

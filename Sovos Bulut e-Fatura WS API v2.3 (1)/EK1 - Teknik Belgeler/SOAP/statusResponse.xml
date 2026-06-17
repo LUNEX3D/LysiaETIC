@@ -1,0 +1,18 @@
+<S:Envelope xmlns:S="http://www.w3.org/2003/05/soap-envelope">
+	<S:Body>
+		<ns1:Fault xmlns:ns1="http://www.w3.org/2003/05/soap-envelope" xmlns:ns0="http://schemas.xmlsoap.org/soap/envelope/">
+			<ns1:Code>
+				<ns1:Value>ns1:Receiver</ns1:Value>
+			</ns1:Code>
+			<ns1:Reason>
+				<ns1:Text xml:lang="en">12 - no'lu defter bilgileri bulunamadı</ns1:Text>
+			</ns1:Reason>
+			<ns1:Detail>
+				<ns0:ServiceFault xmlns:ns0="http://ws.cloud.eledger.fit.com/ledger">
+					<code>102</code>
+					<messages>12 - no'lu defter bilgileri bulunamadı</messages>
+				</ns0:ServiceFault>
+			</ns1:Detail>
+		</ns1:Fault>
+	</S:Body>
+</S:Envelope>

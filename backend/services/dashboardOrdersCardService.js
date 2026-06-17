@@ -3,10 +3,23 @@
  */
 
 const Order = require("../models/Order");
-const { classifyOrderStatus, pickPreferredOrderRecord } = require("../utils/orderStatus");
-const { isHbInternalId } = require("./hepsiburadaService");
+const { classifyOrderStatus } = require("../utils/orderStatus");
+const { dedupeOrderRows } = require("../utils/orderDedupe");
 
 const PIPELINE_DAYS = parseInt(process.env.DASHBOARD_PIPELINE_DAYS || "45", 10);
+const ACTIVE_CARD_DAYS = parseInt(
+    process.env.DASHBOARD_ACTIVE_ORDER_DAYS ||
+        process.env.DASHBOARD_SYNC_WINDOW_DAYS ||
+        "7",
+    10
+);
+const VALID_BUCKETS = new Set(["new", "processing", "shipping", "delivered", "cancelled", "returned"]);
+
+const resolveBucket = (row) => {
+    const stored = String(row.statusBucket || "").trim();
+    if (VALID_BUCKETS.has(stored)) return stored;
+    return classifyOrderStatus(row.status, row.marketplaceName);
+};
 
 const normalizeMpKey = (name = "") => String(name || "").toLowerCase().trim();
 
@@ -19,24 +32,7 @@ const displayMp = (name = "") => {
     return String(name || "").trim() || "—";
 };
 
-const dedupeOrders = (rows) => {
-    const map = new Map();
-    rows.forEach((order) => {
-        const mp = normalizeMpKey(order.marketplaceName);
-        const orderNo = String(order.orderNumber || "").trim();
-        if (!mp || !orderNo || isHbInternalId(orderNo)) return;
-        const key = `${mp}::${orderNo}`;
-        const candidate = {
-            orderNumber: orderNo,
-            orderDate: order.orderDate,
-            totalPrice: Number(order.totalPrice || 0),
-            status: order.status,
-            marketplaceName: order.marketplaceName,
-        };
-        map.set(key, pickPreferredOrderRecord(map.get(key), candidate));
-    });
-    return Array.from(map.values());
-};
+const dedupeOrders = (rows) => dedupeOrderRows(rows);
 
 const buildPayload = (unique) => {
     const statusCounts = {
@@ -50,7 +46,7 @@ const buildPayload = (unique) => {
 
     const orders = unique
         .map((row) => {
-            const bucket = classifyOrderStatus(row.status);
+            const bucket = resolveBucket(row);
             if (statusCounts[bucket] !== undefined) statusCounts[bucket]++;
             return {
                 orderNumber: row.orderNumber,
@@ -61,6 +57,17 @@ const buildPayload = (unique) => {
                 orderDate: row.orderDate,
             };
         });
+
+    const activeCutoffMs = Date.now() - ACTIVE_CARD_DAYS * 24 * 60 * 60 * 1000;
+    const activeStatusCounts = { new: 0, processing: 0 };
+    let activeOrderCount = 0;
+    orders.forEach((o) => {
+        if (o.statusBucket !== "new" && o.statusBucket !== "processing") return;
+        const t = o.orderDate ? new Date(o.orderDate).getTime() : NaN;
+        if (Number.isNaN(t) || t < activeCutoffMs) return;
+        activeOrderCount++;
+        if (activeStatusCounts[o.statusBucket] !== undefined) activeStatusCounts[o.statusBucket]++;
+    });
 
     orders.sort((a, b) => {
         const ta = a.orderDate ? new Date(a.orderDate).getTime() : 0;
@@ -75,6 +82,9 @@ const buildPayload = (unique) => {
 
     return {
         total: orders.length,
+        activeOrderCount,
+        activeStatusCounts,
+        activeCardDays: ACTIVE_CARD_DAYS,
         statusCounts,
         orders,
         byStatus,
@@ -91,14 +101,18 @@ exports.getOrdersCardData = async (userId) => {
         user: userId,
         orderDate: { $gte: pipelineStart, $lte: now },
     })
-        .select("trackingNumber marketplaceName totalPrice status orderDate")
+        .select("trackingNumber orderItemId packageNumber marketplaceName totalPrice status statusBucket orderDate")
         .lean();
 
     const rows = dbOrders.map((o) => ({
-        orderNumber: o.trackingNumber,
+        orderNumber: o.trackingNumber || o.orderItemId,
+        orderItemId: o.orderItemId,
+        trackingNumber: o.trackingNumber,
+        packageNumber: o.packageNumber,
         orderDate: o.orderDate,
         totalPrice: o.totalPrice,
         status: o.status,
+        statusBucket: o.statusBucket,
         marketplaceName: o.marketplaceName,
     }));
 

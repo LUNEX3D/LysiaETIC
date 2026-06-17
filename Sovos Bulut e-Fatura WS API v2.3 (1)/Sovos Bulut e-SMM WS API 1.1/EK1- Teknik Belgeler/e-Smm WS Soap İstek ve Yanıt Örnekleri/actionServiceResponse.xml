@@ -1,0 +1,10 @@
+<S:Envelope xmlns:S="http://schemas.xmlsoap.org/soap/envelope/">
+   <S:Body>
+      <actionServiceResponse xmlns="http://foriba.com/eSmm/">
+         <actionServiceResponseType>
+            <Result>SUCCESS</Result>
+            <Detail>ESMM itiraz islemi basarili bir sekilde gerceklesti</Detail>
+         </actionServiceResponseType>
+      </actionServiceResponse>
+   </S:Body>
+</S:Envelope>

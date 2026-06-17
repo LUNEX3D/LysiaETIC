@@ -393,6 +393,113 @@ const getMukellefEtiketList = async ({ sessionId, vkn, env = "test" }) => {
     }
 };
 
+const pickField = (obj, ...keys) => {
+    if (!obj || typeof obj !== "object") return "";
+    for (const key of keys) {
+        const val = obj[key];
+        if (val != null && String(val).trim()) return String(val).trim();
+    }
+    return "";
+};
+
+const parseQnbUserInfo = (data) => {
+    if (!data) return {};
+    const r = data.return ?? data;
+    if (typeof r === "string") return { name: r };
+    if (Array.isArray(r) && r.length) return parseQnbUserInfo(r[0]);
+    return {
+        name: pickField(r, "unvan", "Unvan", "title", "Title", "adiSoyadi", "adSoyad", "name"),
+        taxOffice: pickField(r, "vergiDairesi", "vergiDairesiAdi", "VergiDairesi", "taxOffice"),
+        city: pickField(r, "il", "Il", "sehir", "Sehir", "city"),
+        district: pickField(r, "ilce", "Ilce", "district"),
+        street: pickField(r, "adres", "Adres", "cadde", "street", "address"),
+        email: pickField(r, "eposta", "Eposta", "email"),
+        phone: pickField(r, "telefon", "Telefon", "phone"),
+        receiverIdentifier: pickField(r, "etiket", "pkEtiketi", "alias", "Alias"),
+    };
+};
+
+const PLACEHOLDER_VKNS = new Set(["11111111111", "22222222222", "12345678901"]);
+
+/**
+ * VKN/TCKN ile alıcı bilgisi — efaturaKullanicisi + efaturaKullaniciBilgisi (QNB resmi API)
+ */
+const lookupCustomer = async ({ sessionId, vkn, env = "test" }) => {
+    const vknClean = String(vkn || "").replace(/\D/g, "");
+    if (!vknClean || (vknClean.length !== 10 && vknClean.length !== 11)) {
+        return { success: false, error: "Geçerli VKN (10) veya TCKN (11) girin" };
+    }
+    if (PLACEHOLDER_VKNS.has(vknClean)) {
+        return {
+            success: true,
+            isEfaturaMukellef: false,
+            suggestedDocType: "e-arsiv",
+            message: "Nihai tüketici — e-Arşiv fatura kesilmelidir.",
+            customer: { vkn: vknClean, name: "Nihai Tuketici", firstName: "Nihai", lastName: "Tuketici" },
+        };
+    }
+
+    const check = await checkEInvoiceUser({ sessionId, vkn: vknClean, env });
+    if (!check.success) {
+        return { success: false, error: check.error || "Mükellef sorgusu başarısız" };
+    }
+
+    if (!check.isRegistered) {
+        return {
+            success: true,
+            isEfaturaMukellef: false,
+            suggestedDocType: "e-arsiv",
+            message: "Alıcı e-Fatura mükellefi değil — e-Arşiv fatura kesilmelidir (mevzuat).",
+            customer: { vkn: vknClean },
+        };
+    }
+
+    let parsed = {};
+    try {
+        const detail = await getEInvoiceUserInfo({ sessionId, vkn: vknClean, env });
+        if (detail.success) parsed = parseQnbUserInfo(detail.data);
+    } catch {
+        /* detay opsiyonel */
+    }
+
+    let receiverIdentifier = parsed.receiverIdentifier || "";
+    if (!receiverIdentifier) {
+        try {
+            const etiket = await getMukellefEtiketList({ sessionId, vkn: vknClean, env });
+            if (etiket.success && etiket.data) {
+                const list = Array.isArray(etiket.data) ? etiket.data : [etiket.data];
+                const first = list.find(Boolean);
+                receiverIdentifier = typeof first === "string" ? first : pickField(first, "etiket", "alias", "Alias");
+            }
+        } catch {
+            /* ignore */
+        }
+    }
+
+    const isIndividual = vknClean.length === 11;
+    const fullName = parsed.name || "";
+
+    return {
+        success: true,
+        isEfaturaMukellef: true,
+        suggestedDocType: "e-fatura",
+        receiverIdentifier,
+        message: "Alıcı e-Fatura mükellefi — e-Fatura kesilebilir.",
+        customer: {
+            vkn: vknClean,
+            name: fullName,
+            firstName: isIndividual ? (fullName.split(" ")[0] || "") : "",
+            lastName: isIndividual ? (fullName.split(" ").slice(1).join(" ") || "") : "",
+            taxOffice: parsed.taxOffice || "",
+            city: parsed.city || "",
+            district: parsed.district || "",
+            street: parsed.street || "",
+            email: parsed.email || "",
+            phone: parsed.phone || "",
+        },
+    };
+};
+
 /**
  * Fatura numarası üret
  * connectorService.faturaNoUret(vknTckn, faturaKodu)
@@ -1124,6 +1231,7 @@ const createEArchiveFromForm = async ({ sessionId, vkn, invoiceData, env = "test
             currency: invoiceData.currency || "TRY",
             note: invoiceData.note || "",
             sendingType: invoiceData.sendingType || "ELEKTRONIK",
+            eArchiveVisuals: invoiceData.eArchiveVisuals || {},
             supplier: invoiceData.supplier || {},
             customer: invoiceData.customer || {},
             lines: invoiceData.lines || [],
@@ -1744,6 +1852,7 @@ module.exports = {
 
     // e-Fatura (connectorService)
     checkEInvoiceUser,
+    lookupCustomer,
     getEInvoiceUserInfo,
     getMukellefEtiketList,
     generateInvoiceNumber,

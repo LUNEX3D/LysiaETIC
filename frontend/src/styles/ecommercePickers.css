@@ -1,0 +1,180 @@
+/* Paylaşılan çoklu seçim — ec-cust-picker ile aynı kalite */
+.ec-multi-picker {
+    position: relative;
+    width: 100%;
+}
+
+.ec-multi-picker--disabled {
+    opacity: 0.55;
+    pointer-events: none;
+}
+
+.ec-multi-picker__label {
+    display: block;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--ec-text);
+    margin-bottom: 0.35rem;
+}
+
+.ec-multi-picker__control {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+    min-height: 42px;
+    padding: 0.4rem 0.5rem;
+    border: 1px solid var(--ec-input-border, var(--ec-border));
+    border-radius: 8px;
+    background: var(--ec-input-bg);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.ec-multi-picker--open .ec-multi-picker__control,
+.ec-multi-picker__control:focus-within {
+    border-color: var(--ec-accent);
+    box-shadow: 0 0 0 1px var(--ec-accent);
+}
+
+.ec-multi-picker__chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    width: 100%;
+}
+
+.ec-multi-picker__chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.2rem 0.5rem;
+    border-radius: 6px;
+    background: var(--ec-accent-soft, rgba(78, 205, 196, 0.14));
+    color: var(--ec-text);
+    font-size: 0.8rem;
+    font-weight: 500;
+    max-width: 100%;
+}
+
+.ec-multi-picker__chip button {
+    display: inline-flex;
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--ec-muted);
+    cursor: pointer;
+    font-size: 0.7rem;
+    flex-shrink: 0;
+}
+
+.ec-multi-picker__chip button:hover {
+    color: var(--ec-text);
+}
+
+.ec-multi-picker__input {
+    flex: 1;
+    min-width: 140px;
+    border: none;
+    background: transparent;
+    color: var(--ec-text);
+    font-size: 0.88rem;
+    outline: none;
+    padding: 0.2rem 0.15rem;
+}
+
+.ec-multi-picker__input::placeholder {
+    color: color-mix(in srgb, var(--ec-text) 55%, var(--ec-muted));
+}
+
+.ec-multi-picker__chevron-btn {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border: none;
+    background: transparent;
+    color: var(--ec-muted);
+    cursor: pointer;
+    border-radius: 6px;
+}
+
+.ec-multi-picker__chevron-btn:hover:not(:disabled) {
+    color: var(--ec-text);
+    background: var(--ec-hover, rgba(255, 255, 255, 0.06));
+}
+
+.ec-multi-picker--open .ec-multi-picker__chevron-btn svg {
+    transform: rotate(180deg);
+}
+
+.ec-multi-picker__menu {
+    position: absolute;
+    z-index: 200;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    border: 1px solid var(--ec-input-border, var(--ec-border));
+    border-radius: 8px;
+    background: var(--ec-card);
+    box-shadow: var(--ec-shadow, 0 12px 32px rgba(0, 0, 0, 0.35));
+    overflow: hidden;
+}
+
+.ec-multi-picker__list {
+    margin: 0;
+    padding: 0.35rem 0;
+    list-style: none;
+    max-height: 220px;
+    overflow-y: auto;
+}
+
+.ec-multi-picker__list button {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    width: 100%;
+    padding: 0.6rem 0.9rem;
+    border: none;
+    background: transparent;
+    color: var(--ec-text);
+    font-size: 0.88rem;
+    text-align: left;
+    cursor: pointer;
+}
+
+.ec-multi-picker__option-icon {
+    display: inline-flex;
+    color: color-mix(in srgb, var(--ec-text) 70%, var(--ec-muted));
+    font-size: 0.9rem;
+    flex-shrink: 0;
+}
+
+.ec-multi-picker__chip-icon {
+    display: inline-flex;
+    font-size: 0.72rem;
+    opacity: 0.85;
+}
+
+.ec-multi-picker__list button:hover {
+    background: color-mix(in srgb, var(--ec-accent) 16%, transparent);
+}
+
+.ec-multi-picker__empty {
+    padding: 1rem 0.9rem 1.1rem;
+    text-align: center;
+}
+
+.ec-multi-picker__empty strong {
+    display: block;
+    color: var(--ec-text);
+    font-size: 0.88rem;
+    margin-bottom: 0.25rem;
+}
+
+.ec-multi-picker__empty p {
+    margin: 0;
+    font-size: 0.8rem;
+    color: color-mix(in srgb, var(--ec-text) 68%, var(--ec-muted));
+}

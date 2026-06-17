@@ -10,13 +10,17 @@ const {
     completeJob,
     failJob,
     getJob,
-    assertJobUser
+    assertJobUser,
+    requestPauseJob,
+    resumeJob,
+    requestCancelJob,
 } = require("./syncProgressStore");
 const {
     syncProductsFromMarketplace,
     normalizeMarketplaceName
 } = require("../services/productSyncService");
 const { autoStockSync } = require("../services/stockSyncService");
+const { runMissingDistributionJob } = require("../services/missingDistributionService");
 
 const getBull = () => {
     if (!process.env.REDIS_URL || !/^(1|true|yes)$/i.test(String(process.env.SYNC_USE_BULLMQ || ""))) {
@@ -136,4 +140,42 @@ exports.getJobForStatus = async (jobId) => {
     return getJob(jobId);
 };
 
+exports.scheduleMissingDistribution = (userId, options = {}) =>
+    enqueueOrRunLocal("missing_distribution", userId, { options }, (jobId) => {
+        runMissingDistributionJob(userId, (evt) => updateJob(jobId, evt), { ...(options || {}), jobId })
+            .then((result) => {
+                if (result?.cancelled) {
+                    const { cancelJob } = require("./syncProgressStore");
+                    cancelJob(jobId, result);
+                } else {
+                    completeJob(jobId, result);
+                }
+            })
+            .catch((err) => failJob(jobId, err));
+    });
+
 exports.assertJobForUser = assertJobUser;
+
+exports.pauseSyncJob = async (jobId, userId) => {
+    const job = await exports.getJobForStatus(jobId);
+    if (!job || !assertJobUser(job, userId)) return { ok: false, error: "İş bulunamadı" };
+    if (job.status !== "running") return { ok: false, error: "Yalnızca çalışan iş duraklatılabilir" };
+    const ok = requestPauseJob(jobId);
+    return ok ? { ok: true } : { ok: false, error: "Duraklatılamadı" };
+};
+
+exports.resumeSyncJob = async (jobId, userId) => {
+    const job = await exports.getJobForStatus(jobId);
+    if (!job || !assertJobUser(job, userId)) return { ok: false, error: "İş bulunamadı" };
+    if (job.status !== "paused") return { ok: false, error: "İş duraklatılmamış" };
+    const ok = resumeJob(jobId);
+    return ok ? { ok: true } : { ok: false, error: "Devam ettirilemedi" };
+};
+
+exports.cancelSyncJob = async (jobId, userId) => {
+    const job = await exports.getJobForStatus(jobId);
+    if (!job || !assertJobUser(job, userId)) return { ok: false, error: "İş bulunamadı" };
+    if (!["running", "paused"].includes(job.status)) return { ok: false, error: "İş iptal edilemez" };
+    const ok = requestCancelJob(jobId);
+    return ok ? { ok: true } : { ok: false, error: "İptal isteği gönderilemedi" };
+};

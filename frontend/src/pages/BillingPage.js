@@ -16,11 +16,11 @@
  *   ✅ Credential'lar localStorage'da saklanmıyor (sadece session token)
  *   ✅ Hardcoded VKN kaldırıldı
  */
-import React, { useState, useMemo, useCallback, lazy, Suspense } from "react";
+import React, { useState, useMemo, useCallback, lazy, Suspense, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
     FaFileInvoiceDollar, FaFileInvoice, FaClipboardList, FaTruck,
-    FaSyncAlt, FaChartBar, FaLink, FaPlus, FaCheckCircle,
+    FaSyncAlt, FaChartBar, FaLink, FaPlus, FaCheckCircle, FaDownload,
 } from "react-icons/fa";
 import { useApp } from "../context/AppContext";
 
@@ -30,7 +30,7 @@ import useInvoices from "./billing/hooks/useInvoices";
 import useAutoInvoice from "./billing/hooks/useAutoInvoice";
 import { colors, globalKeyframes } from "./billing/styles";
 import { calcInvoiceStats, filterByTab } from "./billing/utils";
-import { TABS } from "./billing/constants";
+import { TABS, TAB_DOC_META } from "./billing/constants";
 
 // ── Bileşenler ──
 import { Pill, EmptyState, LoadingState, AlertBox } from "./billing/components/SharedUI";
@@ -40,6 +40,7 @@ import ProvidersPanel from "./billing/components/ProvidersPanel";
 import InvoiceDetailModal from "./billing/components/InvoiceDetailModal";
 import CreateInvoiceModal from "./billing/components/CreateInvoiceModal";
 import AutoInvoicePanel from "./billing/components/AutoInvoicePanel";
+import SovosEArchiveTools from "./billing/components/SovosEArchiveTools";
 
 // ── Lazy load: Gelişmiş Analiz (ağır bileşen) ──
 const AdvancedAnalysis = lazy(() => import("./billing/components/AdvancedAnalysis"));
@@ -53,12 +54,13 @@ const TAB_ICONS = {
     FaSyncAlt: <FaSyncAlt />,
     FaChartBar: <FaChartBar />,
     FaLink: <FaLink />,
+    FaDownload: <FaDownload />,
 };
 
 /* ═══════════════════════════════════════════════════════════
    ANA BİLEŞEN
    ═══════════════════════════════════════════════════════════ */
-const BillingPage = () => {
+const BillingPage = ({ embedded = false }) => {
     const { t } = useApp();
 
     // ── Sekmeler ──
@@ -69,6 +71,7 @@ const BillingPage = () => {
 
     // ── Modallar ──
     const [showCreateModal, setShowCreateModal] = useState(false);
+    const [createModalInitialType, setCreateModalInitialType] = useState("e-arsiv");
 
     // ── Hook'lar ──
     const providers = useProviders();
@@ -78,6 +81,44 @@ const BillingPage = () => {
     // ── Hesaplanmış veriler ──
     const stats = useMemo(() => calcInvoiceStats(invoiceHook.invoices), [invoiceHook.invoices]);
     const tabInvoices = useMemo(() => filterByTab(invoiceHook.invoices, activeTab), [invoiceHook.invoices, activeTab]);
+    const tabMeta = TAB_DOC_META[activeTab];
+
+    const openCreateModal = useCallback((docType) => {
+        const meta = TAB_DOC_META[activeTab];
+        if (meta?.viewOnly) return;
+        setCreateModalInitialType(docType || tabMeta?.defaultCreateType || "e-arsiv");
+        setShowCreateModal(true);
+    }, [tabMeta, activeTab]);
+
+    const navigateToTab = useCallback((tabId) => {
+        setActiveTab(tabId);
+    }, []);
+
+    const activeProvider = providers.connectedProviders[0];
+    const isSovosBilling = activeProvider?.authType === "sovos";
+    const refreshInvoices = useCallback(() => {
+        if (isSovosBilling) {
+            return invoiceHook.syncFromProvider();
+        }
+        return invoiceHook.fetchAll();
+    }, [isSovosBilling, invoiceHook]);
+
+    const processSingleOrderAndRefresh = useCallback(async (orderId) => {
+        const result = await autoInvoice.processSingleOrder(orderId);
+        if (result?.success) {
+            await invoiceHook.fetchAll();
+        }
+        return result;
+    }, [autoInvoice, invoiceHook]);
+
+    // Sekme değişiminde Sovos API çağrısı yapılmaz (getUBLList yoğunluğunu önler)
+
+    useEffect(() => {
+        if (activeTab !== "analysis") return;
+        if (invoiceHook.invoices.length === 0 && !invoiceHook.loading) {
+            refreshInvoices();
+        }
+    }, [activeTab, invoiceHook.invoices.length, invoiceHook.loading, refreshInvoices]);
 
     // ── Detay modal handler ──
     const handleViewDetail = useCallback((inv) => {
@@ -135,7 +176,7 @@ const BillingPage = () => {
                     <AlertBox
                         type="error"
                         message={invoiceHook.fetchError}
-                        onAction={invoiceHook.fetchAll}
+                        onAction={refreshInvoices}
                         actionLabel="Tekrar Dene"
                     />
                 )}
@@ -143,8 +184,12 @@ const BillingPage = () => {
                 {/* KPI Kartları */}
                 <KPICards stats={stats} />
 
+                {isSovosBilling && (
+                    <SovosEArchiveTools provider={activeProvider} />
+                )}
+
                 {/* Bağlı Sağlayıcılar + Son Belgeler */}
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: "1.5rem" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "minmax(280px, 1fr) minmax(0, 2.5fr)", gap: "1.5rem" }}>
                     {/* Bağlı Sağlayıcılar */}
                     <motion.div
                         initial={{ opacity: 0, y: 20 }}
@@ -210,7 +255,7 @@ const BillingPage = () => {
                         <motion.button
                             whileHover={{ scale: 1.02 }}
                             whileTap={{ scale: 0.98 }}
-                            onClick={invoiceHook.fetchAll}
+                            onClick={refreshInvoices}
                             disabled={invoiceHook.loading}
                             style={{
                                 width: "100%",
@@ -282,10 +327,12 @@ const BillingPage = () => {
                                 invoices={invoiceHook.invoices.slice(0, 8)}
                                 loading={invoiceHook.loading}
                                 lastFetchTime={invoiceHook.lastFetchTime}
-                                onRefresh={invoiceHook.fetchAll}
+                                onRefresh={refreshInvoices}
                                 onViewDetail={handleViewDetail}
+                                onPreview={invoiceHook.previewInvoice}
                                 onDownload={invoiceHook.downloadPdf}
-                                pdfLoading={invoiceHook.pdfLoading}
+                                isDocLoading={invoiceHook.isDocLoading}
+                                isAnyDocLoading={invoiceHook.isAnyDocLoading}
                                 showFilters={false}
                             />
                         ) : (
@@ -301,6 +348,82 @@ const BillingPage = () => {
         );
     };
 
+    const renderDocTab = (invoices, { showFilters = false } = {}) => {
+        if (!providers.isConnected) return renderNoConnection();
+        return (
+            <div>
+                {tabMeta && (
+                    <div style={{
+                        marginBottom: "1.25rem",
+                        padding: "1rem 1.15rem",
+                        background: colors.cardGradient,
+                        border: "1px solid " + colors.border,
+                        borderRadius: 14,
+                    }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "0.75rem" }}>
+                            <div style={{ flex: 1, minWidth: 220 }}>
+                                <h2 style={{ color: "#fff", fontSize: "1.08rem", fontWeight: 700, margin: "0 0 0.35rem" }}>
+                                    {tabMeta.title}
+                                </h2>
+                                <p style={{ color: colors.textMuted, fontSize: "0.82rem", margin: 0, lineHeight: 1.55 }}>
+                                    {tabMeta.description}
+                                </p>
+                                {tabMeta.tip && (
+                                    <p style={{ color: colors.dim, fontSize: "0.74rem", margin: "0.5rem 0 0", lineHeight: 1.45 }}>
+                                        💡 {tabMeta.tip}
+                                    </p>
+                                )}
+                                {isSovosBilling && (
+                                    <p style={{ color: colors.accent, fontSize: "0.74rem", margin: "0.5rem 0 0", lineHeight: 1.45 }}>
+                                        Sovos: Liste veritabanından gösterilir. &quot;Yenile&quot; ile son 30 günün belgeleri Sovos portalından çekilir (e-Arşiv + e-Fatura).
+                                    </p>
+                                )}
+                            </div>
+                            {!tabMeta?.viewOnly && (
+                            <motion.button
+                                whileHover={{ scale: 1.03 }}
+                                whileTap={{ scale: 0.97 }}
+                                onClick={() => openCreateModal(tabMeta.defaultCreateType)}
+                                style={{
+                                    background: "linear-gradient(135deg, " + colors.accent + ", #44a08d)",
+                                    border: "none",
+                                    borderRadius: 10,
+                                    padding: "0.55rem 1rem",
+                                    color: "#fff",
+                                    fontSize: "0.8rem",
+                                    fontWeight: 700,
+                                    cursor: "pointer",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: "0.4rem",
+                                    whiteSpace: "nowrap",
+                                }}
+                            >
+                                <FaPlus /> Yeni Belge
+                            </motion.button>
+                            )}
+                        </div>
+                    </div>
+                )}
+                <InvoiceTable
+                    invoices={invoices}
+                    loading={invoiceHook.loading}
+                    lastFetchTime={invoiceHook.lastFetchTime}
+                    onRefresh={refreshInvoices}
+                    onViewDetail={handleViewDetail}
+                    onPreview={invoiceHook.previewInvoice}
+                    onDownload={invoiceHook.downloadPdf}
+                    isDocLoading={invoiceHook.isDocLoading}
+                    isAnyDocLoading={invoiceHook.isAnyDocLoading}
+                    showFilters={showFilters}
+                    showSovosCancelColumn={isSovosBilling && (activeTab === "e-archive" || activeTab === "overview" || activeTab === "e-invoice-out")}
+                    emptyTitle={tabMeta?.emptyTitle}
+                    emptyDescription={tabMeta?.emptyDescription}
+                />
+            </div>
+        );
+    };
+
     /* ═══════════════════════════════════════════════════════
        SEKMELERİN İÇERİĞİ
        ═══════════════════════════════════════════════════════ */
@@ -310,49 +433,28 @@ const BillingPage = () => {
                 return renderOverview();
 
             case "invoices":
-                if (!providers.isConnected) return renderNoConnection();
-                return (
-                    <InvoiceTable
-                        invoices={invoiceHook.invoices}
-                        loading={invoiceHook.loading}
-                        lastFetchTime={invoiceHook.lastFetchTime}
-                        onRefresh={invoiceHook.fetchAll}
-                        onCreateNew={() => setShowCreateModal(true)}
-                        onViewDetail={handleViewDetail}
-                        onDownload={invoiceHook.downloadPdf}
-                        pdfLoading={invoiceHook.pdfLoading}
-                        showFilters={true}
-                    />
-                );
+                return renderDocTab(invoiceHook.invoices, { showFilters: true });
 
             case "e-archive":
-            case "e-invoice":
+                return renderDocTab(tabInvoices);
+
+            case "e-invoice-out":
+            case "e-invoice-in":
+                return renderDocTab(tabInvoices);
+
             case "e-despatch":
-                if (!providers.isConnected) return renderNoConnection();
-                return (
-                    <InvoiceTable
-                        invoices={tabInvoices}
-                        loading={invoiceHook.loading}
-                        lastFetchTime={invoiceHook.lastFetchTime}
-                        onRefresh={invoiceHook.fetchAll}
-                        onCreateNew={() => setShowCreateModal(true)}
-                        onViewDetail={handleViewDetail}
-                        onDownload={invoiceHook.downloadPdf}
-                        pdfLoading={invoiceHook.pdfLoading}
-                        showFilters={false}
-                    />
-                );
+                return renderDocTab(tabInvoices);
 
             case "auto-invoice":
                 return (
                     <AutoInvoicePanel
                         autoInvoice={autoInvoice}
                         settingsRequestTick={autoInvoiceSettingsTick}
+                        processSingleOrder={processSingleOrderAndRefresh}
                     />
                 );
 
             case "analysis":
-                if (!providers.isConnected) return renderNoConnection();
                 if (invoiceHook.loading && invoiceHook.invoices.length === 0) {
                     return <LoadingState message="Belgeler yükleniyor..." />;
                 }
@@ -360,7 +462,8 @@ const BillingPage = () => {
                     <Suspense fallback={<LoadingState message="Analiz modülü yükleniyor..." />}>
                         <AdvancedAnalysis
                             invoices={invoiceHook.invoices}
-                            onInvoiceClick={handleViewDetail}
+                            onRefresh={refreshInvoices}
+                            parentLoading={invoiceHook.loading}
                         />
                     </Suspense>
                 );
@@ -375,7 +478,7 @@ const BillingPage = () => {
                         onDisconnect={providers.disconnect}
                         onClearError={providers.clearError}
                         onOpenProviderSettings={(provider) => {
-                            if (provider.id === "qnb-esolutions") {
+                            if (provider.id === "qnb-esolutions" || provider.id === "sovos") {
                                 setProviderSettingsHint("");
                                 setActiveTab("auto-invoice");
                                 setAutoInvoiceSettingsTick((n) => n + 1);
@@ -397,9 +500,20 @@ const BillingPage = () => {
        ANA RENDER
        ═══════════════════════════════════════════════════════ */
     return (
-        <div style={{ width: "100%", minHeight: "100vh", background: colors.bg, padding: 0, margin: 0 }}>
+        <div
+            className={`billing-page ${embedded ? "billing-page--embedded" : "billing-page--full"}`}
+            style={{
+                width: "100%",
+                minHeight: embedded ? "auto" : "100vh",
+                background: colors.bg,
+                padding: 0,
+                margin: 0,
+                boxSizing: "border-box",
+            }}
+        >
             {/* ── HEADER ── */}
             <div
+                className="billing-page-header"
                 style={{
                     background: "linear-gradient(135deg, #1a1f35 0%, #0f1419 100%)",
                     borderBottom: "1px solid " + colors.border,
@@ -434,11 +548,11 @@ const BillingPage = () => {
                                 <FaCheckCircle /> {providers.activeProvider.name} — {providers.activeProvider.env === "production" ? "Canlı" : "Test"}
                             </Pill>
                         )}
-                        {providers.isConnected && (
+                        {providers.isConnected && activeTab === "overview" && (
                             <motion.button
                                 whileHover={{ scale: 1.03 }}
                                 whileTap={{ scale: 0.97 }}
-                                onClick={() => setShowCreateModal(true)}
+                                onClick={() => openCreateModal()}
                                 style={{
                                     background: "linear-gradient(135deg, " + colors.accent + ", #44a08d)",
                                     border: "none",
@@ -499,7 +613,16 @@ const BillingPage = () => {
             </div>
 
             {/* ── İÇERİK ── */}
-            <div style={{ padding: "clamp(1rem, 3vw, 1.75rem) clamp(1rem, 4vw, 2rem)" }}>
+            <div style={{ padding: "clamp(1rem, 2vw, 1.5rem) clamp(1rem, 2.5vw, 2rem)", maxWidth: "100%", boxSizing: "border-box" }}>
+                {invoiceHook.actionError && (
+                    <div style={{ marginBottom: "1rem" }}>
+                        <AlertBox
+                            type="error"
+                            message={invoiceHook.actionError}
+                            onClose={invoiceHook.clearActionError}
+                        />
+                    </div>
+                )}
                 {providerSettingsHint && activeTab === "providers" && (
                     <div style={{ marginBottom: "1rem" }}>
                         <AlertBox
@@ -527,9 +650,11 @@ const BillingPage = () => {
                 <CreateInvoiceModal
                     isConnected={providers.isConnected}
                     activeProvider={providers.activeProvider}
+                    initialDocType={createModalInitialType}
                     onCreateInvoice={invoiceHook.createInvoice}
                     onClose={() => setShowCreateModal(false)}
                     onGoToProviders={() => setActiveTab("providers")}
+                    onNavigateTab={navigateToTab}
                 />
             )}
 
@@ -539,10 +664,19 @@ const BillingPage = () => {
                     invoice={invoiceHook.selectedInvoice}
                     detailData={invoiceHook.detailData}
                     detailLoading={invoiceHook.detailLoading}
-                    pdfLoading={invoiceHook.pdfLoading}
+                    isDocLoading={invoiceHook.isDocLoading}
+                    isAnyDocLoading={invoiceHook.isAnyDocLoading}
                     onClose={handleCloseDetail}
                     onPreview={invoiceHook.previewInvoice}
                     onDownload={invoiceHook.downloadPdf}
+                    onRefreshStatus={invoiceHook.refreshInvoiceStatus}
+                    onCancel={invoiceHook.cancelInvoice}
+                    onDelete={invoiceHook.deleteInvoice}
+                    onRespond={invoiceHook.respondToInvoice}
+                    onDownloadSigned={invoiceHook.downloadSignedXml}
+                    onRetrigger={invoiceHook.retriggerInvoice}
+                    onDetailedQuery={invoiceHook.detailedQuery}
+                    actionError={invoiceHook.actionError}
                 />
             )}
 

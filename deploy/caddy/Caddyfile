@@ -1,0 +1,40 @@
+# LysiaETIC — Website Builder özel domain TLS (on-demand)
+# Ortam değişkenleri systemd veya export ile verilir (ör. WB_SSL_ASK_URL).
+
+{
+	email {$ACME_EMAIL:ssl@lysia.com.tr}
+	on_demand_tls {
+		ask {$WB_SSL_ASK_URL}
+		interval 2m
+		burst 5
+	}
+}
+
+# Tüm müşteri hostları — SNI ile on-demand sertifika
+:443 {
+	tls {
+		on_demand
+	}
+
+	@acmeChallenge path /.well-known/acme-challenge/*
+	handle @acmeChallenge {
+		reverse_proxy {$WB_SSL_UPSTREAM:127.0.0.1:8080}
+	}
+
+	reverse_proxy {$WB_SSL_UPSTREAM:127.0.0.1:8080} {
+		header_up Host {host}
+		header_up X-Real-IP {remote_host}
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+	}
+}
+
+# HTTP → HTTPS (ACME http-01 + yönlendirme)
+:80 {
+	@acmeChallenge path /.well-known/acme-challenge/*
+	handle @acmeChallenge {
+		reverse_proxy {$WB_SSL_UPSTREAM:127.0.0.1:8080}
+	}
+
+	redir https://{host}{uri} permanent
+}

@@ -94,6 +94,8 @@ const mapBullJobToApiShape = async (job) => {
         current: progress.current,
         total: progress.total,
         message: progress.message || "",
+        platformStats: progress.platformStats,
+        pendingCount: progress.pendingCount,
         startedAt: job.timestamp,
         updatedAt: job.finishedOn || job.processedOn || job.timestamp,
         result: status === "completed" ? job.returnvalue : null,

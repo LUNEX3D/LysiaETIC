@@ -10,32 +10,33 @@ import {
     FaSyncAlt, FaCog, FaCheckCircle, FaTimesCircle, FaExclamationTriangle,
     FaFileInvoice, FaCalendarAlt, FaMoneyBillWave, FaSpinner, FaSearch,
     FaInfoCircle, FaChartPie, FaEye, FaDownload, FaTimes, FaBuilding,
-    FaLink, FaClipboardList,
+    FaLink, FaClipboardList, FaImage,
 } from "react-icons/fa";
-import { colors, buttonPrimary, buttonSecondary, inputStyle as baseInputStyle, labelStyle as baseLabelStyle, sectionTitleStyle } from "../styles";
-import { GlassCard, EmptyState, LoadingState, AlertBox, SpinnerButton } from "./SharedUI";
-import { ALL_MARKETPLACES, ALL_TRIGGER_STATUSES } from "../constants";
+import { colors, buttonPrimary, buttonSecondary, inputStyle as baseInputStyle, labelStyle as baseLabelStyle, sectionTitleStyle, helpTextStyle, chipInactiveStyle, textareaStyle } from "../styles";
+import { GlassCard, EmptyState, LoadingState, AlertBox, SpinnerButton, BillingSelect, InfoTooltip } from "./SharedUI";
+import EArchiveImageUpload from "./EArchiveImageUpload";
+import { ALL_MARKETPLACES, TRIGGER_STATUS_OPTIONS, getTriggerStatusLabel, DOCUMENT_TYPE_OPTIONS, getDocumentTypeLabel, getSovosProfileLabel, getProviderDisplayName, INVOICE_DESCRIPTION_TEMPLATES, isValidSovosGbIdentifier } from "../constants";
 import { fmtCurrency, fmtDate } from "../utils";
 
-const AutoInvoicePanel = ({ autoInvoice, settingsRequestTick = 0 }) => {
+const AutoInvoicePanel = ({ autoInvoice, settingsRequestTick = 0, processSingleOrder: processSingleOrderProp }) => {
     const {
         config, stats, loading, saving, error,
         fetchData, saveConfig, toggleEnabled, resetErrors, buildConfigForm,
         qnbInvoices, qnbLoading, qnbPagination, fetchQnbInvoices,
         previewQnbInvoice, downloadInvoicePdf,
+        uninvoicedOrders, uninvoicedLoading, uninvoicedPagination, uninvoicedSummary,
+        invoiceProcessingId, fetchUninvoicedOrders, processSingleOrder: processSingleOrderFromHook,
         processLoading, processResult, processAll,
         clearError, clearProcessResult,
+        uploadEArchiveVisual,
     } = autoInvoice;
+
+    const processSingleOrder = processSingleOrderProp || processSingleOrderFromHook;
 
     const [showConfigForm, setShowConfigForm] = useState(false);
     const [configForm, setConfigForm] = useState(null);
     const [qnbSearchQuery, setQnbSearchQuery] = useState("");
-    // Varsayılan tarih aralığı: son 30 gün
-    const [qnbDateRange, setQnbDateRange] = useState(() => {
-        const now = new Date();
-        const ago = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-        return { start: ago.toISOString().split("T")[0], end: now.toISOString().split("T")[0] };
-    });
+    const [qnbDateRange, setQnbDateRange] = useState({ start: "", end: "" });
     const [pdfLoading, setPdfLoading] = useState(null);
     const [qnbAutoLoaded, setQnbAutoLoaded] = useState(false);
 
@@ -44,6 +45,8 @@ const AutoInvoicePanel = ({ autoInvoice, settingsRequestTick = 0 }) => {
     const isEnabled = cfg.enabled || false;
     const hasConfig = !!(cfg.supplier && cfg.supplier.vkn);
     const consecutiveErrors = cfg.stats?.consecutiveErrors || 0;
+    const providerLabel = getProviderDisplayName(cfg.provider || "qnb");
+    const actionableOrders = (st.uninvoicedOrders || 0) + (st.errorOrders || 0);
 
     // İlk yüklemede verileri çek
     useEffect(() => {
@@ -130,6 +133,22 @@ const AutoInvoicePanel = ({ autoInvoice, settingsRequestTick = 0 }) => {
         });
     };
 
+    const handleVisualUpload = (assetType) => async (file) => {
+        if (!uploadEArchiveVisual) return { error: "Yükleme servisi kullanılamıyor" };
+        return uploadEArchiveVisual(file, assetType);
+    };
+
+    const applyDescriptionTemplate = (text) => {
+        setConfigForm((prev) => {
+            if (!prev) return prev;
+            const copy = JSON.parse(JSON.stringify(prev));
+            const current = String(copy.eArchiveVisuals?.invoiceDescription || "").trim();
+            if (!copy.eArchiveVisuals) copy.eArchiveVisuals = {};
+            copy.eArchiveVisuals.invoiceDescription = current ? `${current}\n\n${text}` : text;
+            return copy;
+        });
+    };
+
     const inputStyle = { ...baseInputStyle };
     const labelStyle = { ...baseLabelStyle };
 
@@ -143,6 +162,14 @@ const AutoInvoicePanel = ({ autoInvoice, settingsRequestTick = 0 }) => {
     // ═══════════════════════════════════════════════════════
     if (showConfigForm && configForm) {
         const fd = configForm;
+        const sovosCaps = cfg.sovosCredentials?.capabilities || fd.sovosCredentials?.capabilities;
+        const sovosEfaturaOnly = fd.provider === "sovos" && sovosCaps?.efatura && !sovosCaps?.earsiv;
+        const sovosEarsivOnly = fd.provider === "sovos" && sovosCaps?.earsiv && !sovosCaps?.efatura;
+        const documentTypeOptions = DOCUMENT_TYPE_OPTIONS.filter((opt) => {
+            if (fd.provider !== "sovos" || !sovosCaps) return true;
+            if (sovosEarsivOnly && opt.requiresEfatura) return false;
+            return true;
+        });
         return (
             <div>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem" }}>
@@ -154,178 +181,320 @@ const AutoInvoicePanel = ({ autoInvoice, settingsRequestTick = 0 }) => {
                     </motion.button>
                 </div>
 
-                <GlassCard animate={false}>
-                    {/* Firma Bilgileri */}
-                    <h4 style={sectionTitleStyle}><FaBuilding style={{ color: colors.accent }} /> Firma Bilgileri (Satıcı)</h4>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.75rem" }}>
-                        <div><label style={labelStyle}>VKN / TCKN *</label><input style={inputStyle} value={fd.supplier.vkn} onChange={(e) => updateField("supplier.vkn", e.target.value)} placeholder="10 veya 11 haneli" /></div>
-                        <div><label style={labelStyle}>Firma Adı *</label><input style={inputStyle} value={fd.supplier.name} onChange={(e) => updateField("supplier.name", e.target.value)} placeholder="Firma ünvanı" /></div>
-                        <div><label style={labelStyle}>Vergi Dairesi</label><input style={inputStyle} value={fd.supplier.taxOffice} onChange={(e) => updateField("supplier.taxOffice", e.target.value)} placeholder="Vergi dairesi adı" /></div>
-                        <div><label style={labelStyle}>Adres</label><input style={inputStyle} value={fd.supplier.street} onChange={(e) => updateField("supplier.street", e.target.value)} placeholder="Cadde/Sokak" /></div>
-                        <div><label style={labelStyle}>İlçe</label><input style={inputStyle} value={fd.supplier.district} onChange={(e) => updateField("supplier.district", e.target.value)} placeholder="İlçe" /></div>
-                        <div><label style={labelStyle}>İl</label><input style={inputStyle} value={fd.supplier.city} onChange={(e) => updateField("supplier.city", e.target.value)} placeholder="İl" /></div>
-                        <div><label style={labelStyle}>Telefon</label><input style={inputStyle} value={fd.supplier.phone} onChange={(e) => updateField("supplier.phone", e.target.value)} placeholder="05xx xxx xxxx" /></div>
-                        <div><label style={labelStyle}>E-posta</label><input style={inputStyle} value={fd.supplier.email} onChange={(e) => updateField("supplier.email", e.target.value)} placeholder="firma@ornek.com" /></div>
-                    </div>
-
-                    {/* QNB Bağlantı */}
-                    <h4 style={{ ...sectionTitleStyle, marginTop: "1.5rem" }}><FaLink style={{ color: colors.purple }} /> QNB eSolutions Bağlantısı</h4>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.75rem" }}>
-                        <div><label style={labelStyle}>e-Arşiv Kullanıcı Adı *</label><input style={inputStyle} value={fd.qnbCredentials.earsivUsername} onChange={(e) => { updateField("qnbCredentials.earsivUsername", e.target.value); updateField("qnbCredentials.username", e.target.value); }} placeholder="VKN.portaltest" /></div>
-                        <div><label style={labelStyle}>e-Arşiv Şifre *</label><input style={inputStyle} type="password" value={fd.qnbCredentials.earsivPassword} onChange={(e) => { updateField("qnbCredentials.earsivPassword", e.target.value); updateField("qnbCredentials.password", e.target.value); }} placeholder="••••••" /></div>
-                        <div>
-                            <label style={labelStyle}>Ortam</label>
-                            <select style={{ ...inputStyle, cursor: "pointer" }} value={fd.qnbCredentials.env} onChange={(e) => updateField("qnbCredentials.env", e.target.value)}>
-                                <option value="test">Test Ortamı</option>
-                                <option value="production">Canlı Ortam</option>
-                            </select>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: "1rem" }}>
+                    <GlassCard animate={false}>
+                        {/* Firma Bilgileri */}
+                        <h4 style={sectionTitleStyle}><FaBuilding style={{ color: colors.accent }} /> Firma Bilgileri (Satıcı)</h4>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.75rem" }}>
+                            <div><label style={labelStyle}>VKN / TCKN *</label><input style={inputStyle} value={fd.supplier.vkn} onChange={(e) => updateField("supplier.vkn", e.target.value)} placeholder="10 veya 11 haneli" /></div>
+                            <div><label style={labelStyle}>Firma Adı *</label><input style={inputStyle} value={fd.supplier.name} onChange={(e) => updateField("supplier.name", e.target.value)} placeholder="Firma ünvanı" /></div>
+                            <div><label style={labelStyle}>Vergi Dairesi</label><input style={inputStyle} value={fd.supplier.taxOffice} onChange={(e) => updateField("supplier.taxOffice", e.target.value)} placeholder="Vergi dairesi adı" /></div>
+                            <div><label style={labelStyle}>Adres</label><input style={inputStyle} value={fd.supplier.street} onChange={(e) => updateField("supplier.street", e.target.value)} placeholder="Cadde/Sokak" /></div>
+                            <div><label style={labelStyle}>İlçe</label><input style={inputStyle} value={fd.supplier.district} onChange={(e) => updateField("supplier.district", e.target.value)} placeholder="İlçe" /></div>
+                            <div><label style={labelStyle}>İl</label><input style={inputStyle} value={fd.supplier.city} onChange={(e) => updateField("supplier.city", e.target.value)} placeholder="İl" /></div>
+                            <div><label style={labelStyle}>Telefon</label><input style={inputStyle} value={fd.supplier.phone} onChange={(e) => updateField("supplier.phone", e.target.value)} placeholder="05xx xxx xxxx" /></div>
+                            <div><label style={labelStyle}>E-posta</label><input style={inputStyle} value={fd.supplier.email} onChange={(e) => updateField("supplier.email", e.target.value)} placeholder="firma@ornek.com" /></div>
                         </div>
-                        <div><label style={labelStyle}>e-Fatura Kullanıcı Adı</label><input style={inputStyle} value={fd.qnbCredentials.efaturaUsername} onChange={(e) => updateField("qnbCredentials.efaturaUsername", e.target.value)} placeholder="VKN (opsiyonel — B2B için)" /></div>
-                        <div><label style={labelStyle}>e-Fatura Şifre</label><input style={inputStyle} type="password" value={fd.qnbCredentials.efaturaPassword} onChange={(e) => updateField("qnbCredentials.efaturaPassword", e.target.value)} placeholder="••••••" /></div>
-                    </div>
-                    <p style={{ fontSize: "0.72rem", color: colors.textMuted, marginTop: "0.4rem", lineHeight: 1.5 }}>
-                        💡 e-Arşiv: Bireysel müşterilere fatura kesmek için (zorunlu). e-Fatura: Kurumsal (B2B) müşteriler için (opsiyonel).
-                    </p>
 
-                    {/* Fatura Ayarları */}
-                    <h4 style={{ ...sectionTitleStyle, marginTop: "1.5rem" }}><FaFileInvoice style={{ color: colors.green }} /> Fatura Ayarları</h4>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.75rem" }}>
-                        <div><label style={labelStyle}>Fatura Seri Kodu</label><input style={inputStyle} value={fd.invoiceSeriesCode} onChange={(e) => updateField("invoiceSeriesCode", e.target.value)} placeholder="LYS" maxLength={3} /></div>
-                        <div><label style={labelStyle}>Varsayılan KDV (%)</label><input style={inputStyle} type="number" value={fd.defaultVatRate} onChange={(e) => updateField("defaultVatRate", Number(e.target.value))} min={0} max={100} /></div>
-                        <div style={{ display: "flex", flexDirection: "column", justifyContent: "center" }}>
-                            <label style={labelStyle}>Fiyatlar KDV Dahil mi?</label>
-                            <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
-                                onClick={() => updateField("pricesIncludeVat", !fd.pricesIncludeVat)}
-                                style={{ background: fd.pricesIncludeVat ? colors.green + "20" : colors.red + "20", border: "1px solid " + (fd.pricesIncludeVat ? colors.green + "50" : colors.red + "50"), borderRadius: 8, padding: "0.55rem 0.85rem", cursor: "pointer", color: fd.pricesIncludeVat ? colors.green : colors.red, fontSize: "0.78rem", fontWeight: 600, textAlign: "left" }}>
-                                {fd.pricesIncludeVat ? "✓ Evet — KDV Dahil" : "✗ Hayır — KDV Hariç"}
-                            </motion.button>
+                        {/* Sağlayıcı seçimi */}
+                        <h4 style={{ ...sectionTitleStyle, marginTop: "1.25rem" }}><FaLink style={{ color: colors.purple }} /> E-Fatura Sağlayıcısı</h4>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.75rem", marginBottom: "0.75rem" }}>
+                            <div>
+                                <label style={labelStyle}>Sağlayıcı *</label>
+                                <BillingSelect value={fd.provider || "qnb"} onChange={(e) => updateField("provider", e.target.value)} options={[
+                                    { value: "qnb", label: "QNB eSolutions" },
+                                    { value: "sovos", label: "Sovos (Foriba)" },
+                                ]} />
+                            </div>
                         </div>
-                        <div>
-                            <label style={labelStyle}>Belge Tipi</label>
-                            <select style={{ ...inputStyle, cursor: "pointer" }} value={fd.documentType} onChange={(e) => updateField("documentType", e.target.value)}>
-                                <option value="EARSIVFATURA">e-Arşiv Fatura</option>
-                                <option value="TICARIFATURA">Ticari Fatura</option>
-                                <option value="TEMELFATURA">Temel Fatura</option>
-                            </select>
-                        </div>
-                        <div style={{ gridColumn: "1 / -1" }}><label style={labelStyle}>Fatura Notu</label><input style={inputStyle} value={fd.defaultNote} onChange={(e) => updateField("defaultNote", e.target.value)} placeholder="Faturaya eklenecek not (opsiyonel)" /></div>
-                    </div>
 
-                    {/* Varsayılan Alıcı */}
-                    <h4 style={{ ...sectionTitleStyle, marginTop: "1.5rem" }}><FaBuilding style={{ color: colors.orange }} /> Varsayılan Alıcı</h4>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.75rem" }}>
-                        <div><label style={labelStyle}>TCKN / VKN</label><input style={inputStyle} value={fd.defaultCustomer.vkn} onChange={(e) => updateField("defaultCustomer.vkn", e.target.value)} placeholder="11 haneli TCKN" /></div>
-                        <div><label style={labelStyle}>Ad</label><input style={inputStyle} value={fd.defaultCustomer.firstName} onChange={(e) => updateField("defaultCustomer.firstName", e.target.value)} placeholder="Ad" /></div>
-                        <div><label style={labelStyle}>Soyad</label><input style={inputStyle} value={fd.defaultCustomer.lastName} onChange={(e) => updateField("defaultCustomer.lastName", e.target.value)} placeholder="Soyad" /></div>
-                        <div><label style={labelStyle}>İl</label><input style={inputStyle} value={fd.defaultCustomer.city} onChange={(e) => updateField("defaultCustomer.city", e.target.value)} placeholder="İl" /></div>
-                    </div>
+                        {fd.provider === "sovos" ? (
+                            <>
+                                <p style={{ ...helpTextStyle, marginBottom: "0.6rem" }}>
+                                    Sovos Bulut e-Fatura + e-Arşiv WS. Faturalandırma → Sağlayıcılar üzerinden bağlandıysanız alanlar otomatik dolar.
+                                </p>
+                                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.75rem" }}>
+                                    <div><label style={labelStyle}>WS Kullanıcı Adı *</label><input style={inputStyle} value={fd.sovosCredentials.username} onChange={(e) => updateField("sovosCredentials.username", e.target.value)} placeholder="Sovos portal WS kullanıcısı" /></div>
+                                    <div><label style={labelStyle}>WS Şifre *</label><input style={inputStyle} type="password" value={fd.sovosCredentials.password} onChange={(e) => updateField("sovosCredentials.password", e.target.value)} placeholder="••••••" /></div>
+                                    <div><label style={labelStyle}>VKN / TCKN *</label><input style={inputStyle} value={fd.sovosCredentials.vknTckn} onChange={(e) => { updateField("sovosCredentials.vknTckn", e.target.value); updateField("supplier.vkn", e.target.value); }} placeholder="10 veya 11 hane" /></div>
+                                    <div><label style={labelStyle}>GB Etiketi (e-Fatura)</label><input style={inputStyle} value={fd.sovosCredentials.senderIdentifier} onChange={(e) => updateField("sovosCredentials.senderIdentifier", e.target.value)} placeholder="urn:mail:defaultgb@firma.com" /></div>
+                                    {fd.sovosCredentials.senderIdentifier?.trim() && !isValidSovosGbIdentifier(fd.sovosCredentials.senderIdentifier) && (
+                                        <p style={{ ...helpTextStyle, color: colors.yellow, gridColumn: "1 / -1", margin: 0 }}>
+                                            ⚠ Geçersiz GB etiketi. Düz e-posta değil; Sovos portalındaki tam <strong>urn:mail:...</strong> formatını girin. e-Arşiv only hesaplarda boş bırakın — aksi halde hatalı getUBLList çağrıları oluşur.
+                                        </p>
+                                    )}
+                                    <div><label style={labelStyle}>PK Etiketi (B2B)</label><input style={inputStyle} value={fd.sovosCredentials.receiverIdentifier} onChange={(e) => updateField("sovosCredentials.receiverIdentifier", e.target.value)} placeholder="urn:mail:defaultpk@..." /></div>
+                                    <div><label style={labelStyle}>Şube</label><input style={inputStyle} value={fd.sovosCredentials.branch} onChange={(e) => updateField("sovosCredentials.branch", e.target.value)} placeholder="default" /></div>
+                                    <div>
+                                        <label style={labelStyle}>Ortam</label>
+                                        <BillingSelect value={fd.sovosCredentials.env} onChange={(e) => updateField("sovosCredentials.env", e.target.value)} options={[
+                                            { value: "test", label: "Test (earsivwstest / efaturawstest)" },
+                                            { value: "production", label: "Canlı" },
+                                        ]} />
+                                    </div>
+                                </div>
+                            </>
+                        ) : (
+                            <>
+                                <h4 style={{ ...sectionTitleStyle, marginTop: "0.75rem" }}>QNB eSolutions Bağlantısı</h4>
+                                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.75rem" }}>
+                                    <div><label style={labelStyle}>e-Arşiv Kullanıcı Adı *</label><input style={inputStyle} value={fd.qnbCredentials.earsivUsername} onChange={(e) => { updateField("qnbCredentials.earsivUsername", e.target.value); updateField("qnbCredentials.username", e.target.value); }} placeholder="VKN.portaltest" /></div>
+                                    <div><label style={labelStyle}>e-Arşiv Şifre *</label><input style={inputStyle} type="password" value={fd.qnbCredentials.earsivPassword} onChange={(e) => { updateField("qnbCredentials.earsivPassword", e.target.value); updateField("qnbCredentials.password", e.target.value); }} placeholder="••••••" /></div>
+                                    <div>
+                                        <label style={labelStyle}>Ortam</label>
+                                        <BillingSelect value={fd.qnbCredentials.env} onChange={(e) => updateField("qnbCredentials.env", e.target.value)} options={[
+                                            { value: "test", label: "Test Ortamı" },
+                                            { value: "production", label: "Canlı Ortam" },
+                                        ]} />
+                                    </div>
+                                    <div><label style={labelStyle}>e-Fatura Kullanıcı Adı</label><input style={inputStyle} value={fd.qnbCredentials.efaturaUsername} onChange={(e) => updateField("qnbCredentials.efaturaUsername", e.target.value)} placeholder="VKN (opsiyonel — B2B için)" /></div>
+                                    <div><label style={labelStyle}>e-Fatura Şifre</label><input style={inputStyle} type="password" value={fd.qnbCredentials.efaturaPassword} onChange={(e) => updateField("qnbCredentials.efaturaPassword", e.target.value)} placeholder="••••••" /></div>
+                                </div>
+                                <p style={{ ...helpTextStyle, marginTop: "0.4rem" }}>
+                                    💡 e-Arşiv: Bireysel müşterilere fatura kesmek için (zorunlu). e-Fatura: Kurumsal (B2B) müşteriler için (opsiyonel).
+                                </p>
+                            </>
+                        )}
+                    </GlassCard>
 
-                    {/* Fatura Başlangıç Tarihi */}
-                    <h4 style={{ ...sectionTitleStyle, marginTop: "1.5rem" }}><FaCalendarAlt style={{ color: colors.yellow }} /> Fatura Başlangıç Tarihi</h4>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.75rem" }}>
-                        <div>
-                            <label style={labelStyle}>Bu tarihten önceki siparişler faturalanmaz</label>
-                            <input style={inputStyle} type="date" value={fd.autoInvoiceStartDate} onChange={(e) => updateField("autoInvoiceStartDate", e.target.value)} />
+                    <GlassCard animate={false}>
+                        {/* Fatura Ayarları */}
+                        <h4 style={{ ...sectionTitleStyle }}><FaFileInvoice style={{ color: colors.green }} /> Belge Ayarları</h4>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.75rem" }}>
+                            <div><label style={labelStyle}>Fatura Seri Kodu</label><input style={inputStyle} value={fd.invoiceSeriesCode} onChange={(e) => updateField("invoiceSeriesCode", e.target.value)} placeholder="LYS" maxLength={3} /></div>
+                            <div><label style={labelStyle}>Varsayılan KDV (%)</label><input style={inputStyle} type="number" value={fd.defaultVatRate} onChange={(e) => updateField("defaultVatRate", Number(e.target.value))} min={0} max={100} /></div>
+                            <div style={{ display: "flex", flexDirection: "column", justifyContent: "center" }}>
+                                <label style={labelStyle}>Fiyatlar KDV Dahil mi?</label>
+                                <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+                                    onClick={() => updateField("pricesIncludeVat", !fd.pricesIncludeVat)}
+                                    style={{ background: fd.pricesIncludeVat ? colors.green + "20" : colors.red + "20", border: "1px solid " + (fd.pricesIncludeVat ? colors.green + "50" : colors.red + "50"), borderRadius: 8, padding: "0.55rem 0.85rem", cursor: "pointer", color: fd.pricesIncludeVat ? colors.green : colors.red, fontSize: "0.78rem", fontWeight: 600, textAlign: "left" }}>
+                                    {fd.pricesIncludeVat ? "✓ Evet — KDV Dahil" : "✗ Hayır — KDV Hariç"}
+                                </motion.button>
+                            </div>
+                            <div>
+                                <label style={labelStyle}>Belge Tipi</label>
+                                <BillingSelect
+                                    value={fd.documentType}
+                                    onChange={(e) => updateField("documentType", e.target.value)}
+                                    options={documentTypeOptions}
+                                />
+                                {fd.provider === "sovos" && sovosCaps && (
+                                    <p style={{ ...helpTextStyle, marginTop: "0.35rem" }}>
+                                        Sovos hesap profili: <strong>{getSovosProfileLabel(sovosCaps)}</strong>.
+                                        {sovosEarsivOnly
+                                            ? " Yalnızca e-Arşiv lisansınız var; bireysel müşterilere e-Arşiv kesilir."
+                                            : sovosEfaturaOnly
+                                                ? " e-Fatura yetkiniz var; mükellef alıcılara e-Fatura, diğerlerine e-Arşiv kesilir."
+                                                : " Mükellef alıcıya e-Fatura, bireysel alıcıya e-Arşiv otomatik seçilir."}
+                                    </p>
+                                )}
+                            </div>
+                            <div style={{ gridColumn: "1 / -1" }}><label style={labelStyle}>Fatura Notu</label><input style={inputStyle} value={fd.defaultNote} onChange={(e) => updateField("defaultNote", e.target.value)} placeholder="Faturaya eklenecek not (opsiyonel)" /></div>
                         </div>
-                    </div>
-                    <p style={{ fontSize: "0.72rem", color: colors.textMuted, marginTop: "0.4rem", lineHeight: 1.5 }}>
-                        ⚠️ <strong>Mükerrer fatura koruması:</strong> Sistemi aktif etmeden önce manuel kestiğiniz faturaların tekârar kesilmesini engeller.
-                        Bu tarihten önceki siparişler otomatik faturalama ve "Tümünü Faturala" işlemlerinde atlanır.
-                        İlk kurulumda otomatik olarak bugünün tarihi atanır. Gerekirse değiştirebilirsiniz.
-                    </p>
 
-                    {/* Tetikleme Ayarları */}
-                    <h4 style={{ ...sectionTitleStyle, marginTop: "1.5rem" }}><FaClipboardList style={{ color: colors.blue }} /> Tetikleme Ayarları</h4>
-                    <div style={{ marginBottom: "1rem" }}>
-                        <label style={labelStyle}>Aktif Pazaryerleri <span style={{ color: colors.dim, fontWeight: 400 }}>(boş = tümü)</span></label>
-                        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", marginTop: "0.35rem" }}>
-                            {ALL_MARKETPLACES.map((mp) => {
-                                const active = fd.enabledMarketplaces.includes(mp);
-                                return (
-                                    <motion.button key={mp} whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
-                                        onClick={() => toggleArrayItem("enabledMarketplaces", mp)}
-                                        style={{ background: active ? colors.accent + "20" : colors.glass, border: "1px solid " + (active ? colors.accent + "50" : colors.glassBr), borderRadius: 8, padding: "0.4rem 0.85rem", cursor: "pointer", color: active ? colors.accent : colors.dim, fontSize: "0.78rem", fontWeight: 600 }}>
-                                        {active ? "✓ " : ""}{mp}
-                                    </motion.button>
-                                );
-                            })}
-                        </div>
-                    </div>
-                    <div>
-                        <label style={labelStyle}>Tetikleme Durumları</label>
-                        <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", marginTop: "0.35rem" }}>
-                            {ALL_TRIGGER_STATUSES.map((s) => {
-                                const active = fd.triggerStatuses.includes(s);
-                                return (
-                                    <motion.button key={s} whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
-                                        onClick={() => toggleArrayItem("triggerStatuses", s)}
-                                        style={{ background: active ? colors.green + "20" : colors.glass, border: "1px solid " + (active ? colors.green + "50" : colors.glassBr), borderRadius: 8, padding: "0.4rem 0.85rem", cursor: "pointer", color: active ? colors.green : colors.dim, fontSize: "0.78rem", fontWeight: 600 }}>
-                                        {active ? "✓ " : ""}{s}
-                                    </motion.button>
-                                );
-                            })}
-                        </div>
-                    </div>
-
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.75rem", marginTop: "1rem" }}>
-                        <div>
-                            <label style={labelStyle}>Otomatik kesim gecikmesi (gün)</label>
-                            <input
-                                style={inputStyle}
-                                type="number"
-                                min={0}
-                                max={90}
-                                value={fd.invoiceDelayDays}
-                                onChange={(e) => updateField("invoiceDelayDays", Math.max(0, Math.min(90, Number(e.target.value) || 0)))}
+                        <h4 style={{ ...sectionTitleStyle, marginTop: "1.25rem" }}><FaImage style={{ color: colors.purple }} /> e-Arşiv Görsel & Açıklama</h4>
+                        <p style={{ ...helpTextStyle, marginTop: "-0.35rem", marginBottom: "0.75rem" }}>
+                            Logo ve imzayı bilgisayarınızdan veya telefonunuzdan yükleyebilirsiniz. İsterseniz harici bir URL de girebilirsiniz.
+                        </p>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "0.85rem" }}>
+                            <EArchiveImageUpload
+                                label="e-Arşiv Logo"
+                                uploadLabel="Logo yükle"
+                                hint="PNG, JPG veya WEBP — galeri veya kamera"
+                                value={fd.eArchiveVisuals?.logoUrl || ""}
+                                onChange={(v) => updateField("eArchiveVisuals.logoUrl", v)}
+                                onUpload={handleVisualUpload("logo")}
+                                previewHeight={80}
                             />
-                            <p style={{ fontSize: "0.72rem", color: colors.textMuted, marginTop: "0.35rem", lineHeight: 1.5 }}>
-                                Sipariş tarihinden sonra bu kadar tam gün geçmeden otomatik kesilmez (0 = bekleme yok). Çok kullanıcı, &quot;Seçili / Tümünü faturala&quot; ve senkron sonrası manuel işlemlerde gecikme uygulanmaz.
-                            </p>
+                            <EArchiveImageUpload
+                                label="e-Arşiv İmza"
+                                uploadLabel="İmza yükle"
+                                hint="Şeffaf arka planlı PNG önerilir"
+                                value={fd.eArchiveVisuals?.signatureUrl || ""}
+                                onChange={(v) => updateField("eArchiveVisuals.signatureUrl", v)}
+                                onUpload={handleVisualUpload("signature")}
+                                previewHeight={64}
+                            />
+                            <div><label style={labelStyle}>İmza Yetkilisi</label><input style={inputStyle} value={fd.eArchiveVisuals?.signatureName || ""} onChange={(e) => updateField("eArchiveVisuals.signatureName", e.target.value)} placeholder="Ad Soyad" /></div>
                         </div>
-                        <div style={{ display: "flex", flexDirection: "column", justifyContent: "flex-start" }}>
-                            <label style={labelStyle}>Pazaryeri fatura yüklemesi</label>
-                            <motion.button
-                                type="button"
-                                whileHover={{ scale: 1.03 }}
-                                whileTap={{ scale: 0.97 }}
-                                onClick={() => updateField("autoUploadInvoiceToMarketplace", !fd.autoUploadInvoiceToMarketplace)}
-                                style={{
-                                    background: fd.autoUploadInvoiceToMarketplace ? colors.accent + "20" : colors.glass,
-                                    border: "1px solid " + (fd.autoUploadInvoiceToMarketplace ? colors.accent + "50" : colors.glassBr),
-                                    borderRadius: 8,
-                                    padding: "0.55rem 0.85rem",
-                                    cursor: "pointer",
-                                    color: fd.autoUploadInvoiceToMarketplace ? colors.accent : colors.dim,
-                                    fontSize: "0.78rem",
-                                    fontWeight: 600,
-                                    textAlign: "left",
-                                }}
-                            >
-                                {fd.autoUploadInvoiceToMarketplace ? "✓ Açık (hazırlık)" : "✗ Kapalı"}
-                            </motion.button>
-                            <p style={{ fontSize: "0.72rem", color: colors.textMuted, marginTop: "0.35rem", lineHeight: 1.5 }}>
-                                Pazaryeri API entegrasyonu tamamlandığında faturalar otomatik yüklenecek; şu an yalnızca tercih kaydı tutulur.
-                            </p>
-                        </div>
-                    </div>
 
-                    {/* Kaydet */}
-                    <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.75rem", marginTop: "2rem", paddingTop: "1.25rem", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
-                        <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
-                            onClick={() => setShowConfigForm(false)}
-                            style={{ ...buttonSecondary }}>
-                            İptal
-                        </motion.button>
-                        <SpinnerButton
-                            onClick={handleSaveConfig}
-                            loading={saving}
-                            disabled={!fd.supplier.vkn || !fd.supplier.name}
-                            loadingText="Kaydediliyor..."
-                            style={{ ...buttonPrimary, padding: "0.65rem 1.5rem", opacity: (!fd.supplier.vkn || !fd.supplier.name) ? 0.5 : 1, cursor: (!fd.supplier.vkn || !fd.supplier.name) ? "not-allowed" : "pointer" }}>
-                            <FaCheckCircle /> Kaydet
-                        </SpinnerButton>
-                    </div>
-                </GlassCard>
+                        <div style={{ gridColumn: "1 / -1", marginTop: "0.85rem" }}>
+                            <label style={labelStyle}>Fatura Açıklaması</label>
+                            <textarea
+                                style={textareaStyle}
+                                rows={5}
+                                value={fd.eArchiveVisuals?.invoiceDescription || ""}
+                                onChange={(e) => updateField("eArchiveVisuals.invoiceDescription", e.target.value)}
+                                placeholder="Faturada görünecek açıklama metni (opsiyonel)"
+                            />
+                            <p style={{ ...helpTextStyle, marginTop: "0.45rem", marginBottom: "0.5rem" }}>
+                                Hazır şablonlardan birini seçerek metni ekleyebilirsiniz:
+                            </p>
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: "0.45rem" }}>
+                                {INVOICE_DESCRIPTION_TEMPLATES.map((tpl) => (
+                                    <motion.button
+                                        key={tpl.id}
+                                        type="button"
+                                        whileHover={{ scale: 1.03 }}
+                                        whileTap={{ scale: 0.97 }}
+                                        onClick={() => applyDescriptionTemplate(tpl.text)}
+                                        title={tpl.text}
+                                        style={{
+                                            ...chipInactiveStyle,
+                                            borderRadius: 8,
+                                            padding: "0.38rem 0.7rem",
+                                            cursor: "pointer",
+                                            fontSize: "0.78rem",
+                                            fontWeight: 600,
+                                        }}
+                                    >
+                                        {tpl.label}
+                                    </motion.button>
+                                ))}
+                            </div>
+                        </div>
+                    </GlassCard>
+
+                    <GlassCard animate={false}>
+                        {/* Varsayılan Alıcı */}
+                        <h4 style={{ ...sectionTitleStyle }}><FaBuilding style={{ color: colors.orange }} /> Varsayılan Alıcı</h4>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.75rem" }}>
+                            <div><label style={labelStyle}>TCKN / VKN</label><input style={inputStyle} value={fd.defaultCustomer.vkn} onChange={(e) => updateField("defaultCustomer.vkn", e.target.value)} placeholder="11 haneli TCKN" /></div>
+                            <div><label style={labelStyle}>Ad</label><input style={inputStyle} value={fd.defaultCustomer.firstName} onChange={(e) => updateField("defaultCustomer.firstName", e.target.value)} placeholder="Ad" /></div>
+                            <div><label style={labelStyle}>Soyad</label><input style={inputStyle} value={fd.defaultCustomer.lastName} onChange={(e) => updateField("defaultCustomer.lastName", e.target.value)} placeholder="Soyad" /></div>
+                            <div><label style={labelStyle}>İl</label><input style={inputStyle} value={fd.defaultCustomer.city} onChange={(e) => updateField("defaultCustomer.city", e.target.value)} placeholder="İl" /></div>
+                        </div>
+
+                        {/* Fatura Başlangıç Tarihi */}
+                        <h4 style={{ ...sectionTitleStyle, marginTop: "1.25rem" }}><FaCalendarAlt style={{ color: colors.yellow }} /> Başlangıç Tarihi</h4>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.75rem" }}>
+                            <div>
+                                <label style={labelStyle}>
+                                    <InfoTooltip label="Bu tarihten önceki siparişler faturalanmaz">
+                                        Sistemi aktif etmeden önce manuel kestiğiniz faturaların tekrar kesilmesini engeller.
+                                        Bu tarihten önceki siparişler otomatik faturalama ve toplu kesimde atlanır.
+                                        İlk kurulumda bugünün tarihi atanır; geçmişe dönük mükerrer fatura riski için değiştirmeyin.
+                                    </InfoTooltip>
+                                </label>
+                                <input style={inputStyle} type="date" value={fd.autoInvoiceStartDate} onChange={(e) => updateField("autoInvoiceStartDate", e.target.value)} />
+                            </div>
+                        </div>
+                        <p style={{ ...helpTextStyle, marginTop: "0.4rem" }}>
+                            Mükerrer fatura koruması: yalnızca bu tarihten sonraki siparişler otomatik kesilir.
+                        </p>
+                    </GlassCard>
+
+                    <GlassCard animate={false}>
+                        {/* Tetikleme Ayarları */}
+                        <h4 style={{ ...sectionTitleStyle }}><FaClipboardList style={{ color: colors.blue }} /> Tetikleme Ayarları</h4>
+                        <div style={{ marginBottom: "1rem" }}>
+                            <label style={labelStyle}>Aktif Pazaryerleri <span style={{ color: colors.textMuted, fontWeight: 500 }}>(boş = tümü)</span></label>
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", marginTop: "0.35rem" }}>
+                                {ALL_MARKETPLACES.map((mp) => {
+                                    const active = fd.enabledMarketplaces.includes(mp);
+                                    return (
+                                        <motion.button key={mp} whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+                                            onClick={() => toggleArrayItem("enabledMarketplaces", mp)}
+                                            style={active
+                                                ? { background: colors.accent + "20", border: "1px solid " + colors.accent + "50", borderRadius: 8, padding: "0.4rem 0.85rem", cursor: "pointer", color: colors.accent, fontSize: "0.8rem", fontWeight: 700 }
+                                                : { ...chipInactiveStyle, borderRadius: 8, padding: "0.4rem 0.85rem", cursor: "pointer", fontSize: "0.8rem", fontWeight: 600 }}>
+                                            {active ? "✓ " : ""}{mp}
+                                        </motion.button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                        <div>
+                            <label style={labelStyle}>Tetikleme Durumları</label>
+                            <p style={{ ...helpTextStyle, marginTop: "-0.15rem", marginBottom: "0.45rem" }}>
+                                Sipariş bu durumlara geldiğinde otomatik fatura kesilir. Etiketler Türkçe; arka planda pazaryeri API kodları kullanılır.
+                            </p>
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", marginTop: "0.35rem" }}>
+                                {TRIGGER_STATUS_OPTIONS.map((s) => {
+                                    const active = fd.triggerStatuses.includes(s.value);
+                                    return (
+                                        <motion.button key={s.value} whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
+                                            onClick={() => toggleArrayItem("triggerStatuses", s.value)}
+                                            title={`API kodu: ${s.value}`}
+                                            style={active
+                                                ? { background: colors.green + "20", border: "1px solid " + colors.green + "50", borderRadius: 8, padding: "0.45rem 0.85rem", cursor: "pointer", color: colors.green, fontSize: "0.82rem", fontWeight: 700 }
+                                                : { ...chipInactiveStyle, borderRadius: 8, padding: "0.45rem 0.85rem", cursor: "pointer", fontSize: "0.82rem", fontWeight: 600 }}>
+                                            {active ? "✓ " : ""}{s.label}
+                                        </motion.button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "0.75rem", marginTop: "1rem" }}>
+                            <div>
+                                <label style={labelStyle}>
+                                    <InfoTooltip label="Otomatik kesim gecikmesi (gün)" width={360}>
+                                        Türkiye&apos;de fatura en geç 7 iş günü içinde kesilmelidir; ancak hemen keserseniz
+                                        iade geldiğinde faturayı iptal edemezsiniz (yasal iptal süresi dolmuş olur).
+                                        Müşterinin 14 günlük iade hakkı vardır. Öneri: siparişten 5–6 gün sonra kesin —
+                                        örneğin 10.06 sipariş, 5 gün gecikme → 15.06 kesim; böylece iade gelirse 7 günlük
+                                        iptal pencereniz kalır. Kesim sonrası fatura pazaryerine yüklenir.
+                                    </InfoTooltip>
+                                </label>
+                                <input
+                                    style={inputStyle}
+                                    type="number"
+                                    min={0}
+                                    max={90}
+                                    value={fd.invoiceDelayDays}
+                                    onChange={(e) => updateField("invoiceDelayDays", Math.max(0, Math.min(90, Number(e.target.value) || 0)))}
+                                />
+                                <p style={{ ...helpTextStyle, marginTop: "0.35rem" }}>
+                                    0 = gecikme yok. Otomatik cron bu süreyi uygular; manuel &quot;Seçili faturala&quot; atlanır.
+                                </p>
+                            </div>
+                            <div style={{ display: "flex", flexDirection: "column", justifyContent: "flex-start" }}>
+                                <label style={labelStyle}>Pazaryeri fatura yüklemesi</label>
+                                <motion.button
+                                    type="button"
+                                    whileHover={{ scale: 1.03 }}
+                                    whileTap={{ scale: 0.97 }}
+                                    onClick={() => updateField("autoUploadInvoiceToMarketplace", !fd.autoUploadInvoiceToMarketplace)}
+                                    style={{
+                                        background: fd.autoUploadInvoiceToMarketplace ? colors.accent + "20" : colors.glass,
+                                        border: "1px solid " + (fd.autoUploadInvoiceToMarketplace ? colors.accent + "50" : colors.glassBr),
+                                        borderRadius: 8,
+                                        padding: "0.55rem 0.85rem",
+                                        cursor: "pointer",
+                                        color: fd.autoUploadInvoiceToMarketplace ? colors.accent : colors.text,
+                                        fontSize: "0.8rem",
+                                        fontWeight: 600,
+                                        textAlign: "left",
+                                    }}
+                                >
+                                    {fd.autoUploadInvoiceToMarketplace ? "✓ Açık (yalnızca tercih)" : "✗ Kapalı — platforma gönderilmez"}
+                                </motion.button>
+                                <p style={{ ...helpTextStyle, marginTop: "0.35rem" }}>
+                                    <strong>Kapalıyken</strong> kesilen faturalar Trendyol, Hepsiburada vb. platformlara <strong>gönderilmez</strong>.
+                                    Açık olsa bile şu an yalnızca tercih kaydı tutulur; gerçek API yüklemesi henüz devrede değildir.
+                                </p>
+                            </div>
+                        </div>
+                    </GlassCard>
+                </div>
+
+                {/* Kaydet */}
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.75rem", marginTop: "1.75rem", paddingTop: "1.25rem", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+                    <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
+                        onClick={() => setShowConfigForm(false)}
+                        style={{ ...buttonSecondary }}>
+                        İptal
+                    </motion.button>
+                    <SpinnerButton
+                        onClick={handleSaveConfig}
+                        loading={saving}
+                        disabled={!fd.supplier.vkn || !fd.supplier.name}
+                        loadingText="Kaydediliyor..."
+                        style={{ ...buttonPrimary, padding: "0.65rem 1.5rem", opacity: (!fd.supplier.vkn || !fd.supplier.name) ? 0.5 : 1, cursor: (!fd.supplier.vkn || !fd.supplier.name) ? "not-allowed" : "pointer" }}>
+                        <FaCheckCircle /> Kaydet
+                    </SpinnerButton>
+                </div>
             </div>
         );
     }
@@ -371,7 +540,13 @@ const AutoInvoicePanel = ({ autoInvoice, settingsRequestTick = 0 }) => {
                     <p style={{ margin: 0, color: colors.muted, fontSize: "0.8rem", lineHeight: 1.55, display: "flex", gap: "0.5rem", alignItems: "flex-start" }}>
                         <FaInfoCircle style={{ color: colors.accent, marginTop: "0.15rem", flexShrink: 0 }} />
                         <span>
-                            <strong>Geciktirmeli otomatik kesim:</strong> Üstteki <strong>Ayarlar</strong> düğmesiyle formu açın; &quot;Tetikleme Ayarları&quot; bölümünde <strong>Otomatik kesim gecikmesi (gün)</strong> ve isteğe bağlı pazaryeri yükleme seçenekleri yer alır. Bu gecikme yalnızca senkron ve zamanlanmış otomatik kesimde uygulanır; seçili siparişleri veya &quot;Tümünü faturala&quot;yı etkilemez.
+                            <strong>Aktif ayarlar geçerlidir:</strong> Otomatik kesim yalnızca <strong>{isEnabled ? "açık" : "kapalı"}</strong> iken ve
+                            tetikleme durumlarına ({(cfg.triggerStatuses || ["Shipped", "Delivered"]).map(getTriggerStatusLabel).join(", ")}) uyan siparişlerde çalışır.
+                            Pazaryeri fatura yüklemesi <strong>{cfg.autoUploadInvoiceToMarketplace ? "tercih olarak açık" : "kapalı"}</strong> —
+                            {cfg.autoUploadInvoiceToMarketplace
+                                ? " gerçek platform API yüklemesi henüz yoktur."
+                                : " kesilen faturalar platformlara gönderilmez."}
+                            {" "}Manuel &quot;Kes&quot; ve toplu faturalama gecikme kuralından muaftır.
                         </span>
                     </p>
                 </GlassCard>
@@ -396,7 +571,7 @@ const AutoInvoicePanel = ({ autoInvoice, settingsRequestTick = 0 }) => {
                     <div style={{ fontSize: "3rem", marginBottom: "0.75rem" }}>⚙️</div>
                     <p style={{ color: colors.muted, fontSize: "1rem", fontWeight: 600, margin: "0 0 0.35rem" }}>Ayarlar Yapılmadı</p>
                     <p style={{ color: colors.dim, fontSize: "0.82rem", margin: "0 0 1.25rem", maxWidth: 400, marginLeft: "auto", marginRight: "auto", lineHeight: 1.5 }}>
-                        Otomatik fatura kesme için firma bilgilerinizi ve QNB bağlantı ayarlarınızı yapmanız gerekiyor.
+                        Otomatik fatura kesme için firma bilgilerinizi ve e-belge sağlayıcı (QNB / Sovos) bağlantı ayarlarınızı yapmanız gerekiyor.
                     </p>
                     <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}
                         onClick={() => { initConfigForm(); setShowConfigForm(true); }}
@@ -420,6 +595,7 @@ const AutoInvoicePanel = ({ autoInvoice, settingsRequestTick = 0 }) => {
                         { label: "Toplam Tutar", value: fmtCurrency(st.totalAmount || 0), icon: <FaMoneyBillWave />, color: colors.purple },
                         { label: "Faturasız Sipariş", value: st.uninvoicedOrders || 0, icon: <FaExclamationTriangle />, color: (st.uninvoicedOrders || 0) > 0 ? colors.yellow : colors.dim },
                         { label: "Hatalı Sipariş", value: st.errorOrders || 0, icon: <FaTimesCircle />, color: (st.errorOrders || 0) > 0 ? colors.red : colors.dim },
+                        { label: "İşlemde (Kilit)", value: st.pendingOrders || uninvoicedSummary?.pendingCount || 0, icon: <FaSpinner />, color: (st.pendingOrders || 0) > 0 ? colors.orange || colors.yellow : colors.dim },
                     ].map((card, i) => (
                         <GlassCard key={i} style={{ padding: "1.15rem" }}>
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
@@ -439,22 +615,34 @@ const AutoInvoicePanel = ({ autoInvoice, settingsRequestTick = 0 }) => {
                 <AlertBox type="warning" message={st.autoInvoiceWarning} />
             )}
 
-            {/* Tümünü Faturala */}
-            {hasConfig && ((st.uninvoicedOrders || 0) > 0 || (st.errorOrders || 0) > 0) && (
+            {/* Toplu / test faturalama */}
+            {hasConfig && (
                 <div style={{ marginBottom: "1.5rem", display: "flex", gap: "0.75rem", alignItems: "center", flexWrap: "wrap" }}>
                     <SpinnerButton
                         onClick={() => processAll(50)}
                         loading={processLoading}
                         loadingText="Faturalar Kesiliyor..."
-                        style={buttonPrimary}>
-                        <FaFileInvoice /> {(st.errorOrders || 0) > 0 && (st.uninvoicedOrders || 0) === 0
-                            ? "Hatalı Siparişleri Tekrar Dene (" + (st.errorOrders || 0) + ")"
-                            : "Faturasız Siparişleri Faturala (" + Math.min(50, (st.uninvoicedOrders || 0) + (st.errorOrders || 0)) + ")"}
+                        disabled={actionableOrders === 0 && (st.pendingOrders || 0) > 0}
+                        style={{ ...buttonPrimary, opacity: actionableOrders === 0 ? 0.85 : 1 }}>
+                        <FaFileInvoice /> {actionableOrders > 0
+                            ? ((st.errorOrders || 0) > 0 && (st.uninvoicedOrders || 0) === 0
+                                ? "Hatalı Siparişleri Tekrar Dene (" + st.errorOrders + ")"
+                                : "Faturasız Siparişleri Faturala (" + Math.min(50, actionableOrders) + ")")
+                            : "Toplu Faturalama (0 uygun sipariş)"}
+                    </SpinnerButton>
+                    <SpinnerButton
+                        onClick={() => fetchUninvoicedOrders(1)}
+                        loading={uninvoicedLoading}
+                        loadingText="Yenileniyor..."
+                        style={{ ...buttonSecondary, padding: "0.55rem 1rem", fontSize: "0.78rem" }}>
+                        <FaSyncAlt /> Siparişleri Yenile
                     </SpinnerButton>
                     <span style={{ color: colors.dim, fontSize: "0.75rem" }}>
-                        {(st.errorOrders || 0) > 0
-                            ? "Hatalı siparişler sıfırlanıp tekrar denenecek. Tek seferde en fazla 50 sipariş."
-                            : "Tek seferde en fazla 50 sipariş faturalanır."}
+                        {actionableOrders > 0
+                            ? "Sağlayıcı: " + providerLabel + " — tek seferde en fazla 50 sipariş."
+                            : (st.pendingOrders || uninvoicedSummary?.pendingCount)
+                                ? "Bazı siparişler işlem kilidinde; ~15 dk sonra otomatik açılır."
+                                : "Başlangıç tarihinden sonraki faturalanmamış siparişler listelenir."}
                     </span>
                 </div>
             )}
@@ -469,14 +657,33 @@ const AutoInvoicePanel = ({ autoInvoice, settingsRequestTick = 0 }) => {
                         <div style={{ display: "flex", flexDirection: "column", gap: "0.6rem" }}>
                             {[
                                 { label: "Durum", value: isEnabled ? "Aktif" : "Devre Dışı", color: isEnabled ? colors.green : colors.red },
-                                { label: "Sağlayıcı", value: (cfg.provider || "qnb").toUpperCase() },
-                                { label: "Belge Tipi", value: cfg.documentType || "EARSIVFATURA" },
+                                { label: "Sağlayıcı", value: (cfg.provider || "qnb") === "sovos" ? "Sovos" : "QNB" },
+                                ...(cfg.provider === "sovos" && cfg.sovosCredentials?.capabilities
+                                    ? [{ label: "Sovos Profili", value: getSovosProfileLabel(cfg.sovosCredentials.capabilities) }]
+                                    : []),
+                                { label: "Belge Tipi", value: getDocumentTypeLabel(cfg.documentType || "EARSIVFATURA") },
                                 { label: "Fatura Serisi", value: cfg.invoiceSeriesCode || "LYS" },
                                 { label: "KDV Oranı", value: "%" + (cfg.defaultVatRate || 20) },
                                 { label: "Firma VKN", value: cfg.supplier?.vkn || "—" },
                                 { label: "Firma Adı", value: cfg.supplier?.name || "—" },
-                                { label: "Ortam", value: cfg.qnbCredentials?.env === "production" ? "Canlı" : "Test" },
+                                { label: "Ortam", value: cfg.provider === "sovos"
+                                    ? (cfg.sovosCredentials?.env === "production" ? "Canlı" : "Test")
+                                    : (cfg.qnbCredentials?.env === "production" ? "Canlı" : "Test") },
                                 { label: "📅 Başlangıç Tarihi", value: cfg.autoInvoiceStartDate ? fmtDate(cfg.autoInvoiceStartDate) : "—", color: colors.yellow },
+                                { label: "Tetikleme", value: (cfg.triggerStatuses || []).length
+                                    ? (cfg.triggerStatuses || []).slice(0, 4).map(getTriggerStatusLabel).join(", ") + ((cfg.triggerStatuses || []).length > 4 ? "…" : "")
+                                    : "Shipped, Delivered" },
+                                { label: "Aktif Pazaryerleri", value: (cfg.enabledMarketplaces || []).length
+                                    ? (cfg.enabledMarketplaces || []).join(", ")
+                                    : "Tümü" },
+                                { label: "Kesim Gecikmesi", value: (cfg.invoiceDelayDays || 0) + " gün" },
+                                { label: "Logo", value: cfg.eArchiveVisuals?.logoUrl ? "Tanımlı" : "Yok" },
+                                { label: "İmza", value: cfg.eArchiveVisuals?.signatureUrl ? "Tanımlı" : "Yok" },
+                                { label: "Fatura Açıklaması", value: cfg.eArchiveVisuals?.invoiceDescription || cfg.defaultNote || "—" },
+                                { label: "Pazaryeri Yükleme", value: cfg.autoUploadInvoiceToMarketplace
+                                    ? "Açık (tercih — henüz API yok)"
+                                    : "Kapalı — platforma gönderilmez",
+                                    color: cfg.autoUploadInvoiceToMarketplace ? colors.yellow : colors.green },
                             ].map((row, i) => (
                                 <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.35rem 0", borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
                                     <span style={{ color: colors.dim, fontSize: "0.78rem" }}>{row.label}</span>
@@ -537,12 +744,104 @@ const AutoInvoicePanel = ({ autoInvoice, settingsRequestTick = 0 }) => {
                 </div>
             )}
 
-            {/* QNB Fatura Listesi */}
+            {/* Faturasız Siparişler — test / manuel kesim */}
             {hasConfig && (
                 <GlassCard animate={false} style={{ marginBottom: "1.5rem" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", flexWrap: "wrap", gap: "0.75rem" }}>
                         <h4 style={{ color: "#fff", fontSize: "0.9rem", fontWeight: 700, margin: 0, display: "flex", alignItems: "center", gap: "0.4rem" }}>
-                            <FaFileInvoice style={{ color: colors.accent }} /> Kesilen Faturalar (QNB)
+                            <FaClipboardList style={{ color: colors.yellow }} /> Faturasız Siparişler
+                            {(uninvoicedPagination.total || 0) > 0 && (
+                                <span style={{ color: colors.dim, fontWeight: 500, fontSize: "0.78rem" }}>({uninvoicedPagination.total})</span>
+                            )}
+                        </h4>
+                        <span style={{ color: colors.dim, fontSize: "0.72rem" }}>
+                            Sağlayıcı: <strong style={{ color: colors.accent }}>{providerLabel}</strong>
+                            {st.autoInvoiceStartDate || uninvoicedSummary?.startDate
+                                ? " · " + fmtDate(st.autoInvoiceStartDate || uninvoicedSummary.startDate) + " sonrası"
+                                : ""}
+                        </span>
+                    </div>
+
+                    {uninvoicedLoading && uninvoicedOrders.length === 0 && (
+                        <LoadingState message="Siparişler yükleniyor..." />
+                    )}
+
+                    {!uninvoicedLoading && uninvoicedOrders.length === 0 && (
+                        <EmptyState
+                            icon="📦"
+                            title="Faturasız sipariş bulunamadı"
+                            description={
+                                (st.pendingOrders || uninvoicedSummary?.pendingCount)
+                                    ? (uninvoicedSummary?.pendingCount || st.pendingOrders) + " sipariş işlem kilidinde — birkaç dakika sonra yenileyin veya 'Siparişleri Yenile' deyin."
+                                    : (st.errorOrders || uninvoicedSummary?.errorCount)
+                                        ? (st.errorOrders || uninvoicedSummary.errorCount) + " hatalı sipariş var — toplu faturalama ile tekrar deneyin."
+                                        : "Son 90 günde faturalanmamış sipariş yok. Otomatik fatura başlangıç tarihi: " +
+                                          (uninvoicedSummary?.autoInvoiceStartDate
+                                              ? fmtDate(uninvoicedSummary.autoInvoiceStartDate)
+                                              : cfg.autoInvoiceStartDate
+                                                  ? fmtDate(cfg.autoInvoiceStartDate)
+                                                  : "—") +
+                                          " (otomatik cron yalnızca bu tarihten sonrakileri keser)."
+                            }
+                        />
+                    )}
+
+                    {uninvoicedOrders.length > 0 && (
+                        <>
+                            <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr 0.8fr 0.8fr 0.7fr 0.9fr", gap: "0.4rem", padding: "0.5rem 0.75rem", background: "rgba(255,255,255,0.03)", borderRadius: 8, marginBottom: "0.5rem" }}>
+                                {["Sipariş No", "Pazaryeri", "Durum", "Tutar", "Tarih", "İşlem"].map((h) => (
+                                    <span key={h} style={{ color: colors.dim, fontSize: "0.68rem", fontWeight: 700, textTransform: "uppercase" }}>{h}</span>
+                                ))}
+                            </div>
+                            <div style={{ display: "flex", flexDirection: "column", gap: "0.15rem", maxHeight: 360, overflowY: "auto" }}>
+                                {uninvoicedOrders.map((order, idx) => (
+                                    <motion.div key={order.id || idx} whileHover={{ backgroundColor: "rgba(255,255,255,0.04)" }}
+                                        style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr 0.8fr 0.8fr 0.7fr 0.9fr", gap: "0.4rem", padding: "0.55rem 0.75rem", borderRadius: 8, alignItems: "center", background: idx % 2 === 0 ? "transparent" : "rgba(255,255,255,0.015)" }}>
+                                        <span style={{ color: colors.accent, fontSize: "0.78rem", fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{order.orderNumber || "—"}</span>
+                                        <span style={{ color: colors.muted, fontSize: "0.74rem" }}>{order.marketplaceName || "—"}</span>
+                                        <span style={{ color: order.invoiceStatus === "error" ? colors.red : colors.dim, fontSize: "0.72rem" }}>{order.status || order.invoiceStatus || "—"}</span>
+                                        <span style={{ color: colors.green, fontSize: "0.78rem", fontWeight: 600 }}>{fmtCurrency(order.totalPrice || 0)}</span>
+                                        <span style={{ color: colors.muted, fontSize: "0.72rem" }}>{fmtDate(order.orderDate)}</span>
+                                        <SpinnerButton
+                                            onClick={() => processSingleOrder(order.id)}
+                                            loading={invoiceProcessingId === order.id}
+                                            loadingText="..."
+                                            style={{ ...buttonPrimary, padding: "0.35rem 0.6rem", fontSize: "0.72rem" }}>
+                                            <FaFileInvoice /> Kes
+                                        </SpinnerButton>
+                                    </motion.div>
+                                ))}
+                            </div>
+                            {uninvoicedPagination.totalPages > 1 && (
+                                <div style={{ display: "flex", justifyContent: "center", gap: "0.5rem", marginTop: "0.75rem" }}>
+                                    <motion.button
+                                        onClick={() => fetchUninvoicedOrders(uninvoicedPagination.page - 1)}
+                                        disabled={uninvoicedPagination.page <= 1 || uninvoicedLoading}
+                                        style={{ ...buttonSecondary, padding: "0.35rem 0.7rem", fontSize: "0.75rem", opacity: uninvoicedPagination.page <= 1 ? 0.4 : 1 }}>
+                                        Önceki
+                                    </motion.button>
+                                    <span style={{ color: colors.dim, fontSize: "0.75rem", alignSelf: "center" }}>
+                                        {uninvoicedPagination.page} / {uninvoicedPagination.totalPages}
+                                    </span>
+                                    <motion.button
+                                        onClick={() => fetchUninvoicedOrders(uninvoicedPagination.page + 1)}
+                                        disabled={uninvoicedPagination.page >= uninvoicedPagination.totalPages || uninvoicedLoading}
+                                        style={{ ...buttonSecondary, padding: "0.35rem 0.7rem", fontSize: "0.75rem", opacity: uninvoicedPagination.page >= uninvoicedPagination.totalPages ? 0.4 : 1 }}>
+                                        Sonraki
+                                    </motion.button>
+                                </div>
+                            )}
+                        </>
+                    )}
+                </GlassCard>
+            )}
+
+            {/* Kesilen Faturalar (DB) */}
+            {hasConfig && (
+                <GlassCard animate={false} style={{ marginBottom: "1.5rem" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1rem", flexWrap: "wrap", gap: "0.75rem" }}>
+                        <h4 style={{ color: "#fff", fontSize: "0.9rem", fontWeight: 700, margin: 0, display: "flex", alignItems: "center", gap: "0.4rem" }}>
+                            <FaFileInvoice style={{ color: colors.accent }} /> Kesilen Faturalar ({providerLabel})
                             {qnbPagination.total > 0 && <span style={{ color: colors.dim, fontWeight: 500, fontSize: "0.78rem" }}>({qnbPagination.total})</span>}
                         </h4>
                         <SpinnerButton onClick={handleQnbSearch} loading={qnbLoading} loadingText="Yükleniyor..."
@@ -574,7 +873,7 @@ const AutoInvoicePanel = ({ autoInvoice, settingsRequestTick = 0 }) => {
 
                     {/* Yükleniyor */}
                     {qnbLoading && qnbInvoices.length === 0 && (
-                        <LoadingState message="QNB'den faturalar çekiliyor..." />
+                        <LoadingState message="Faturalar yükleniyor..." />
                     )}
 
                     {/* Tablo */}
@@ -680,7 +979,7 @@ const AutoInvoicePanel = ({ autoInvoice, settingsRequestTick = 0 }) => {
                     {[
                         { step: "1", title: "Sipariş Gelir", desc: "Pazaryerinden sipariş sync edilir", icon: "📦" },
                         { step: "2", title: "Durum Kontrolü", desc: "Sipariş durumu tetikleme durumlarına uyuyor mu kontrol edilir", icon: "🔍" },
-                        { step: "3", title: "Fatura Kesilir", desc: "QNB eSolutions üzerinden otomatik e-Arşiv fatura oluşturulur", icon: "📄" },
+                        { step: "3", title: "Fatura Kesilir", desc: providerLabel + " üzerinden otomatik e-Arşiv / e-Fatura oluşturulur", icon: "📄" },
                         { step: "4", title: "Kayıt Yapılır", desc: "Fatura bilgileri kaydedilir ve siparişe bağlanır", icon: "✅" },
                     ].map((s, i) => (
                         <div key={i} style={{ display: "flex", gap: "0.75rem", alignItems: "flex-start" }}>

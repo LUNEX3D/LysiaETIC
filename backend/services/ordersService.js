@@ -1,4 +1,4 @@
-﻿const axios = require("axios");
+const axios = require("axios");
 const moment = require("moment");
 const _ = require("lodash");
 const logger = require("../config/logger");
@@ -31,8 +31,9 @@ const extractHbOmsList = (data) => {
     return [];
 };
 const { pickPreferredOrderRecord, resolveBestOrderStatus } = require("../utils/orderStatus");
-const { fetchCiceksepetiReturnOrders } = require("../utils/ciceksepetiOrders");
+const { fetchCiceksepetiReturnOrders, fetchCiceksepetiOrdersInRange, resolveCsOrderProductStatus } = require("../utils/ciceksepetiOrders");
 const ciceksepetiService = require("./ciceksepeti/ciceksepetiService");
+const { requestWithRetry } = require("../utils/apiRetry");
 
 /** Aynı sipariş no için birden fazla paket satırını tek kayıtta birleştir (en ileri statü) */
 const mergeOrdersByOrderNumber = (orders, marketplaceName) => {
@@ -55,7 +56,8 @@ const mergeOrdersByOrderNumber = (orders, marketplaceName) => {
             { status: order.status, marketplaceName: mp, orderDate: order.orderDate }
         );
         const base = preferred.status === order.status ? order : prev;
-        map.set(no, { ...base, status: bestStatus, orderNumber: no });
+        // CS: birleştirme anahtarı orderItemId olabilir; parent orderNumber korunmalı
+        map.set(no, { ...base, status: bestStatus });
     }
     return Array.from(map.values());
 };
@@ -287,120 +289,132 @@ const fetchHepsiburadaOrders = async (merchantId, serviceKey, startDate, endDate
         // Shipped/Delivered/Cancelled: son 1 aylık data, limit max 50
         // ═══════════════════════════════════════════════════════════════
 
-        const allOrderMap = new Map(); // orderNumber → order (tüm kaynaklardan birleştir)
+        const allOrderMap = new Map(); // sipariş anahtarı → order
 
-        // ── Yardımcı: OMS item'larını orderMap'e ekle ──
+        const ensureHbOrderEntry = (mapKey, orderNum, item, defaultStatus) => {
+            if (!allOrderMap.has(mapKey)) {
+                allOrderMap.set(mapKey, {
+                    orderNumber: orderNum,
+                    lineItemId: String(item.id || item.lineItemId || "").trim(),
+                    orderDate: item.orderDate,
+                    customerName: item.customerName || item.shippingAddress?.name || item.shippingAddressDetail?.name || item.recipientName || item.invoice?.address?.name || "Hepsiburada Müşteri",
+                    customerEmail: item.invoice?.address?.email || item.shippingAddress?.email || item.email || "",
+                    customerPhone: item.shippingAddress?.phoneNumber || item.invoice?.address?.phoneNumber || item.phoneNumber || "",
+                    totalPrice: 0,
+                    status: item.status || defaultStatus || "Open",
+                    trackingNumber: item.barcode || item.trackingInfoCode || item.packageNumber || orderNum || "Yok",
+                    cargoCompany: item.cargoCompany || item.cargoCompanyModel?.name || "Bilinmiyor",
+                    packageNumber: item.packageNumber || "",
+                    shippingAddress: item.shippingAddress
+                        ? {
+                              fullName: item.shippingAddress.name || item.customerName || item.recipientName || "",
+                              city: item.shippingAddress.city || item.shippingCity || "",
+                              district: item.shippingAddress.district || item.shippingDistrict || "",
+                              fullAddress: item.shippingAddress.address || item.shippingAddress.addressDetail || item.shippingAddressDetail || "",
+                              phone: item.shippingAddress.phoneNumber || item.phoneNumber || "",
+                              country: item.shippingAddress.countryCode || item.shippingCountryCode || "Turkiye",
+                          }
+                        : {
+                              fullName: item.recipientName || item.customerName || "",
+                              city: item.shippingCity || "",
+                              district: item.shippingDistrict || "",
+                              fullAddress: item.shippingAddressDetail || "",
+                              phone: item.phoneNumber || "",
+                              country: item.shippingCountryCode || "Turkiye",
+                          },
+                    invoiceAddress: item.invoice?.address
+                        ? {
+                              fullName: item.invoice.address.name || item.companyName || "",
+                              city: item.invoice.address.city || item.billingCity || "",
+                              district: item.invoice.address.district || item.billingDistrict || "",
+                              fullAddress: item.invoice.address.address || item.billingAddress || "",
+                              taxNumber: item.invoice.taxNumber || item.taxNumber || "",
+                              taxOffice: item.invoice.taxOffice || item.taxOffice || "",
+                              company: item.invoice.address.name || item.companyName || "",
+                          }
+                        : {
+                              fullName: item.companyName || "",
+                              city: item.billingCity || "",
+                              district: item.billingDistrict || "",
+                              fullAddress: item.billingAddress || "",
+                              taxNumber: item.taxNumber || "",
+                              taxOffice: item.taxOffice || "",
+                              company: item.companyName || "",
+                          },
+                    products: [],
+                });
+            }
+            return allOrderMap.get(mapKey);
+        };
+
+        const pushHbProductLine = (orderEntry, lineItem) => {
+            const qty = Number(lineItem.quantity || 1);
+            const lineTotal = computeHbLineCustomerAmount(lineItem);
+            const unitPaid = computeHbLineUnitCustomerPrice(lineItem);
+            orderEntry.totalPrice += lineTotal;
+            orderEntry.products.push({
+                productId: lineItem.sku || lineItem.merchantSku || lineItem.hbSku || lineItem.id,
+                productName: lineItem.productName || lineItem.name || "Ürün",
+                quantity: qty,
+                price: unitPaid > 0 ? unitPaid.toFixed(2) : lineTotal > 0 ? (lineTotal / qty).toFixed(2) : "0.00",
+                imageUrl: (() => {
+                    const u = lineItem.imageUrl || lineItem.productImageUrl || lineItem.pictureUrl || "";
+                    if (!u || u.includes("default-product.jpg")) return "";
+                    return u;
+                })(),
+                sku: lineItem.sku || lineItem.merchantSku || "",
+                barcode: lineItem.merchantSku || lineItem.productBarcode || lineItem.sku || "",
+                commissionAmount: Number(lineItem.commission?.amount || 0),
+            });
+        };
+
+        /** HB OMS satırlarını sipariş anahtarına göre grupla — paket içi farklı siparişler birleşmesin */
         const addItemsToMap = (items, defaultStatus) => {
-            items.forEach((rawItem) => {
+            const { shouldUpgradeHepsiburadaStatus } = require("../utils/orderStatus");
+
+            for (const rawItem of items || []) {
                 const item = normalizeHbOmsItem(rawItem);
                 const subItems = item.items || [];
-                const orderNum =
-                    (subItems.length > 0
-                        ? subItems.map((sub) => resolveHepsiburadaOrderKey(sub, item)).find(Boolean)
-                        : null) ||
-                    resolveHepsiburadaOrderKey(item, null);
-                if (!orderNum) return;
 
-                if (!allOrderMap.has(orderNum)) {
-                    allOrderMap.set(orderNum, {
-                        orderNumber: orderNum,
-                        orderDate: item.orderDate,
-                        customerName: item.customerName || item.shippingAddress?.name || item.shippingAddressDetail?.name || item.recipientName || item.invoice?.address?.name || 'Hepsiburada Müşteri',
-                        customerEmail: item.invoice?.address?.email || item.shippingAddress?.email || item.email || '',
-                        customerPhone: item.shippingAddress?.phoneNumber || item.invoice?.address?.phoneNumber || item.phoneNumber || '',
-                        totalPrice: 0,
-                        status: item.status || defaultStatus || 'Open',
-                        trackingNumber: item.barcode || item.trackingInfoCode || item.packageNumber || 'Yok',
-                        cargoCompany: item.cargoCompany || item.cargoCompanyModel?.name || 'Bilinmiyor',
-                        packageNumber: item.packageNumber || '',
-                        shippingAddress: item.shippingAddress ? {
-                            fullName: item.shippingAddress.name || item.customerName || item.recipientName || '',
-                            city: item.shippingAddress.city || item.shippingCity || '',
-                            district: item.shippingAddress.district || item.shippingDistrict || '',
-                            fullAddress: item.shippingAddress.address || item.shippingAddress.addressDetail || item.shippingAddressDetail || '',
-                            phone: item.shippingAddress.phoneNumber || item.phoneNumber || '',
-                            country: item.shippingAddress.countryCode || item.shippingCountryCode || 'Turkiye',
-                        } : {
-                            fullName: item.recipientName || item.customerName || '',
-                            city: item.shippingCity || '',
-                            district: item.shippingDistrict || '',
-                            fullAddress: item.shippingAddressDetail || '',
-                            phone: item.phoneNumber || '',
-                            country: item.shippingCountryCode || 'Turkiye',
-                        },
-                        invoiceAddress: item.invoice?.address ? {
-                            fullName: item.invoice.address.name || item.companyName || '',
-                            city: item.invoice.address.city || item.billingCity || '',
-                            district: item.invoice.address.district || item.billingDistrict || '',
-                            fullAddress: item.invoice.address.address || item.billingAddress || '',
-                            taxNumber: item.invoice.taxNumber || item.taxNumber || '',
-                            taxOffice: item.invoice.taxOffice || item.taxOffice || '',
-                            company: item.invoice.address.name || item.companyName || '',
-                        } : {
-                            fullName: item.companyName || '',
-                            city: item.billingCity || '',
-                            district: item.billingDistrict || '',
-                            fullAddress: item.billingAddress || '',
-                            taxNumber: item.taxNumber || '',
-                            taxOffice: item.taxOffice || '',
-                            company: item.companyName || '',
-                        },
-                        products: []
-                    });
-                }
-
-                const orderEntry = allOrderMap.get(orderNum);
-                const incomingStatus = item.status || defaultStatus || "Open";
-                const { shouldUpgradeHepsiburadaStatus } = require("../utils/orderStatus");
-                if (shouldUpgradeHepsiburadaStatus(orderEntry.status, incomingStatus)) {
-                    orderEntry.status = incomingStatus;
-                }
-
-                const qty = Number(item.quantity || 1);
-                const lineTotal = computeHbLineCustomerAmount(item);
-                orderEntry.totalPrice += lineTotal;
+                const ingestOne = (lineItem, parent, statusLabel) => {
+                    const orderNum = resolveHepsiburadaOrderKey(lineItem, parent);
+                    if (!orderNum) {
+                        logger.warn("[Hepsiburada] Sipariş anahtarı çözülemedi — satır atlandı", {
+                            status: statusLabel,
+                            lineId: lineItem.id,
+                            packageNumber: lineItem.packageNumber || parent?.packageNumber,
+                        });
+                        return;
+                    }
+                    const mapKey = orderNum;
+                    const orderEntry = ensureHbOrderEntry(mapKey, orderNum, lineItem.packageNumber ? lineItem : parent || lineItem, statusLabel);
+                    const incomingStatus = lineItem.status || parent?.status || statusLabel || "Open";
+                    if (shouldUpgradeHepsiburadaStatus(orderEntry.status, incomingStatus)) {
+                        orderEntry.status = incomingStatus;
+                    }
+                    if (!orderEntry.lineItemId && lineItem.id) orderEntry.lineItemId = String(lineItem.id);
+                    if (!orderEntry.packageNumber && (lineItem.packageNumber || parent?.packageNumber)) {
+                        orderEntry.packageNumber = lineItem.packageNumber || parent?.packageNumber || "";
+                    }
+                    pushHbProductLine(orderEntry, lineItem);
+                };
 
                 if (subItems.length > 0) {
-                    // Packages response — items içinde kalemler var
-                    subItems.forEach((rawSub) => {
+                    const grouped = new Map();
+                    for (const rawSub of subItems) {
                         const sub = normalizeHbOmsItem(rawSub);
-                        const subQty = Number(sub.quantity || 1);
-                        const subLine = computeHbLineCustomerAmount(sub);
-                        const subUnit = computeHbLineUnitCustomerPrice(sub);
-                        orderEntry.products.push({
-                            productId: sub.hbSku || sub.sku || sub.merchantSku || sub.lineItemId || '',
-                            productName: sub.productName || sub.name || 'Ürün',
-                            quantity: subQty,
-                            price: subUnit > 0 ? subUnit : subLine / subQty,
-                            imageUrl: (() => {
-                                const u = sub.imageUrl || sub.productImageUrl || sub.pictureUrl || "";
-                                if (!u || u.includes("default-product.jpg")) return "";
-                                return u;
-                            })(),
-                            sku: sub.hbSku || sub.sku || sub.merchantSku || '',
-                            barcode: sub.merchantSku || sub.productBarcode || sub.sku || '',
-                            commissionAmount: Number(sub.commission?.amount || 0)
-                        });
-                    });
+                        const key = resolveHepsiburadaOrderKey(sub, item);
+                        if (!key) continue;
+                        if (!grouped.has(key)) grouped.set(key, []);
+                        grouped.get(key).push(sub);
+                    }
+                    for (const [, subs] of grouped) {
+                        for (const sub of subs) ingestOne(sub, item, defaultStatus);
+                    }
                 } else {
-                    // Orders response — her satır bir kalem
-                    const unitPaid = computeHbLineUnitCustomerPrice(item);
-                    orderEntry.products.push({
-                        productId: item.sku || item.merchantSku || item.hbSku || item.id,
-                        productName: item.productName || item.name || 'Ürün',
-                        quantity: qty,
-                        price: unitPaid > 0 ? unitPaid.toFixed(2) : (lineTotal > 0 ? (lineTotal / qty).toFixed(2) : "0.00"),
-                        imageUrl: (() => {
-                            const u = item.imageUrl || item.productImageUrl || item.pictureUrl || "";
-                            if (!u || u.includes("default-product.jpg")) return "";
-                            return u;
-                        })(),
-                        sku: item.sku || item.merchantSku || '',
-                        barcode: item.merchantSku || item.productBarcode || item.sku || '',
-                        commissionAmount: Number(item.commission?.amount || 0)
-                    });
+                    ingestOne(item, null, defaultStatus);
                 }
-            });
+            }
         };
 
         // ── Yardımcı: Pagination ile bir endpoint'ten tüm item'ları çek ──
@@ -417,7 +431,10 @@ const fetchHepsiburadaOrders = async (merchantId, serviceKey, startDate, endDate
                         ? `${endpointUrl}&offset=${offset}&limit=${limit}`
                         : `${endpointUrl}?offset=${offset}&limit=${limit}`;
 
-                    const response = await axios.get(url, { headers, timeout: 30000 });
+                    const response = await requestWithRetry(
+                        () => axios.get(url, { headers, timeout: 30000 }),
+                        { label: `HB ${label}`, throttleKey: `hb-oms:${merchantId}` }
+                    );
 
                     if (response.status === 200) {
                         const data = response.data;
@@ -462,7 +479,10 @@ const fetchHepsiburadaOrders = async (merchantId, serviceKey, startDate, endDate
             while (hasMore) {
                 const url = `${BASE_URL}/orders/merchantid/${merchantId}?offset=${offset}&limit=${limit}`;
                 try {
-                    const resp = await axios.get(url, { headers, timeout: 30000 });
+                    const resp = await requestWithRetry(
+                        () => axios.get(url, { headers, timeout: 30000 }),
+                        { label: "HB Orders-open", throttleKey: `hb-oms:${merchantId}` }
+                    );
                     const items = extractHbOmsList(resp.data);
                     if (!items.length) {
                         hasMore = false;
@@ -493,7 +513,10 @@ const fetchHepsiburadaOrders = async (merchantId, serviceKey, startDate, endDate
             while (hasMore) {
                 const url = `${BASE_URL}/orders/merchantid/${merchantId}?begindate=${encStart}&enddate=${encEnd}&offset=${offset}&limit=${limit}`;
                 try {
-                    const resp = await axios.get(url, { headers, timeout: 30000 });
+                    const resp = await requestWithRetry(
+                        () => axios.get(url, { headers, timeout: 30000 }),
+                        { label: "HB Orders", throttleKey: `hb-oms:${merchantId}` }
+                    );
                     const items = extractHbOmsList(resp.data);
                     if (!items.length) { hasMore = false; break; }
                     logger.info(`✅ [Hepsiburada Orders] ${items.length} kalem (offset=${offset}, ${encStart} → ${encEnd})`);
@@ -525,9 +548,15 @@ const fetchHepsiburadaOrders = async (merchantId, serviceKey, startDate, endDate
                 const limit = maxLimit;
                 let hasMore = true;
                 while (hasMore) {
-                    const url = `${BASE_URL}/packages/merchantid/${merchantId}/${pathSuffix}?begindate=${encStart}&enddate=${encEnd}&offset=${offset}&limit=${limit}`;
+                    const base = pathSuffix
+                        ? `${BASE_URL}/packages/merchantid/${merchantId}/${pathSuffix}`
+                        : `${BASE_URL}/packages/merchantid/${merchantId}`;
+                    const url = `${base}?begindate=${encStart}&enddate=${encEnd}&offset=${offset}&limit=${limit}`;
                     try {
-                        const resp = await axios.get(url, { headers, timeout: 30000 });
+                        const resp = await requestWithRetry(
+                            () => axios.get(url, { headers, timeout: 30000 }),
+                            { label: `HB ${label}`, throttleKey: `hb-oms:${merchantId}` }
+                        );
                         const arr = extractHbOmsList(resp.data);
                         if (arr.length === 0) { hasMore = false; break; }
                         logger.info(`✅ [Hepsiburada ${label}] ${arr.length} kayıt (offset=${offset})`);
@@ -570,15 +599,23 @@ const fetchHepsiburadaOrders = async (merchantId, serviceKey, startDate, endDate
         } catch (e) { logger.warn(`[Hepsiburada Orders] Genel hata: ${e.message}`); }
 
         // ═══════════════════════════════════════════════════════════════
-        // 1.5) İşlemde Siparişler (Unpacked) — satıcı tarafından kabul edilmiş ama
-        //      henüz paketlenmemiş siparişler. HB panelinde "İşlemde" olarak görünür.
-        //      Endpoint: GET /packages/merchantid/{id}/unpacked
-        //      ✅ FIX: Bu adım eksikti — işlemde siparişler gelmiyor sorunu
+        // 1.5) İşlemde / paketlenmemiş — resmi path: /status/unpacked (+ legacy yedek)
         // ═══════════════════════════════════════════════════════════════
-        logger.info(`🔍 [Hepsiburada] Adım 1.5: İşlemde (Unpacked) siparişler çekiliyor...`);
+        logger.info(`🔍 [Hepsiburada] Adım 1.5: İşlemde (unpacked) siparişler çekiliyor...`);
         try {
-            await fetchPackagesByDatePath("unpacked", "Unpacked", 50);
+            await fetchPackagesByDatePath("status/unpacked", "Status-Unpacked", 50);
+        } catch (e) { logger.warn(`[Hepsiburada Status-Unpacked] Genel hata: ${e.message}`); }
+        try {
+            await fetchPackagesByDatePath("unpacked", "Unpacked-legacy", 50);
         } catch (e) { logger.warn(`[Hepsiburada Unpacked] Genel hata: ${e.message}`); }
+
+        // ═══════════════════════════════════════════════════════════════
+        // 1.6) Tarih aralığıyla paketlenmiş (gönderime hazır) — işlemde statüsü
+        // ═══════════════════════════════════════════════════════════════
+        logger.info(`🔍 [Hepsiburada] Adım 1.6: Tarih aralığıyla paketler çekiliyor...`);
+        try {
+            await fetchPackagesByDatePath("", "Packages-dated", 50);
+        } catch (e) { logger.warn(`[Hepsiburada Packages-dated] Genel hata: ${e.message}`); }
 
         // ═══════════════════════════════════════════════════════════════
         // 2) Paketlenmiş Siparişler (Packages) — timespan=720 (30 gün saat)
@@ -593,7 +630,10 @@ const fetchHepsiburadaOrders = async (merchantId, serviceKey, startDate, endDate
             while (hasMore) {
                 const url = `${BASE_URL}/packages/merchantid/${merchantId}?timespan=720&offset=${offset}&limit=${limit}`;
                 try {
-                    const resp = await axios.get(url, { headers, timeout: 30000 });
+                    const resp = await requestWithRetry(
+                        () => axios.get(url, { headers, timeout: 30000 }),
+                        { label: "HB Packages", throttleKey: `hb-oms:${merchantId}` }
+                    );
                     const arr = extractHbOmsList(resp.data);
                     if (arr.length === 0) { hasMore = false; break; }
                     logger.info(`✅ [Hepsiburada Packages] ${arr.length} paket (offset=${offset})`);
@@ -728,25 +768,47 @@ const mapN11PackageToOrder = (pkg) => {
             company: pkg.invoiceAddress.company || "",
         } : {},
         products: lines.map((line) => {
+            // N11 sipariş yanıtının "lines" bloğunda görsel alanı YOKTUR.
+            // Görsel, ordersController zenginleştirme adımında stockCode/sku
+            // eşleşmesiyle ürün kataloğundan doldurulur — bu yüzden satıcı stok
+            // kodunun doğru alandan (N11: "stockCode") okunması şarttır.
             let img = line.imageUrl || line.productImageUrl || line.productImage || "";
             if (!img || img.includes("default-product.jpg")) img = "";
-            const msku = line.merchantSku || line.sku || "";
+            // N11 satır alanları: satıcı stok kodu "stockCode", ürün kodu "productId"
+            const stockCode = String(
+                line.stockCode || line.merchantSku || line.sku || ""
+            ).trim();
+            const qty = Number(line.quantity) || 1;
+            const unitPrice = Number(line.sellerInvoiceAmount || line.price || 0);
+            const lineRevenue = unitPrice * qty;
+            const commissionRate = Number(line.commissionRate) || 0;
+            const commissionAmount = Number(line.commissionAmount) ||
+                (commissionRate > 0 ? lineRevenue * (commissionRate / 100) : 0);
             return {
                 productName: line.productName,
-                quantity: line.quantity,
-                price: Number(line.sellerInvoiceAmount || line.price || 0),
+                quantity: qty,
+                price: unitPrice,
+                commissionRate,
+                commissionAmount,
                 barcode: line.barcode || line.productBarcode || "",
-                sku: msku,
-                merchantSku: msku,
-                productCode: line.productCode || "",
+                sku: stockCode,
+                merchantSku: stockCode,
+                stockCode: stockCode,
+                productCode: String(line.productId || line.productCode || "").trim(),
                 imageUrl: img,
             };
         }),
     };
 };
 
-/** N11 status parametresi tek değer — teslim edilenler için Delivered/Completed ayrı sorgulanır */
-const N11_FETCH_STATUSES = ["New", "Approved", "Shipped", "Delivered", "Completed", "Rejected"];
+/**
+ * N11 REST geçerli statü değerleri (v9.0 dokümanı + canlı API teyidi):
+ *   Created (Yeni) → Picking (Onaylandı/Hazırlanıyor) → Shipped → Delivered
+ *   | Cancelled | UnPacked | UnSupplied
+ * ⚠️ Eski "New/Approved/Completed/Rejected" değerleri GEÇERSİZ — N11 boş döner.
+ * status parametresi tek değer alır; her statü için ayrı sorgu atılır.
+ */
+const N11_FETCH_STATUSES = ["Created", "Picking", "Shipped", "Cancelled", "Delivered", "UnPacked", "UnSupplied"];
 
 const fetchN11Orders = async (apiKey, secretKey, startDate, endDate) => {
     const orders = [];
@@ -793,18 +855,28 @@ const fetchN11Orders = async (apiKey, secretKey, startDate, endDate) => {
     return mergeOrdersByOrderNumber(orders, "N11");
 };
 
-/** CS GetOrders statusId — dokümantasyon: 1 Yeni, 2 Hazırlanıyor, 11 Kargoya Verilecek, 5 Kargoya Verildi, 7 Teslim Edildi */
-const CS_ORDER_STATUS_IDS = [1, 2, 11, 5, 7];
-
 const mapCiceksepetiApiOrder = (order) => {
-    const dStr = order.orderCreateDate;
-    const tStr = (order.orderCreateTime || "00:00:00").trim();
+    const statusLabel = resolveCsOrderProductStatus(order);
+    const isDelivered = /teslim|tamamlandi|tamamland/i.test(statusLabel);
+    const dStr = isDelivered
+        ? (order.orderModifyDate || order.orderCreateDate)
+        : (order.orderCreateDate || order.orderModifyDate);
+    const tStr = (
+        (isDelivered
+            ? (order.orderModifyTime || order.orderCreateTime)
+            : (order.orderCreateTime || order.orderModifyTime)) || "00:00:00"
+    ).trim();
     const p = String(dStr || "").split(/[./]/);
     let csIsoRaw = null;
-    if (p.length === 3) {
+    if (p.length === 3 && !String(p[0]).includes("-")) {
         const [dd, mm, yy] = p;
         const pad = (x) => String(x).padStart(2, "0");
         csIsoRaw = `${yy}-${pad(mm)}-${pad(dd)}T${tStr.length === 5 ? `${tStr}:00` : tStr}+03:00`;
+    } else if (dStr) {
+        const isoCandidate = tStr && !String(dStr).includes("T")
+            ? `${dStr}T${tStr.length === 5 ? `${tStr}:00` : tStr}+03:00`
+            : dStr;
+        csIsoRaw = isoCandidate;
     }
     const parentOrderId = order.orderId?.toString() || "";
     const itemId = order.orderItemId != null ? String(order.orderItemId) : "";
@@ -819,7 +891,7 @@ const mapCiceksepetiApiOrder = (order) => {
         customerName: order.receiverName || order.senderName || "Bilinmiyor",
         customerPhone: order.receiverPhone || "",
         totalPrice: (order.totalPrice || 0).toFixed(2),
-        status: order.orderProductStatus || "Bilinmiyor",
+        status: resolveCsOrderProductStatus(order),
         orderItemStatusId: order.orderItemStatusId,
         trackingNumber: itemId || parentOrderId,
         cargoTrackingNumber: cargoCode,
@@ -842,109 +914,84 @@ const mapCiceksepetiApiOrder = (order) => {
             taxOffice: "",
             company: "",
         },
-        products: [
-            {
-                productName: order.name || "Ürün",
-                quantity: order.quantity || 1,
-                price: (order.itemPrice || 0).toFixed(2),
-                imageUrl: (() => {
-                    const u = order.imageUrl || order.productImageUrl || "";
-                    if (!u || u.includes("default-product.jpg")) return "";
-                    return u;
-                })(),
-                barcode: order.barcode || "",
-                sku: order.productCode || order.code || "",
-                productCode: order.productCode || order.code || "",
-            },
-        ],
+        products: (() => {
+            const qty = Number(order.quantity) || 1;
+            const unitPrice = Number(order.itemPrice || order.totalPrice || 0);
+            const lineRevenue = unitPrice * qty;
+            const commissionRate = Number(order.commissionRate) || 0;
+            const commissionAmount = commissionRate > 0 ? lineRevenue * (commissionRate / 100) : 0;
+            return [
+                {
+                    productName: order.name || "Ürün",
+                    quantity: qty,
+                    price: unitPrice.toFixed(2),
+                    commissionRate,
+                    commissionAmount,
+                    imageUrl: (() => {
+                        const u = order.imageUrl || order.productImageUrl || "";
+                        if (!u || u.includes("default-product.jpg")) return "";
+                        return u;
+                    })(),
+                    barcode: order.barcode || "",
+                    sku: order.productCode || order.code || "",
+                    productCode: order.productCode || order.code || "",
+                },
+            ];
+        })(),
     };
 };
 
 /**
  * ÇiçekSepeti Sipariş Çekme
- * Resmi API: POST /api/v1/Order/GetOrders — tüm statüler ayrı sorgulanır
+ * Resmi API: POST /api/v1/Order/GetOrders — aktif + pasif (teslim/kapanmış) tam sayfalama
  */
-const fetchCicekSepetiOrders = async (apiKey, sellerId, integratorName) => {
-    const byItemId = new Map();
-    let lastRequestTime = 0;
+const fetchCicekSepetiOrders = async (apiKeyOrCreds, sellerIdOrStart, integratorNameOrEnd, startDateMs, endDateMs) => {
+    const creds =
+        typeof apiKeyOrCreds === "object" && apiKeyOrCreds !== null && !Array.isArray(apiKeyOrCreds)
+            ? {
+                apiKey: apiKeyOrCreds.apiKey,
+                sellerId: apiKeyOrCreds.sellerId,
+                integratorName: apiKeyOrCreds.integratorName,
+                isTestMode: apiKeyOrCreds.isTestMode === true,
+            }
+            : {
+                apiKey: apiKeyOrCreds,
+                sellerId: sellerIdOrStart,
+                integratorName: integratorNameOrEnd,
+                isTestMode: false,
+            };
+
+    if (!creds.apiKey) {
+        logger.error("[ÇiçekSepeti] API Key eksik — sipariş çekilemedi");
+        return { orders: [], error: "API Key eksik", authFailed: true };
+    }
+
+    let rangeStart = startDateMs;
+    let rangeEnd = endDateMs;
+    if (rangeStart == null && typeof sellerIdOrStart === "number") rangeStart = sellerIdOrStart;
+    if (rangeEnd == null && typeof integratorNameOrEnd === "number") rangeEnd = integratorNameOrEnd;
+    if (rangeStart == null) rangeStart = moment().subtract(14, "days").startOf("day").valueOf();
+    if (rangeEnd == null) rangeEnd = moment().endOf("day").valueOf();
 
     try {
-        const endDate = moment().endOf("day");
-        const startDate = moment().subtract(14, "days").startOf("day");
+        const { orders, lastApiError, authFailed } = await fetchCiceksepetiOrdersInRange(
+            ciceksepetiService,
+            creds,
+            rangeStart,
+            rangeEnd,
+            mapCiceksepetiApiOrder
+        );
 
-        const enforceRateLimit = async () => {
-            const now = Date.now();
-            const elapsed = now - lastRequestTime;
-            if (lastRequestTime > 0 && elapsed < 5000) {
-                await new Promise((resolve) => setTimeout(resolve, 5000 - elapsed));
-            }
-            lastRequestTime = Date.now();
-        };
-
-        const creds = { apiKey, sellerId, integratorName, isTestMode: false };
-        const baseParams = {
-            startDate: startDate.toISOString(),
-            endDate: endDate.toISOString(),
-            pageSize: 100,
-        };
-
-        const ingestItems = (items) => {
-            for (const raw of items) {
-                const mapped = mapCiceksepetiApiOrder(raw);
-                const key = String(mapped.orderItemId || mapped.orderNumber || "").trim();
-                if (!key) continue;
-                byItemId.set(key, mapped);
-            }
-        };
-
-        const fetchPages = async (extraParams, label) => {
-            let page = 0;
-            while (page < 30) {
-                await enforceRateLimit();
-                const result = await ciceksepetiService.getOrders(creds, {
-                    ...baseParams,
-                    page,
-                    ...extraParams,
-                });
-
-                if (!result.success) {
-                    const errMsg = result.error || "ÇiçekSepeti API hatası";
-                    if (/401|unauthorized/i.test(errMsg)) {
-                        logger.error("[ÇiçekSepeti] API Key geçersiz (401)");
-                        return;
-                    }
-                    if (/limit|rate/i.test(errMsg)) {
-                        logger.warn(`[ÇiçekSepeti] Rate limit (${label}), 60sn bekleniyor...`);
-                        await new Promise((resolve) => setTimeout(resolve, 60000));
-                        continue;
-                    }
-                    logger.warn(`[ÇiçekSepeti] GetOrders (${label}): ${errMsg}`);
-                    break;
-                }
-
-                const items = result.orders || [];
-                if (!items.length) break;
-                ingestItems(items);
-                logger.info(`[ÇiçekSepeti] ${label} sayfa ${page}: ${items.length} kalem`);
-                if (items.length < baseParams.pageSize) break;
-                page++;
-            }
-        };
-
-        for (const statusId of CS_ORDER_STATUS_IDS) {
-            await fetchPages({ statusId }, `statusId=${statusId}`);
+        if (authFailed) {
+            return { orders: [], error: lastApiError || "Yetkilendirme hatası", authFailed: true };
         }
-
-        await fetchPages({ isOrderStatusActive: false }, "pasif");
-
-        const orders = Array.from(byItemId.values());
 
         const returnOrders = await fetchCiceksepetiReturnOrders(
             ciceksepetiService,
             creds,
-            startDate.toDate(),
-            endDate.toDate(),
-            enforceRateLimit
+            new Date(rangeStart),
+            new Date(rangeEnd),
+            null
         );
         if (returnOrders.length) {
             logger.info(`[ÇiçekSepeti] ${returnOrders.length} iade/iptal kaydı birleştiriliyor`);
@@ -952,11 +999,15 @@ const fetchCicekSepetiOrders = async (apiKey, sellerId, integratorName) => {
         }
 
         const merged = mergeOrdersByOrderNumber(orders, "ÇiçekSepeti");
-        logger.info(`✅ [ÇiçekSepeti] Toplam ${merged.length} sipariş (iade birleşik)`);
-        return merged;
+        if (merged.length === 0 && lastApiError) {
+            logger.error("[ÇiçekSepeti] Sipariş bulunamadı — son API hatası", { error: lastApiError });
+        } else {
+            logger.info(`✅ [ÇiçekSepeti] Toplam ${merged.length} sipariş (${Math.ceil((rangeEnd - rangeStart) / (24 * 60 * 60 * 1000))}g pencere)`);
+        }
+        return { orders: merged, error: lastApiError || null, authFailed: false };
     } catch (err) {
         logger.error("[ÇiçekSepeti] Sipariş çekme hatası", { error: err.message });
-        return [];
+        return { orders: [], error: err.message, authFailed: false };
     }
 };
 
@@ -1007,44 +1058,106 @@ const fetchAmazonOrders = async (sellerId, mwsAuthToken, accessKey, secretKey, m
     }
 };
 
+const extractEbayXmlValue = (block, tag) => {
+    if (!block) return "";
+    const re = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`, "i");
+    const m = String(block).match(re);
+    return m ? m[1].trim() : "";
+};
+
+const parseEbayGetOrdersResponse = (xml) => {
+    if (!xml || typeof xml !== "string") return [];
+    if (/<Ack>\s*Failure\s*<\/Ack>/i.test(xml)) {
+        const err =
+            extractEbayXmlValue(xml, "LongMessage") ||
+            extractEbayXmlValue(xml, "ShortMessage") ||
+            "eBay API Failure";
+        throw new Error(err);
+    }
+
+    const orders = [];
+    const orderBlocks = xml.match(/<Order>[\s\S]*?<\/Order>/gi) || [];
+    for (const block of orderBlocks) {
+        const orderId = extractEbayXmlValue(block, "OrderID");
+        const created = extractEbayXmlValue(block, "CreatedTime");
+        const status = extractEbayXmlValue(block, "OrderStatus");
+        const amountPaid = extractEbayXmlValue(block, "AmountPaid") || extractEbayXmlValue(block, "Total");
+        const buyerBlock = block.match(/<Buyer>[\s\S]*?<\/Buyer>/i)?.[0] || "";
+        const products = [];
+        const txBlocks = block.match(/<Transaction>[\s\S]*?<\/Transaction>/gi) || [];
+        for (const tx of txBlocks) {
+            const itemBlock = tx.match(/<Item>[\s\S]*?<\/Item>/i)?.[0] || "";
+            const qty = parseInt(extractEbayXmlValue(tx, "QuantityPurchased"), 10) || 1;
+            const price = extractEbayXmlValue(tx, "TransactionPrice") || "0";
+            products.push({
+                productName: extractEbayXmlValue(itemBlock, "Title") || extractEbayXmlValue(tx, "Title") || "Ürün",
+                quantity: qty,
+                price: parseFloat(price) || 0,
+                sku: extractEbayXmlValue(itemBlock, "SKU") || "",
+            });
+        }
+        const total =
+            parseFloat(amountPaid) ||
+            products.reduce((sum, p) => sum + (Number(p.price) || 0) * (p.quantity || 1), 0);
+
+        orders.push({
+            orderNumber: orderId,
+            orderDate: created ? new Date(created).toISOString() : new Date().toISOString(),
+            customerName: extractEbayXmlValue(buyerBlock, "UserID") || "eBay müşteri",
+            totalPrice: total.toFixed(2),
+            status: status || "Unknown",
+            products,
+        });
+    }
+    return orders;
+};
+
 /**
  * eBay Siparişleri
  * eBay Trading API kullanır
  */
 const fetchEbayOrders = async (appId, devId, certId, userToken, siteId, startDate, endDate) => {
     try {
+        if (!appId || !devId || !certId || !userToken) {
+            throw new Error("eBay App ID, Dev ID, Cert ID ve User Token zorunludur");
+        }
 
         const createdFrom = new Date(startDate).toISOString();
         const createdTo = new Date(endDate).toISOString();
 
-        // eBay Trading API XML request
         const xmlRequest = `<?xml version="1.0" encoding="utf-8"?>
-            <GetOrdersRequest xmlns="urn:ebay:apis:eBLBaseComponents">
-                <RequesterCredentials>
-                    <eBayAuthToken>${userToken}</eBayAuthToken>
-                </RequesterCredentials>
-                <CreateTimeFrom>${createdFrom}</CreateTimeFrom>
-                <CreateTimeTo>${createdTo}</CreateTimeTo>
-                <OrderRole>Seller</OrderRole>
-                <OrderStatus>All</OrderStatus>
-            </GetOrdersRequest>`;
+<GetOrdersRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+  <RequesterCredentials>
+    <eBayAuthToken>${userToken}</eBayAuthToken>
+  </RequesterCredentials>
+  <CreateTimeFrom>${createdFrom}</CreateTimeFrom>
+  <CreateTimeTo>${createdTo}</CreateTimeTo>
+  <OrderRole>Seller</OrderRole>
+  <OrderStatus>All</OrderStatus>
+  <Pagination>
+    <EntriesPerPage>100</EntriesPerPage>
+    <PageNumber>1</PageNumber>
+  </Pagination>
+</GetOrdersRequest>`;
 
-        const response = await axios.post('https://api.ebay.com/ws/api.dll', xmlRequest, {
+        const response = await axios.post("https://api.ebay.com/ws/api.dll", xmlRequest, {
             headers: {
-                'X-EBAY-API-SITEID': siteId,
-                'X-EBAY-API-COMPATIBILITY-LEVEL': '967',
-                'X-EBAY-API-CALL-NAME': 'GetOrders',
-                'X-EBAY-API-APP-NAME': appId,
-                'X-EBAY-API-DEV-NAME': devId,
-                'X-EBAY-API-CERT-NAME': certId,
-                'Content-Type': 'text/xml'
-            }
+                "X-EBAY-API-SITEID": String(siteId || "0"),
+                "X-EBAY-API-COMPATIBILITY-LEVEL": "967",
+                "X-EBAY-API-CALL-NAME": "GetOrders",
+                "X-EBAY-API-APP-NAME": appId,
+                "X-EBAY-API-DEV-NAME": devId,
+                "X-EBAY-API-CERT-NAME": certId,
+                "Content-Type": "text/xml",
+            },
+            timeout: 45000,
         });
 
-        // XML parsing gerekir (xml2js paketi kullanılabilir)
-        return [];
+        const orders = parseEbayGetOrdersResponse(response.data);
+        logger.info(`[eBay] ${orders.length} sipariş çekildi`);
+        return orders;
     } catch (error) {
-        logger.error('eBay API error', { error: error.message });
+        logger.error("eBay API error", { error: error.message });
         return [];
     }
 };

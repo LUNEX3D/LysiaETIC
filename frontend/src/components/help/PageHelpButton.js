@@ -130,5 +130,8 @@ export function PageHelpFloating() {
     if (id === "dashboard" || id.startsWith("pm-center") || id === "pm-variants.editModal") {
         return null;
     }
+    if (id.startsWith("ec-products-definitions-")) {
+        return null;
+    }
     return <PageHelpButton variant="fab" ariaLabel="Sayfa yardımı" />;
 }

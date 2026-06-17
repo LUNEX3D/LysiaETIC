@@ -1,0 +1,31 @@
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:esmm="http://foriba.com/eSmm/">
+   <soapenv:Header/>
+   <soapenv:Body>
+      <esmm:actionServiceRequest>
+         <esmm:actionServiceRequestType>
+            <esmm:SenderID>1111111111</esmm:SenderID>
+            <esmm:Branch>default</esmm:Branch>
+            <!--Optional:-->
+            <esmm:ID>FA72021000000002</esmm:ID>
+            <esmm:ActionType>ESMM_ITIRAZ</esmm:ActionType>
+            <!--Zero or more repetitions:-->
+            <esmm:Parameters>
+               <esmm:Name>OBJECTION_ID</esmm:Name>
+               <esmm:Value>SS32021000000002</esmm:Value>
+            </esmm:Parameters>
+            <esmm:Parameters>
+               <esmm:Name>OBJECTION_METHOD</esmm:Name>
+               <esmm:Value>TELGRAF</esmm:Value>
+            </esmm:Parameters>
+             <esmm:Parameters>
+               <esmm:Name>OBJECTION_DATE</esmm:Name>
+               <esmm:Value>2021-07-02</esmm:Value>
+            </esmm:Parameters>
+             <esmm:Parameters>
+               <esmm:Name>OBJECTION_DESCRIPTION</esmm:Name>
+               <esmm:Value>TELGRAF İLE İTİRAZ EDİLDİ</esmm:Value>
+            </esmm:Parameters>
+         </esmm:actionServiceRequestType>
+      </esmm:actionServiceRequest>
+   </soapenv:Body>
+</soapenv:Envelope>

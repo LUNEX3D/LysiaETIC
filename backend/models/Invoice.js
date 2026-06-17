@@ -22,14 +22,16 @@ const InvoiceSchema = new mongoose.Schema({
         index: true
     },
     orderNumber: { type: String, default: "" },       // Pazaryeri sipariş numarası
+    custInvId: { type: String, default: "" },          // Sovos/QNB müşteri fatura ID (CustInvID)
     marketplaceName: { type: String, default: "" },    // Trendyol, Hepsiburada, N11...
 
     // ── Fatura Bilgileri ──────────────────────────────────────────────────
     invoiceNumber: { type: String, required: true },   // ABC2026000000001
     uuid: { type: String, required: true },            // ETTN (UUID)
+    envUuid: { type: String, default: "" },           // Sovos zarf UUID (getEnvelopeStatus)
     profileId: {                                        // Belge profili
         type: String,
-        enum: ["EARSIVFATURA", "TICARIFATURA", "TEMELFATURA", "IRSALIYE"],
+        enum: ["EARSIVFATURA", "TICARIFATURA", "TEMELFATURA", "IRSALIYE", "IHRACAT", "YOLCUBERABERFATURA"],
         default: "EARSIVFATURA"
     },
     invoiceTypeCode: {                                  // Fatura tipi
@@ -90,6 +92,13 @@ const InvoiceSchema = new mongoose.Schema({
         default: "created"
     },
 
+    /** Gelen / giden belge yönü (e-Fatura listeleme ve kabul/red için) */
+    direction: {
+        type: String,
+        enum: ["incoming", "outgoing"],
+        default: "outgoing",
+    },
+
     // ── Oluşturma Yöntemi ─────────────────────────────────────────────────
     createdBy: {
         type: String,
@@ -107,6 +116,8 @@ const InvoiceSchema = new mongoose.Schema({
         islemId: { type: String, default: "" },
         belgeOid: { type: String, default: "" },
         signedDocument: { type: Boolean, default: false },
+        sovosCancelled: { type: Boolean, default: false },
+        cancelCode: { type: String, default: "" },
     },
 
     // ── Hata Bilgisi ──────────────────────────────────────────────────────

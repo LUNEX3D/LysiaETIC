@@ -1,0 +1,9 @@
+{
+  "name": "Volt Tech",
+  "category": "Premium Elektronik",
+  "descriptionTr": "Teknoloji mağazası için koyu enerjik vitrin — flash sale, güven rozetleri.",
+  "source": "Lysia Premium",
+  "license": "MIT",
+  "stack": ["HTML", "CSS", "GrapesJS"],
+  "previewColors": { "primary": "#38bdf8", "accent": "#22d3ee" }
+}

@@ -1,0 +1,11 @@
+/* Basit starter stil */
+:root{
+  --color-primary:#0ea5a4;
+  --color-accent:#2563eb;
+  --color-text:#0f172a;
+}
+.theme-hero{padding:48px 0;text-align:center;background:#f8fafc;color:var(--color-text)}
+.theme-hero .container{max-width:1100px;margin:0 auto}
+.theme-product-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;padding:32px}
+.theme-product-card{border:1px solid #e6edf3;padding:12px;border-radius:8px}
+

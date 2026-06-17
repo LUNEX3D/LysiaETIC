@@ -33,7 +33,6 @@ import {
     createAndDistribute,
     suggestCodes, generateDescription,
     bulkUpdatePrices, bulkUpdateStocks, bulkDeleteProducts, bulkUpdateFields,
-    distributeUndistributed,
     updateChannelPricesLocal,
     listVariantGroups,
     getVariantGroup,
@@ -56,12 +55,18 @@ import UploadMarketplaceTab from "../components/pm/UploadMarketplaceTab";
 import { usePageHelp } from "../context/PageHelpContext";
 import PageHelpButton from "../components/help/PageHelpButton";
 import ChannelPricesTab from "../components/pm/ChannelPricesTab";
+import MissingDistributionModal from "../components/pm/MissingDistributionModal";
+import {
+    subscribeMissingDistJob,
+    getStoredMissingDistJob,
+    isActiveJobStatus,
+} from "../stores/missingDistributionJobStore";
 import "../styles/ProductManagementCenter.css";
 
 /* ═══════════════════════════════════════════════════════════════════
    SABİTLER & YARDIMCILAR
    ═══════════════════════════════════════════════════════════════════ */
-const PLATFORMS = ["Trendyol", "Hepsiburada", "N11", "Amazon", "ÇiçekSepeti"];
+const PLATFORMS = ["Trendyol", "Hepsiburada", "N11", "Amazon", "ÇiçekSepeti", "Ozon"];
 const PL_COLOR = { Trendyol: "#f27a1a", Hepsiburada: "#ff6000", N11: "#8b5cf6", Amazon: "#f59e0b", ÇiçekSepeti: "#ec4899" };
 const PL_SHORT = { Trendyol: "TY", Hepsiburada: "HB", N11: "N11", Amazon: "AZ", ÇiçekSepeti: "ÇS" };
 
@@ -114,7 +119,57 @@ const getPlMap = (p, name) => (p.marketplaceMappings || []).find(m => {
 });
 /** syncStatus fark etmeksizin eşleşme (pazaryeri fiyat sekmesi) */
 const getPlMappingAny = (p, name) => (p.marketplaceMappings || []).find(m => normMP(m.marketplaceName) === normMP(name));
-const getPlStatus = (p, name) => { const m = getPlMap(p, name); if (!m) return { exists: false }; return { exists: true, status: m.syncStatus || (m.isActive !== false ? "active" : "inactive"), price: m.price, stock: m.stock, lastSync: m.lastSyncDate }; };
+const hasPlBatchQueue = (m) => !!(m?.trendyolBatchRequestId || m?.n11TaskId || m?.hepsiburadaTrackingId);
+/** Platform varlığı: none | active | pending | error */
+const getPlPresence = (p, name) => {
+    const m = getPlMappingAny(p, name);
+    if (!m) return { state: "none", mapping: null };
+    const isError =
+        m.syncStatus === "error" &&
+        !hasPlBatchQueue(m);
+    if (isError) {
+        return {
+            state: "error",
+            mapping: m,
+            message: m.syncError || m.lastError || "Platform eşlemesi hatalı — yeniden çekin veya gönderin.",
+        };
+    }
+    if (getPlMap(p, name)) {
+        return { state: "active", mapping: m };
+    }
+    return {
+        state: "pending",
+        mapping: m,
+        message: m.syncStatus === "pending" ? "Onay / senkron bekleniyor" : "Eşleme kaydı var",
+    };
+};
+const getPlStatus = (p, name) => {
+    const pr = getPlPresence(p, name);
+    if (pr.state === "none") return { exists: false };
+    const m = pr.mapping;
+    return {
+        exists: pr.state === "active" || pr.state === "pending",
+        hasError: pr.state === "error",
+        presence: pr.state,
+        status: m.syncStatus || (m.isActive !== false ? "active" : "inactive"),
+        price: m.price,
+        stock: m.stock,
+        lastSync: m.lastSyncDate,
+        message: pr.message,
+    };
+};
+const countPlatformPresence = (p) => {
+    let active = 0;
+    let error = 0;
+    let pending = 0;
+    for (const pl of PLATFORMS) {
+        const pr = getPlPresence(p, pl);
+        if (pr.state === "active") active += 1;
+        else if (pr.state === "error") error += 1;
+        else if (pr.state === "pending") pending += 1;
+    }
+    return { active, error, pending, total: active + error + pending };
+};
 
 const buildChDraftFromProduct = (p) => {
     const master = p?.masterProduct || {};
@@ -187,6 +242,8 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
     const [toast, setToast] = useState(null);
     /** @type {null | { title: string, jobId?: string, status: string, progressPercent?: number, message?: string, etaSeconds?: number|null, phase?: string }} */
     const [syncProgress, setSyncProgress] = useState(null);
+    const [missingDistOpen, setMissingDistOpen] = useState(false);
+    const [activeMissingDist, setActiveMissingDist] = useState(null);
     const [stockFilter, setStockFilter] = useState("");
     const [syncLogs, setSyncLogs] = useState([]);
     const [logSummary, setLogSummary] = useState(null);
@@ -207,6 +264,37 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
     const [faExpandedId, setFaExpandedId] = useState(null);
     const [editMap, setEditMap] = useState({});
     const [bulkModal, setBulkModal] = useState(false);
+
+    useEffect(() => {
+        const refreshActiveMissingDist = async () => {
+            const stored = getStoredMissingDistJob();
+            if (!stored?.jobId) {
+                setActiveMissingDist(null);
+                return;
+            }
+            try {
+                const data = await getSyncJobStatus(stored.jobId);
+                const st = data.job?.status;
+                if (isActiveJobStatus(st)) {
+                    setActiveMissingDist({ ...stored, status: st, progressPercent: data.job?.progressPercent });
+                } else {
+                    setActiveMissingDist(null);
+                }
+            } catch {
+                setActiveMissingDist(stored);
+            }
+        };
+        refreshActiveMissingDist();
+        const unsub = subscribeMissingDistJob((job) => {
+            if (job?.jobId) refreshActiveMissingDist();
+            else setActiveMissingDist(null);
+        });
+        const iv = setInterval(refreshActiveMissingDist, 5000);
+        return () => {
+            unsub();
+            clearInterval(iv);
+        };
+    }, []);
     const [psSelected, setPsSelected] = useState(new Set());
     const [psCloseLoading, setPsCloseLoading] = useState(false);
     const searchRef = useRef(null);
@@ -1234,31 +1322,26 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
         }
     };
 
-    const handleDistributeUndistributed = async () => {
-        setActionLoading("dist-undist");
-        try {
-            const r = await distributeUndistributed({});
-            const s = r.stats || {};
+    const handleMissingDistComplete = useCallback(
+        (result) => {
+            const s = result?.summary || {};
             const parts = [];
-            if (s.distributed > 0) parts.push(`${s.distributed} yükleme başlatıldı`);
-            if (s.noCategory > 0) parts.push(`${s.noCategory} kategori eşleşmesi yok (Kategori Merkezi)`);
+            if (s.success > 0) parts.push(`${s.success} yükleme başarılı`);
+            if (s.noCategory > 0) parts.push(`${s.noCategory} kategori bekliyor`);
             if (s.error > 0) parts.push(`${s.error} hata`);
-            if (s.skipped > 0 && !s.distributed) parts.push("dağıtılacak ürün bulunamadı");
-            showToast(
-                parts.length ? parts.join(" · ") : r.message || "İşlem tamamlandı",
-                s.distributed > 0 ? "success" : s.noCategory > 0 || s.error > 0 ? "warning" : "info"
-            );
+            showToast(parts.length ? parts.join(" · ") : "Dağıtım tamamlandı", s.error > 0 ? "warning" : "success");
             logUserActivity(
                 "marketplace",
-                "Dağıtım (bekleyen ürünler)",
-                `${s.distributed || 0} ürün${s.error > 0 ? `, ${s.error} hata` : ""}`,
+                "Eksikleri dağıt",
+                `${s.success || 0} başarılı${s.error ? `, ${s.error} hata` : ""}`,
                 s.error > 0 ? "warning" : "success",
-                { stats: s }
+                { summary: s }
             );
-            loadProducts(0); loadDashboard();
-        } catch (e) { showToast(e.response?.data?.error || "Dağıtım hatası", "error"); }
-        finally { setActionLoading(""); }
-    };
+            loadProducts(0);
+            loadDashboard();
+        },
+        [loadProducts, loadDashboard, showToast]
+    );
 
     const handleBulkDistribute = async (targets) => {
         if (selected.size === 0) return showToast("Ürün seçin", "error");
@@ -1383,28 +1466,33 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
     /* ═══════════════════════════════════════════════════════════════
        PAYLAŞILAN ALT BİLEŞENLER
        ═══════════════════════════════════════════════════════════════ */
-    const PlatformDots = ({ product }) => (
+    const PlatformDots = ({ product }) => {
+        const pc = countPlatformPresence(product);
+        return (
         <div>
             <div className="ud-pm-platforms">
                 {PLATFORMS.map(pl => {
                     const ps = getPlStatus(product, pl);
                     return (
-                        <div key={pl} className={`ud-pm-platform-dot ${ps.exists ? "" : "inactive"}`}
-                            title={`${pl}: ${ps.exists ? ps.status : "Yok"}`}
-                            style={{ background: ps.exists ? PL_COLOR[pl] + "20" : "transparent", color: PL_COLOR[pl] }}>
+                        <div key={pl} className={`ud-pm-platform-dot ${ps.exists || ps.hasError ? "" : "inactive"}`}
+                            title={`${pl}: ${ps.hasError ? "Hatalı" : ps.exists ? ps.status : "Yok"}${ps.message ? ` — ${ps.message}` : ""}`}
+                            style={{ background: ps.exists || ps.hasError ? PL_COLOR[pl] + "20" : "transparent", color: PL_COLOR[pl] }}>
                             {PL_SHORT[pl]}
-                            {ps.exists && (
+                            {(ps.exists || ps.hasError) && (
                                 <span className="status-indicator" style={{
-                                    background: ps.status === "synced" || ps.status === "active" ? "var(--ud-pm-green)" : ps.status === "error" ? "var(--ud-pm-red)" : "var(--ud-pm-yellow)"
+                                    background: ps.hasError ? "var(--ud-pm-red)" : ps.status === "synced" || ps.status === "active" || ps.presence === "active" ? "var(--ud-pm-green)" : "var(--ud-pm-yellow)"
                                 }} />
                             )}
                         </div>
                     );
                 })}
             </div>
-            <div className="ud-pm-platform-count">{(product.marketplaceMappings || []).filter(m => m.marketplaceName && m.syncStatus !== "error").length} platform</div>
+            <div className="ud-pm-platform-count">
+                {pc.active} platform{pc.error > 0 ? ` · ${pc.error} hatalı` : ""}{pc.pending > 0 ? ` · ${pc.pending} bekliyor` : ""}
+            </div>
         </div>
-    );
+        );
+    };
 
     const Pagination = ({ currentPage, totalPages: tp, total: t, onPageChange }) => {
         if (tp <= 1) return null;
@@ -1591,9 +1679,25 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
                     <span className="icon"><FaSearch /></span>
                     <input className="ud-pm-search" value={search} onChange={e => setSearch(e.target.value)} placeholder="Ürün adı, barkod, SKU..." aria-label="Ürün ara" />
                 </div>
-                <select className="ud-pm-select" value={stockFilter} onChange={e => setStockFilter(e.target.value)}>
-                    <option value="">Tüm Stok</option><option value="lowStock">Düşük</option><option value="outOfStock">Yok</option>
-                </select>
+                <div className="ud-pm-stockseg" role="group" aria-label="Stok filtresi">
+                    {[
+                        { v: "", label: "Tümü", icon: <FaCubes /> },
+                        { v: "inStock", label: "Stokta var", icon: <FaCheckCircle /> },
+                        { v: "lowStock", label: "Düşük", icon: <FaExclamationTriangle /> },
+                        { v: "outOfStock", label: "Tükendi", icon: <FaTimesCircle /> },
+                    ].map((opt) => (
+                        <button
+                            key={opt.v || "all"}
+                            type="button"
+                            className={`ud-pm-stockseg__btn${stockFilter === opt.v ? " active" : ""}`}
+                            data-variant={opt.v || "all"}
+                            onClick={() => setStockFilter(opt.v)}
+                            title={opt.label}
+                        >
+                            {opt.icon}<span>{opt.label}</span>
+                        </button>
+                    ))}
+                </div>
                 <div className="ud-pm-spacer" />
                 {selected.size > 0 && <>
                     <Pill color="var(--ud-pm-accent)"><FaCheck style={{ fontSize: 9 }} /> {selected.size}</Pill>
@@ -1605,9 +1709,19 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
                 <button className="ud-pm-btn sm accent" onClick={handleSyncAll} disabled={syncJobBusy}>
                     {syncJobBusy ? <span className="spinner" /> : <FaSync />} Çek
                 </button>
-                <button className="ud-pm-btn sm purple outline" onClick={handleDistributeUndistributed} disabled={actionLoading === "dist-undist"}
-                    title="Platformlarda eksik olan ürünleri otomatik dağıt">
-                    {actionLoading === "dist-undist" ? <span className="spinner" /> : <FaRocket />} Eksikleri Dağıt
+                <button className="ud-pm-btn sm purple outline" onClick={() => setMissingDistOpen(true)} disabled={syncJobBusy}
+                    title={activeMissingDist ? "Devam eden dağıtım var — tıklayarak açın" : "Platformlarda eksik ürünleri listele ve canlı dağıt"}
+                    style={activeMissingDist ? { position: "relative", borderColor: "var(--ud-pm-purple)" } : undefined}>
+                    <FaRocket /> Eksikleri Dağıt
+                    {activeMissingDist && (
+                        <span style={{
+                            position: "absolute", top: -6, right: -6, minWidth: 18, height: 18, padding: "0 5px",
+                            borderRadius: 9, background: "var(--ud-pm-purple)", color: "#fff", fontSize: 10, fontWeight: 800,
+                            display: "flex", alignItems: "center", justifyContent: "center",
+                        }}>
+                            {activeMissingDist.status === "paused" ? "⏸" : "●"}
+                        </span>
+                    )}
                 </button>
             </div>
 
@@ -1820,7 +1934,7 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
                     <input className="ud-pm-search" value={search} onChange={e => setSearch(e.target.value)} placeholder="Ürün ara..." aria-label="Fiyat stok listesinde ara" />
                 </div>
                 <select className="ud-pm-select" value={stockFilter} onChange={e => setStockFilter(e.target.value)}>
-                    <option value="">Tüm</option><option value="lowStock">Düşük</option><option value="outOfStock">Yok</option>
+                    <option value="">Tüm</option><option value="inStock">Stokta var</option><option value="lowStock">Düşük</option><option value="outOfStock">Yok</option>
                 </select>
                 <div className="ud-pm-spacer" />
                 {psSelected.size > 0 && (
@@ -2836,8 +2950,8 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
         const p = detail;
         const mp = p?.masterProduct || {};
         const st = p?.stockTracking || {};
-        // ⚠️ FIX: syncStatus: "error" olan mapping'ler platformda yok demek — filtrele
-        const mappings = (p?.marketplaceMappings || []).filter(m => m.syncStatus !== "error");
+        const pc = countPlatformPresence(p || {});
+        const siblingHints = p?.siblingPlatformHints || [];
 
         return ReactDOM.createPortal(
             <AnimatePresence>
@@ -2875,27 +2989,48 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
                                         <div className="stat-label">Stok</div>
                                     </div>
                                     <div className="ud-pm-modal-stat" style={{ background: "rgba(139,92,246,0.06)", border: "1px solid rgba(139,92,246,0.15)" }}>
-                                        <div className="stat-val" style={{ color: "var(--ud-pm-purple)" }}>{mappings.length}</div>
-                                        <div className="stat-label">Platform</div>
+                                        <div className="stat-val" style={{ color: "var(--ud-pm-purple)" }}>{pc.active}</div>
+                                        <div className="stat-label">Aktif platform{pc.error > 0 ? ` (+${pc.error} hatalı)` : ""}</div>
                                     </div>
                                 </div>
 
                                 <div style={{ color: "var(--ud-pm-text)", fontSize: 13, fontWeight: 700, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}><FaStore style={{ color: "var(--ud-pm-accent)" }} /> Platform Durumları</div>
+                                {siblingHints.length > 0 && (
+                                    <div style={{ marginBottom: 10, padding: "8px 10px", borderRadius: 8, border: "1px solid rgba(245,158,11,0.35)", background: "rgba(245,158,11,0.08)", fontSize: 11, lineHeight: 1.5, display: "flex", gap: 8, alignItems: "flex-start" }}>
+                                        <FaExclamationTriangle style={{ color: "var(--ud-pm-yellow)", flexShrink: 0, marginTop: 2 }} />
+                                        <span>
+                                            Aynı barkod/SKU ile <strong>{siblingHints.length}</strong> platform eşlemesi başka ürün kaydında
+                                            {siblingHints.slice(0, 3).map((h) => ` (${h.marketplaceName})`).join("")}
+                                            . Ürün Merkezi → <strong>Senkronizasyon</strong> sekmesinden pazaryerinden <strong>ürün çekimi</strong> yapın.
+                                        </span>
+                                    </div>
+                                )}
                                 <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 16 }}>
                                     {PLATFORMS.map(pl => {
-                                        const m = getPlMap(p, pl);
-                                        const exists = !!m;
+                                        const pr = getPlPresence(p, pl);
+                                        const m = pr.mapping;
                                         return (
                                             <div key={pl} className="ud-pm-modal-platform">
                                                 <span className="mp-icon" style={{ color: PL_COLOR[pl] }}><FaStore /></span>
                                                 <span className="mp-name">{pl}</span>
-                                                {exists ? <>
+                                                {pr.state === "active" ? <>
                                                     <Pill color="var(--ud-pm-green)"><FaCheckCircle style={{ fontSize: 8 }} /> Aktif</Pill>
                                                     <span style={{ color: "var(--ud-pm-text-sub)", fontSize: 11 }}>{m.price ? fmt(m.price) : "—"}</span>
                                                     <span style={{ color: "var(--ud-pm-text-dim)", fontSize: 10 }}>{m.lastSyncDate ? fmtAgo(m.lastSyncDate) : "—"}</span>
+                                                </> : pr.state === "error" ? <>
+                                                    <Pill color="var(--ud-pm-red)"><FaExclamationTriangle style={{ fontSize: 8 }} /> Hatalı</Pill>
+                                                    <span style={{ color: "var(--ud-pm-text-dim)", fontSize: 10, flex: 1, lineHeight: 1.35 }} title={pr.message}>{pr.message}</span>
+                                                    <button type="button" className="ud-pm-btn sm outline" style={{ borderColor: PL_COLOR[pl], color: PL_COLOR[pl] }}
+                                                        onClick={() => openDistFlow(p, pl)}>
+                                                        <FaRocket /> Yeniden dene
+                                                    </button>
+                                                </> : pr.state === "pending" ? <>
+                                                    <Pill color="var(--ud-pm-yellow)">Bekliyor</Pill>
+                                                    <span style={{ color: "var(--ud-pm-text-dim)", fontSize: 10 }}>{pr.message}</span>
                                                 </> : <>
-                                                    <Pill color="var(--ud-pm-text-dim)">Pasif</Pill>
-                                                    <button className="ud-pm-btn sm outline" style={{ borderColor: PL_COLOR[pl], color: PL_COLOR[pl] }}
+                                                    <Pill color="var(--ud-pm-text-dim)">Kayıt yok</Pill>
+                                                    <span style={{ color: "var(--ud-pm-text-dim)", fontSize: 10 }}>Pazaryerinden çekilmedi veya henüz gönderilmedi</span>
+                                                    <button type="button" className="ud-pm-btn sm outline" style={{ borderColor: PL_COLOR[pl], color: PL_COLOR[pl] }}
                                                         onClick={() => openDistFlow(p, pl)}>
                                                         <FaRocket /> Gönder
                                                     </button>
@@ -3865,41 +4000,38 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
     ];
 
     return (
-        <div className="ud-pm-root ud-pm-root--scroll-layout">
-            <div className="ud-pm-root-sticky">
-                <header className="ud-pm-header ud-pm-header--panel">
-                    <div className="ud-pm-header-actions">
-                        <div className="ud-pm-header-text">
-                            <h1><FaCubes /> Ürün Yönetim Merkezi</h1>
-                            <p>Ürünlerinizi yönetin, platformlara dağıtın, stok ve fiyat senkronizasyonu yapın.</p>
-                        </div>
-                        <PageHelpButton pageId={`pm-center.${tab}`} variant="header" />
+        <div className="ud-pm-root">
+            <header className="ud-pm-header ud-pm-header--panel">
+                <div className="ud-pm-header-actions">
+                    <div className="ud-pm-header-text">
+                        <h1><FaCubes /> Ürün Yönetim Merkezi</h1>
+                        <p>Ürünlerinizi yönetin, platformlara dağıtın, stok ve fiyat senkronizasyonu yapın.</p>
                     </div>
-                </header>
+                    <PageHelpButton pageId={`pm-center.${tab}`} variant="header" />
+                </div>
+            </header>
 
-                {renderDashCards()}
+            {renderDashCards()}
 
-                <nav className="ud-pm-tabs-rail" aria-label="Bölümler">
-                    <div className="ud-pm-tabs" role="tablist">
-                        {tabs.map(t => (
-                            <button
-                                key={t.id}
-                                type="button"
-                                role="tab"
-                                aria-selected={tab === t.id}
-                                className={`ud-pm-tab ${tab === t.id ? "active" : ""}`}
-                                onClick={() => setTab(t.id)}
-                            >
-                                <span className="ud-pm-tab-icon" aria-hidden>{t.icon}</span>
-                                <span className="ud-pm-tab-label">{t.label}</span>
-                                {t.count !== undefined && <span className="ud-pm-tab-count">{t.count}</span>}
-                            </button>
-                        ))}
-                    </div>
-                </nav>
-            </div>
+            <nav className="ud-pm-tabs-rail" aria-label="Bölümler">
+                <div className="ud-pm-tabs" role="tablist">
+                    {tabs.map(t => (
+                        <button
+                            key={t.id}
+                            type="button"
+                            role="tab"
+                            aria-selected={tab === t.id}
+                            className={`ud-pm-tab ${tab === t.id ? "active" : ""}`}
+                            onClick={() => setTab(t.id)}
+                        >
+                            <span className="ud-pm-tab-icon" aria-hidden>{t.icon}</span>
+                            <span className="ud-pm-tab-label">{t.label}</span>
+                            {t.count !== undefined && <span className="ud-pm-tab-count">{t.count}</span>}
+                        </button>
+                    ))}
+                </div>
+            </nav>
 
-            <div className="ud-pm-root-scroll">
             <AnimatePresence mode="wait">
                 <motion.div className="ud-pm-tab-panel" key={tab} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: .18 }} role="tabpanel">
                     {tab === "products" && renderProducts()}
@@ -3914,13 +4046,18 @@ const ProductManagementCenter = ({ userId, initialTab = "products" }) => {
                     {tab === "sync" && renderSync()}
                 </motion.div>
             </AnimatePresence>
-            </div>
 
             {/* Detail Modal */}
             {renderDetailModal()}
 
             {/* Gönder → kategori seçimi */}
             {renderDistributeModal()}
+
+            <MissingDistributionModal
+                open={missingDistOpen}
+                onClose={() => setMissingDistOpen(false)}
+                onComplete={handleMissingDistComplete}
+            />
 
             {/* Delete Confirm Modal */}
             {renderDeleteConfirmModal()}

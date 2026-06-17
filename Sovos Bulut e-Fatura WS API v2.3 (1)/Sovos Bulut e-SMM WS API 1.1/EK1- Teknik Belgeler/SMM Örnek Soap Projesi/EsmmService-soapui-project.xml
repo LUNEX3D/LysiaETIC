@@ -1,0 +1,546 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<con:soapui-project id="35e0448b-7299-4b06-9080-25799224487f" activeEnvironment="Default" name="EsmmService" resourceRoot="" soapui-version="5.5.0" xmlns:con="http://eviware.com/soapui/config"><con:settings/><con:interface xsi:type="con:WsdlInterface" id="57c4569b-5744-48fe-9676-9ac458ef90d1" wsaVersion="NONE" name="ForibaESmmServicesBinding" type="wsdl" bindingName="{http://foriba.com/eSmm/}ForibaESmmServicesBinding" soapVersion="1_1" anonymous="optional" definition="file:/C:/Users/soner.sariusak/Desktop/Sovos%20Bulut%20e-SMM%20WS%20API%201.0/EK1-%20Teknik%20Belgeler/EsmmService.wsdl" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><con:settings/><con:definitionCache type="TEXT" rootPart="file:\C:\Users\soner.sariusak\Desktop\Sovos%20Bulut%20e-SMM%20WS%20API%201.0\EK1-%20Teknik%20Belgeler\EsmmService.wsdl"><con:part><con:url>file:\C:\Users\soner.sariusak\Desktop\Sovos%20Bulut%20e-SMM%20WS%20API%201.0\EK1-%20Teknik%20Belgeler\EsmmService.wsdl</con:url><con:content><![CDATA[<!--Published by JAX-WS RI (http://jax-ws.java.net). RI's version is Metro/2.4.3.payara-p3 (2.4.3.payara-maintenance-a5c1c68; 2019-06-17T14:04:38+0200) JAXWS-RI/2.3.2.payara-p2 JAXWS-API/2.3.2 JAXB-RI/2.3.2 JAXB-API/2.3.2 git-revision#unknown.-->
+<!--©2019 Foriba-->
+<wsdl:definitions targetNamespace="http://foriba.com/eSmm/" xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/" xmlns:soap="http://schemas.xmlsoap.org/wsdl/soap/" xmlns:http="http://schemas.xmlsoap.org/wsdl/http/" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:soapenc="http://schemas.xmlsoap.org/soap/encoding/" xmlns:mime="http://schemas.xmlsoap.org/wsdl/mime/" xmlns:tns="http://foriba.com/eSmm/">
+  <wsdl:types>
+    <xs:schema targetNamespace="http://foriba.com/eSmm/" xmlns="http://www.w3.org/2001/XMLSchema">
+      <xs:include schemaLocation="https://istsvs0010:8181/ForibaESmmServices/ForibaESmmServicesPortImplBean?xsd=1"/>
+      <xs:include schemaLocation="https://istsvs0010:8181/ForibaESmmServices/ForibaESmmServicesPortImplBean?xsd=2"/>
+    </xs:schema>
+  </wsdl:types>
+  <wsdl:message name="sendDocumentRequestMessage">
+    <wsdl:part name="parameter" element="tns:sendDocumentRequest"/>
+  </wsdl:message>
+  <wsdl:message name="sendDocumentResponseMessage">
+    <wsdl:part name="parameter" element="tns:sendDocumentResponse"/>
+  </wsdl:message>
+  <wsdl:message name="sendDocumentFaultMessage">
+    <wsdl:part name="parameter" element="tns:ProcessingFault"/>
+  </wsdl:message>
+  <wsdl:message name="getDocumentRequestMessage">
+    <wsdl:part name="parameter" element="tns:getDocumentRequest"/>
+  </wsdl:message>
+  <wsdl:message name="getDocumentResponseMessage">
+    <wsdl:part name="parameter" element="tns:getDocumentResponse"/>
+  </wsdl:message>
+  <wsdl:message name="getDocumentFaultMessage">
+    <wsdl:part name="parameter" element="tns:ProcessingFault"/>
+  </wsdl:message>
+  <wsdl:message name="getReportListRequestMessage">
+    <wsdl:part name="parameter" element="tns:getReportListRequest"/>
+  </wsdl:message>
+  <wsdl:message name="getReportListResponseMessage">
+    <wsdl:part name="parameter" element="tns:getReportListResponse"/>
+  </wsdl:message>
+  <wsdl:message name="getReportListFaultMessage">
+    <wsdl:part name="parameter" element="tns:ProcessingFault"/>
+  </wsdl:message>
+  <wsdl:message name="getReportDataRequestMessage">
+    <wsdl:part name="parameter" element="tns:getReportDataRequest"/>
+  </wsdl:message>
+  <wsdl:message name="getReportDataResponseMessage">
+    <wsdl:part name="parameter" element="tns:getReportDataResponse"/>
+  </wsdl:message>
+  <wsdl:message name="getReportDataFaultMessage">
+    <wsdl:part name="parameter" element="tns:ProcessingFault"/>
+  </wsdl:message>
+  <wsdl:message name="cancelDocumentRequestMessage">
+    <wsdl:part name="parameter" element="tns:cancelDocumentRequest"/>
+  </wsdl:message>
+  <wsdl:message name="cancelDocumentResponseMessage">
+    <wsdl:part name="parameter" element="tns:cancelDocumentResponse"/>
+  </wsdl:message>
+  <wsdl:message name="cancelDocumentFaultMessage">
+    <wsdl:part name="parameter" element="tns:ProcessingFault"/>
+  </wsdl:message>
+  <wsdl:message name="actionServiceRequestMessage">
+    <wsdl:part name="parameter" element="tns:actionServiceRequest"/>
+  </wsdl:message>
+  <wsdl:message name="actionServiceResponseMessage">
+    <wsdl:part name="parameter" element="tns:actionServiceResponse"/>
+  </wsdl:message>
+  <wsdl:message name="actionServiceFaultMessage">
+    <wsdl:part name="parameter" element="tns:ProcessingFault"/>
+  </wsdl:message>
+  <wsdl:portType name="ForibaESmmServicesPort">
+    <wsdl:operation name="sendDocument">
+      <wsdl:input message="tns:sendDocumentRequestMessage"/>
+      <wsdl:output message="tns:sendDocumentResponseMessage"/>
+      <wsdl:fault name="sendDocumentFault" message="tns:sendDocumentFaultMessage"/>
+    </wsdl:operation>
+    <wsdl:operation name="getDocument">
+      <wsdl:input message="tns:getDocumentRequestMessage"/>
+      <wsdl:output message="tns:getDocumentResponseMessage"/>
+      <wsdl:fault name="getDocumentFault" message="tns:getDocumentFaultMessage"/>
+    </wsdl:operation>
+    <wsdl:operation name="actionService">
+      <wsdl:input message="tns:actionServiceRequestMessage"/>
+      <wsdl:output message="tns:actionServiceResponseMessage"/>
+      <wsdl:fault name="actionServiceFault" message="tns:actionServiceFaultMessage"/>
+    </wsdl:operation>
+    <wsdl:operation name="getReportList">
+      <wsdl:input message="tns:getReportListRequestMessage"/>
+      <wsdl:output message="tns:getReportListResponseMessage"/>
+      <wsdl:fault name="getReportListFault" message="tns:getReportListFaultMessage"/>
+    </wsdl:operation>
+    <wsdl:operation name="getReportData">
+      <wsdl:input message="tns:getReportDataRequestMessage"/>
+      <wsdl:output message="tns:getReportDataResponseMessage"/>
+      <wsdl:fault name="getReportDataFault" message="tns:getReportDataFaultMessage"/>
+    </wsdl:operation>
+    <wsdl:operation name="cancelDocument">
+      <wsdl:input message="tns:cancelDocumentRequestMessage"/>
+      <wsdl:output message="tns:cancelDocumentResponseMessage"/>
+      <wsdl:fault name="cancelDocumentFault" message="tns:cancelDocumentFaultMessage"/>
+    </wsdl:operation>
+  </wsdl:portType>
+  <wsdl:binding name="ForibaESmmServicesBinding" type="tns:ForibaESmmServicesPort">
+    <soap:binding style="document" transport="http://schemas.xmlsoap.org/soap/http"/>
+    <wsdl:operation name="sendDocument">
+      <soap:operation soapAction="sendDocument"/>
+      <wsdl:input>
+        <soap:body use="literal"/>
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal"/>
+      </wsdl:output>
+      <wsdl:fault name="sendDocumentFault">
+        <soap:fault name="sendDocumentFault" use="literal"/>
+      </wsdl:fault>
+    </wsdl:operation>
+    <wsdl:operation name="getDocument">
+      <soap:operation soapAction="getDocument"/>
+      <wsdl:input>
+        <soap:body use="literal"/>
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal"/>
+      </wsdl:output>
+      <wsdl:fault name="getDocumentFault">
+        <soap:fault name="getDocumentFault" use="literal"/>
+      </wsdl:fault>
+    </wsdl:operation>
+    <wsdl:operation name="actionService">
+      <soap:operation soapAction="actionService"/>
+      <wsdl:input>
+        <soap:body use="literal"/>
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal"/>
+      </wsdl:output>
+      <wsdl:fault name="actionServiceFault">
+        <soap:fault name="actionServiceFault" use="literal"/>
+      </wsdl:fault>
+    </wsdl:operation>
+    <wsdl:operation name="getReportList">
+      <soap:operation soapAction="getReportList"/>
+      <wsdl:input>
+        <soap:body use="literal"/>
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal"/>
+      </wsdl:output>
+      <wsdl:fault name="getReportListFault">
+        <soap:fault name="getReportListFault" use="literal"/>
+      </wsdl:fault>
+    </wsdl:operation>
+    <wsdl:operation name="getReportData">
+      <soap:operation soapAction="getReportData"/>
+      <wsdl:input>
+        <soap:body use="literal"/>
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal"/>
+      </wsdl:output>
+      <wsdl:fault name="getReportDataFault">
+        <soap:fault name="getReportDataFault" use="literal"/>
+      </wsdl:fault>
+    </wsdl:operation>
+    <wsdl:operation name="cancelDocument">
+      <soap:operation soapAction="cancelDocument"/>
+      <wsdl:input>
+        <soap:body use="literal"/>
+      </wsdl:input>
+      <wsdl:output>
+        <soap:body use="literal"/>
+      </wsdl:output>
+      <wsdl:fault name="cancelDocumentFault">
+        <soap:fault name="cancelDocumentFault" use="literal"/>
+      </wsdl:fault>
+    </wsdl:operation>
+  </wsdl:binding>
+  <wsdl:service name="ForibaESmmServices">
+    <wsdl:port name="ForibaESmmServicesPort" binding="tns:ForibaESmmServicesBinding">
+      <soap:address location="https://istsvs0010:8181/ForibaESmmServices/ForibaESmmServicesPortImplBean"/>
+    </wsdl:port>
+  </wsdl:service>
+</wsdl:definitions>]]></con:content><con:type>http://schemas.xmlsoap.org/wsdl/</con:type></con:part><con:part><con:url>https://istsvs0010:8181/ForibaESmmServices/ForibaESmmServicesPortImplBean?xsd=1</con:url><con:content><![CDATA[<!--Published by JAX-WS RI (http://jax-ws.java.net). RI's version is Metro/2.4.3.payara-p3 (2.4.3.payara-maintenance-a5c1c68; 2019-06-17T14:04:38+0200) JAXWS-RI/2.3.2.payara-p2 JAXWS-API/2.3.2 JAXB-RI/2.3.2 JAXB-API/2.3.2 git-revision#unknown.-->
+<xs:schema targetNamespace="http://foriba.com/eSmm/" elementFormDefault="qualified" attributeFormDefault="unqualified" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns="http://foriba.com/eSmm/">
+  <xs:element name="sendDocumentRequest">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="VKN_TCKN" type="xs:string" minOccurs="1" maxOccurs="1"/>
+        <xs:element name="Branch" type="xs:string" minOccurs="1" maxOccurs="1"/>
+        <xs:element name="SendDocDetails" type="sendDocumentRequestType" minOccurs="1" maxOccurs="unbounded"/>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+  <xs:element name="sendDocumentResponse">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="SendDocumentResponse" type="sendDocumentResponseType" minOccurs="1" maxOccurs="unbounded"/>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+  <xs:complexType name="sendDocumentRequestType">
+    <xs:sequence>
+      <xs:element name="UUID" type="xs:string" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="Type" type="xs:string" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="DocType" type="xs:string" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="DocData" type="xs:base64Binary" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="ViewType" type="xs:string" minOccurs="0" maxOccurs="1"/>
+      <xs:element name="Parameters" type="ParametersType" minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="sendDocumentResponseType">
+    <xs:sequence>
+      <xs:element name="UUID" type="xs:string" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="ID" type="xs:string" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="CustDocID" type="xs:string" minOccurs="0" maxOccurs="1"/>
+      <xs:element name="Type" type="xs:string" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="DocType" type="xs:string" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="DocData" type="xs:base64Binary" minOccurs="0" maxOccurs="1"/>
+      <xs:element name="ViewData" type="xs:base64Binary" minOccurs="0" maxOccurs="1"/>
+      <xs:element name="Parameters" type="ParametersType" minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="ParametersType">
+    <xs:sequence>
+      <xs:element name="Name" type="xs:string" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="Value" type="xs:string" minOccurs="1" maxOccurs="1"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:element name="getDocumentRequest">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="VKN_TCKN" type="xs:string" minOccurs="1" maxOccurs="1"/>
+        <xs:element name="GetDocDetails" type="getDocumentRequestType" minOccurs="1" maxOccurs="unbounded"/>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+  <xs:element name="getDocumentResponse">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="getDocumentResponse" type="getDocumentResponseType" minOccurs="1" maxOccurs="unbounded"/>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+  <xs:complexType name="getDocumentRequestType">
+    <xs:sequence>
+      <xs:element name="UUID" type="xs:string" minOccurs="0" maxOccurs="1"/>
+      <xs:element name="ID" type="xs:string" minOccurs="0" maxOccurs="1"/>
+      <xs:element name="CustDocID" type="xs:string" minOccurs="0" maxOccurs="1"/>
+      <xs:element name="Type" type="xs:string" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="DocType" type="xs:string" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="ViewType" type="xs:string" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="Parameters" type="ParametersType" minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="getDocumentResponseType">
+    <xs:sequence>
+      <xs:element name="UUID" type="xs:string" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="ID" type="xs:string" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="CustDocID" type="xs:string" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="Type" type="xs:string" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="DocType" type="xs:string" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="ViewType" type="xs:string" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="DocData" type="xs:base64Binary" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="Result" type="xs:int" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="ResultDescription" type="xs:string" minOccurs="0" maxOccurs="1"/>
+      <xs:element name="Parameters" type="ParametersType" minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:element name="actionServiceRequest">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="actionServiceRequestType" type="actionServiceRequestType" minOccurs="1" maxOccurs="1"/>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+  <xs:element name="actionServiceResponse">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="actionServiceResponseType" type="actionServiceResponseType" minOccurs="1" maxOccurs="1"/>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+  <xs:complexType name="actionServiceRequestType">
+    <xs:sequence>
+      <xs:element name="SenderID" type="xs:string" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="Branch" type="xs:string" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="ID" type="xs:string" minOccurs="0" maxOccurs="1"/>
+      <xs:element name="ActionType" type="xs:string" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="Parameters" type="ParametersType" minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="actionServiceResponseType">
+    <xs:sequence>
+      <xs:element name="Result" type="ResultType" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="Detail" type="xs:string" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="Parameters" type="ParametersType" minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:simpleType final="restriction" name="ResultType">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="SUCCESS"/>
+      <xs:enumeration value="FAIL"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:complexType name="Result">
+    <xs:sequence>
+      <xs:element name="Result" type="ResultType"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:element name="getReportListRequest">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="VKN_TCKN" type="xs:string" minOccurs="1" maxOccurs="1"/>
+        <xs:element name="Type" type="xs:string" minOccurs="1" maxOccurs="1"/>
+        <xs:element name="DocType" type="xs:string" minOccurs="1" maxOccurs="1"/>
+        <xs:element name="Year" type="xs:int" minOccurs="1" maxOccurs="1"/>
+        <xs:element name="Month" type="xs:int" minOccurs="1" maxOccurs="1"/>
+        <xs:element name="Parameters" type="ParametersType" minOccurs="0" maxOccurs="unbounded"/>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+  <xs:element name="getReportListResponse">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="getReportList" type="getReportListResponseType" minOccurs="1" maxOccurs="unbounded"/>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+  <xs:complexType name="getReportListResponseType">
+    <xs:sequence>
+      <xs:element name="UUID" type="xs:string" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="VKN_TCKN" type="xs:string" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="Type" type="xs:string" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="DocType" type="xs:string" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="Year" type="xs:int" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="Month" type="xs:int" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="SectionStartDate" type="xs:date" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="SectionEndDate" type="xs:date" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="PartNumber" type="xs:int" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="DocumentCount" type="xs:int" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="DocumentTotalAmount" type="xs:decimal" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="CanceledDocumentCount" type="xs:int" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="CanceledDocumentTotalAmount" type="xs:decimal" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="GIBStatusCode" type="xs:int" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="GIBStatusDesc" type="xs:string" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="Parameters" type="ParametersType" minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:element name="getReportDataRequest">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="VKN_TCKN" type="xs:string" minOccurs="1" maxOccurs="1"/>
+        <xs:element name="GetDocReportData" type="getDocumentReportDataRequestType" minOccurs="1" maxOccurs="unbounded"/>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+  <xs:element name="getReportDataResponse">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="getDocReportData" type="getDocumentReportDataResponseType" minOccurs="1" maxOccurs="unbounded"/>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+  <xs:complexType name="getDocumentReportDataRequestType">
+    <xs:sequence>
+      <xs:element name="UUID" type="xs:string" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="Type" type="xs:string" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="DocType" type="xs:string" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="Parameters" type="ParametersType" minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="getDocumentReportDataResponseType">
+    <xs:sequence>
+      <xs:element name="UUID" type="xs:string" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="Type" type="xs:string" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="DocType" type="xs:string" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="DocData" type="xs:base64Binary" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="Parameters" type="ParametersType" minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:element name="cancelDocumentRequest">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="VKN_TCKN" type="xs:string" minOccurs="1" maxOccurs="1"/>
+        <xs:element name="Branch" type="xs:string" minOccurs="1" maxOccurs="1"/>
+        <xs:element name="CancelDocDetails" type="cancelDocumentRequestType" minOccurs="1" maxOccurs="unbounded"/>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+  <xs:element name="cancelDocumentResponse">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="cancelDocumentResponse" type="cancelDocumentResponseType" minOccurs="1" maxOccurs="unbounded"/>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+  <xs:complexType name="cancelDocumentRequestType">
+    <xs:sequence>
+      <xs:element name="ID" type="xs:string" minOccurs="0" maxOccurs="1"/>
+      <xs:element name="CustDocID" type="xs:string" minOccurs="0" maxOccurs="1"/>
+      <xs:element name="Type" type="xs:string" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="DocType" type="xs:string" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="TotalAmount" type="xs:decimal" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="CancelDate" type="xs:date" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="Parameters" type="ParametersType" minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="cancelDocumentResponseType">
+    <xs:sequence>
+      <xs:element name="ID" type="xs:string" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="CustDocID" type="xs:string" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="Type" type="xs:string" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="DocType" type="xs:string" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="Result" type="xs:int" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="ResultDescription" type="xs:string" minOccurs="1" maxOccurs="1"/>
+      <xs:element name="Parameters" type="ParametersType" minOccurs="0" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+</xs:schema>]]></con:content><con:type>http://www.w3.org/2001/XMLSchema</con:type></con:part><con:part><con:url>https://istsvs0010:8181/ForibaESmmServices/ForibaESmmServicesPortImplBean?xsd=2</con:url><con:content><![CDATA[<!--Published by JAX-WS RI (http://jax-ws.java.net). RI's version is Metro/2.4.3.payara-p3 (2.4.3.payara-maintenance-a5c1c68; 2019-06-17T14:04:38+0200) JAXWS-RI/2.3.2.payara-p2 JAXWS-API/2.3.2 JAXB-RI/2.3.2 JAXB-API/2.3.2 git-revision#unknown.-->
+<!--©2019 Foriba-->
+<xs:schema targetNamespace="http://foriba.com/eSmm/" elementFormDefault="qualified" attributeFormDefault="unqualified" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns="http://foriba.com/eSmm/">
+  <xs:element name="ProcessingFault">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="Code" type="xs:int"/>
+        <xs:element name="Message" type="xs:string"/>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+</xs:schema>]]></con:content><con:type>http://www.w3.org/2001/XMLSchema</con:type></con:part></con:definitionCache><con:endpoints><con:endpoint>https://istsvs0010:8181/ForibaESmmServices/ForibaESmmServicesPortImplBean</con:endpoint></con:endpoints><con:operation id="9d369c64-fb86-422e-b8ec-3cd417885c49" isOneWay="false" action="actionService" name="actionService" bindingOperationName="actionService" type="Request-Response" inputName="" receivesAttachments="false" sendsAttachments="false" anonymous="optional"><con:settings/><con:call id="dd355c71-2f9c-4642-ab5a-b697224fcfc9" name="Request 1"><con:settings/><con:encoding>UTF-8</con:encoding><con:endpoint>https://istsvs0010:8181/ForibaESmmServices/ForibaESmmServicesPortImplBean</con:endpoint><con:request><![CDATA[<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:esmm="http://foriba.com/eSmm/">\r
+   <soapenv:Header/>\r
+   <soapenv:Body>\r
+      <esmm:actionServiceRequest>\r
+         <esmm:actionServiceRequestType>\r
+            <esmm:SenderID>?</esmm:SenderID>\r
+            <esmm:Branch>?</esmm:Branch>\r
+            <!--Optional:-->\r
+            <esmm:ID>?</esmm:ID>\r
+            <esmm:ActionType>?</esmm:ActionType>\r
+            <!--Zero or more repetitions:-->\r
+            <esmm:Parameters>\r
+               <esmm:Name>?</esmm:Name>\r
+               <esmm:Value>?</esmm:Value>\r
+            </esmm:Parameters>\r
+         </esmm:actionServiceRequestType>\r
+      </esmm:actionServiceRequest>\r
+   </soapenv:Body>\r
+</soapenv:Envelope>]]></con:request><con:wsaConfig mustUnderstand="NONE" version="200508" action="actionService"/></con:call></con:operation><con:operation id="8c27cbdc-3d07-4ae8-ae1b-649724d30a05" isOneWay="false" action="cancelDocument" name="cancelDocument" bindingOperationName="cancelDocument" type="Request-Response" inputName="" receivesAttachments="false" sendsAttachments="false" anonymous="optional"><con:settings/><con:call id="84ba00ec-bf63-4da1-8051-ade396d31892" name="Request 1"><con:settings/><con:encoding>UTF-8</con:encoding><con:endpoint>https://istsvs0010:8181/ForibaESmmServices/ForibaESmmServicesPortImplBean</con:endpoint><con:request><![CDATA[<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:esmm="http://foriba.com/eSmm/">\r
+   <soapenv:Header/>\r
+   <soapenv:Body>\r
+      <esmm:cancelDocumentRequest>\r
+         <esmm:VKN_TCKN>?</esmm:VKN_TCKN>\r
+         <esmm:Branch>?</esmm:Branch>\r
+         <!--1 or more repetitions:-->\r
+         <esmm:CancelDocDetails>\r
+            <!--Optional:-->\r
+            <esmm:ID>?</esmm:ID>\r
+            <!--Optional:-->\r
+            <esmm:CustDocID>?</esmm:CustDocID>\r
+            <esmm:Type>?</esmm:Type>\r
+            <esmm:DocType>?</esmm:DocType>\r
+            <esmm:TotalAmount>?</esmm:TotalAmount>\r
+            <esmm:CancelDate>?</esmm:CancelDate>\r
+            <!--Zero or more repetitions:-->\r
+            <esmm:Parameters>\r
+               <esmm:Name>?</esmm:Name>\r
+               <esmm:Value>?</esmm:Value>\r
+            </esmm:Parameters>\r
+         </esmm:CancelDocDetails>\r
+      </esmm:cancelDocumentRequest>\r
+   </soapenv:Body>\r
+</soapenv:Envelope>]]></con:request><con:wsaConfig mustUnderstand="NONE" version="200508" action="cancelDocument"/></con:call></con:operation><con:operation id="eddea04d-17f1-40e3-921a-3ea1f5220edf" isOneWay="false" action="getDocument" name="getDocument" bindingOperationName="getDocument" type="Request-Response" inputName="" receivesAttachments="false" sendsAttachments="false" anonymous="optional"><con:settings/><con:call id="697ac7d0-e3ea-4584-a0ea-22ccd624db42" name="Request 1"><con:settings/><con:encoding>UTF-8</con:encoding><con:endpoint>https://istsvs0010:8181/ForibaESmmServices/ForibaESmmServicesPortImplBean</con:endpoint><con:request><![CDATA[<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:esmm="http://foriba.com/eSmm/">\r
+   <soapenv:Header/>\r
+   <soapenv:Body>\r
+      <esmm:getDocumentRequest>\r
+         <esmm:VKN_TCKN>?</esmm:VKN_TCKN>\r
+         <!--1 or more repetitions:-->\r
+         <esmm:GetDocDetails>\r
+            <!--Optional:-->\r
+            <esmm:UUID>?</esmm:UUID>\r
+            <!--Optional:-->\r
+            <esmm:ID>?</esmm:ID>\r
+            <!--Optional:-->\r
+            <esmm:CustDocID>?</esmm:CustDocID>\r
+            <esmm:Type>?</esmm:Type>\r
+            <esmm:DocType>?</esmm:DocType>\r
+            <esmm:ViewType>?</esmm:ViewType>\r
+            <!--Zero or more repetitions:-->\r
+            <esmm:Parameters>\r
+               <esmm:Name>?</esmm:Name>\r
+               <esmm:Value>?</esmm:Value>\r
+            </esmm:Parameters>\r
+         </esmm:GetDocDetails>\r
+      </esmm:getDocumentRequest>\r
+   </soapenv:Body>\r
+</soapenv:Envelope>]]></con:request><con:wsaConfig mustUnderstand="NONE" version="200508" action="getDocument"/></con:call></con:operation><con:operation id="4519827b-8ae0-40df-8444-fd46fa90b31d" isOneWay="false" action="getReportData" name="getReportData" bindingOperationName="getReportData" type="Request-Response" inputName="" receivesAttachments="false" sendsAttachments="false" anonymous="optional"><con:settings/><con:call id="46120886-2049-4113-8311-a02ab08385cf" name="Request 1"><con:settings/><con:encoding>UTF-8</con:encoding><con:endpoint>https://istsvs0010:8181/ForibaESmmServices/ForibaESmmServicesPortImplBean</con:endpoint><con:request><![CDATA[<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:esmm="http://foriba.com/eSmm/">\r
+   <soapenv:Header/>\r
+   <soapenv:Body>\r
+      <esmm:getReportDataRequest>\r
+         <esmm:VKN_TCKN>?</esmm:VKN_TCKN>\r
+         <!--1 or more repetitions:-->\r
+         <esmm:GetDocReportData>\r
+            <esmm:UUID>?</esmm:UUID>\r
+            <esmm:Type>?</esmm:Type>\r
+            <esmm:DocType>?</esmm:DocType>\r
+            <!--Zero or more repetitions:-->\r
+            <esmm:Parameters>\r
+               <esmm:Name>?</esmm:Name>\r
+               <esmm:Value>?</esmm:Value>\r
+            </esmm:Parameters>\r
+         </esmm:GetDocReportData>\r
+      </esmm:getReportDataRequest>\r
+   </soapenv:Body>\r
+</soapenv:Envelope>]]></con:request><con:wsaConfig mustUnderstand="NONE" version="200508" action="getReportData"/></con:call></con:operation><con:operation id="ab684b09-8ac5-4600-84e6-e2cae4795252" isOneWay="false" action="getReportList" name="getReportList" bindingOperationName="getReportList" type="Request-Response" inputName="" receivesAttachments="false" sendsAttachments="false" anonymous="optional"><con:settings/><con:call id="3f18fb77-b5a9-46ca-ad62-6a8f71323e41" name="Request 1"><con:settings/><con:encoding>UTF-8</con:encoding><con:endpoint>https://istsvs0010:8181/ForibaESmmServices/ForibaESmmServicesPortImplBean</con:endpoint><con:request><![CDATA[<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:esmm="http://foriba.com/eSmm/">\r
+   <soapenv:Header/>\r
+   <soapenv:Body>\r
+      <esmm:getReportListRequest>\r
+         <esmm:VKN_TCKN>?</esmm:VKN_TCKN>\r
+         <esmm:Type>?</esmm:Type>\r
+         <esmm:DocType>?</esmm:DocType>\r
+         <esmm:Year>?</esmm:Year>\r
+         <esmm:Month>?</esmm:Month>\r
+         <!--Zero or more repetitions:-->\r
+         <esmm:Parameters>\r
+            <esmm:Name>?</esmm:Name>\r
+            <esmm:Value>?</esmm:Value>\r
+         </esmm:Parameters>\r
+      </esmm:getReportListRequest>\r
+   </soapenv:Body>\r
+</soapenv:Envelope>]]></con:request><con:wsaConfig mustUnderstand="NONE" version="200508" action="getReportList"/></con:call></con:operation><con:operation id="e31b5ead-7905-4ecc-a4ef-2f18b7fb6d90" isOneWay="false" action="sendDocument" name="sendDocument" bindingOperationName="sendDocument" type="Request-Response" inputName="" receivesAttachments="false" sendsAttachments="false" anonymous="optional"><con:settings/><con:call id="ea16e0f8-724f-4bf4-935d-26698d9bd7ec" name="Request 1"><con:settings/><con:encoding>UTF-8</con:encoding><con:endpoint>https://istsvs0010:8181/ForibaESmmServices/ForibaESmmServicesPortImplBean</con:endpoint><con:request><![CDATA[<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:esmm="http://foriba.com/eSmm/">\r
+   <soapenv:Header/>\r
+   <soapenv:Body>\r
+      <esmm:sendDocumentRequest>\r
+         <esmm:VKN_TCKN>?</esmm:VKN_TCKN>\r
+         <esmm:Branch>?</esmm:Branch>\r
+         <!--1 or more repetitions:-->\r
+         <esmm:SendDocDetails>\r
+            <esmm:UUID>?</esmm:UUID>\r
+            <esmm:Type>?</esmm:Type>\r
+            <esmm:DocType>?</esmm:DocType>\r
+            <esmm:DocData>cid:1304992458058</esmm:DocData>\r
+            <!--Optional:-->\r
+            <esmm:ViewType>?</esmm:ViewType>\r
+            <!--Zero or more repetitions:-->\r
+            <esmm:Parameters>\r
+               <esmm:Name>?</esmm:Name>\r
+               <esmm:Value>?</esmm:Value>\r
+            </esmm:Parameters>\r
+         </esmm:SendDocDetails>\r
+      </esmm:sendDocumentRequest>\r
+   </soapenv:Body>\r
+</soapenv:Envelope>]]></con:request><con:wsaConfig mustUnderstand="NONE" version="200508" action="sendDocument"/></con:call></con:operation></con:interface><con:properties/><con:wssContainer/><con:oAuth2ProfileContainer/><con:oAuth1ProfileContainer/></con:soapui-project>

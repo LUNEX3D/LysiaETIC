@@ -81,6 +81,21 @@ export const getSyncJobStatus = async (jobId) => {
     return res.data;
 };
 
+export const pauseSyncJob = async (jobId) => {
+    const res = await API.post(`${BASE}/sync/job/${jobId}/pause`);
+    return res.data;
+};
+
+export const resumeSyncJob = async (jobId) => {
+    const res = await API.post(`${BASE}/sync/job/${jobId}/resume`);
+    return res.data;
+};
+
+export const cancelSyncJob = async (jobId) => {
+    const res = await API.post(`${BASE}/sync/job/${jobId}/cancel`);
+    return res.data;
+};
+
 export const distributeProduct = async (productMappingId, targetMarketplaces, categoryData = null) => {
     const category = categoryData
         ? {
@@ -421,6 +436,12 @@ export const uploadProductImage = async (file) => {
     return res.data;
 };
 
+/** AI görsel düzenleme — arka plan, upscale, nesne kaldırma */
+export const editProductImageAi = async ({ imageUrl, action, maskBase64 }) => {
+    const res = await API.post(`${BASE}/images/ai-edit`, { imageUrl, action, maskBase64 });
+    return res.data;
+};
+
 /**
  * Barkod ve SKU önerisi al
  * @param {string} productName - Ürün adı
@@ -561,6 +582,28 @@ export const exportProducts = async (params = {}) => {
  */
 export const distributeUndistributed = async (options = {}) => {
     const res = await API.post(`${BASE}/sync/distribute-undistributed`, options);
+    return res.data;
+};
+
+/** Platform bazlı eksik ürün önizlemesi (Kategori Merkezi durumu ile) */
+export const getMissingDistributionPreview = async (params = {}) => {
+    const res = await API.get(`${BASE}/sync/missing-distribution-preview`, { params });
+    return res.data;
+};
+
+/** Eksikleri dağıt — arka plan job (canlı takip için jobId) */
+export const startMissingDistributionJob = async (body = {}) => {
+    const res = await API.post(`${BASE}/sync/missing-distribution-job`, body);
+    return res.data;
+};
+
+/** Tek ürün + platform dağıt (manuel kategori opsiyonel) */
+export const distributeMissingItem = async (productId, platform, category = null) => {
+    const res = await API.post(`${BASE}/sync/distribute-missing-item`, {
+        productId,
+        platform,
+        ...(category ? { category } : {}),
+    });
     return res.data;
 };
 

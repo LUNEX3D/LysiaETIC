@@ -1,0 +1,252 @@
+/* Puck editör — Türkçe, okunaklı */
+.ec-puck-host {
+    height: 100%;
+    font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+.ec-puck-host .Puck {
+    --puck-color-grey-01: #f8fafc;
+    --puck-color-grey-02: #e2e8f0;
+    --puck-color-grey-03: #cbd5e1;
+    --puck-color-grey-04: #94a3b8;
+    --puck-color-grey-05: #64748b;
+    --puck-color-grey-06: #475569;
+    --puck-color-grey-07: #334155;
+    --puck-color-grey-08: #1e293b;
+    --puck-color-grey-09: #0f172a;
+    --puck-color-azure-04: #6366f1;
+    height: 100%;
+}
+
+.ec-puck-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px;
+    background: #1e293b;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.ec-puck-header__title {
+    font-size: 14px;
+    font-weight: 700;
+    color: #f1f5f9;
+}
+
+.ec-puck-header__actions {
+    display: flex;
+    gap: 8px;
+}
+
+.ec-grapes-preview-panel {
+    width: 420px;
+    flex-shrink: 0;
+    background: #0f172a;
+    border-left: 1px solid rgba(99, 102, 241, 0.25);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.ec-grapes-preview-panel__head {
+    padding: 12px 14px;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.15);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    color: #e2e8f0;
+    font-size: 13px;
+}
+
+.ec-grapes-preview-panel__devices {
+    display: flex;
+    gap: 4px;
+}
+
+.ec-grapes-preview-panel__devices button {
+    border: 1px solid rgba(148, 163, 184, 0.25);
+    background: transparent;
+    color: #94a3b8;
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.ec-grapes-preview-panel__devices button.is-active {
+    background: rgba(99, 102, 241, 0.25);
+    color: #c7d2fe;
+    border-color: rgba(129, 140, 248, 0.45);
+}
+
+.ec-grapes-preview-panel__puck {
+    flex: 1;
+    overflow: auto;
+    background: #fff;
+}
+
+.ec-grapes-workspace--with-preview .ec-grapes-body {
+    min-width: 0;
+}
+
+.ec-grapes-preview {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    background: #1e293b;
+}
+
+.ec-grapes-preview__chrome {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    background: #334155;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.2);
+}
+
+.ec-grapes-preview__dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #64748b;
+}
+
+.ec-grapes-preview__label {
+    margin-left: auto;
+    font-size: 11px;
+    color: #94a3b8;
+    font-weight: 600;
+}
+
+.ec-grapes-preview__viewport {
+    flex: 1;
+    overflow: auto;
+    padding: 16px;
+    display: flex;
+    justify-content: center;
+    background: #475569;
+}
+
+.ec-grapes-preview__frame-wrap {
+    background: #fff;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+    border-radius: 8px;
+    overflow: hidden;
+    min-height: 200px;
+}
+
+.ec-grapes-preview__iframe {
+    width: 100%;
+    min-height: 480px;
+    border: none;
+    display: block;
+    background: #fff;
+}
+
+.ec-grapes-btn--publish {
+    background: linear-gradient(135deg, #059669, #10b981) !important;
+    color: #fff !important;
+    font-weight: 700;
+    border: none;
+}
+
+.ec-grapes-btn--publish:hover:not(:disabled) {
+    filter: brightness(1.08);
+}
+
+.ec-grapes-topbar__live,
+.ec-grapes-topbar__draft {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 999px;
+    margin-left: 10px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.ec-grapes-topbar__live {
+    background: rgba(16, 185, 129, 0.2);
+    color: #6ee7b7;
+}
+
+.ec-grapes-topbar__draft {
+    background: rgba(251, 191, 36, 0.15);
+    color: #fcd34d;
+}
+
+.ec-mp__steps--prominent {
+    margin-bottom: 20px;
+}
+
+.ec-grapes-engine-switch {
+    display: flex;
+    gap: 4px;
+    margin-left: 12px;
+    padding: 3px;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 8px;
+}
+
+.ec-grapes-engine-switch__btn {
+    border: none;
+    background: transparent;
+    color: #94a3b8;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 6px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+}
+
+.ec-grapes-engine-switch__btn.is-active {
+    background: rgba(99, 102, 241, 0.35);
+    color: #e0e7ff;
+}
+
+.wb-grapes-page-view,
+.wb-puck-page-view {
+    width: 100%;
+    min-height: 100%;
+}
+
+.ec-theme-hub__preview--visual {
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid #e2e8f0;
+    min-height: 280px;
+    background: #f8fafc;
+}
+
+.ec-theme-hub__preview--visual .ec-grapes-preview__viewport {
+    padding: 8px;
+    background: #e2e8f0;
+}
+
+.ec-theme-hub__preview--visual .ec-grapes-preview__iframe {
+    min-height: 320px;
+}
+
+.ec-theme-hub__puck-preview {
+    max-height: 420px;
+    overflow: auto;
+    background: #fff;
+    transform-origin: top center;
+}
+
+.ec-theme-hub__grapes-preview .ec-grapes-preview__chrome {
+    display: none;
+}
+
+.ec-theme-hub__grapes-preview .ec-grapes-preview__viewport {
+    padding: 0;
+    background: #f8fafc;
+}
+
+.ec-theme-hub__grapes-preview .ec-grapes-preview__frame-wrap {
+    border-radius: 0;
+    box-shadow: none;
+}

@@ -78,5 +78,20 @@ export const resetPlanDefinitionsToDefaults = () => API.post(`${BASE}/plan-defin
 // ─── 13. Public Paket Bilgileri (Auth gerektirmez) ────────────────────────────
 export const getPublicPlans = () => API.get(`${BASE}/public/plans`);
 
+// ─── 14. Giriş Sayfası CMS ───────────────────────────────────────────────────
+export const getLoginPageConfig = () => API.get(`${BASE}/login-page`);
+export const updateLoginPageConfig = (data) => API.put(`${BASE}/login-page`, { data });
+export const addLoginPagePartner = (formData) =>
+    API.post(`${BASE}/login-page/partners`, formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+    });
+export const updateLoginPagePartner = (id, formData) =>
+    API.put(`${BASE}/login-page/partners/${id}`, formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+    });
+export const deleteLoginPagePartner = (id) => API.delete(`${BASE}/login-page/partners/${id}`);
+export const seedLoginPagePartnerTemplate = (replace = false) =>
+    API.post(`${BASE}/login-page/partners/seed-template`, { replace });
+
 // ─── 14. İstemci Hata Kayıtları (Admin) ───────────────────────────────────────
 export const getClientErrorsAdmin = (params) => API.get("/client-errors/admin", { params });

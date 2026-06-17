@@ -1,7 +1,18 @@
 import React from "react";
-import { FaClock, FaExclamationCircle, FaSync, FaSpinner } from "react-icons/fa";
-import { FILTER_OPTIONS, PRODUCT_SORT_OPTIONS, MAIN_TABS } from "../../constants/radarProLabels";
+import { FaClock, FaExclamationCircle, FaFilter } from "react-icons/fa";
+import { FILTER_OPTIONS, PRODUCT_SORT_OPTIONS } from "../../constants/radarProLabels";
 import { scoreColor, formatMoney } from "./radarUtils";
+
+function KpiCard({ label, value, accent, valueColor }) {
+    return (
+        <div className={`rp-kpi-card ${accent ? "rp-kpi-card--accent" : ""}`}>
+            <span className="rp-kpi-card-label">{label}</span>
+            <strong className="rp-kpi-card-value" style={valueColor ? { color: valueColor } : undefined}>
+                {value}
+            </strong>
+        </div>
+    );
+}
 
 export default function RadarToolbar({
     mainTab,
@@ -14,111 +25,104 @@ export default function RadarToolbar({
     oppStats,
     loading,
     opportunitiesTabActive,
-    refreshing,
-    onRefresh,
 }) {
-    const tabMeta = MAIN_TABS.find((t) => t.key === mainTab);
+    const showOppKpis = oppStats && mainTab === "opportunities" && !loading;
+    const showProductKpis = mainTab === "products" && productStats?.total > 0 && !loading;
 
     return (
-        <header className="rp-toolbar">
-            <div className="rp-toolbar-head">
-                <div>
-                    <h1>{tabMeta?.label}</h1>
-                    <p>{tabMeta?.desc}</p>
+        <div className="rp-toolbar">
+            {(showOppKpis || showProductKpis) && (
+                <div className="rp-kpi-grid">
+                    {showOppKpis && (
+                        <>
+                            <KpiCard label="Listelenen fırsat" value={oppStats.count} />
+                            <KpiCard label="Ortalama skor" value={oppStats.avg} valueColor={scoreColor(oppStats.avg)} />
+                            <KpiCard label="Güçlü fırsat (75+)" value={oppStats.strong} accent />
+                        </>
+                    )}
+                    {showProductKpis && (
+                        <>
+                            <KpiCard label="Ürün örneği" value={productStats.total} />
+                            <KpiCard
+                                label="Ort. skor"
+                                value={productStats.avgScore}
+                                valueColor={scoreColor(productStats.avgScore)}
+                            />
+                            <KpiCard label="Ort. kâr" value={formatMoney(productStats.avgProfit)} accent />
+                        </>
+                    )}
                 </div>
-                <button
-                    type="button"
-                    className="rp-cta rp-toolbar-refresh"
-                    onClick={onRefresh}
-                    disabled={refreshing}
-                >
-                    {refreshing ? <FaSpinner className="rp-spin" /> : <FaSync />}
-                    Analiz
-                </button>
-                {opportunitiesTabActive && radarMeta?.newestFreshness && (
-                    <div className={`rp-toolbar-meta ${radarMeta.isStale ? "is-warn" : ""}`}>
-                        <FaClock />
-                        <span>
-                            Son analiz:{" "}
-                            {new Date(radarMeta.newestFreshness).toLocaleString("tr-TR", {
-                                dateStyle: "short",
-                                timeStyle: "short",
-                            })}
-                        </span>
-                        {radarMeta.isStale && (
-                            <span className="rp-pill rp-pill--warn">
-                                <FaExclamationCircle /> Güncelle
-                            </span>
-                        )}
-                    </div>
-                )}
-            </div>
+            )}
 
-            {oppStats && mainTab === "opportunities" && !loading && (
-                <div className="rp-kpi-row">
-                    <div className="rp-kpi">
-                        <span>Listelenen</span>
-                        <strong>{oppStats.count}</strong>
-                    </div>
-                    <div className="rp-kpi">
-                        <span>Ort. skor</span>
-                        <strong style={{ color: scoreColor(oppStats.avg) }}>{oppStats.avg}</strong>
-                    </div>
-                    <div className="rp-kpi rp-kpi--hot">
-                        <span>Güçlü (75+)</span>
-                        <strong>{oppStats.strong}</strong>
-                    </div>
+            {opportunitiesTabActive && radarMeta?.newestFreshness && (
+                <div className={`rp-meta-strip ${radarMeta.isStale ? "is-stale" : ""}`}>
+                    <FaClock aria-hidden />
+                    <span>
+                        Son analiz:{" "}
+                        {new Date(radarMeta.newestFreshness).toLocaleString("tr-TR", {
+                            dateStyle: "short",
+                            timeStyle: "short",
+                        })}
+                    </span>
+                    {radarMeta.isStale && (
+                        <span className="rp-meta-strip-warn">
+                            <FaExclamationCircle /> Güncelleme önerilir
+                        </span>
+                    )}
+                    {radarMeta.nextRotationAt && (
+                        <>
+                            <span className="rp-meta-strip-dot" />
+                            <span className="rp-meta-strip-sub">
+                                Sonraki rotasyon:{" "}
+                                {new Date(radarMeta.nextRotationAt).toLocaleString("tr-TR", {
+                                    dateStyle: "short",
+                                    timeStyle: "short",
+                                })}
+                            </span>
+                        </>
+                    )}
                 </div>
             )}
 
             {mainTab === "opportunities" && (
                 <div className="rp-filter-bar">
-                    {FILTER_OPTIONS.map((f) => (
-                        <button
-                            key={f.key}
-                            type="button"
-                            className={`rp-filter ${activeFilter === f.key ? "is-active" : ""}`}
-                            onClick={() => onFilterChange(f.key)}
-                        >
-                            {f.label}
-                        </button>
-                    ))}
+                    <span className="rp-filter-bar-label">
+                        <FaFilter aria-hidden /> Sırala
+                    </span>
+                    <div className="rp-filter-pills">
+                        {FILTER_OPTIONS.map((f) => (
+                            <button
+                                key={f.key}
+                                type="button"
+                                className={`rp-pill ${activeFilter === f.key ? "is-active" : ""}`}
+                                onClick={() => onFilterChange(f.key)}
+                            >
+                                {f.label}
+                            </button>
+                        ))}
+                    </div>
                 </div>
             )}
 
             {mainTab === "products" && (
                 <div className="rp-filter-bar">
-                    <span className="rp-filter-label">Sırala</span>
-                    {PRODUCT_SORT_OPTIONS.map((s) => (
-                        <button
-                            key={s.key}
-                            type="button"
-                            className={`rp-filter ${productSort === s.key ? "is-active" : ""}`}
-                            onClick={() => onProductSortChange(s.key)}
-                        >
-                            {s.label}
-                        </button>
-                    ))}
-                    {productStats?.total > 0 && (
-                        <span className="rp-filter-extra">
-                            Ort. skor{" "}
-                            <b style={{ color: scoreColor(productStats.avgScore) }}>{productStats.avgScore}</b>
-                            <span className="rp-filter-dot" />
-                            Ort. kâr <b>{formatMoney(productStats.avgProfit)}</b>
-                        </span>
-                    )}
+                    <span className="rp-filter-bar-label">
+                        <FaFilter aria-hidden /> Sırala
+                    </span>
+                    <div className="rp-filter-pills">
+                        {PRODUCT_SORT_OPTIONS.map((s) => (
+                            <button
+                                key={s.key}
+                                type="button"
+                                className={`rp-pill ${productSort === s.key ? "is-active" : ""}`}
+                                onClick={() => onProductSortChange(s.key)}
+                            >
+                                {s.label}
+                            </button>
+                        ))}
+                    </div>
                 </div>
             )}
-
-            {opportunitiesTabActive && radarMeta?.nextRotationAt && !loading && (
-                <p className="rp-toolbar-hint">
-                    Liste 3 saatte bir karışır · Sonraki:{" "}
-                    {new Date(radarMeta.nextRotationAt).toLocaleString("tr-TR", {
-                        dateStyle: "short",
-                        timeStyle: "short",
-                    })}
-                </p>
-            )}
-        </header>
+        </div>
     );
 }

@@ -1,0 +1,11 @@
+<svg width="512" height="512" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Dashtock mono">
+  <rect x="8" y="8" width="104" height="104" rx="26" fill="#6366f1"/>
+  <g stroke="#ffffff" stroke-width="3.5" stroke-linecap="round" opacity="0.9">
+    <line x1="72" y1="44" x2="92" y2="44"/>
+    <line x1="72" y1="56" x2="88" y2="56"/>
+    <line x1="72" y1="68" x2="84" y2="68"/>
+  </g>
+  <path d="M36 34 V86" stroke="#ffffff" stroke-width="7.5" stroke-linecap="round"/>
+  <path d="M36 34 H52 C72 34 84 48 84 60 C84 72 72 86 52 86 H36" stroke="#ffffff" stroke-width="7.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <path d="M78 76 L92 62 M92 62 H82 M92 62 V72" stroke="#fce7f3" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

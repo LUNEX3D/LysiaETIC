@@ -77,4 +77,13 @@ router.get("/system-config", saas.getSystemConfig);
 router.put("/plan-definitions", saas.updatePlanDefinitions);
 router.post("/plan-definitions/reset-defaults", saas.resetPlanDefinitionsToDefaults);
 
+// ─── 13. Giriş Sayfası CMS ───────────────────────────────────────────────────
+const loginPageCtrl = require("../controllers/loginPageConfigController");
+router.get("/login-page", loginPageCtrl.getAdminConfig);
+router.put("/login-page", loginPageCtrl.updateConfig);
+router.post("/login-page/partners", loginPageCtrl.partnerUpload, loginPageCtrl.addPartner);
+router.post("/login-page/partners/seed-template", loginPageCtrl.seedPartnerTemplate);
+router.put("/login-page/partners/:partnerId", loginPageCtrl.partnerUpload, loginPageCtrl.updatePartner);
+router.delete("/login-page/partners/:partnerId", loginPageCtrl.deletePartner);
+
 module.exports = router;

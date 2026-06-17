@@ -1,0 +1,7 @@
+{
+  "template": "index",
+  "sections": [
+    { "type": "hero", "id": "hero-1", "settings": { "headline": "Hoşgeldiniz", "subheadline": "Mağazanız için başlangıç" } },
+    { "type": "product-grid", "id": "pg-1", "settings": { "columns": 4 } }
+  ]
+}

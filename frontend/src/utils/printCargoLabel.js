@@ -228,3 +228,39 @@ export function printCargoLabelOnly(element, title = "Kargo Etiketi") {
     if (printViaIframe(html)) return true;
     return printViaPopup(html);
 }
+
+const BATCH_EXTRA_CSS = `
+.cargo-print-page { width: 100%; }
+.cargo-print-page + .cargo-print-page { page-break-before: always; }
+.cargo-print-page img.cargo-print-img { display: block; width: 100%; height: auto; margin: 0 auto; }
+@media print {
+  .cargo-print-page { page-break-inside: avoid; }
+}
+`;
+
+/**
+ * Birden fazla kargo etiketini TEK yazdırma diyaloğunda, her biri ayrı sayfada yazdırır.
+ * @param {string[]} htmlBlocks - Her biri bir etiketin HTML'i (A4 kart outerHTML'i veya <img …/>)
+ * @param {string} [title]
+ * @returns {boolean}
+ */
+export function printCargoLabelsBatch(htmlBlocks, title = "Kargo Etiketleri") {
+    const blocks = (Array.isArray(htmlBlocks) ? htmlBlocks : []).filter(
+        (h) => typeof h === "string" && h.trim()
+    );
+    if (blocks.length === 0) return false;
+
+    const safeTitle = String(title).replace(/</g, "&lt;");
+    const body = blocks
+        .map((h) => `<div class="cargo-print-page">${h}</div>`)
+        .join("");
+    const html =
+        `<!DOCTYPE html><html lang="tr"><head>` +
+        `<meta charset="utf-8"/>` +
+        `<title>${safeTitle}</title>` +
+        `<style>${TY_LABEL_PRINT_CSS}${BATCH_EXTRA_CSS}</style>` +
+        `</head><body>${body}</body></html>`;
+
+    if (printViaIframe(html)) return true;
+    return printViaPopup(html);
+}

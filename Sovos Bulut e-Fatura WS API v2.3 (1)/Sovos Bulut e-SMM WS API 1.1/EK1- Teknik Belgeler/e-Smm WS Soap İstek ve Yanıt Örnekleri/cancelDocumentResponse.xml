@@ -1,0 +1,14 @@
+<SOAP-ENV:Envelope xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+   <SOAP-ENV:Body>
+      <cancelDocumentResponse xmlns="http://foriba.com/eSmm/">
+         <cancelDocumentResponse>
+            <ID>FA72019000000001</ID>
+            <CustDocID>FA72019000000001</CustDocID>
+            <Type>SMM</Type>
+            <DocType>XML</DocType>
+            <Result>1</Result>
+            <ResultDescription>Belge iptal bilgileri basari ile kaydedilmistir.</ResultDescription>
+         </cancelDocumentResponse>
+      </cancelDocumentResponse>
+   </SOAP-ENV:Body>
+</SOAP-ENV:Envelope>

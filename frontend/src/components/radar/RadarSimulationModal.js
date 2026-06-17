@@ -20,6 +20,7 @@ export default function RadarSimulationModal({ opp, onClose }) {
         try {
             const res = await simulateOpportunity({
                 opportunityId: opp._id,
+                snapshot: opp.ephemeral ? opp : undefined,
                 targetPrice: parseFloat(targetPrice),
                 estimatedMonthlySales: parseInt(monthlySales, 10),
                 investmentAmount: parseFloat(investment) || undefined,

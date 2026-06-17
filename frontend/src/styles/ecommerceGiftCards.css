@@ -1,0 +1,330 @@
+/* Hediye kartları — liste + form */
+.ec-gift-cards-page .ec-prod-panel {
+    min-height: auto;
+}
+
+.ec-page-body--flush .ec-gift-card-form-page .ec-prod-form-shell {
+    width: 100%;
+    max-width: none;
+    min-height: calc(100dvh - 3.5rem);
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+    box-shadow: none;
+}
+
+.ec-page-body--flush .ec-gift-card-form-page .ec-prod-form-body {
+    width: 100%;
+    max-width: none;
+    margin: 0;
+    box-sizing: border-box;
+}
+
+.ec-gift-card-form-page .ec-prod-form-body {
+    display: flex;
+    justify-content: center;
+    padding-top: 1.25rem;
+    padding-bottom: 2.5rem;
+}
+
+.ec-gift-card-form-layout {
+    width: 100%;
+    max-width: 720px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+.ec-gift-card-form-layout .ec-prod-section {
+    margin-bottom: 1rem;
+}
+
+.ec-gift-card-form-page .ec-prod-field input,
+.ec-gift-card-form-page .ec-prod-field select,
+.ec-gift-card-form-page .ec-gift-card-amount-row input,
+.ec-gift-card-form-page .ec-gift-card-amount-row select {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 0.55rem 0.7rem;
+    border: 1px solid var(--ec-input-border, var(--ec-border));
+    border-radius: 8px;
+    background: var(--ec-input-bg, var(--ec-bg));
+    color: var(--ec-text);
+    font-size: 0.88rem;
+    font-weight: 500;
+}
+
+.ec-gift-card-form-page .ec-prod-field input:focus,
+.ec-gift-card-form-page .ec-gift-card-amount-row input:focus {
+    outline: none;
+    border-color: var(--ec-accent);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--ec-accent) 22%, transparent);
+}
+
+.ec-gift-card-active-row {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--ec-text);
+    cursor: pointer;
+    user-select: none;
+}
+
+.ec-gift-card-field-label-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-bottom: 0.3rem;
+}
+
+.ec-gift-card-field-label-row label {
+    margin: 0;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--ec-muted);
+}
+
+.ec-gift-card-char-count {
+    margin: 0.25rem 0 0;
+    font-size: 0.75rem;
+    color: color-mix(in srgb, var(--ec-text) 58%, var(--ec-muted));
+    text-align: right;
+}
+
+.ec-gift-card-amount-row {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+}
+
+.ec-gift-card-amount-row input {
+    flex: 1;
+    border-radius: 8px 0 0 8px !important;
+    border-right: none !important;
+}
+
+.ec-gift-card-amount-row__currency {
+    width: 5.25rem !important;
+    flex-shrink: 0;
+    border-radius: 0 8px 8px 0 !important;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.ec-gift-card-req-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+    margin-top: 0.5rem;
+}
+
+.ec-gift-card-req {
+    border: 1px solid var(--ec-border);
+    border-radius: 10px;
+    overflow: hidden;
+    background: color-mix(in srgb, var(--ec-text) 2%, transparent);
+}
+
+.ec-gift-card-req__head {
+    padding: 0.75rem 0.9rem;
+}
+
+.ec-gift-card-req__toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    cursor: pointer;
+    width: 100%;
+}
+
+.ec-gift-card-req__label {
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--ec-text);
+    flex: 1;
+}
+
+.ec-gift-card-req__body {
+    padding: 0 0.9rem 0.9rem;
+    border-top: 1px solid var(--ec-border);
+    padding-top: 0.85rem;
+    margin-top: 0;
+}
+
+.ec-gift-card-req__body .ec-prod-field {
+    margin: 0;
+}
+
+.ec-gift-card-switch {
+    position: relative;
+    width: 44px;
+    height: 24px;
+    flex-shrink: 0;
+}
+
+.ec-gift-card-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+    position: absolute;
+}
+
+.ec-gift-card-switch span {
+    position: absolute;
+    inset: 0;
+    background: color-mix(in srgb, var(--ec-text) 22%, transparent);
+    border-radius: 999px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.ec-gift-card-switch span::before {
+    content: "";
+    position: absolute;
+    width: 18px;
+    height: 18px;
+    left: 3px;
+    top: 3px;
+    background: #fff;
+    border-radius: 50%;
+    transition: transform 0.2s;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.ec-gift-card-switch input:checked + span {
+    background: var(--ec-accent);
+}
+
+.ec-gift-card-switch input:checked + span::before {
+    transform: translateX(20px);
+}
+
+.ec-gift-card-channel-list {
+    list-style: none;
+    margin: 0.5rem 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.ec-gift-card-channel-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 0.85rem 1rem;
+    border: 1px solid var(--ec-border);
+    border-radius: 10px;
+    cursor: pointer;
+    background: var(--ec-card);
+    transition: border-color 0.15s, background 0.15s;
+}
+
+.ec-gift-card-channel-row:hover {
+    border-color: color-mix(in srgb, var(--ec-accent) 40%, var(--ec-border));
+}
+
+.ec-gift-card-channel-row--on {
+    border-color: color-mix(in srgb, var(--ec-accent) 55%, var(--ec-border));
+    background: color-mix(in srgb, var(--ec-accent) 8%, transparent);
+}
+
+.ec-gift-card-channel-row input[type="checkbox"] {
+    width: 1.05rem !important;
+    height: 1.05rem !important;
+    min-width: 1.05rem !important;
+    margin: 0.2rem 0 0 !important;
+    accent-color: var(--ec-accent);
+    appearance: auto !important;
+    -webkit-appearance: checkbox !important;
+    cursor: pointer;
+}
+
+.ec-gift-card-channel-row__main {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    min-width: 0;
+}
+
+.ec-gift-card-channel-row__main strong {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--ec-text);
+}
+
+.ec-gift-card-channel-row__main span {
+    font-size: 0.8rem;
+    color: color-mix(in srgb, var(--ec-text) 62%, var(--ec-muted));
+    word-break: break-all;
+}
+
+/* Rozetler + detay */
+.ec-gift-card-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.2rem 0.55rem;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.ec-gift-card-badge--active {
+    background: rgba(74, 222, 128, 0.12);
+    color: #4ade80;
+}
+
+.ec-gift-card-badge--inactive {
+    background: color-mix(in srgb, var(--ec-text) 10%, transparent);
+    color: color-mix(in srgb, var(--ec-text) 65%, var(--ec-muted));
+}
+
+.ec-gift-card-badge--pending {
+    background: rgba(251, 191, 36, 0.15);
+    color: #fbbf24;
+}
+
+.ec-gift-card-code-pill {
+    display: inline-block;
+    padding: 0.35rem 0.75rem;
+    border-radius: 8px;
+    border: 1px solid var(--ec-border);
+    background: color-mix(in srgb, var(--ec-text) 4%, transparent);
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    font-size: 0.9rem;
+}
+
+.ec-gift-card-detail-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 1rem 1.25rem;
+}
+
+.ec-gift-card-detail-grid dt {
+    font-size: 0.78rem;
+    color: color-mix(in srgb, var(--ec-text) 62%, var(--ec-muted));
+    margin: 0 0 0.25rem;
+}
+
+.ec-gift-card-detail-grid dd {
+    margin: 0;
+    font-weight: 600;
+    color: var(--ec-text);
+}
+
+@media (max-width: 640px) {
+    .ec-gift-card-form-page .ec-prod-head-actions {
+        width: 100%;
+        justify-content: flex-end;
+    }
+
+    .ec-gift-card-form-layout {
+        max-width: none;
+    }
+}

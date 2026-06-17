@@ -30,9 +30,9 @@ import "../styles/ProductUploadWizard.css";
 /* ═══════════════════════════════════════════════════════════════
    SABİTLER
    ═══════════════════════════════════════════════════════════════ */
-const PLATFORMS = ["Trendyol", "Hepsiburada", "N11", "Amazon", "ÇiçekSepeti"];
+const PLATFORMS = ["Trendyol", "Hepsiburada", "N11", "Amazon", "ÇiçekSepeti", "Ozon"];
 /** Ürün oluşturma API’si olan pazaryerleri (Amazon vb. listede gösterilmez / dağıtılmaz). */
-const SUPPORTED_UPLOAD_MARKETPLACES = new Set(["Trendyol", "Hepsiburada", "N11", "ÇiçekSepeti"]);
+const SUPPORTED_UPLOAD_MARKETPLACES = new Set(["Trendyol", "Hepsiburada", "N11", "ÇiçekSepeti", "Ozon"]);
 
 /** Backend `productSyncService.normalizeMarketplaceName` ile aynı — DB’de "n11" kayıtlı olsa bile hedef listede görünsün */
 const normalizeMarketplaceName = (name) => {
@@ -43,6 +43,7 @@ const normalizeMarketplaceName = (name) => {
     if (n === "n11") return "N11";
     if (n === "amazon") return "Amazon";
     if (n === "çiçeksepeti" || n === "ciceksepeti") return "ÇiçekSepeti";
+    if (n === "ozon") return "Ozon";
     return String(name).trim();
 };
 /** Bu pazaryerlerine dağıtım için en az bir herkese açık görsel URL gerekir (backend ile uyumlu). */
@@ -57,9 +58,9 @@ const normalizePublicImageUrls = (urls, targets) => {
         return u;
     });
 };
-const PL_COLOR = { Trendyol: "#f27a1a", Hepsiburada: "#ff6000", N11: "#8b5cf6", Amazon: "#f59e0b", ÇiçekSepeti: "#ec4899" };
-const PL_SHORT = { Trendyol: "TY", Hepsiburada: "HB", N11: "N11", Amazon: "AZ", ÇiçekSepeti: "ÇS" };
-const PL_ICON = { Trendyol: "🟠", Hepsiburada: "🔶", N11: "🟣", Amazon: "🟡", ÇiçekSepeti: "🌸" };
+const PL_COLOR = { Trendyol: "#f27a1a", Hepsiburada: "#ff6000", N11: "#8b5cf6", Amazon: "#f59e0b", ÇiçekSepeti: "#ec4899", Ozon: "#005bff" };
+const PL_SHORT = { Trendyol: "TY", Hepsiburada: "HB", N11: "N11", Amazon: "AZ", ÇiçekSepeti: "ÇS", Ozon: "OZ" };
+const PL_ICON = { Trendyol: "🟠", Hepsiburada: "🔶", N11: "🟣", Amazon: "🟡", ÇiçekSepeti: "🌸", Ozon: "🔵" };
 
 /* ═══════════════════════════════════════════════════════════════
    YARDIMCI: API response'dan kategori dizisini çıkar

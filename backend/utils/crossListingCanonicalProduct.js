@@ -4,6 +4,7 @@
  */
 
 const logger = require("../config/logger");
+const { resolveProductBrandName } = require("./resolveProductBrandName");
 
 const CANONICAL_SOURCE = "Trendyol";
 
@@ -90,25 +91,43 @@ const prepareCrossListingProduct = (product, opts = {}) => {
 
     const ca = customAttributesToPlain(tyMap.customAttributes);
     const tyAttrs = ca.trendyolAttributes;
+    const masterBrand = resolveProductBrandName(out) || String(out.brand || out.marka || "").trim();
+    const filterTyBrandRows = (rows) => {
+        if (!Array.isArray(rows)) return rows;
+        if (!masterBrand) return rows;
+        return rows.filter((row) => {
+            const n = String(row?.attributeName || row?.name || "").toLowerCase();
+            const isBrandRow =
+                /^marka$|^brand$/i.test(n) ||
+                (n.includes("marka") && !n.includes("model") && !n.includes("numara"));
+            return !isBrandRow;
+        });
+    };
     if (Array.isArray(tyAttrs) && tyAttrs.length > 0) {
+        const filtered = filterTyBrandRows(tyAttrs);
         const rows = out.attributes.trendyolAttributeRows;
         const missingRows = !Array.isArray(rows) || rows.length === 0;
-        if (missingRows) {
+        if (missingRows && filtered.length > 0) {
             out = {
                 ...out,
                 attributes: {
                     ...out.attributes,
-                    trendyolAttributeRows: tyAttrs
+                    trendyolAttributeRows: filtered
                 }
             };
             logger.info(
-                `[CROSS-LIST] Trendyol kanonik: trendyolAttributes (${tyAttrs.length} satır) → attributes.trendyolAttributeRows ` +
+                `[CROSS-LIST] Trendyol kanonik: trendyolAttributes (${filtered.length} satır) → attributes.trendyolAttributeRows ` +
                     `(hedef=${target || "—"} sku=${out.sku || out.barcode || "-"})`
             );
         }
     }
 
-    if (ca.brandId != null && `${ca.brandId}`.trim() !== "" && (out.attributes.brandId == null || out.attributes.brandId === "")) {
+    if (
+        !masterBrand &&
+        ca.brandId != null &&
+        `${ca.brandId}`.trim() !== "" &&
+        (out.attributes.brandId == null || out.attributes.brandId === "")
+    ) {
         const bid = Number(ca.brandId);
         if (Number.isFinite(bid)) {
             out = {

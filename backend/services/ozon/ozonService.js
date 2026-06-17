@@ -297,6 +297,54 @@ const importOzonProduct = async (credentials, payload) => {
     };
 };
 
+/**
+ * Ozon kategori ağacı — POST /v1/description-category/tree
+ * Yaprak düğümler category_id + type_id çifti olarak döner (id: "catId:typeId")
+ */
+const flattenOzonCategoryTree = (nodes, parentPath = []) => {
+    const out = [];
+    if (!Array.isArray(nodes)) return out;
+
+    for (const node of nodes) {
+        const catName = String(node.category_name || node.title || "").trim();
+        const typeName = String(node.type_name || "").trim();
+        const catId = node.description_category_id ?? node.category_id;
+        const typeId = node.type_id;
+        const pathParts = typeName
+            ? [...parentPath, catName, typeName].filter(Boolean)
+            : [...parentPath, catName].filter(Boolean);
+        const pathStr = pathParts.join(" > ");
+
+        if (typeId != null && catId != null) {
+            out.push({
+                id: `${catId}:${typeId}`,
+                categoryId: catId,
+                typeId,
+                name: typeName || catName,
+                path: pathStr,
+                leaf: true,
+            });
+        }
+
+        const children = node.children || [];
+        const childPath = catName ? [...parentPath, catName] : parentPath;
+        if (children.length) {
+            out.push(...flattenOzonCategoryTree(children, childPath));
+        }
+    }
+    return out;
+};
+
+const fetchOzonCategoryTree = async (credentials) => {
+    const data = await ozonPost(credentials, "/v1/description-category/tree", {
+        language: "DEFAULT",
+    });
+    const roots = data.result || [];
+    const flat = flattenOzonCategoryTree(roots);
+    logger.info(`[Ozon] Kategori ağacı: ${flat.length} yaprak (category_id:type_id)`);
+    return flat;
+};
+
 const buildOzonImportItem = (product, categoryId, typeId) => {
     const offerId =
         String(product.stockCode || product.sku || product.barcode || "").trim();
@@ -356,4 +404,6 @@ module.exports = {
     fetchOzonPackageLabel,
     importOzonProduct,
     buildOzonImportItem,
+    fetchOzonCategoryTree,
+    flattenOzonCategoryTree,
 };

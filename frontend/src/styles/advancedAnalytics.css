@@ -66,7 +66,7 @@
     display: flex; align-items: center; gap: 0.75rem;
 }
 
-.aa-header-left p { color: #64748b; font-size: 0.82rem; margin: 0; }
+.aa-header-left p { color: #94a3b8; font-size: 0.9rem; margin: 0; }
 
 .aa-header-right {
     display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap;
@@ -120,8 +120,8 @@
 }
 
 .aa-kpi-body { flex: 1; display: flex; flex-direction: column; gap: 0.15rem; min-width: 0; }
-.aa-kpi-title { font-size: 0.7rem; color: #64748b; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; }
-.aa-kpi-value { font-size: 1.15rem; font-weight: 700; color: #f1f5f9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.aa-kpi-title { font-size: 0.78rem; color: #94a3b8; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+.aa-kpi-value { font-size: 1.35rem; font-weight: 800; color: #f8fafc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .aa-kpi-footer { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
 
@@ -131,7 +131,7 @@
 }
 .aa-kpi-change.up { background: rgba(34, 197, 94, 0.1); color: #22c55e; }
 .aa-kpi-change.down { background: rgba(239, 68, 68, 0.1); color: #ef4444; }
-.aa-kpi-sub { font-size: 0.68rem; color: #475569; }
+.aa-kpi-sub { font-size: 0.75rem; color: #94a3b8; font-weight: 500; }
 
 /*  Tabs  */
 .aa-tabs {
@@ -143,15 +143,16 @@
 .aa-tabs::-webkit-scrollbar { display: none; }
 
 .aa-tab {
-    padding: 0.6rem 1.1rem; background: transparent; border: none;
-    border-radius: 10px; color: #64748b; cursor: pointer;
+    padding: 0.65rem 1.2rem; background: transparent; border: none;
+    border-radius: 10px; color: #94a3b8; cursor: pointer;
     display: flex; align-items: center; gap: 0.5rem;
-    font-size: 0.8rem; font-weight: 500; transition: all 0.3s ease; white-space: nowrap;
+    font-size: 0.88rem; font-weight: 600; transition: all 0.3s ease; white-space: nowrap;
 }
-.aa-tab:hover { color: #94a3b8; background: rgba(255, 255, 255, 0.03); }
+.aa-tab:hover { color: #cbd5e1; background: rgba(255, 255, 255, 0.05); }
 .aa-tab.active {
-    background: linear-gradient(135deg, rgba(78, 205, 196, 0.15) 0%, rgba(59, 130, 246, 0.1) 100%);
-    color: #4ecdc4; font-weight: 600; box-shadow: 0 2px 10px rgba(78, 205, 196, 0.1);
+    background: linear-gradient(135deg, rgba(78, 205, 196, 0.2) 0%, rgba(59, 130, 246, 0.12) 100%);
+    color: #6ee7de; font-weight: 700; box-shadow: 0 2px 12px rgba(78, 205, 196, 0.15);
+    border: 1px solid rgba(78, 205, 196, 0.25);
 }
 
 .aa-tab-content { min-height: 300px; overflow: hidden; }
@@ -179,7 +180,7 @@
     display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;
 }
 .aa-card-head h3 {
-    font-size: 1rem; font-weight: 600; color: #e2e8f0; margin: 0;
+    font-size: 1.05rem; font-weight: 700; color: #f1f5f9; margin: 0;
     display: flex; align-items: center; gap: 0.6rem;
 }
 
@@ -188,7 +189,7 @@
     color: #4ecdc4; border-radius: 6px; font-size: 0.72rem; font-weight: 600;
 }
 
-.aa-card-body { color: #94a3b8; min-width: 0; overflow: hidden; }
+.aa-card-body { color: #cbd5e1; min-width: 0; overflow: hidden; }
 
 .aa-link-btn {
     background: none; border: none; color: #4ecdc4; cursor: pointer;
@@ -219,10 +220,10 @@
     padding: 1rem; background: rgba(15, 23, 42, 0.5); border-radius: 12px;
     display: flex; flex-direction: column; gap: 0.3rem;
 }
-.aa-ds-label { font-size: 0.75rem; color: #64748b; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
-.aa-ds-value { font-size: 1.3rem; font-weight: 800; color: #f1f5f9; }
+.aa-ds-label { font-size: 0.8rem; color: #94a3b8; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+.aa-ds-value { font-size: 1.35rem; font-weight: 800; color: #f8fafc; }
 .aa-ds-compare { display: flex; align-items: center; gap: 0.5rem; }
-.aa-ds-prev { font-size: 0.72rem; color: #64748b; }
+.aa-ds-prev { font-size: 0.78rem; color: #94a3b8; font-weight: 500; }
 .aa-ds-change {
     display: inline-flex; align-items: center; gap: 0.15rem;
     font-size: 0.7rem; font-weight: 700; padding: 0.1rem 0.4rem; border-radius: 4px;
@@ -351,14 +352,15 @@
 
 .aa-table { width: 100%; border-collapse: collapse; }
 .aa-table th {
-    text-align: left; padding: 0.7rem 0.8rem;
-    font-size: 0.7rem; font-weight: 600; color: #64748b;
-    border-bottom: 2px solid rgba(78, 205, 196, 0.1);
-    text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap;
+    text-align: left; padding: 0.75rem 0.85rem;
+    font-size: 0.75rem; font-weight: 700; color: #94a3b8;
+    border-bottom: 2px solid rgba(78, 205, 196, 0.15);
+    text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap;
+    background: rgba(15, 23, 42, 0.5);
 }
 .aa-table td {
-    padding: 0.6rem 0.8rem; border-bottom: 1px solid rgba(30, 41, 59, 0.5);
-    font-size: 0.82rem; color: #cbd5e1;
+    padding: 0.7rem 0.85rem; border-bottom: 1px solid rgba(30, 41, 59, 0.6);
+    font-size: 0.88rem; color: #e2e8f0; font-weight: 500;
 }
 .aa-table tr:hover td { background: rgba(15, 23, 42, 0.5); }
 
@@ -633,3 +635,91 @@
     .aa-kpi-value { font-size: 1rem; }
     .aa-header-left h1 { font-size: 1.2rem; }
 }
+
+/*  Hak Ediş (Payout)  */
+.aa-sync-btn { background: linear-gradient(135deg, #6366f1, #8b5cf6); color: #fff; border: none; }
+.aa-sync-btn:hover:not(:disabled) { filter: brightness(1.08); }
+
+.aa-psg-item {
+    background: linear-gradient(145deg, rgba(15, 23, 42, 0.9), rgba(30, 41, 59, 0.5));
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 12px; padding: 0.9rem 1rem;
+    display: flex; flex-direction: column; gap: 0.25rem;
+}
+.aa-psg-label { font-size: 0.7rem; color: #64748b; font-weight: 600; text-transform: uppercase; letter-spacing: 0.02em; }
+.aa-psg-value { font-size: 1.25rem; font-weight: 800; color: #e2e8f0; }
+.aa-psg-sub { font-size: 0.72rem; color: #94a3b8; }
+
+.aa-payout-audit {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 0.75rem;
+    padding: 0 0 0.75rem;
+}
+.aa-pa-item {
+    display: flex; flex-direction: column; align-items: center; gap: 0.2rem;
+    padding: 0.75rem; border-radius: 10px; background: rgba(15, 23, 42, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.04);
+}
+.aa-pa-num { font-size: 1.4rem; font-weight: 800; color: #e2e8f0; }
+.aa-pa-lbl { font-size: 0.72rem; color: #94a3b8; text-align: center; }
+
+.aa-payout-warning {
+    display: flex; align-items: center; gap: 0.5rem;
+    padding: 0.65rem 0.85rem; margin-top: 0.6rem;
+    background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.25);
+    border-radius: 10px; color: #fca5a5; font-size: 0.82rem;
+}
+
+.aa-reconcile-box {
+    margin-top: 0.75rem; padding: 0.85rem 1rem;
+    background: rgba(99, 102, 241, 0.06); border: 1px solid rgba(99, 102, 241, 0.22);
+    border-radius: 12px;
+}
+.aa-rb-head { display: flex; align-items: center; gap: 0.5rem; font-weight: 700; color: #c7d2fe; margin-bottom: 0.6rem; }
+.aa-rb-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0.6rem; }
+.aa-rb-grid > div { display: flex; flex-direction: column; gap: 0.15rem; }
+.aa-rb-grid span { font-size: 0.7rem; color: #94a3b8; text-transform: uppercase; }
+.aa-rb-grid strong { font-size: 1rem; color: #e2e8f0; }
+
+.aa-dq-badge {
+    display: inline-block; padding: 0.1rem 0.45rem; margin: 0 0.15rem;
+    border-radius: 6px; font-size: 0.68rem; font-weight: 700; white-space: nowrap;
+}
+.aa-dq-badge.actual { background: rgba(34, 197, 94, 0.12); color: #4ade80; }
+.aa-dq-badge.estimated { background: rgba(245, 158, 11, 0.12); color: #fbbf24; }
+.aa-dq-badge.missing { background: rgba(239, 68, 68, 0.14); color: #f87171; }
+
+.aa-payout-toolbar { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+.aa-payout-filters { display: flex; gap: 0.3rem; }
+.aa-filter-btn {
+    padding: 0.35rem 0.7rem; border-radius: 8px; font-size: 0.76rem; font-weight: 600;
+    background: rgba(15, 23, 42, 0.6); color: #94a3b8;
+    border: 1px solid rgba(255, 255, 255, 0.06); cursor: pointer; transition: all 0.15s;
+}
+.aa-filter-btn:hover { color: #e2e8f0; }
+.aa-filter-btn.active { background: rgba(99, 102, 241, 0.18); color: #c7d2fe; border-color: rgba(99, 102, 241, 0.4); }
+
+.aa-order-no { font-weight: 600; color: #e2e8f0; margin-right: 0.3rem; }
+.aa-comm-rate-sm { font-size: 0.72rem; color: #94a3b8; }
+.aa-row-void { opacity: 0.6; }
+.aa-table-note { font-size: 0.74rem; color: #64748b; padding: 0.5rem; text-align: center; }
+
+/*  Sekme yükleniyor  */
+.aa-tab-loading {
+    display: flex; align-items: center; justify-content: center; gap: 0.5rem;
+    padding: 0.75rem; margin-top: 0.5rem; color: #94a3b8; font-size: 0.85rem;
+}
+
+/*  Hak Ediş — pazaryeri filtresi  */
+.aa-payout-filter-bar { padding: 0.85rem 1.1rem !important; }
+.aa-payout-mp-filter {
+    display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;
+}
+.aa-mp-filter-label { font-size: 0.85rem; font-weight: 700; color: #cbd5e1; margin-right: 0.25rem; }
+.aa-payout-summary-grid { padding: 0.5rem 0; }
+.aa-psg-highlight {
+    border: 1px solid rgba(34, 197, 94, 0.35) !important;
+    background: linear-gradient(145deg, rgba(34, 197, 94, 0.08), rgba(15, 23, 42, 0.9)) !important;
+}
+.aa-psg-label { font-size: 0.72rem; color: #94a3b8; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; }
+.aa-psg-value { font-size: 1.2rem; font-weight: 800; color: #f8fafc; }
+.aa-psg-sub { font-size: 0.75rem; color: #94a3b8; font-weight: 500; }

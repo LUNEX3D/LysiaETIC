@@ -75,6 +75,9 @@ router.post("/qnb/logout", eInvoiceController.qnbLogout);
 // e-Fatura — Kullanıcı & Mükellef Sorgulama
 router.post("/qnb/einvoice/user-check", eInvoiceController.qnbCheckUser);
 router.post("/qnb/einvoice/user-info", eInvoiceController.qnbGetUserInfo);
+router.post("/customer/lookup", eInvoiceController.lookupCustomer);
+router.post("/qnb/customer/lookup", eInvoiceController.lookupCustomer);
+router.post("/sovos/customer/lookup", eInvoiceController.lookupCustomer);
 router.post("/qnb/einvoice/etiket-list", eInvoiceController.qnbGetEtiketList);
 
 // e-Fatura — Numara Üretme & Gönderme
@@ -135,15 +138,55 @@ router.post("/qnb/status", eInvoiceController.qnbCheckServiceStatus);
 //  SOVOS (Foriba)
 // ═══════════════════════════════════════════════════════════════════════════
 
-// Auth (OAuth 2.0)
+// Auth (Sovos Bulut e-Fatura WS v2.3)
+router.post("/sovos/login", eInvoiceController.sovosLogin);
+router.post("/sovos/logout", eInvoiceController.sovosLogout);
+router.post("/sovos/session/restore", eInvoiceController.sovosRestoreSession);
 router.post("/sovos/token", eInvoiceController.sovosGetToken);
+router.post("/sovos/taxpayer/query", eInvoiceController.sovosQueryTaxpayer);
 
 // Belge İşlemleri
 router.post("/sovos/documents/send", eInvoiceController.sovosSendDocument);
+router.post("/sovos/documents/download", eInvoiceController.sovosDownloadDocument);
+router.post("/sovos/documents/view", eInvoiceController.sovosViewDocument);
+router.post("/sovos/documents/responses", eInvoiceController.sovosGetInvoiceResponses);
 router.post("/sovos/documents/:referenceId/status", eInvoiceController.sovosGetDocumentStatus);
 
 // e-Arşiv
 router.post("/sovos/earchive/send", eInvoiceController.sovosSendEArchive);
+router.post("/sovos/earchive/create-from-form", eInvoiceController.sovosCreateEArchiveFromForm);
+router.post("/sovos/efatura/create-from-form", eInvoiceController.sovosCreateEInvoiceFromForm);
+router.post("/sovos/efatura/respond", eInvoiceController.sovosRespondToInvoice);
+router.post("/sovos/earchive/status", eInvoiceController.sovosGetEArchiveStatus);
+router.post("/sovos/earchive/list", eInvoiceController.sovosListEArchive);
+router.post("/sovos/earchive/preview", eInvoiceController.sovosPreviewEArchive);
+router.post("/sovos/earchive/cancel", eInvoiceController.sovosCancelEArchive);
+router.post("/sovos/earchive/reports/list", eInvoiceController.sovosGetEArchiveReportList);
+router.post("/sovos/earchive/reports/download", eInvoiceController.sovosGetEArchiveReportData);
+router.post("/sovos/earchive/signed", eInvoiceController.sovosGetSignedEArchive);
+router.post("/sovos/earchive/action", eInvoiceController.sovosEArchiveActionService);
+router.post("/sovos/earchive/send-envelope", eInvoiceController.sovosSendEnvelope);
+router.post("/sovos/earchive/retrigger", eInvoiceController.sovosRetriggerOperation);
+router.post("/sovos/earchive/report-status", eInvoiceController.sovosGetEArchiveReportStatus);
+router.post("/sovos/earchive/send-report", eInvoiceController.sovosSendEArchiveReport);
+router.post("/sovos/earchive/user-list", eInvoiceController.sovosGetEArchiveUserList);
+router.post("/sovos/earchive/partial-user-list", eInvoiceController.sovosGetEArchivePartialUserList);
+router.post("/sovos/efatura/partial-user-list", eInvoiceController.sovosGetPartialUserList);
+
+// e-İrsaliye (ClientEDespatchServices v1.3)
+router.post("/sovos/despatch/search", eInvoiceController.sovosDespatchSearch);
+router.post("/sovos/despatch/view", eInvoiceController.sovosDespatchView);
+router.post("/sovos/despatch/download", eInvoiceController.sovosDespatchDownload);
+router.post("/sovos/despatch/receipts", eInvoiceController.sovosDespatchReceipts);
+router.post("/sovos/despatch/user-list", eInvoiceController.sovosDespatchUserList);
+router.post("/sovos/despatch/partial-user-list", eInvoiceController.sovosDespatchPartialUserList);
+
+// e-SMM (ForibaESmmServices v1.1)
+router.post("/sovos/smm/send", eInvoiceController.sovosSmmSend);
+router.post("/sovos/smm/document", eInvoiceController.sovosSmmGetDocument);
+router.post("/sovos/smm/cancel", eInvoiceController.sovosSmmCancel);
+router.post("/sovos/smm/reports/list", eInvoiceController.sovosSmmReportList);
+router.post("/sovos/smm/action", eInvoiceController.sovosSmmActionService);
 
 // API Durumu
 router.post("/sovos/status", eInvoiceController.sovosCheckStatus);

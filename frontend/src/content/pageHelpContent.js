@@ -225,6 +225,112 @@ export const pageHelpContent = {
         ],
         tips: ["Sarı uyarı: bazı üyelerde kod hâlâ farklı veya boş."],
     },
+    "ec-products-definitions-variant-types": {
+        title: "Varyant Türleri",
+        intro:
+            "Varyant Türleri, ürünlerinize renk, beden, boyut gibi seçenekler eklemenizi sağlar. Varyant türlerini doğrudan bu alandan oluşturabilir veya mevcut olanları düzenleyebilirsiniz.",
+        introExtra:
+            "Ayrıca yeni ürün eklerken ya da dosya ile toplu ürün yüklerken de ihtiyaç duyduğunuz varyant türlerini oluşturabilirsiniz.",
+        toc: [
+            { id: "create", label: "Yeni Varyant Oluşturma" },
+            { id: "product", label: "Ürüne Varyant Tanımlama" },
+        ],
+        sections: [
+            {
+                id: "create",
+                title: "Yeni Varyant Oluşturma",
+                paragraphs: [
+                    "Varyant türü eklemek için Ürünler → Tanımlamalar → Varyant Türleri alanına gidin.",
+                    "Sağ üstteki Varyant Türü Ekle butonuna tıklayın. Liste boşsa ortadaki butonu da kullanabilirsiniz.",
+                ],
+                steps: [
+                    "Varyant Türü Adı: Beden, Renk, Ayakkabı Numarası gibi isimler verin. Bu isim ürün sayfasında görünür.",
+                    "Seçim Stili — Liste: Renk/görsel gerekmeyen seçenekler (beden, hafıza vb.).",
+                    "Seçim Stili — Renk/Görsel: Renk kareleri veya küçük görsellerle gösterilecek seçenekler.",
+                    "Varyantlar: ENTER ile değer ekleyin (S, M, L veya Siyah, Beyaz). Virgülle ayrılmış listeyi yapıştırabilirsiniz.",
+                    "Renk/Görsel modunda her değerin rengini veya görselini kalem ikonundan düzenleyin.",
+                    "Kaydet ile varyant türünü kaydedin.",
+                ],
+            },
+            {
+                id: "product",
+                title: "Ürüne Varyant Tanımlama",
+                paragraphs: [
+                    "Ürünler → Ürünler alanından varyantlı ürün seçin veya yeni varyantlı ürün oluşturun.",
+                    "Ürün detayındaki Varyant bölümünden Varyant Ekle butonuna tıklayın.",
+                ],
+                steps: [
+                    "Varyant Türü Adı alanına daha önce oluşturduğunuz bir türü yazın; listeden seçerek tekrar kullanın.",
+                    "Tür daha önce yoksa Varyantlar alanına değerleri ekleyerek yeni tür oluşturabilirsiniz.",
+                    "Bir değeri yalnızca o üründen kaldırabilirsiniz; diğer ürünler etkilenmez.",
+                ],
+            },
+        ],
+        tips: [
+            "Tür veya değeri kalıcı silmek/düzenlemek için Tanımlamalar → Varyant Türleri alanını kullanın; bu değişiklik aynı türü kullanan tüm ürünleri etkiler.",
+            "Tabloda satıra tıklayarak mevcut türü düzenleyebilirsiniz.",
+        ],
+    },
+    "ec-products-definitions-product-groups": {
+        title: "Ürün Grupları",
+        intro:
+            "Ürün grupları, ürünlerinizi tek bir detay sayfasında varyant benzeri bir görünümle sunmanıza olanak tanır. Varyantlardan farklı olarak her ürün kendi slug, meta bilgileri, açıklama ve görselleriyle ayrı yapılandırılabilir.",
+        introExtra:
+            "Normal varyant yapısında SEO alanları ortak olur; ürün grupları ile her ürün için farklı içerik ve SEO yönetebilirsiniz.",
+        toc: [
+            { id: "where", label: "Nerelerde Kullanılır?" },
+            { id: "manual", label: "Manuel Ürün Grubu" },
+            { id: "auto", label: "Otomatik Ürün Grubu" },
+        ],
+        sections: [
+            {
+                id: "where",
+                title: "Ürün Grupları Nerelerde Kullanılabilir?",
+                steps: [
+                    "Farklı ürün modellerini tek sayfada varyant görünümünde sunmak istediğinizde",
+                    "Her ürün için farklı açıklama ve içerik girmek istediğinizde",
+                    "Her ürünün SEO bilgilerini (slug, meta title, meta description) ayrı yönetmek istediğinizde",
+                    "Varyant görünümünü bozmadan ürünleri kategori sayfalarında ayrı listelemek istediğinizde",
+                    "Varyantlara özel kişiselleştirme veya özellikler eklemek istediğinizde",
+                ],
+            },
+            {
+                id: "manual",
+                title: "Manuel Ürün Grubu Ekleme",
+                paragraphs: [
+                    "Ürünler → Tanımlamalar → Ürün Grupları → Ürün Grubu Ekle → Manuel Ekle yolunu izleyin.",
+                ],
+                steps: [
+                    "Temel Bilgiler: Yalnızca sizin göreceğiniz grup adını girin.",
+                    "Ürün Grubu Türü: Renk, Beden gibi seçenek başlıklarını yazıp Enter ile ekleyin (en fazla 3).",
+                    "Ürün Ekle ile basit ürünlerinizi gruba dahil edin.",
+                    "Her ürün için tür sütunlarına değer girin (Kırmızı, M, 250gr vb.).",
+                    "Sıra numarası veya ok düğmeleri ile gösterim sırasını belirleyin.",
+                    "Kaydet ile grubu oluşturun.",
+                ],
+            },
+            {
+                id: "auto",
+                title: "Otomatik Ürün Grubu Ekleme",
+                paragraphs: [
+                    "Önce ürünlerinize Yazı türünde özel alan ekleyin ve gruplanacak ürünlere aynı değeri yazın.",
+                    "Alternatif olarak tek varyant tanımlayarak da gruplama yapabilirsiniz.",
+                ],
+                steps: [
+                    "Ürün Grubu Ekle → Otomatik Ekle seçin.",
+                    "Temel Bilgiler: Yönetim adını girin.",
+                    "Gruplama Koşulu: Aynı değere sahip ürünleri birleştirecek özel alanı seçin.",
+                    "Varyanta Göre Grupla: Ürünlerdeki varyant bilgisi seçenek başlığı olur.",
+                    "Özel Alana Göre Grupla: Tür olarak gösterilecek özel alanı seçin.",
+                    "Kaydettiğinizde eşleşen ürünler otomatik gruplanır.",
+                ],
+            },
+        ],
+        tips: [
+            "Otomatik gruplama için özel alan türü Yazı olmalıdır.",
+            "Manuel gruplarda yalnızca basit ürünler eklenebilir; her ürün kendi detay sayfasına sahip olmalıdır.",
+        ],
+    },
 };
 
 /** panel id → yardım anahtarı */
@@ -235,6 +341,10 @@ export function resolveHelpPageId(rawId) {
 
     if (id.startsWith("pm-center.")) return id;
     if (id === "pm-center" || id === "product-upload") return id;
+    if (id.startsWith("ec-products-definitions-")) return id;
+    if (id.startsWith("ec-category-")) return "ec-products-definitions-categories";
+    if (id.startsWith("ec-brand-")) return "ec-products-definitions-brands";
+    if (id.startsWith("ec-product-group-")) return "ec-products-definitions-product-groups";
     if (id.startsWith("orders")) return "orders";
     if (id.startsWith("finance")) return "finance";
     if (id.startsWith("integration")) return "integration";

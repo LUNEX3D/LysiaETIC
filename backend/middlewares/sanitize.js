@@ -19,26 +19,35 @@ const SANITIZE_OPTIONS = {
     disallowedTagsMode: "recursiveEscape"
 };
 
+// sanitize-html & gibi karakterleri entity'ye çevirir — WS/API şifrelerini bozar.
+const PRESERVE_RAW_FIELD = /password|secret|servicekey|merchantkey|refreshtoken|apikey|wspassword|apisecret|clientsecret/i;
+
+const shouldPreserveRawString = (fieldKey) =>
+    fieldKey && PRESERVE_RAW_FIELD.test(String(fieldKey));
+
 /**
  * Bir değeri recursive olarak sanitize eder.
- * - String → HTML tag'leri temizlenir
+ * - String → HTML tag'leri temizlenir (şifre/secret alanları hariç)
  * - Object → her key recursive olarak sanitize edilir
  * - Array → her eleman recursive olarak sanitize edilir
  * - Diğer tipler (number, boolean, null) → olduğu gibi döner
  */
-function sanitizeValue(value) {
+function sanitizeValue(value, fieldKey = "") {
     if (typeof value === "string") {
+        if (shouldPreserveRawString(fieldKey)) {
+            return value;
+        }
         return sanitizeHtml(value, SANITIZE_OPTIONS);
     }
 
     if (Array.isArray(value)) {
-        return value.map(item => sanitizeValue(item));
+        return value.map((item) => sanitizeValue(item, fieldKey));
     }
 
     if (value !== null && typeof value === "object") {
         const sanitized = {};
         for (const [key, val] of Object.entries(value)) {
-            sanitized[key] = sanitizeValue(val);
+            sanitized[key] = sanitizeValue(val, key);
         }
         return sanitized;
     }
@@ -50,6 +59,11 @@ function sanitizeValue(value) {
  * Express middleware — req.body'deki tüm string değerleri sanitize eder.
  * GET istekleri ve PayTR callback'i atlanır.
  */
+const HTML_EDITOR_PATHS = [
+    /^\/api\/website-builder\/sites\/[^/]+\/grapes-editor\/?$/,
+    /^\/api\/website-builder\/sites\/[^/]+\/puck-editor\/?$/,
+];
+
 const sanitizeBody = (req, res, next) => {
     // GET isteklerinde body olmaz, atla
     if (req.method === "GET" || req.method === "OPTIONS" || req.method === "HEAD") {
@@ -58,6 +72,11 @@ const sanitizeBody = (req, res, next) => {
 
     // PayTR callback'i atla — PayTR kendi formatında veri gönderir
     if (req.originalUrl === "/api/paytr/callback") {
+        return next();
+    }
+
+    const pathOnly = (req.originalUrl || req.url || "").split("?")[0];
+    if (HTML_EDITOR_PATHS.some((re) => re.test(pathOnly))) {
         return next();
     }
 

@@ -1,0 +1,11 @@
+{
+  "type": "hero",
+  "name": "Hero",
+  "schema": {
+    "headline": { "type": "string", "default": "Başlık" },
+    "subheadline": { "type": "string", "default": "Alt başlık" },
+    "backgroundImage": { "type": "asset", "default": "assets/images/hero.jpg" },
+    "align": { "type": "select", "options": ["center", "left", "right"], "default": "center" }
+  },
+  "html": "<section class=\"theme-hero\">\n  <div class=\"container\">\n    <h1>{{headline}}</h1>\n    <p>{{subheadline}}</p>\n    <img src=\"{{backgroundImage}}\" alt=\"hero\"/>\n  </div>\n</section>"
+}

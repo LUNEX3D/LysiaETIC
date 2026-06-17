@@ -1,0 +1,12 @@
+<soap:Envelope xmlns:soap="http://www.w3.org/2003/05/soap-envelope" xmlns:led="http://ws.cloud.eledger.fit.com/ledger">
+	<soap:Header/>
+	<soap:Body>
+		<led:StatusRequest>
+			<company>
+				<identifier>1111111111</identifier>
+				<branchId>0</branchId>
+			</company>
+			<ledgerId>12</ledgerId>
+		</led:StatusRequest>
+	</soap:Body>
+</soap:Envelope>

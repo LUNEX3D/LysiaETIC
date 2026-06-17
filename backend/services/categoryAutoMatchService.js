@@ -5,6 +5,75 @@
 
 const STOP_WORDS = new Set(["ve", "ile", "icin", "the", "and", "or"]);
 
+/**
+ * Anlamca eşdeğer kelime grupları — yazımı/dili farklı ama aynı kategoriyi ifade edenler.
+ * Master yaprak kelimesi hedefte birebir yoksa, eşdeğerlerinden biri varsa "mevcut" sayılır.
+ * (Platformlar arası farklı isimlendirme + Amazon İngilizce ürün tipleri için.)
+ * Not: Çoğul/yazım farkları zaten substring ile yakalanır; burada GENUINE eşanlamlılar tutulur.
+ */
+const SYNONYM_GROUPS = [
+    ["telefon", "smartphone", "phone"],
+    ["bilgisayar", "laptop", "notebook", "computer"],
+    ["tablet"],
+    ["kupe", "earring"],
+    ["kolye", "necklace"],
+    ["yuzuk", "ring"],
+    ["bileklik", "bracelet"],
+    ["taki", "jewelry", "jewellery"],
+    ["ayakkabi", "shoes", "sneaker"],
+    ["bot", "boot"],
+    ["terlik", "slipper"],
+    ["tisort", "tshirt"],
+    ["pantolon", "pants", "trousers", "jean", "jeans"],
+    ["sort", "shorts"],
+    ["elbise", "dress"],
+    ["etek", "skirt"],
+    ["gomlek", "shirt"],
+    ["kazak", "sweater", "kazagi"],
+    ["hirka", "cardigan"],
+    ["mont", "coat", "jacket", "ceket"],
+    ["sapka", "hat", "cap"],
+    ["gozluk", "glasses", "sunglasses", "eyewear"],
+    ["saat", "watch"],
+    ["canta", "bag", "handbag"],
+    ["cuzdan", "wallet"],
+    ["parfum", "perfume", "fragrance"],
+    ["oyuncak", "toy"],
+    ["kitap", "book"],
+    ["mutfak", "kitchen"],
+    ["mobilya", "furniture"],
+    ["aydinlatma", "lighting", "lamba", "lamp"],
+    ["bebek", "baby"],
+    ["kozmetik", "cosmetic", "cosmetics", "makyaj", "makeup"],
+    ["organizer", "duzenleyici", "organizerlar", "düzenleyici", "düzenleyiciler"],
+    ["kalemlik", "kalemlikler", "atase", "ataslik", "kalemlik"],
+    ["evrak", "dosya", "klasor"],
+];
+
+const SYNONYM_LOOKUP = (() => {
+    const map = new Map();
+    for (const group of SYNONYM_GROUPS) {
+        const norm = group
+            .map((g) =>
+                String(g)
+                    .toLowerCase()
+                    .replace(/ç/g, "c")
+                    .replace(/ğ/g, "g")
+                    .replace(/ı/g, "i")
+                    .replace(/ö/g, "o")
+                    .replace(/ş/g, "s")
+                    .replace(/ü/g, "u")
+            )
+            .filter(Boolean);
+        for (const w of norm) {
+            const set = map.get(w) || new Set();
+            for (const other of norm) if (other !== w) set.add(other);
+            map.set(w, set);
+        }
+    }
+    return map;
+})();
+
 const normalizeTurkish = (str) => {
     if (!str) return "";
     return String(str)
@@ -55,11 +124,55 @@ const allTokensPresentInText = (masterTokens, text) => {
     if (!masterTokens.length) return true;
     const targetTokens = tokenize(text);
     const normBlob = normalizeTurkish(text);
-    return masterTokens.every((mt) => {
+    const tokenPresent = (mt) => {
         if (targetTokens.some((tt) => tt === mt)) return true;
         if (mt.length >= 4 && targetTokens.some((tt) => tt.includes(mt) || mt.includes(tt))) return true;
         return normBlob.includes(mt);
+    };
+    return masterTokens.every((mt) => {
+        if (tokenPresent(mt)) return true;
+        // Anlamca eşdeğer (synonym) kelimelerden biri hedefte varsa "mevcut" say
+        const syns = SYNONYM_LOOKUP.get(mt);
+        if (syns) {
+            for (const s of syns) {
+                if (tokenPresent(s)) return true;
+            }
+        }
+        return false;
     });
+};
+
+const tokenPresentInLeaf = (token, leafText) => allTokensPresentInText([token], leafText);
+
+const getDistinctiveLeafTokens = (leafSegment) =>
+    tokenize(leafSegment).filter((t) => !GENERIC_LEAF_TOKENS.has(t));
+
+/** Master yapraktaki belirgin ürün tipi hedefte karşılık yok + çelişen tip var → red */
+const hasLeafSemanticConflict = (masterLeaf, targetLeaf) => {
+    const distinctive = getDistinctiveLeafTokens(masterLeaf);
+    if (!distinctive.length) return false;
+
+    const allCovered = distinctive.every((t) => tokenPresentInLeaf(t, targetLeaf));
+    if (allCovered) return false;
+
+    for (const mt of distinctive) {
+        const conflicts = CONFLICT_IF_MASTER_HAS[mt] || [];
+        for (const cf of conflicts) {
+            if (tokenPresentInLeaf(cf, targetLeaf)) return true;
+        }
+    }
+    return false;
+};
+
+/** Üst kategori bağlamı — ofis organizer ≠ oto CD organizer */
+const hasPathSemanticConflict = (masterPath, targetPath) => {
+    const mp = normalizePath(masterPath);
+    const tp = normalizePath(targetPath);
+    const officeDeskCtx = /(kirtasiye|ofis|masaustu)/.test(mp) && /(organizer|duzenleyici)/.test(mp);
+    if (officeDeskCtx && /(oto|arac|tuning|cd organizer|cd,)/.test(tp)) return true;
+    if (officeDeskCtx && /(evcil|balik|akvaryum|hayvan|pet)/.test(tp)) return true;
+    if (/(mutfak|banyo)/.test(mp) && /(oto|arac|kirtasiye|ofis kirtasiye)/.test(tp)) return true;
+    return false;
 };
 
 const DEFAULT_MATCH_OPTIONS = {
@@ -68,6 +181,26 @@ const DEFAULT_MATCH_OPTIONS = {
     topN: 5,
     strictLeafTokens: true,
     bestEffort: true
+};
+
+/** Yaprakta tek başına anlam taşımayan kelimeler — sadece bunlarla eşleşme yeterli değil */
+const GENERIC_LEAF_TOKENS = new Set([
+    "masa", "ustu", "masaustu", "ofis", "ev", "set", "urun", "aksesuar", "diger",
+    "genel", "cok", "amacli", "amaci", "yeni", "model", "tip", "tur", "ve",
+    "icin", "ile", "buyuk", "kucuk", "mini", "maxi", "pro", "plus", "seti",
+]);
+
+/**
+ * Master yaprakta belirgin ürün tipi varken hedefte çelişen tip → red (ör. organizer ≠ kalemlik)
+ */
+const CONFLICT_IF_MASTER_HAS = {
+    organizer: ["kalemlik", "kalemlikler", "kalemi", "kalemligi", "atase", "atas", "daksil", "bant"],
+    duzenleyici: ["kalemlik", "kalemlikler", "kalemi", "atase", "daksil"],
+    kalemlik: ["organizer", "organizerlar", "duzenleyici", "düzenleyici"],
+    kupe: ["kolye", "yuzuk", "bileklik"],
+    kolye: ["kupe", "yuzuk"],
+    elbise: ["etek", "pantolon", "sort"],
+    pantolon: ["elbise", "etek"],
 };
 
 /** Tablo hücresi boş mu? (0 / "0" Excel artefaktı dahil) */
@@ -114,8 +247,13 @@ const categorySimilarityScore = (masterPath, targetPath, options = {}) => {
     const mLast = mParts[mParts.length - 1];
     const tLast = tParts[tParts.length - 1];
     const mLeafTokens = tokenize(mLast);
+    const distinctiveTokens = getDistinctiveLeafTokens(mLast);
+    const tokensForStrict = distinctiveTokens.length > 0 ? distinctiveTokens : mLeafTokens;
 
-    if (strictLeafTokens && mLeafTokens.length > 0 && !allTokensPresentInText(mLeafTokens, tLast)) {
+    if (hasLeafSemanticConflict(mLast, tLast)) return 0;
+    if (hasPathSemanticConflict(masterPath, targetPath)) return 0;
+
+    if (strictLeafTokens && tokensForStrict.length > 0 && !allTokensPresentInText(tokensForStrict, tLast)) {
         return 0;
     }
 
@@ -128,9 +266,9 @@ const categorySimilarityScore = (masterPath, targetPath, options = {}) => {
         const tNorm = normalizeTurkish(tLast);
         if (mNorm === tNorm) {
             score += 80;
-        } else if (mLeafTokens.length > 0) {
-            const matched = mLeafTokens.filter((t) => allTokensPresentInText([t], tLast)).length;
-            const ratio = matched / mLeafTokens.length;
+        } else if (tokensForStrict.length > 0) {
+            const matched = tokensForStrict.filter((t) => allTokensPresentInText([t], tLast)).length;
+            const ratio = matched / tokensForStrict.length;
             if (ratio >= 1) score += 70;
             else if (ratio >= 0.5) score += 35;
             else return 0;
@@ -139,7 +277,7 @@ const categorySimilarityScore = (masterPath, targetPath, options = {}) => {
         }
     }
 
-    const mSet = new Set(mLeafTokens);
+    const mSet = new Set(tokensForStrict.length > 0 ? tokensForStrict : mLeafTokens);
     const tSet = new Set(tokenize(tLast));
     const inter = [...mSet].filter((t) => tSet.has(t)).length;
     const union = new Set([...mSet, ...tSet]).size || 1;
@@ -161,6 +299,13 @@ const categorySimilarityScore = (masterPath, targetPath, options = {}) => {
     const depthDiff = Math.abs(mParts.length - tParts.length);
     if (depthDiff === 0) score += 5;
     else if (depthDiff === 1) score += 2;
+
+    // Bağlam bonusu: ofis organizer → organizerlar dalı; oto/karavan cezası
+    if (/(kirtasiye|ofis|masaustu)/.test(mp) && /(organizer|duzenleyici)/.test(mp)) {
+        if (/organizerlar|duzenleyici/.test(tp)) score += 8;
+        if (/(kirtasiye|ofis)/.test(tp)) score += 4;
+        if (/(oto|arac|tuning|karavan|evcil|balik|akvaryum)/.test(tp)) score -= 12;
+    }
 
     return score;
 };
@@ -261,9 +406,36 @@ const getCandidates = (masterPath, index) => {
 /**
  * Tek master yol için en iyi hedef(ler).
  */
+/**
+ * Yaklaşık (best-effort) aday üretimi: yaprak kelimelerinden HERHANGİ biri (veya
+ * eşanlamlısı) hedefte geçen yapraklar. Katı eşleşme bulunamadığında kullanılır.
+ */
+const getLooseCandidates = (masterPath, index) => {
+    const parts = pathSegments(masterPath);
+    const leaf = parts[parts.length - 1] || masterPath;
+    const tokens = tokenize(leaf);
+    const seen = new Set();
+    const out = [];
+    const add = (list) => {
+        for (const t of list || []) {
+            const key = String(t.id);
+            if (seen.has(key)) continue;
+            seen.add(key);
+            out.push(t);
+        }
+    };
+    for (const tok of tokens) {
+        add(index.byToken.get(tok));
+        const syns = SYNONYM_LOOKUP.get(tok);
+        if (syns) for (const s of syns) add(index.byToken.get(s));
+        if (out.length >= 400) break;
+    }
+    return out;
+};
+
 const findBestMatches = (masterPath, eligibleTargets, options = {}) => {
     const opts = { ...DEFAULT_MATCH_OPTIONS, ...options };
-    const { minScore, minGap, topN, strictLeafTokens, bestEffort } = opts;
+    const { minScore, minGap, topN, strictLeafTokens, bestEffort, aggressive } = opts;
     const index = opts._index || buildTargetIndex(eligibleTargets);
 
     const tryMatch = (pathText) => {
@@ -285,6 +457,63 @@ const findBestMatches = (masterPath, eligibleTargets, options = {}) => {
         const leafOnly = parts[parts.length - 1] || "";
         if (leafOnly && leafOnly !== masterPath) {
             scored = tryMatch(leafOnly);
+        }
+    }
+
+    // ── Yaklaşık (best-effort) geçiş ──
+    // Katı eşleşme yoksa: yaprak kelimelerinin EN AZ YARISI örtüşen en yakın yaprağı seç.
+    // (Kullanıcı talebi: "yazımı farklı olsa da en uygun/yakın kategori seçilsin")
+    if (!scored.length && aggressive) {
+        const looseMinScore = Math.max(minScore, 50);
+        const mParts = pathSegments(masterPath);
+        const mUpperTokens = new Set();
+        for (let i = 0; i < mParts.length - 1; i++) {
+            for (const tk of tokenize(mParts[i])) mUpperTokens.add(tk);
+        }
+        const upperAffinity = (targetPath) => {
+            if (!mUpperTokens.size) return 0;
+            const tParts = pathSegments(targetPath);
+            const tUpper = new Set();
+            for (let i = 0; i < tParts.length - 1; i++) {
+                for (const tk of tokenize(tParts[i])) tUpper.add(tk);
+            }
+            let hit = 0;
+            for (const tk of mUpperTokens) if (tUpper.has(tk)) hit++;
+            return hit;
+        };
+        const loose = getLooseCandidates(masterPath, index)
+            .map((target) => {
+                const tp = target.path || target.name || "";
+                const tParts = pathSegments(tp);
+                const tLast = tParts[tParts.length - 1] || "";
+                const mParts = pathSegments(masterPath);
+                const mLast = mParts[mParts.length - 1] || "";
+                if (hasLeafSemanticConflict(mLast, tLast)) return null;
+                return {
+                    ...target,
+                    score: categorySimilarityScore(masterPath, tp, { strictLeafTokens: false }),
+                    _affinity: upperAffinity(tp),
+                    _depth: pathSegments(tp).length
+                };
+            })
+            .filter(Boolean)
+            .filter((s) => s.score >= looseMinScore)
+            // Üst kategori (ebeveyn) örtüşmesi yüksek olan + daha genel (sığ) hedef tercih edilir
+            .sort((a, b) =>
+                (b.score - a.score) ||
+                (b._affinity - a._affinity) ||
+                (a._depth - b._depth)
+            );
+
+        if (loose.length) {
+            return {
+                best: loose[0],
+                scored: loose.slice(0, topN),
+                ambiguous: false,
+                confidence: "approx",
+                aggressive: true,
+                bestScore: loose[0].score
+            };
         }
     }
 
@@ -342,6 +571,69 @@ const findBestMatches = (masterPath, eligibleTargets, options = {}) => {
 const segmentSimilarityScore = (masterPath, targetPath) =>
     categorySimilarityScore(masterPath, targetPath, { strictLeafTokens: true });
 
+/**
+ * Mevcut eşleştirme kalitesi — düşük skor / çelişki uyarısı (Kategori Merkezi denetimi)
+ */
+const validateMappingQuality = (masterPath, targetPath, options = {}) => {
+    const minOkScore = options.minOkScore ?? 55;
+    if (!masterPath || !targetPath) {
+        return { ok: false, score: 0, confidence: "invalid", warning: "Eksik kategori yolu" };
+    }
+
+    const parts = pathSegments(masterPath);
+    const tParts = pathSegments(targetPath);
+    const mLeaf = parts[parts.length - 1] || "";
+    const tLeaf = tParts[tParts.length - 1] || "";
+
+    if (hasLeafSemanticConflict(mLeaf, tLeaf)) {
+        return {
+            ok: false,
+            score: 0,
+            confidence: "conflict",
+            warning:
+                `Ürün tipi uyuşmuyor: «${mLeaf}» → «${tLeaf}» (ör. organizer ile kalemlik aynı kategori olamaz).`,
+        };
+    }
+    if (hasPathSemanticConflict(masterPath, targetPath)) {
+        return {
+            ok: false,
+            score: 0,
+            confidence: "conflict",
+            warning: `Üst kategori bağlamı uyuşmuyor: ofis/masaüstü ürünü ile oto veya alakasız dal eşleşemez.`,
+        };
+    }
+
+    const score = categorySimilarityScore(masterPath, targetPath, { strictLeafTokens: true });
+    if (score === 0) {
+        const loose = categorySimilarityScore(masterPath, targetPath, { strictLeafTokens: false });
+        if (loose >= minOkScore) {
+            return {
+                ok: false,
+                score: loose,
+                confidence: "weak",
+                warning: `Zayıf eşleşme (skor ${loose}): yaprak anlamları tam örtüşmüyor.`,
+            };
+        }
+        return { ok: false, score: 0, confidence: "none", warning: "Kategori yolları anlamsal olarak eşleşmiyor." };
+    }
+
+    if (score < minOkScore) {
+        return {
+            ok: false,
+            score,
+            confidence: "low",
+            warning: `Düşük güven skoru (${score}). Manuel doğrulama önerilir.`,
+        };
+    }
+
+    return {
+        ok: true,
+        score,
+        confidence: score >= 95 ? "high" : score >= 70 ? "medium" : "low",
+        warning: null,
+    };
+};
+
 module.exports = {
     normalizeTurkish,
     getMasterPathText,
@@ -351,5 +643,7 @@ module.exports = {
     segmentSimilarityScore,
     buildTargetIndex,
     findBestMatches,
-    DEFAULT_MATCH_OPTIONS
+    DEFAULT_MATCH_OPTIONS,
+    validateMappingQuality,
+    hasLeafSemanticConflict,
 };

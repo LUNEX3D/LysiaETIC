@@ -1,0 +1,100 @@
+"use strict";
+
+/**
+ * Açık kaynak storefront referansları — Lysia'ya uyarlanmış GrapesJS şablonları
+ * Kaynak: Vercel Commerce, Medusa Starter, Saleor, Shadcn UI, Tailwind UI alternatifleri
+ */
+module.exports = {
+    OSS_THEME_SOURCES: [
+        {
+            slug: "vercel-commerce",
+            name: "Vercel Commerce",
+            source: "https://github.com/vercel/commerce",
+            license: "MIT",
+            stack: ["Next.js", "Tailwind", "React Server Components"],
+            category: "Headless",
+            descriptionTr: "Vercel Commerce tarzı minimal, hızlı headless vitrin. Ürün grid, hero ve sepet CTA.",
+        },
+        {
+            slug: "medusa-starter",
+            name: "Medusa Next.js Starter",
+            source: "https://github.com/medusajs/nextjs-starter-medusa",
+            license: "MIT",
+            stack: ["Next.js", "Medusa", "Tailwind"],
+            category: "Headless",
+            descriptionTr: "Medusa starter vitrin düzeni — nötr tipografi, ürün koleksiyonları, checkout akışı.",
+        },
+        {
+            slug: "saleor-storefront",
+            name: "Saleor Storefront",
+            source: "https://github.com/saleor/storefront",
+            license: "BSD-3",
+            stack: ["Next.js", "GraphQL", "Tailwind"],
+            category: "Headless",
+            descriptionTr: "Saleor GraphQL vitrin estetiği — kategori navigasyonu ve ürün detay odaklı.",
+        },
+        {
+            slug: "shadcn-storefront",
+            name: "Shadcn UI Store",
+            source: "https://ui.shadcn.com",
+            license: "MIT",
+            stack: ["React", "Tailwind", "Radix"],
+            category: "UI Kit",
+            descriptionTr: "Shadcn UI bileşen estetiği — kart, buton, form ve tipografi sistemi.",
+        },
+        {
+            slug: "tailwind-blocks",
+            name: "Tailwind UI Blocks",
+            source: "https://tailwindui.com (OSS alternatif)",
+            license: "MIT",
+            stack: ["Tailwind CSS"],
+            category: "Blocks",
+            descriptionTr: "Tailwind tabanlı e-ticaret blokları — hero, özellik grid, fiyatlandırma, footer.",
+        },
+        {
+            slug: "commerce-daisy",
+            name: "DaisyUI Commerce",
+            source: "https://daisyui.com",
+            license: "MIT",
+            stack: ["Tailwind", "DaisyUI"],
+            category: "UI Kit",
+            descriptionTr: "DaisyUI ile hızlı kurulum — navbar, kart, modal ve responsive grid.",
+        },
+        {
+            slug: "bootstrap-store",
+            name: "Bootstrap Store",
+            source: "https://getbootstrap.com",
+            license: "MIT",
+            stack: ["Bootstrap 5", "CSS Grid"],
+            category: "Classic",
+            descriptionTr: "Bootstrap grid ve kart bileşenleri — tanıdık, profesyonel e-ticaret düzeni.",
+        },
+        {
+            slug: "storefront-minimal",
+            name: "Minimal Storefront",
+            source: "https://github.com/vercel/commerce (minimal fork estetiği)",
+            license: "MIT",
+            stack: ["CSS", "Serif typography"],
+            category: "Minimal",
+            descriptionTr: "Sade tipografi, az öğe — lüks ve butik markalar için minimal vitrin.",
+        },
+        {
+            slug: "boutique-elegant",
+            name: "Boutique Elegant",
+            source: "Lysia OSS",
+            license: "MIT",
+            stack: ["CSS", "Playfair Display"],
+            category: "Fashion",
+            descriptionTr: "Zarif butik vitrin — mor-altın palet, koleksiyon odaklı hero ve özellik bandı.",
+        },
+        {
+            slug: "dark-commerce",
+            name: "Dark Commerce",
+            source: "Lysia OSS",
+            license: "MIT",
+            stack: ["CSS", "Dark mode"],
+            category: "Electronics",
+            descriptionTr: "Karanlık tema, neon vurgular — elektronik ve teknoloji mağazaları için.",
+        },
+    ],
+};

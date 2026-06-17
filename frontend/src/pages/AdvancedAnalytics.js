@@ -31,6 +31,8 @@ import {
 import { getUserMarketplaces, fetchDashboardData } from "../services/marketplaceApi";
 import axios from "../services/api";
 import "../styles/advancedAnalytics.css";
+import "../styles/payoutDashboard.css";
+import PayoutDashboard from "../components/analytics/PayoutDashboard";
 
 //  Sabitler 
 const COLORS = ['#4ecdc4', '#3b82f6', '#f59e0b', '#ec4899', '#8b5cf6', '#10b981', '#ef4444', '#06b6d4', '#f97316', '#a855f7'];
@@ -40,17 +42,42 @@ const fmtCurrency = (v) => new Intl.NumberFormat("tr-TR", { style: "currency", c
 const fmtNumber = (v) => new Intl.NumberFormat("tr-TR").format(Number(v || 0));
 const fmtPercent = (v) => `%${Number(v || 0).toFixed(1)}`;
 
-//  Tab tanmlar 
+//  Tab tanımları — sadeleştirilmiş (9 → 6 sekme)
 const TABS = [
-    { id: "overview",     label: "Genel Bakış",       icon: FaChartArea },
-    { id: "sales",        label: "Satış & Kâr",       icon: FaMoneyBillWave },
-    { id: "profit-loss",  label: "Kar / Zarar",       icon: FaBalanceScale },
-    { id: "products",     label: "Ürün Performans",   icon: FaBoxes },
-    { id: "marketplaces", label: "Pazaryeri Karşılaştırma", icon: FaStore },
-    { id: "stock",        label: "Stok & Talep",      icon: FaWarehouse },
-    { id: "commission",   label: "Komisyon & Gider",  icon: FaHandHoldingUsd },
-    { id: "actions",      label: "Aksiyon Merkezi",   icon: FaBullseye }
+    { id: "overview",  label: "Genel Bakış",      icon: FaChartArea },
+    { id: "sales",     label: "Satış & Kâr",      icon: FaMoneyBillWave },
+    { id: "products",  label: "Ürün Performansı", icon: FaBoxes },
+    { id: "stock",     label: "Stok & Talep",     icon: FaWarehouse },
+    { id: "payout",    label: "Hak Ediş",         icon: FaHandHoldingUsd },
+    { id: "actions",   label: "Aksiyonlar",       icon: FaBullseye },
 ];
+
+/** Sekme başına yüklenecek endpoint'ler (lazy load) */
+const TAB_ENDPOINTS = {
+    overview: [
+        ["overview", {}],
+        ["daily-summary", {}],
+        ["sales-trend", {}],
+        ["marketplace-distribution", {}],
+        ["top-products", { limit: 20 }],
+        ["actions", {}],
+    ],
+    sales: [
+        ["profit-overview", {}],
+        ["sales-trend", {}],
+        ["hourly-sales", {}],
+        ["product-profit-loss", { limit: 200, sortBy: "netProfit" }],
+        ["marketplace-comparison", {}],
+        ["commission-analysis", {}],
+    ],
+    products: [
+        ["product-performance", { limit: 50 }],
+        ["category-distribution", {}],
+    ],
+    stock: [["stock-velocity", {}]],
+    payout: [["commission-analysis", {}]],
+    actions: [["actions", {}]],
+};
 
 // 
 // ANA BLEEN
@@ -78,6 +105,15 @@ const AdvancedAnalytics = ({ userId }) => {
     const [actions, setActions] = useState([]);
     const [dailySummary, setDailySummary] = useState(null);
     const [sortField, setSortField] = useState("totalRevenue");
+    const [payout, setPayout] = useState(null);
+    const [payoutReconcile, setPayoutReconcile] = useState(null);
+    const [reconciling, setReconciling] = useState(false);
+    const [payoutFilter, setPayoutFilter] = useState("all");
+    const [payoutMarketplace, setPayoutMarketplace] = useState("all");
+    const [payoutLoading, setPayoutLoading] = useState(false);
+    const [syncing, setSyncing] = useState(false);
+    const [tabLoading, setTabLoading] = useState(false);
+    const [loadedTabs, setLoadedTabs] = useState(() => new Set());
 
     //  Date params 
     const getDateParams = useCallback(() => {
@@ -114,70 +150,126 @@ const AdvancedAnalytics = ({ userId }) => {
         }
     }, [getDateParams]);
 
-    //  ANA VER YKLE 
-    const loadAllData = useCallback(async () => {
+    //  Sekme verisini state'e yaz 
+    const applyEndpointResult = useCallback((endpoint, data) => {
+        switch (endpoint) {
+            case "overview": setOverview(data); break;
+            case "sales-trend": setSalesTrend(Array.isArray(data) ? data : []); break;
+            case "marketplace-distribution": setMpDistribution(Array.isArray(data) ? data : []); break;
+            case "top-products": setTopProducts(Array.isArray(data) ? data : []); break;
+            case "category-distribution": setCategoryDist(Array.isArray(data) ? data : []); break;
+            case "hourly-sales": setHourlySales(Array.isArray(data) ? data : []); break;
+            case "profit-overview": setProfitOverview(data); break;
+            case "product-performance": setProductPerformance(Array.isArray(data) ? data : []); break;
+            case "product-profit-loss":
+                setProfitLoss(
+                    data?.products
+                        ? { products: data.products, summary: data.summary }
+                        : { products: Array.isArray(data) ? data : [], summary: null }
+                );
+                break;
+            case "marketplace-comparison": setMpComparison(Array.isArray(data) ? data : []); break;
+            case "commission-analysis": setCommissionAnalysis(data); break;
+            case "stock-velocity": setStockVelocity(data); break;
+            case "actions": setActions(Array.isArray(data) ? data : []); break;
+            case "daily-summary": setDailySummary(data); break;
+            default: break;
+        }
+    }, []);
+
+    const loadPayoutData = useCallback(async (withReconcile = false) => {
+        setPayoutLoading(true);
+        try {
+            const params = { limit: 2000 };
+            if (payoutMarketplace !== "all") params.marketplace = payoutMarketplace;
+            if (withReconcile) params.reconcile = "trendyol";
+            const data = await fetchEndpoint("payout-report", params);
+            if (data) {
+                setPayout(data);
+                setPayoutReconcile(data.reconcile || null);
+            }
+            return data;
+        } finally {
+            setPayoutLoading(false);
+        }
+    }, [fetchEndpoint, payoutMarketplace]);
+
+    const loadTabData = useCallback(async (tab) => {
+        if (!userId || !TAB_ENDPOINTS[tab]) return;
+        setTabLoading(true);
+        try {
+            const pairs = TAB_ENDPOINTS[tab];
+            const results = await Promise.all(pairs.map(([ep, params]) => fetchEndpoint(ep, params)));
+            pairs.forEach(([ep], i) => applyEndpointResult(ep, results[i]));
+            if (tab === "payout") await loadPayoutData(false);
+            setLoadedTabs((prev) => new Set([...prev, tab]));
+            setLastUpdate(new Date());
+        } finally {
+            setTabLoading(false);
+        }
+    }, [userId, fetchEndpoint, applyEndpointResult, loadPayoutData]);
+
+    const loadCoreData = useCallback(async () => {
         if (!userId) {
-            console.warn("[AdvancedAnalytics] userId yok, veri yklenemiyor.");
             setLoading(false);
             return;
         }
         setLoading(true);
         try {
-            // 1. nce siparişsleri pazaryerlerinden cekip DB'ye kaydet
-            //    Bu sayede analyticsController.js'deki Order.aggregate() sorgulari veri bulur
-            await syncOrders();
-
-            // 2. Sonra analytics verilerini yukle
-            const [
-                overviewData, trendData, mpDistData, topProdData, catDistData,
-                hourlyData, profitData, prodPerfData, profitLossData, mpCompData, commData,
-                stockData, actionsData, summaryData
-            ] = await Promise.all([
-                fetchEndpoint('overview'),
-                fetchEndpoint('sales-trend'),
-                fetchEndpoint('marketplace-distribution'),
-                fetchEndpoint('top-products', { limit: 20 }),
-                fetchEndpoint('category-distribution'),
-                fetchEndpoint('hourly-sales'),
-                fetchEndpoint('profit-overview'),
-                fetchEndpoint('product-performance', { limit: 50 }),
-                fetchEndpoint('product-profit-loss', { limit: 200, sortBy: 'netProfit' }),
-                fetchEndpoint('marketplace-comparison'),
-                fetchEndpoint('commission-analysis'),
-                fetchEndpoint('stock-velocity'),
-                fetchEndpoint('actions'),
-                fetchEndpoint('daily-summary')
+            const [overviewData, summaryData] = await Promise.all([
+                fetchEndpoint("overview"),
+                fetchEndpoint("daily-summary"),
             ]);
-
             setOverview(overviewData);
-            setSalesTrend(Array.isArray(trendData) ? trendData : []);
-            setMpDistribution(Array.isArray(mpDistData) ? mpDistData : []);
-            setTopProducts(Array.isArray(topProdData) ? topProdData : []);
-            setCategoryDist(Array.isArray(catDistData) ? catDistData : []);
-            setHourlySales(Array.isArray(hourlyData) ? hourlyData : []);
-            setProfitOverview(profitData);
-            setProductPerformance(Array.isArray(prodPerfData) ? prodPerfData : []);
-            setProfitLoss(
-                profitLossData?.products
-                    ? { products: profitLossData.products, summary: profitLossData.summary }
-                    : { products: Array.isArray(profitLossData) ? profitLossData : [], summary: null }
-            );
-            setMpComparison(Array.isArray(mpCompData) ? mpCompData : []);
-            setCommissionAnalysis(commData);
-            setStockVelocity(stockData);
-            setActions(Array.isArray(actionsData) ? actionsData : []);
             setDailySummary(summaryData);
             setLastUpdate(new Date());
-        } catch (error) {
-            console.error("Analytics data loading error:", error);
         } finally {
             setLoading(false);
         }
-    }, [userId, fetchEndpoint, syncOrders]);
+    }, [userId, fetchEndpoint]);
+
+    const refreshAll = useCallback(async () => {
+        setLoadedTabs(new Set());
+        await loadCoreData();
+        await loadTabData(activeTab);
+    }, [loadCoreData, loadTabData, activeTab]);
+
+    //  İlk yükleme: KPI + aktif sekme 
+    useEffect(() => {
+        loadCoreData().then(() => loadTabData(activeTab));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [userId, dateRange]);
 
     useEffect(() => {
-        loadAllData();
-    }, [loadAllData, dateRange]);
+        if (!loadedTabs.has(activeTab)) loadTabData(activeTab);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeTab]);
+
+    useEffect(() => {
+        if (activeTab === "payout" && loadedTabs.has("payout")) loadPayoutData(false);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [payoutMarketplace, dateRange]);
+
+    const handleSyncAndReload = useCallback(async () => {
+        setSyncing(true);
+        try {
+            await syncOrders();
+            setLoadedTabs(new Set());
+            await loadCoreData();
+            await loadTabData(activeTab);
+        } finally {
+            setSyncing(false);
+        }
+    }, [syncOrders, loadCoreData, loadTabData, activeTab]);
+
+    const handleReconcile = useCallback(async () => {
+        setReconciling(true);
+        try {
+            await loadPayoutData(true);
+        } finally {
+            setReconciling(false);
+        }
+    }, [loadPayoutData]);
 
     // 
     // KPI KARTLARI
@@ -191,22 +283,22 @@ const AdvancedAnalytics = ({ userId }) => {
 
         return [
             {
-                id: 'todayRevenue', title: "Bugnk Ciro", value: fmtCurrency(todayRev),
+                id: 'todayRevenue', title: "Bugünkü Ciro", value: fmtCurrency(todayRev),
                 change: ds.comparison?.revenueChange || 0, icon: FaDollarSign, color: '#10b981',
-                sub: `Dn: ${fmtCurrency(ds.yesterday?.revenue || 0)}`
+                sub: `Dün: ${fmtCurrency(ds.yesterday?.revenue || 0)}`
             },
             {
-                id: 'todayProfit', title: "Bugn Net Kâr", value: fmtCurrency(todayProfit),
+                id: 'todayProfit', title: "Bugün Net Kâr", value: fmtCurrency(todayProfit),
                 change: 0, icon: FaMoneyBillWave, color: '#22c55e',
-                sub: `Haftalk: ${fmtCurrency(ds.thisWeek?.netProfit || 0)}`
+                sub: `Haftalık: ${fmtCurrency(ds.thisWeek?.netProfit || 0)}`
             },
             {
-                id: 'todayOrders', title: "Bugn Sipariş", value: fmtNumber(ds.today?.orders || 0),
+                id: 'todayOrders', title: "Bugün Sipariş", value: fmtNumber(ds.today?.orders || 0),
                 change: ds.comparison?.orderChange || 0, icon: FaShoppingCart, color: '#3b82f6',
-                sub: `Haftalk: ${fmtNumber(ds.thisWeek?.orders || 0)}`
+                sub: `Haftalık: ${fmtNumber(ds.thisWeek?.orders || 0)}`
             },
             {
-                id: 'totalRevenue', title: `${dateRange} Gn Ciro`, value: fmtCurrency(o.totalRevenue),
+                id: 'totalRevenue', title: `${dateRange} Gün Ciro`, value: fmtCurrency(o.totalRevenue),
                 change: g.revenue || 0, icon: FaChartLine, color: '#8b5cf6',
                 sub: `${fmtNumber(o.totalOrders)} sipariş`
             },
@@ -216,7 +308,7 @@ const AdvancedAnalytics = ({ userId }) => {
                 sub: `Marj: ${fmtPercent(o.profitMargin)}`
             },
             {
-                id: 'activeProducts', title: "Aktif ürün", value: fmtNumber(o.activeProducts),
+                id: 'activeProducts', title: "Aktif Ürün", value: fmtNumber(o.activeProducts),
                 change: 0, icon: FaBoxes, color: '#06b6d4',
                 sub: `Toplam: ${fmtNumber(o.totalProducts)}`
             }
@@ -241,7 +333,7 @@ const AdvancedAnalytics = ({ userId }) => {
             <div className="aa-loading">
                 <div className="aa-loading-spinner" />
                 <p>Gelişmiş analiz verileri yükleniyor...</p>
-                <span>Tüm veriler hesaplanyor</span>
+                <span>Tüm veriler hesaplanıyor</span>
             </div>
         );
     }
@@ -259,8 +351,8 @@ const AdvancedAnalytics = ({ userId }) => {
                 {/* Gnlk zet */}
                 <div className="aa-card aa-span-2">
                     <div className="aa-card-head">
-                        <h3><FaCalendarAlt /> Gnlk zet</h3>
-                        <span className="aa-badge">Bugn vs Dn</span>
+                        <h3><FaCalendarAlt /> Günlük Özet</h3>
+                        <span className="aa-badge">Bugün vs Dün</span>
                     </div>
                     <div className="aa-daily-summary">
                         {[
@@ -277,7 +369,7 @@ const AdvancedAnalytics = ({ userId }) => {
                                     <span className="aa-ds-label">{item.label}</span>
                                     <span className="aa-ds-value">{item.fmt(todayVal)}</span>
                                     <div className="aa-ds-compare">
-                                        <span className="aa-ds-prev">Dn: {item.fmt(yesterdayVal)}</span>
+                                        <span className="aa-ds-prev">Dün: {item.fmt(yesterdayVal)}</span>
                                         {change !== 0 && (
                                             <span className={`aa-ds-change ${change >= 0 ? 'up' : 'down'}`}>
                                                 {change >= 0 ? <FaArrowUp /> : <FaArrowDown />} {Math.abs(change).toFixed(1)}%
@@ -324,14 +416,14 @@ const AdvancedAnalytics = ({ userId }) => {
                                     <Bar yAxisId="right" dataKey="orders" fill="#3b82f680" radius={[3, 3, 0, 0]} name="Sipariş" />
                                 </ComposedChart>
                             </ResponsiveContainer>
-                        ) : <div className="aa-no-data"><FaChartLine /><p>Henüz sat verisi yok</p></div>}
+                        ) : <div className="aa-no-data"><FaChartLine /><p>Henüz satış verisi yok</p></div>}
                     </div>
                 </div>
 
                 {/* Pazaryeri Dalm */}
                 <div className="aa-card">
                     <div className="aa-card-head">
-                        <h3><FaChartPie /> Pazaryeri Dalm</h3>
+                        <h3><FaChartPie /> Pazaryeri Dağılımı</h3>
                     </div>
                     <div className="aa-card-body">
                         {mpDistribution.length > 0 ? (
@@ -355,14 +447,14 @@ const AdvancedAnalytics = ({ userId }) => {
                                     ))}
                                 </div>
                             </>
-                        ) : <div className="aa-no-data"><FaChartPie /><p>Dalm verisi yok</p></div>}
+                        ) : <div className="aa-no-data"><FaChartPie /><p>Dağılım verisi yok</p></div>}
                     </div>
                 </div>
 
                 {/* En ok Satan 5 ürün */}
                 <div className="aa-card">
                     <div className="aa-card-head">
-                        <h3><FaFire /> En ok Satan 5 ürün</h3>
+                        <h3><FaFire /> En Çok Satan 5 Ürün</h3>
                         <button className="aa-link-btn" onClick={() => setActiveTab('products')}>Tüm </button>
                     </div>
                     <div className="aa-card-body">
@@ -397,7 +489,7 @@ const AdvancedAnalytics = ({ userId }) => {
                     <div className="aa-card aa-span-2">
                         <div className="aa-card-head">
                             <h3><FaExclamationTriangle /> Dikkat Gerektiren Aksiyonlar</h3>
-                            <button className="aa-link-btn" onClick={() => setActiveTab('actions')}>Tümn Gr </button>
+                            <button className="aa-link-btn" onClick={() => setActiveTab('actions')}>Tümünü Gör</button>
                         </div>
                         <div className="aa-actions-preview">
                             {[...criticalActions, ...warningActions].slice(0, 4).map((action, idx) => (
@@ -476,7 +568,7 @@ const AdvancedAnalytics = ({ userId }) => {
             { name: "Komisyon", value: expenses.commission || 0, color: "#f59e0b" },
             { name: "Kargo", value: expenses.shipping || 0, color: "#3b82f6" },
             { name: "Paketleme", value: expenses.packaging || 0, color: "#8b5cf6" },
-            { name: "Dier", value: expenses.otherCost || 0, color: "#94a3b8" }
+            { name: "Diğer", value: expenses.otherCost || 0, color: "#94a3b8" }
         ].filter(d => d.value > 0);
 
         return (
@@ -487,7 +579,7 @@ const AdvancedAnalytics = ({ userId }) => {
                         {[
                             { label: "Toplam Ciro", value: fmtCurrency(expenses.totalRevenue), color: "#10b981", icon: <FaDollarSign /> },
                             { label: "Toplam Gider", value: fmtCurrency(expenses.totalExpenses), color: "#ef4444", icon: <FaHandHoldingUsd /> },
-                            { label: "Brt Kâr", value: fmtCurrency(expenses.grossProfit), color: "#3b82f6", icon: <FaChartBar /> },
+                            { label: "Brüt Kâr", value: fmtCurrency(expenses.grossProfit), color: "#3b82f6", icon: <FaChartBar /> },
                             { label: "Net Kâr", value: fmtCurrency(expenses.netProfit), color: "#22c55e", icon: <FaTrophy /> },
                             { label: "Kâr Marj", value: fmtPercent(expenses.profitMargin), color: "#f59e0b", icon: <FaPercent /> }
                         ].map((item, i) => (
@@ -537,7 +629,7 @@ const AdvancedAnalytics = ({ userId }) => {
                 {/* Gider Dalm Pasta */}
                 <div className="aa-card">
                     <div className="aa-card-head">
-                        <h3><FaChartPie /> Gider Dalm</h3>
+                        <h3><FaChartPie /> Gider Dağılımı</h3>
                     </div>
                     <div className="aa-card-body">
                         {expensePieData.length > 0 ? (
@@ -596,7 +688,7 @@ const AdvancedAnalytics = ({ userId }) => {
                 {hourlySales.length > 0 && (
                     <div className="aa-card aa-span-full">
                         <div className="aa-card-head">
-                            <h3><FaClock /> Saatlik Sat Deseni</h3>
+                            <h3><FaClock /> Saatlik Satış Deseni</h3>
                         </div>
                         <div className="aa-card-body">
                             <ResponsiveContainer width="100%" height={250}>
@@ -613,6 +705,107 @@ const AdvancedAnalytics = ({ userId }) => {
                         </div>
                     </div>
                 )}
+
+                {/* Pazaryeri Karşılaştırma (birleştirildi) */}
+                {mpComparison.length > 0 && (
+                    <div className="aa-card aa-span-full">
+                        <div className="aa-card-head">
+                            <h3><FaStore /> Pazaryeri Karşılaştırma</h3>
+                        </div>
+                        <div className="aa-card-body">
+                            <div className="aa-table-wrap">
+                                <table className="aa-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Pazaryeri</th>
+                                            <th>Sipariş</th>
+                                            <th>Ciro</th>
+                                            <th>Net Kâr</th>
+                                            <th>Marj</th>
+                                            <th>Komisyon</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {mpComparison.map((mp, idx) => (
+                                            <tr key={idx}>
+                                                <td><strong>{mp.name}</strong></td>
+                                                <td>{fmtNumber(mp.orders)}</td>
+                                                <td className="aa-td-green">{fmtCurrency(mp.revenue)}</td>
+                                                <td className={mp.netProfit >= 0 ? 'aa-td-green' : 'aa-td-red'}>{fmtCurrency(mp.netProfit)}</td>
+                                                <td>{fmtPercent(mp.profitMargin)}</td>
+                                                <td className="aa-td-orange">{fmtCurrency(mp.commission)}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Ürün Kar/Zarar (birleştirildi) */}
+                <div className="aa-card aa-span-full">
+                    <div className="aa-card-head">
+                        <h3><FaBalanceScale /> Ürün Bazlı Kar / Zarar</h3>
+                        <div className="aa-sort-controls">
+                            <span className="aa-sort-label">Sırala:</span>
+                            {[
+                                { key: "netProfit", label: "Net Kâr" },
+                                { key: "totalRevenue", label: "Ciro" },
+                                { key: "totalSold", label: "Adet" },
+                                { key: "profitMargin", label: "Marj" },
+                            ].map((s) => (
+                                <button key={s.key} type="button"
+                                    className={`aa-sort-btn ${profitLossSort === s.key ? "active" : ""}`}
+                                    onClick={() => setProfitLossSort(s.key)}>
+                                    {s.label}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                    <div className="aa-card-body">
+                        {sortedProfitLoss.length > 0 ? (
+                            <div className="aa-table-wrap">
+                                <table className="aa-table aa-table-profit">
+                                    <thead>
+                                        <tr>
+                                            <th>#</th>
+                                            <th>Ürün</th>
+                                            <th>Adet</th>
+                                            <th>Ciro</th>
+                                            <th>Maliyet</th>
+                                            <th>Komisyon</th>
+                                            <th>Net Kâr</th>
+                                            <th>Marj</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {sortedProfitLoss.slice(0, 25).map((p, idx) => (
+                                            <tr key={p.barcode || idx}>
+                                                <td><span className="aa-rank">{idx + 1}</span></td>
+                                                <td><span className="aa-pc-name">{p.name}</span></td>
+                                                <td><strong>{fmtNumber(p.totalSold)}</strong></td>
+                                                <td className="aa-td-green">{fmtCurrency(p.totalRevenue)}</td>
+                                                <td className="aa-td-red">{fmtCurrency(p.totalProductCost)}</td>
+                                                <td className="aa-td-orange">{fmtCurrency(p.totalCommission)}</td>
+                                                <td className={p.netProfit >= 0 ? "aa-td-green" : "aa-td-red"}>
+                                                    <strong>{fmtCurrency(p.netProfit)}</strong>
+                                                </td>
+                                                <td>
+                                                    <span className={`aa-margin-badge ${p.profitMargin >= 15 ? "good" : p.profitMargin >= 5 ? "mid" : "low"}`}>
+                                                        {fmtPercent(p.profitMargin)}
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        ) : (
+                            <div className="aa-no-data"><FaBalanceScale /><p>Kar/zarar verisi yok.</p></div>
+                        )}
+                    </div>
+                </div>
             </div>
         );
     };
@@ -734,11 +927,11 @@ const AdvancedAnalytics = ({ userId }) => {
                     <div className="aa-card-head">
                         <h3><FaBoxes /> Ürün Kârlılık Tablosu</h3>
                         <div className="aa-sort-controls">
-                            <span className="aa-sort-label">Srala:</span>
+                            <span className="aa-sort-label">Sırala:</span>
                             {[
                                 { key: "totalRevenue", label: "Ciro" },
                                 { key: "netProfit", label: "Kâr" },
-                                { key: "totalSold", label: "Sat" },
+                                { key: "totalSold", label: "Satış" },
                                 { key: "profitMargin", label: "Marj" }
                             ].map(s => (
                                 <button key={s.key} className={`aa-sort-btn ${sortField === s.key ? 'active' : ''}`}
@@ -813,7 +1006,7 @@ const AdvancedAnalytics = ({ userId }) => {
                 {categoryDist.length > 0 && (
                     <div className="aa-card aa-span-2">
                         <div className="aa-card-head">
-                            <h3><FaChartPie /> Kategori Bazl Performans</h3>
+                            <h3><FaChartPie /> Kategori Bazlı Performans</h3>
                         </div>
                         <div className="aa-card-body">
                             <ResponsiveContainer width="100%" height={300}>
@@ -914,7 +1107,7 @@ const AdvancedAnalytics = ({ userId }) => {
                 {mpComparison.length > 1 && (
                     <div className="aa-card aa-span-full">
                         <div className="aa-card-head">
-                            <h3><FaChartBar /> Pazaryeri Karlatrma</h3>
+                            <h3><FaChartBar /> Pazaryeri Karşılaştırma</h3>
                         </div>
                         <div className="aa-card-body">
                             <ResponsiveContainer width="100%" height={350}>
@@ -984,7 +1177,7 @@ const AdvancedAnalytics = ({ userId }) => {
                                         <tr>
                                             <th>rn</th>
                                             <th>Stok</th>
-                                            <th>Gnlk Sat</th>
+                                            <th>Günlük Satış</th>
                                             <th>Kalan Gn</th>
                                             <th>Devir Hz</th>
                                             <th>Ciro</th>
@@ -1067,7 +1260,7 @@ const AdvancedAnalytics = ({ userId }) => {
                 {byMarketplace.length > 0 && (
                     <div className="aa-card aa-span-full">
                         <div className="aa-card-head">
-                            <h3><FaStore /> Pazaryeri Bazl Komisyon & Gider</h3>
+                            <h3><FaStore /> Pazaryeri Bazlı Komisyon & Gider</h3>
                         </div>
                         <div className="aa-card-body">
                             <div className="aa-table-wrap">
@@ -1116,7 +1309,7 @@ const AdvancedAnalytics = ({ userId }) => {
                 {byMarketplace.length > 0 && (
                     <div className="aa-card aa-span-2">
                         <div className="aa-card-head">
-                            <h3><FaChartBar /> Gider Karlatrmas</h3>
+                            <h3><FaChartBar /> Gider Karşılaştırması</h3>
                         </div>
                         <div className="aa-card-body">
                             <ResponsiveContainer width="100%" height={300}>
@@ -1169,6 +1362,48 @@ const AdvancedAnalytics = ({ userId }) => {
             </div>
         );
     };
+
+    // 
+    // TAB: HAK EDİŞ (PAYOUT)
+    // 
+    const exportPayoutCSV = () => {
+        const rows = payout?.rows || [];
+        if (!rows.length) return;
+        const header = ["Sipariş No", "Platform", "Tarih", "Brüt Satış", "Komisyon", "Kargo", "Paketleme", "Platform Bedeli", "Stopaj", "Toplam Kesinti", "Net Hak Ediş", "Kaynak", "Durum"];
+        const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+        const lines = rows.map(r => [
+            r.orderNo, r.platform,
+            r.date ? new Date(r.date).toLocaleDateString("tr-TR") : "",
+            r.grossSale, r.commission, r.cargo, r.packaging || 0, r.platformFee || 0, r.stopaj || 0,
+            r.totalDeductions || 0, r.netPayout,
+            r.dataQuality === "actual" ? "Gerçek" : "Tahmin",
+            r.isCancelled ? "İptal" : r.isReturned ? "İade" : r.statusBucket
+        ].map(esc).join(","));
+        const csv = "\uFEFF" + [header.map(esc).join(","), ...lines].join("\r\n");
+        const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `hak-edis-${new Date().toISOString().split("T")[0]}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+    };
+
+    const renderPayout = () => (
+        <PayoutDashboard
+            payout={payout}
+            payoutReconcile={payoutReconcile}
+            commissionAnalysis={commissionAnalysis}
+            payoutFilter={payoutFilter}
+            setPayoutFilter={setPayoutFilter}
+            payoutMarketplace={payoutMarketplace}
+            setPayoutMarketplace={setPayoutMarketplace}
+            onReconcile={handleReconcile}
+            reconciling={reconciling}
+            onExport={exportPayoutCSV}
+            loading={payoutLoading || (tabLoading && activeTab === "payout")}
+        />
+    );
 
     // 
     // TAB 7: AKSYON MERKEZ
@@ -1254,7 +1489,7 @@ const AdvancedAnalytics = ({ userId }) => {
             <div className="aa-header">
                 <div className="aa-header-left">
                     <h1><FaChartArea /> Gelişmiş Analiz & Raporlama</h1>
-                    <p>Sat, kâr, komisyon, stok  tüm verileriniz tek ekâranda</p>
+                    <p>Satış, kâr, komisyon, stok — tüm verileriniz tek ekranda</p>
                 </div>
                 <div className="aa-header-right">
                     <div className="aa-last-update">
@@ -1262,13 +1497,16 @@ const AdvancedAnalytics = ({ userId }) => {
                         <span>{lastUpdate.toLocaleTimeString('tr-TR')}</span>
                     </div>
                     <select className="aa-select" value={dateRange} onChange={(e) => setDateRange(e.target.value)}>
-                        <option value="7">Son 7 Gn</option>
-                        <option value="30">Son 30 Gn</option>
-                        <option value="90">Son 90 Gn</option>
+                        <option value="7">Son 7 Gün</option>
+                        <option value="30">Son 30 Gün</option>
+                        <option value="90">Son 90 Gün</option>
                         <option value="180">Son 6 Ay</option>
                     </select>
-                    <button className="aa-action-btn" onClick={loadAllData} disabled={loading}>
-                        <FaSync className={loading ? 'spinning' : ''} /> Yenile
+                    <button className="aa-action-btn aa-sync-btn" onClick={handleSyncAndReload} disabled={syncing || loading} title="Pazaryerlerinden siparişleri çekip yeniden hesapla">
+                        <FaStore className={syncing ? 'spinning' : ''} /> {syncing ? 'Senkronize ediliyor…' : 'Senkronize Et'}
+                    </button>
+                    <button className="aa-action-btn" onClick={refreshAll} disabled={loading || tabLoading}>
+                        <FaSync className={loading || tabLoading ? 'spinning' : ''} /> Yenile
                     </button>
                 </div>
             </div>
@@ -1318,12 +1556,13 @@ const AdvancedAnalytics = ({ userId }) => {
                     exit={{ opacity: 0, y: -15 }} transition={{ duration: 0.25 }}>
                     {activeTab === 'overview' && renderOverview()}
                     {activeTab === 'sales' && renderSales()}
-                    {activeTab === 'profit-loss' && renderProfitLoss()}
                     {activeTab === 'products' && renderProducts()}
-                    {activeTab === 'marketplaces' && renderMarketplaces()}
                     {activeTab === 'stock' && renderStock()}
-                    {activeTab === 'commission' && renderCommission()}
+                    {activeTab === 'payout' && renderPayout()}
                     {activeTab === 'actions' && renderActions()}
+                    {tabLoading && (
+                        <div className="aa-tab-loading"><FaSync className="spinning" /> Sekme verisi yükleniyor…</div>
+                    )}
                 </motion.div>
             </AnimatePresence>
         </div>

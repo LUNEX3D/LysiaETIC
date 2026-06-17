@@ -1,5 +1,5 @@
 /**
- * Dashtock Radar — AI ürün fırsat motoru (v3 arayüz)
+ * Dashtock Radar — AI ürün fırsat motoru (v5 arayüz)
  */
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { AnimatePresence } from "framer-motion";
@@ -34,6 +34,8 @@ export default function RadarProPage() {
     const [refreshing, setRefreshing] = useState(false);
     const [analyzing, setAnalyzing] = useState(false);
     const [error, setError] = useState("");
+    const [infoMessage, setInfoMessage] = useState("");
+    const [persistWarning, setPersistWarning] = useState("");
     const [activeFilter, setActiveFilter] = useState("best");
     const [keywordFilter, setKeywordFilter] = useState("");
     const [simOpp, setSimOpp] = useState(null);
@@ -50,11 +52,14 @@ export default function RadarProPage() {
     const loadOpportunities = useCallback(async ({ silent = false } = {}) => {
         if (!silent) setOppInitialLoading(true);
         setError("");
+        setInfoMessage("");
         try {
             const data = unwrapRadar(await getOpportunities({}));
             setOpportunities(data.opportunities || []);
             setRadarMeta(data.meta || null);
             setAnalyzing(data.stats?.analyzing === true);
+            setPersistWarning(data.stats?.persistWarning || "");
+            if (data.message) setInfoMessage(data.message);
             oppFetchedRef.current = true;
         } catch (err) {
             setError(err?.response?.data?.message || err.message || "Fırsatlar yüklenemedi");
@@ -89,15 +94,27 @@ export default function RadarProPage() {
 
     useEffect(() => {
         if (!analyzing) return;
+        let attempts = 0;
+        const maxAttempts = 30;
         const interval = setInterval(async () => {
+            attempts++;
             try {
                 const data = unwrapRadar(await getOpportunities({}));
                 if (data.opportunities?.length > 0) {
                     setOpportunities(data.opportunities);
                     if (data.meta) setRadarMeta(data.meta);
+                    setPersistWarning(data.stats?.persistWarning || "");
                     setAnalyzing(false);
-                } else if (data.stats?.analyzing) {
-                    setAnalyzing(true);
+                    setInfoMessage("");
+                    return;
+                }
+                if (data.stats?.analyzing === false && attempts >= 3) {
+                    setAnalyzing(false);
+                    if (data.message) setInfoMessage(data.message);
+                }
+                if (attempts >= maxAttempts) {
+                    setAnalyzing(false);
+                    setInfoMessage("Analiz beklenenden uzun sürüyor. Lütfen birkaç dakika sonra yenileyin.");
                 }
             } catch {
                 /* ignore */
@@ -109,15 +126,25 @@ export default function RadarProPage() {
     const handleRefresh = async () => {
         setRefreshing(true);
         setError("");
+        setInfoMessage("");
         try {
             const data = unwrapRadar(await refreshOpportunities());
             if (data.opportunities?.length > 0) {
                 setOpportunities(data.opportunities);
                 if (data.meta) setRadarMeta(data.meta);
                 setAnalyzing(false);
-            } else {
+            } else if (data.stats?.analyzing) {
                 setAnalyzing(true);
+            } else {
+                setAnalyzing(false);
             }
+            setPersistWarning(
+                data.stats?.persistWarning ||
+                    (data.persisted === false
+                        ? "Sonuçlar geçici olarak gösteriliyor; veritabanı kotası dolu olabilir."
+                        : "")
+            );
+            if (data.message) setInfoMessage(data.message);
             oppFetchedRef.current = true;
             productsFetchedRef.current = false;
             invalidateRadarInsightsCache();
@@ -195,6 +222,7 @@ export default function RadarProPage() {
                 mainTab={mainTab}
                 onTabChange={setMainTab}
                 refreshing={refreshing}
+                analyzing={analyzing}
                 onRefresh={handleRefresh}
                 productCount={productStats?.total || 0}
                 toolbar={
@@ -209,8 +237,6 @@ export default function RadarProPage() {
                         oppStats={oppStats}
                         loading={oppPanelLoading}
                         opportunitiesTabActive={mainTab === "opportunities"}
-                        refreshing={refreshing}
-                        onRefresh={handleRefresh}
                     />
                 }
             >
@@ -222,53 +248,66 @@ export default function RadarProPage() {
                     <RadarTabGuide tabKey="opportunities" />
 
                     {keywordFilter && (
-                        <div className="rp-alert rp-alert--filter">
+                        <div className="rp-banner rp-banner--filter">
                             <span>Kelime filtresi: <strong>{keywordFilter}</strong></span>
-                            <button type="button" className="rp-action" onClick={() => setKeywordFilter("")}>
+                            <button type="button" className="rp-btn-ghost" onClick={() => setKeywordFilter("")}>
                                 Temizle
                             </button>
                         </div>
                     )}
 
-                    {analyzing && (
-                        <div className="rp-alert rp-alert--scan">
+                    {analyzing && !refreshing && (
+                        <div className="rp-banner rp-banner--scan">
                             <FaSpinner className="rp-spin" />
                             <span>AI taraması devam ediyor — sonuçlar otomatik güncellenir.</span>
                         </div>
                     )}
 
+                    {persistWarning && !analyzing && (
+                        <div className="rp-banner rp-banner--filter">
+                            <FaExclamationTriangle />
+                            <span>{persistWarning}</span>
+                        </div>
+                    )}
+
+                    {infoMessage && !error && !analyzing && (
+                        <div className="rp-banner rp-banner--filter">
+                            <span>{infoMessage}</span>
+                        </div>
+                    )}
+
                     {oppPanelLoading && (
-                        <div className="rp-empty-state">
-                            <FaSpinner className="rp-spin rp-empty-state__icon" />
+                        <div className="rp-state rp-state--loading">
+                            <div className="rp-state-spinner" />
                             <p>Fırsatlar yükleniyor…</p>
                         </div>
                     )}
 
                     {error && !oppPanelLoading && (
-                        <div className="rp-alert rp-alert--error">
+                        <div className="rp-banner rp-banner--error">
                             <FaExclamationTriangle />
                             <span>{error}</span>
-                            <button type="button" className="rp-action" onClick={() => loadOpportunities()}>
+                            <button type="button" className="rp-btn-ghost" onClick={() => loadOpportunities()}>
                                 Tekrar dene
                             </button>
                         </div>
                     )}
 
                     {!oppPanelLoading && !analyzing && !error && displayedOpportunities.length === 0 && (
-                        <div className="rp-empty-state rp-empty-state--hero">
-                            <div className="rp-empty-state__glyph">
+                        <div className="rp-state rp-state--empty">
+                            <div className="rp-state-icon">
                                 <FaSatellite />
                             </div>
                             <h2>Henüz fırsat yok</h2>
                             <p>Kataloğunuzu bağlayın veya yeni bir AI taraması başlatın.</p>
-                            <button type="button" className="rp-cta" onClick={handleRefresh}>
+                            <button type="button" className="rp-btn-primary rp-btn-primary--lg" onClick={handleRefresh}>
                                 <FaSync /> Analiz başlat
                             </button>
                         </div>
                     )}
 
                     {displayedOpportunities.length > 0 && (
-                        <div className="rp-grid rp-grid--opp">
+                        <div className="rp-opp-grid">
                             {displayedOpportunities.map((opp, idx) => (
                                 <RadarOpportunityCard
                                     key={opp._id || `${opp.keyword}-${idx}`}
@@ -291,34 +330,34 @@ export default function RadarProPage() {
                     <RadarTabGuide tabKey="products" />
 
                     {productsPanelLoading && (
-                        <div className="rp-empty-state">
-                            <FaSpinner className="rp-spin rp-empty-state__icon" />
+                        <div className="rp-state rp-state--loading">
+                            <div className="rp-state-spinner" />
                             <p>Ürünler yükleniyor…</p>
                         </div>
                     )}
                     {productsError && !productsPanelLoading && (
-                        <div className="rp-alert rp-alert--error">
+                        <div className="rp-banner rp-banner--error">
                             <FaExclamationTriangle />
                             <span>{productsError}</span>
-                            <button type="button" className="rp-action" onClick={() => loadProducts()}>
+                            <button type="button" className="rp-btn-ghost" onClick={() => loadProducts()}>
                                 Tekrar dene
                             </button>
                         </div>
                     )}
                     {!productsPanelLoading && !productsError && sortedProducts.length === 0 && (
-                        <div className="rp-empty-state rp-empty-state--hero">
-                            <div className="rp-empty-state__glyph">
+                        <div className="rp-state rp-state--empty">
+                            <div className="rp-state-icon">
                                 <FaCrosshairs />
                             </div>
                             <h2>Ürün örneği bulunamadı</h2>
                             <p>Önce Fırsat Radarı analizi çalıştırın; ardından bu liste dolar.</p>
-                            <button type="button" className="rp-cta" onClick={handleRefresh}>
+                            <button type="button" className="rp-btn-primary rp-btn-primary--lg" onClick={handleRefresh}>
                                 <FaSync /> Analiz başlat
                             </button>
                         </div>
                     )}
                     {sortedProducts.length > 0 && (
-                        <div className="rp-grid rp-grid--products">
+                        <div className="rp-product-grid">
                             {sortedProducts.map((product, idx) => (
                                 <RadarProductCard
                                     key={`${product.opportunityId}-${product.name}-${idx}`}

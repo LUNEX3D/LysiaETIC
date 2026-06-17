@@ -1,0 +1,9 @@
+{
+  "name": "Lumière Beauty",
+  "category": "Premium Kozmetik",
+  "descriptionTr": "Kozmetik markaları için zarif pastel vitrin — editorial hero, hediye paketleme.",
+  "source": "Lysia Premium",
+  "license": "MIT",
+  "stack": ["HTML", "CSS", "GrapesJS"],
+  "previewColors": { "primary": "#7c3146", "accent": "#d8a7b1" }
+}

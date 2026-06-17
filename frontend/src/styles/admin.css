@@ -1191,3 +1191,227 @@
     .ap-kpi-grid { grid-template-columns: 1fr; }
     .ap-main { padding: 10px; padding-top: 56px; }
 }
+
+/* ── Giriş sayfası CMS (admin) ── */
+.lp-admin-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 1.25rem;
+}
+.lp-admin-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    border-radius: 10px;
+    border: 1px solid var(--ap-border, rgba(255,255,255,0.08));
+    background: rgba(255,255,255,0.03);
+    color: var(--ap-muted, #94a3b8);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+}
+.lp-admin-tab--active {
+    background: rgba(124, 92, 252, 0.15);
+    border-color: rgba(124, 92, 252, 0.45);
+    color: #c4b5fd;
+}
+.lp-admin-panel {
+    background: var(--ap-card, rgba(15,20,30,0.6));
+    border: 1px solid var(--ap-border, rgba(255,255,255,0.08));
+    border-radius: 14px;
+    padding: 1.25rem 1.5rem;
+}
+.lp-admin-panel h3 {
+    margin: 0 0 1rem;
+    font-size: 1rem;
+    color: #f1f5f9;
+}
+.lp-admin-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 0.85rem;
+}
+.lp-admin-field span {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ap-muted, #94a3b8);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.lp-admin-field input,
+.lp-admin-field textarea {
+    background: rgba(0,0,0,0.25);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 8px;
+    padding: 10px 12px;
+    color: #f8fafc;
+    font-size: 14px;
+    line-height: 1.5;
+}
+.lp-admin-hint {
+    font-size: 12px;
+    color: var(--ap-muted, #64748b);
+    margin-top: 0.5rem;
+}
+.lp-admin-partners-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 1rem;
+}
+.lp-admin-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: #e2e8f0;
+}
+.lp-admin-partner-form {
+    margin: 1.25rem 0;
+    padding: 1rem;
+    border-radius: 12px;
+    border: 1px dashed rgba(124, 92, 252, 0.35);
+    background: rgba(124, 92, 252, 0.05);
+}
+.lp-admin-partner-form h4 {
+    margin: 0 0 0.75rem;
+    font-size: 14px;
+    color: #e2e8f0;
+}
+.lp-admin-partner-form-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+    margin-bottom: 12px;
+}
+.lp-admin-partner-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+.lp-admin-partner-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 12px 14px;
+    border-radius: 12px;
+    border: 1px solid rgba(255,255,255,0.08);
+    background: rgba(255,255,255,0.02);
+}
+.lp-admin-partner-row--off {
+    opacity: 0.55;
+}
+.lp-admin-partner-logo {
+    width: 72px;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #fff;
+    border-radius: 8px;
+    padding: 6px;
+    flex-shrink: 0;
+}
+.lp-admin-partner-logo img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+}
+.lp-admin-partner-meta {
+    flex: 1;
+    min-width: 0;
+}
+.lp-admin-partner-meta strong {
+    display: block;
+    color: #f1f5f9;
+    font-size: 14px;
+}
+.lp-admin-partner-meta small {
+    color: #94a3b8;
+    font-size: 12px;
+}
+.lp-admin-partner-actions {
+    display: flex;
+    gap: 6px;
+}
+.ap-alert--success {
+    background: rgba(34, 197, 94, 0.12);
+    border: 1px solid rgba(34, 197, 94, 0.35);
+    color: #86efac;
+    padding: 10px 14px;
+    border-radius: 10px;
+    margin-bottom: 12px;
+}
+.lp-admin-features-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    margin: 1.5rem 0 0.75rem;
+    padding-top: 1rem;
+    border-top: 1px solid rgba(255,255,255,0.08);
+}
+.lp-admin-features-head h4 {
+    margin: 0;
+    font-size: 14px;
+    color: #e2e8f0;
+}
+.lp-admin-feature-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.lp-admin-feature-card {
+    padding: 1rem;
+    border-radius: 12px;
+    border: 1px solid rgba(255,255,255,0.08);
+    background: rgba(255,255,255,0.02);
+}
+.lp-admin-feature-card-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+.lp-admin-feature-card-head strong {
+    font-size: 13px;
+    color: #c4b5fd;
+}
+.lp-admin-template-banner {
+    padding: 12px 14px;
+    margin-bottom: 1rem;
+    border-radius: 10px;
+    background: rgba(124, 92, 252, 0.12);
+    border: 1px solid rgba(124, 92, 252, 0.28);
+    color: #e2e8f0;
+    font-size: 13px;
+    line-height: 1.55;
+}
+.lp-admin-template-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 1.25rem;
+}
+.lp-admin-marquee-preview {
+    margin-bottom: 1.25rem;
+    padding: 1rem;
+    border-radius: 14px;
+    border: 1px solid rgba(255,255,255,0.1);
+    background: #0a0f18;
+    overflow: hidden;
+}
+.lp-admin-marquee-preview-inner .auth-partners {
+    padding: 16px 0 8px;
+    border-top: none;
+    background: transparent;
+}
+.lp-admin-marquee-preview-inner .auth-partners-track-wrap {
+    mask-image: linear-gradient(90deg, transparent, #000 5%, #000 95%, transparent);
+}
+

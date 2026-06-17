@@ -1,0 +1,1068 @@
+/* ═══ Vitrin Tema Editörü — temiz sol/sağ paneller ═══ */
+
+.pro-theme-editor--clean {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: 320px minmax(0, 1fr) 360px;
+    overflow: hidden;
+    background: #f4f6f8;
+}
+
+/* ─── Yan paneller ─── */
+.pte-side {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    background: #fff;
+    border-color: #dfe3ea;
+}
+
+.pte-side--left {
+    border-right: 1px solid #dfe3ea;
+}
+
+.pte-side--right {
+    border-left: 1px solid #dfe3ea;
+}
+
+/* Sekmeler — yatay pill */
+.pte-tabs {
+    display: flex;
+    gap: 6px;
+    padding: 12px 12px 10px;
+    border-bottom: 1px solid #e8ecf0;
+    background: #fafbfc;
+    flex-shrink: 0;
+}
+
+.pte-tabs__btn {
+    flex: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 38px;
+    padding: 0 10px;
+    border: 1px solid transparent;
+    border-radius: 10px;
+    background: transparent;
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+    white-space: nowrap;
+}
+
+.pte-tabs__btn:hover {
+    background: #f1f5f9;
+    color: #334155;
+}
+
+.pte-tabs__btn.is-active {
+    background: #fff;
+    border-color: #cbd5e1;
+    color: #0f766e;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+}
+
+.pte-tabs--right .pte-tabs__btn.is-active {
+    background: #f0fdfa;
+    border-color: rgba(13, 148, 136, 0.3);
+    color: #0d9488;
+}
+
+/* Seçim başlığı — sağ üst */
+.pte-selection {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 12px 14px;
+    border-bottom: 1px solid #e8ecf0;
+    background: linear-gradient(180deg, #f0fdfa 0%, #fff 100%);
+    flex-shrink: 0;
+}
+
+.pte-selection--empty {
+    justify-content: flex-start;
+    gap: 10px;
+    background: #fafbfc;
+    color: #64748b;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.pte-selection--empty p {
+    margin: 0;
+}
+
+.pte-selection__info {
+    min-width: 0;
+    flex: 1;
+}
+
+.pte-selection__label {
+    display: block;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #64748b;
+    margin-bottom: 2px;
+}
+
+.pte-selection__name {
+    display: block;
+    font-size: 14px;
+    font-weight: 700;
+    color: #0f766e;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pte-selection__tools {
+    display: flex;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+.pte-selection__tools button {
+    width: 34px;
+    height: 34px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid #e2e8f0;
+    border-radius: 9px;
+    background: #fff;
+    color: #475569;
+    cursor: pointer;
+    padding: 0;
+}
+
+.pte-selection__tools button:hover:not(:disabled) {
+    background: #f8fafc;
+    border-color: #cbd5e1;
+    color: #0f172a;
+}
+
+.pte-selection__tools button.is-danger:hover:not(:disabled) {
+    background: #fef2f2;
+    border-color: #fecaca;
+    color: #dc2626;
+}
+
+.pte-selection__tools button:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+/* Panel gövdesi */
+.pte-side__body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    position: relative;
+}
+
+.pte-side__body--right {
+    background: #fff;
+}
+
+.pte-pane {
+    display: none;
+    flex-direction: column;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.pte-pane.is-active {
+    display: flex;
+}
+
+.pte-pane__lead {
+    flex-shrink: 0;
+    margin: 0;
+    padding: 10px 14px;
+    font-size: 12px;
+    line-height: 1.45;
+    color: #64748b;
+    background: #f8fafc;
+    border-bottom: 1px solid #eef1f5;
+}
+
+/* Gizli Grapes blok yöneticisi (sadece API için) */
+.pte-gjs-hidden {
+    position: absolute;
+    width: 0;
+    height: 0;
+    overflow: hidden;
+    opacity: 0;
+    pointer-events: none;
+}
+
+/* Özel bölüm seçici — Temel blok grid yerine */
+.pte-block-picker {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 10px 12px 14px;
+}
+
+.pte-block-group {
+    margin-bottom: 14px;
+}
+
+.pte-block-group:last-child {
+    margin-bottom: 0;
+}
+
+.pte-block-group__head {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-bottom: 8px;
+    padding: 0 2px;
+}
+
+.pte-block-group__head strong {
+    font-size: 13px;
+    font-weight: 800;
+    color: #0f172a;
+}
+
+.pte-block-group__head span {
+    font-size: 11px;
+    color: #94a3b8;
+    line-height: 1.35;
+}
+
+.pte-block-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.pte-block-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 56px;
+    padding: 10px 12px;
+    border: 1px solid #e8ecf0;
+    border-radius: 12px;
+    background: #fff;
+    color: #334155;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s, box-shadow 0.15s;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+
+.pte-block-card__icon {
+    flex-shrink: 0;
+    width: 40px;
+    height: 40px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 10px;
+    background: linear-gradient(135deg, #f0fdfa 0%, #ecfdf5 100%);
+    border: 1px solid rgba(13, 148, 136, 0.15);
+    font-size: 16px;
+    font-weight: 800;
+    color: #0f766e;
+}
+
+.pte-block-card__body {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.pte-block-card__body strong {
+    font-size: 13px;
+    font-weight: 700;
+    color: #0f172a;
+    line-height: 1.3;
+}
+
+.pte-block-card__body small {
+    font-size: 11px;
+    color: #94a3b8;
+    line-height: 1.35;
+}
+
+.pte-block-card:hover:not(:disabled) {
+    border-color: rgba(13, 148, 136, 0.45);
+    background: #f0fdfa;
+    box-shadow: 0 4px 12px rgba(13, 148, 136, 0.1);
+}
+
+.pte-block-card:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+/* Sol alt — İkas tarzı Tema Ayarları */
+.pte-left-footer {
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 12px 12px;
+    border-top: 1px solid #e8ecf0;
+    background: #fafbfc;
+}
+
+.pte-left-footer__add {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 42px;
+    padding: 0 14px;
+    border: 1px dashed rgba(13, 148, 136, 0.45);
+    border-radius: 10px;
+    background: #f0fdfa;
+    color: #0f766e;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.pte-left-footer__add:hover {
+    background: #ccfbf1;
+    border-color: #0d9488;
+}
+
+.pte-left-footer__settings {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 40px;
+    padding: 0 14px;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    background: #fff;
+    color: #475569;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.pte-left-footer__settings:hover {
+    background: #f8fafc;
+    border-color: #cbd5e1;
+    color: #0f172a;
+}
+
+/* Sayfa bölüm listesi — Yapı sekmesi */
+.pte-sections {
+    list-style: none;
+    margin: 0;
+    padding: 8px 10px;
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+.pte-sections__item {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+    margin-bottom: 6px;
+    border: 1px solid #e8ecf0;
+    border-radius: 11px;
+    background: #fff;
+    overflow: hidden;
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.pte-sections__item.is-dragging {
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+}
+
+.pte-sections__handle {
+    flex-shrink: 0;
+    width: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-right: 1px solid #eef1f5;
+    background: #fafbfc;
+    color: #94a3b8;
+    cursor: grab;
+    padding: 0;
+}
+
+.pte-sections__handle:active {
+    cursor: grabbing;
+}
+
+.pte-sections__handle:hover {
+    color: #0d9488;
+    background: #f0fdfa;
+}
+
+.pte-sections__delete {
+    flex-shrink: 0;
+    width: 40px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-left: 1px solid #eef1f5;
+    background: #fafbfc;
+    color: #64748b;
+    cursor: pointer;
+    padding: 0;
+}
+
+.pte-sections__delete:hover {
+    background: #fef2f2;
+    color: #dc2626;
+}
+
+.pte-sections__item.is-active {
+    border-color: rgba(13, 148, 136, 0.45);
+    box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.1);
+}
+
+.pte-sections__pick {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    padding: 10px 12px;
+    border: none;
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+}
+
+.pte-sections__pick:hover {
+    background: #f8fafc;
+}
+
+.pte-sec-icon {
+    flex-shrink: 0;
+    width: 34px;
+    height: 34px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 9px;
+    background: #f1f5f9;
+    font-size: 14px;
+    font-weight: 800;
+    color: #475569;
+}
+
+.pte-sections__item.is-active .pte-sec-icon {
+    background: #f0fdfa;
+    color: #0f766e;
+}
+
+.pte-sections__text {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+}
+
+.pte-sections__text strong {
+    font-size: 13px;
+    font-weight: 700;
+    color: #0f172a;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pte-sections__text small {
+    font-size: 10px;
+    color: #94a3b8;
+    letter-spacing: 0.02em;
+}
+
+/* Tuval — Ikas tarzı seçim bandı */
+.pte-canvas-float {
+    position: absolute;
+    top: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 12;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px 8px 10px;
+    border-radius: 999px;
+    background: #0f172a;
+    color: #f8fafc;
+    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.28);
+    pointer-events: auto;
+    max-width: calc(100% - 32px);
+}
+
+.pte-canvas-float__dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #2dd4bf;
+    flex-shrink: 0;
+    box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.25);
+}
+
+.pte-canvas-float__label {
+    font-size: 12px;
+    color: #cbd5e1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 200px;
+}
+
+.pte-canvas-float__label strong {
+    color: #fff;
+    font-weight: 700;
+}
+
+.pte-canvas-float__btn {
+    flex-shrink: 0;
+    padding: 5px 12px;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.pte-canvas-float__btn:hover {
+    background: rgba(13, 148, 136, 0.35);
+    border-color: rgba(45, 212, 191, 0.45);
+}
+
+.ec-grapes-host--storefront .gjs-frame-wrapper {
+    box-shadow:
+        0 0 0 1px rgba(15, 23, 42, 0.06),
+        0 20px 48px rgba(15, 23, 42, 0.14);
+}
+
+.pte-sections__tools {
+    display: none;
+}
+
+.pte-sections-empty {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 24px 16px;
+    gap: 6px;
+    color: #64748b;
+}
+
+.pte-sections-empty p {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 700;
+    color: #475569;
+}
+
+.pte-sections-empty span {
+    font-size: 12px;
+    line-height: 1.45;
+    max-width: 220px;
+}
+
+.pte-layers-advanced {
+    flex-shrink: 0;
+    border-top: 1px solid #e8ecf0;
+    background: #fafbfc;
+}
+
+.pte-layers-advanced__toggle {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    border: none;
+    background: transparent;
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.pte-layers-advanced__toggle:hover {
+    color: #334155;
+    background: #f1f5f9;
+}
+
+.pte-layers-advanced__chev {
+    margin-left: auto;
+    transition: transform 0.2s;
+}
+
+.pte-layers-advanced__chev.is-open {
+    transform: rotate(180deg);
+}
+
+.pte-layers-advanced .pte-gjs--layers {
+    max-height: 200px;
+    overflow-y: auto;
+    border-top: 1px solid #eef1f5;
+}
+
+.pte-layers-advanced .pte-gjs--layers.is-collapsed {
+    display: none;
+}
+
+.pte-pane--props {
+    position: absolute;
+    inset: 0;
+}
+
+.pte-pane--props.is-active {
+    display: flex;
+}
+
+/* Boş durum — sağ */
+.pte-empty {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 24px 20px;
+    gap: 8px;
+    pointer-events: none;
+    z-index: 1;
+}
+
+.pte-empty p {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 700;
+    color: #475569;
+}
+
+.pte-empty span {
+    font-size: 12px;
+    color: #94a3b8;
+    line-height: 1.45;
+    max-width: 220px;
+}
+
+.pte-parent-btn {
+    flex-shrink: 0;
+    margin: 10px 12px 12px;
+    padding: 10px;
+    border: 1px dashed #cbd5e1;
+    border-radius: 10px;
+    background: #f8fafc;
+    color: #475569;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.pte-parent-btn:hover {
+    background: #f0fdfa;
+    border-color: rgba(13, 148, 136, 0.35);
+    color: #0f766e;
+}
+
+/* Hızlı bölümler */
+.pte-quick {
+    flex-shrink: 0;
+    border-top: 1px solid #e8ecf0;
+    background: #fafbfc;
+}
+
+.pte-quick__toggle {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 11px 14px;
+    border: none;
+    background: transparent;
+    color: #334155;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    text-align: left;
+}
+
+.pte-quick__toggle:hover {
+    background: #f1f5f9;
+}
+
+.pte-quick__chev {
+    margin-left: auto;
+    font-size: 16px;
+    color: #94a3b8;
+    font-weight: 400;
+}
+
+.pte-quick__grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    padding: 0 10px 12px;
+    max-height: 180px;
+    overflow-y: auto;
+}
+
+.pte-quick__item {
+    padding: 9px 10px;
+    border: 1px solid #e2e8f0;
+    border-radius: 9px;
+    background: #fff;
+    color: #334155;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.3;
+    cursor: pointer;
+    text-align: left;
+}
+
+.pte-quick__item:hover:not(:disabled) {
+    border-color: rgba(13, 148, 136, 0.35);
+    background: #f0fdfa;
+    color: #0f766e;
+}
+
+.pte-quick__item:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+/* GrapesJS host alanları */
+.pte-gjs {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.pte-gjs--blocks {
+    flex: 1;
+    min-height: 120px;
+    max-height: none;
+}
+
+/* ─── Tuval ─── */
+.pte-canvas {
+    position: relative;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    padding: 16px 20px;
+}
+
+.pte-canvas__loading {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #64748b;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.ec-grapes-host--pro {
+    flex: 1;
+    min-height: 0;
+    border-radius: 12px;
+    overflow: hidden;
+    background: #fff;
+}
+
+.ec-grapes-host--pro .gjs-editor-cont {
+    height: 100% !important;
+    background: transparent !important;
+}
+
+.ec-grapes-host--pro .gjs-pn-panels {
+    display: none !important;
+}
+
+.ec-grapes-host--pro .gjs-cv-canvas {
+    width: 100% !important;
+    top: 0 !important;
+    height: 100% !important;
+    background: transparent !important;
+}
+
+.ec-grapes-host--pro .gjs-frame-wrapper {
+    margin: 0 auto;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow:
+        0 0 0 1px rgba(15, 23, 42, 0.07),
+        0 24px 56px rgba(15, 23, 42, 0.18);
+}
+
+/* ─── GrapesJS: bloklar ─── */
+.pte-gjs--blocks .gjs-blocks-c {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    padding: 12px !important;
+}
+
+.pte-gjs--blocks .gjs-block {
+    width: 100% !important;
+    min-height: 68px !important;
+    margin: 0 !important;
+    border: 1px solid #e2e8f0 !important;
+    border-radius: 10px !important;
+    background: #fff !important;
+    color: #334155 !important;
+    font-size: 11px !important;
+    font-weight: 700 !important;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.pte-gjs--blocks .gjs-block:hover {
+    border-color: rgba(13, 148, 136, 0.4) !important;
+    box-shadow: 0 4px 12px rgba(13, 148, 136, 0.12);
+}
+
+.pte-gjs--blocks .gjs-block-label {
+    font-size: 11px !important;
+    line-height: 1.3 !important;
+}
+
+/* ─── GrapesJS: katmanlar ─── */
+.pte-gjs--layers .gjs-layers {
+    padding: 8px 6px;
+}
+
+.pte-gjs--layers .gjs-layer {
+    font-size: 13px;
+    line-height: 1.4;
+    min-height: 32px;
+    border-radius: 8px;
+    margin-bottom: 2px;
+    color: #334155 !important;
+}
+
+.pte-gjs--layers .gjs-layer.gjs-selected,
+.pte-gjs--layers .gjs-layer:hover {
+    background: #f0fdfa !important;
+}
+
+.pte-gjs--layers .gjs-layer-vis,
+.pte-gjs--layers .gjs-layer-caret,
+.pte-gjs--layers .gjs-layer-move {
+    width: 18px !important;
+    height: 18px !important;
+    min-width: 18px !important;
+    background-size: 14px 14px !important;
+}
+
+.pte-gjs--layers .gjs-layer-title-inn {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 600;
+}
+
+/* ─── GrapesJS: stil / ayar ─── */
+.pte-gjs--styles,
+.pte-gjs--traits {
+    padding: 0;
+}
+
+.pte-gjs--styles .gjs-sm-sector,
+.pte-gjs--traits .gjs-trt-trait {
+    background: #fff;
+    border-bottom: 1px solid #eef1f5;
+    margin-bottom: 0;
+}
+
+.pte-gjs--styles .gjs-sm-sector-title,
+.pte-gjs--traits .gjs-trt-header {
+    background: #f8fafc !important;
+    color: #1e293b !important;
+    border-bottom: 1px solid #e8ecf0 !important;
+    padding: 12px 14px !important;
+    font-size: 13px !important;
+    font-weight: 700 !important;
+    letter-spacing: 0;
+    text-transform: none;
+}
+
+.pte-gjs--styles .gjs-sm-properties,
+.pte-gjs--traits .gjs-trt-traits {
+    padding: 12px 14px 16px !important;
+}
+
+/* Her özellik alt alta — daha okunaklı */
+.pte-gjs--styles .gjs-sm-property {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 6px !important;
+    width: 100% !important;
+    margin-bottom: 14px !important;
+    float: none !important;
+}
+
+.pte-gjs--styles .gjs-sm-property .gjs-sm-label {
+    width: 100% !important;
+    max-width: none !important;
+    margin-bottom: 0 !important;
+    font-size: 12px !important;
+}
+
+.pte-gjs--styles .gjs-sm-property .gjs-fields {
+    width: 100% !important;
+}
+
+.pte-gjs--styles .gjs-field,
+.pte-gjs--traits .gjs-field {
+    background: #fff !important;
+    border: 1px solid #e2e8f0 !important;
+    border-radius: 8px !important;
+    margin-bottom: 0 !important;
+    min-height: 42px;
+    width: 100% !important;
+}
+
+.pte-gjs--styles .gjs-field input,
+.pte-gjs--styles .gjs-field select,
+.pte-gjs--traits .gjs-field input,
+.pte-gjs--traits .gjs-field select {
+    color: #0f172a !important;
+    background: #fff !important;
+    font-size: 13px !important;
+}
+
+.pte-gjs--styles .gjs-sm-label,
+.pte-gjs--traits .gjs-label {
+    font-size: 12px !important;
+    font-weight: 600 !important;
+    color: #64748b !important;
+}
+
+/* ─── Tema seçici (embedded) ─── */
+.pro-theme-editor--clean .ec-grapes-templates--embedded {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    background: transparent;
+}
+
+.pro-theme-editor--clean .ec-grapes-templates--embedded .ec-grapes-templates__list {
+    padding: 8px 10px 12px;
+}
+
+.pro-theme-editor--clean .ec-grapes-templates__item {
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    color: #334155;
+    margin-bottom: 8px;
+}
+
+.pro-theme-editor--clean .ec-grapes-templates__item:hover {
+    border-color: rgba(13, 148, 136, 0.35);
+    background: #f0fdfa;
+}
+
+.pro-theme-editor--clean .ec-grapes-templates__item.is-active {
+    border-color: #0d9488;
+    background: #f0fdfa;
+}
+
+.pro-theme-editor--clean .ec-grapes-templates__name {
+    color: #0f172a;
+}
+
+.pro-theme-editor--clean .ec-grapes-templates__action {
+    color: #0d9488;
+}
+
+.pro-theme-editor--clean .ec-grapes-templates__err {
+    padding: 8px 14px;
+    color: #dc2626;
+    font-size: 12px;
+}
+
+.pro-theme-editor--clean .ec-grapes-templates__loading {
+    padding: 20px 14px;
+    color: #64748b;
+    font-size: 13px;
+}
+
+/* Responsive */
+@media (max-width: 1200px) {
+    .pro-theme-editor--clean {
+        grid-template-columns: 280px 1fr 300px;
+    }
+}
+
+@media (max-width: 960px) {
+    .pro-theme-editor--clean {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto 1fr auto;
+    }
+
+    .pte-side--left,
+    .pte-side--right {
+        max-height: 260px;
+    }
+
+    .pte-tabs__btn span {
+        display: none;
+    }
+}
+
+/* Eski sınıflar — geriye dönük uyumluluk */
+.pro-theme-editor {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    overflow: hidden;
+}
+
+.ec-unified-workspace--pro {
+    flex: 1;
+    min-height: 0;
+}
+
+.pro-theme-editor__canvas-loading {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #64748b;
+}

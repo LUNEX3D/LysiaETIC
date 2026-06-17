@@ -200,6 +200,7 @@ async function extractKeywords(userId, opts = {}) {
         const exploratoryPool = [...new Set([
             ...trendKeywords,
             ...relevantEvergreen,
+            ...(relevantEvergreen.length === 0 ? EVERGREEN_KEYWORDS.slice(0, 6) : []),
             ...googleTrendKeywords,
             ...amazonKeywords,
         ])].filter(k => k && !prioritizedCore.includes(k));

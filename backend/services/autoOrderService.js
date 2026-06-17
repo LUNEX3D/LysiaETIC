@@ -592,8 +592,12 @@ const processHepsiburadaOrders = async (credentials, cargoId, cargoName) => {
                 const encEnd = encodeURIComponent(formatHbOmsDateTime(range.end));
                 while (hasMore) {
                     try {
-                        const url = `${ep.OMS}/packages/merchantid/${merchantId}/unpacked?begindate=${encStart}&enddate=${encEnd}&offset=${offset}&limit=${pkgLimit}`;
-                        const resp = await axios.get(url, { headers, timeout: 30000 });
+                        const url = `${ep.OMS}/packages/merchantid/${merchantId}/status/unpacked?begindate=${encStart}&enddate=${encEnd}&offset=${offset}&limit=${pkgLimit}`;
+                        let resp = await axios.get(url, { headers, timeout: 30000 }).catch(() => null);
+                        if (!resp || resp.status === 404) {
+                            const legacyUrl = `${ep.OMS}/packages/merchantid/${merchantId}/unpacked?begindate=${encStart}&enddate=${encEnd}&offset=${offset}&limit=${pkgLimit}`;
+                            resp = await axios.get(legacyUrl, { headers, timeout: 30000 });
+                        }
                         const items = resp.data?.items || resp.data || [];
                         const arr = Array.isArray(items) ? items : [];
                         if (!arr.length) {
@@ -799,13 +803,22 @@ const processCiceksepetiOrders = async (credentials, cargoId, cargoName) => {
 };
 
 /**
- * N11: Yeni siparişleri onaylama
+ * N11: Yeni siparişleri onaylama (Created → Picking)
  *
- * N11 Sipariş Statüleri:
- *   New → Approved → Rejected → Shipped → Delivered
+ * N11 REST Sipariş Statüleri (v9.0 dokümanı):
+ *   Created (yeni/onay bekleyen) → Picking (onaylandı/hazırlanıyor)
+ *   → Shipped → Delivered | Cancelled | UnPacked | UnSupplied
  *
- * Sipariş onaylama:
- *   PUT /rest/delivery/v1/shipmentPackages/{id}/approve
+ * Sipariş onaylama — UpdateOrder:
+ *   PUT https://api.n11.com/rest/order/v1/update
+ *   Body: { lines: [{ lineId }], status: "Picking" }
+ *   - lineId  = GetShipmentPackages → lines[].orderLineId
+ *   - status  = "Picking" (N11'in şu an desteklediği tek onay statüsü)
+ *
+ * ⚠️ Kargo firması: N11 REST onayında kargo SEÇİLMEZ. Kargo, ürünün
+ *    "Teslimat (Kargo) Şablonu"na göre N11 tarafından otomatik atanır ve
+ *    sipariş yanıtında shipmentCompanyId / cargoProviderName olarak gelir.
+ *    Bu yüzden cargoId / cargoName parametreleri yalnızca raporlama amaçlıdır.
  */
 const processN11Orders = async (credentials, cargoId, cargoName) => {
     const results = [];
@@ -823,18 +836,19 @@ const processN11Orders = async (credentials, cargoId, cargoName) => {
 
         const axiosN11 = { headers, timeout: 45000, httpsAgent: n11HttpsAgent };
 
-        // 1) Yeni siparişleri çek
+        // 1) Created (yeni/onay bekleyen) statüsündeki siparişleri çek
+        //    Not: status parametresi tek değer alır; yeni siparişler "Created" gelir.
         const now = Date.now();
         const startDate = now - 7 * 24 * 60 * 60 * 1000;
-        const url = `https://api.n11.com/rest/delivery/v1/shipmentPackages` +
-            `?startDate=${startDate}&endDate=${now}&page=0&size=100` +
+        const listUrl = `https://api.n11.com/rest/delivery/v1/shipmentPackages` +
+            `?startDate=${startDate}&endDate=${now}&status=Created&page=0&size=100` +
             `&orderByDirection=DESC&orderByField=true`;
 
         let response;
         let lastListErr = null;
         for (let attempt = 1; attempt <= 4; attempt++) {
             try {
-                response = await axios.get(url, axiosN11);
+                response = await axios.get(listUrl, axiosN11);
                 lastListErr = null;
                 break;
             } catch (e) {
@@ -849,44 +863,56 @@ const processN11Orders = async (credentials, cargoId, cargoName) => {
 
         const packages = response.data?.content || [];
 
-        // Sadece "New" statüsündeki paketleri işle (onay bekleyen)
+        // Sadece "Created" statüsündeki paketleri işle (onay bekleyen)
         const newPackages = packages.filter(p =>
-            (p.shipmentPackageStatus || "").toLowerCase() === "new"
+            String(p.shipmentPackageStatus || "").toLowerCase() === "created"
         );
 
         if (newPackages.length === 0) {
-            logger.info("[AutoOrder] N11: İşlenecek yeni sipariş yok");
+            logger.info("[AutoOrder] N11: İşlenecek yeni (Created) sipariş yok");
             return { processed: 0, success: 0, failed: 0, results: [] };
         }
 
-        logger.info(`[AutoOrder] N11: ${newPackages.length} yeni sipariş bulundu, işleniyor...`);
+        logger.info(`[AutoOrder] N11: ${newPackages.length} yeni sipariş bulundu, onaylanıyor (Picking)...`);
 
-        // 2) Her paketi onayla
+        // 2) Her paketi onayla — UpdateOrder: PUT /rest/order/v1/update
+        const updateUrl = `https://api.n11.com/rest/order/v1/update`;
+
         for (const pkg of newPackages) {
-            const packageId = pkg.id;
-            const orderNumber = pkg.orderNumber || String(packageId);
+            const orderNumber = pkg.orderNumber || String(pkg.id || "");
+            const lines = Array.isArray(pkg.lines) ? pkg.lines : [];
 
-            if (!packageId) {
-                results.push({ orderNumber, status: "failed", error: "packageId bulunamadı", cargoUsed: cargoName });
+            // Yalnızca Created statüsündeki kalemlerin orderLineId'lerini topla
+            const lineIds = lines
+                .filter((l) => {
+                    const st = String(l.orderItemLineItemStatusName || "").toLowerCase();
+                    return !st || st === "created";
+                })
+                .map((l) => l.orderLineId)
+                .filter((id) => id != null);
+
+            if (lineIds.length === 0) {
+                results.push({ orderNumber, status: "failed", error: "Onaylanacak orderLineId bulunamadı", cargoUsed: "—" });
+                logger.warn(`[AutoOrder] N11 ❌ ${orderNumber}: orderLineId yok`);
                 continue;
             }
 
+            const body = {
+                lines: lineIds.map((lineId) => ({ lineId })),
+                status: "Picking"
+            };
+
             try {
-                const approveUrl = `https://api.n11.com/rest/delivery/v1/shipmentPackages/${packageId}/approve`;
-                const approveBody = {
-                    cargoCompanyId: cargoId || "yurtici",
-                    cargoCompanyName: cargoName || "Yurtiçi Kargo"
-                };
-                let approved = false;
+                let resp = null;
                 let lastErr = null;
                 for (let attempt = 1; attempt <= 3; attempt++) {
                     try {
-                        await axios.put(approveUrl, approveBody, {
+                        resp = await axios.put(updateUrl, body, {
                             headers,
                             timeout: 28000,
                             httpsAgent: n11HttpsAgent
                         });
-                        approved = true;
+                        lastErr = null;
                         break;
                     } catch (e) {
                         lastErr = e;
@@ -894,15 +920,44 @@ const processN11Orders = async (credentials, cargoId, cargoName) => {
                         await new Promise((r) => setTimeout(r, attempt * 700));
                     }
                 }
-                if (!approved) throw lastErr || new Error("N11 onaylama başarısız");
+                if (lastErr) throw lastErr;
 
-                results.push({ orderNumber, status: "success", cargoUsed: cargoName });
-                logger.info(`[AutoOrder] N11 ✅ ${orderNumber} → Approved (${cargoName})`);
+                // Yanıt: { content: [{ lineId, status: "SUCCESS"|..., reasons }] }
+                const content = Array.isArray(resp?.data?.content) ? resp.data.content : [];
+                const failedLines = content.filter(
+                    (c) => String(c.status || "").toUpperCase() !== "SUCCESS"
+                );
 
-                await new Promise(r => setTimeout(r, 500));
+                if (content.length > 0 && failedLines.length === content.length) {
+                    // Tüm kalemler başarısız → sipariş başarısız
+                    const reason =
+                        failedLines.map((f) => f.reasons).filter(Boolean).join("; ") ||
+                        "N11 onay başarısız";
+                    results.push({ orderNumber, status: "failed", error: reason, cargoUsed: "—" });
+                    logger.warn(`[AutoOrder] N11 ❌ ${orderNumber}: ${reason}`);
+                } else {
+                    const partial =
+                        failedLines.length > 0
+                            ? ` (${failedLines.length}/${content.length} kalem başarısız)`
+                            : "";
+                    results.push({
+                        orderNumber,
+                        status: "success",
+                        cargoUsed: cargoName || "Kargo şablonu (N11)"
+                    });
+                    logger.info(`[AutoOrder] N11 ✅ ${orderNumber} → Picking (onaylandı)${partial}`);
+                }
+
+                await new Promise((r) => setTimeout(r, 400));
             } catch (err) {
-                const errMsg = err.response?.data?.message || err.message;
-                results.push({ orderNumber, status: "failed", error: errMsg, cargoUsed: cargoName });
+                const respData = err.response?.data;
+                const errMsg =
+                    respData?.message ||
+                    (Array.isArray(respData?.content)
+                        ? respData.content.map((c) => c.reasons).filter(Boolean).join("; ")
+                        : null) ||
+                    err.message;
+                results.push({ orderNumber, status: "failed", error: errMsg, cargoUsed: "—" });
                 logger.warn(`[AutoOrder] N11 ❌ ${orderNumber}: ${errMsg}`);
             }
         }

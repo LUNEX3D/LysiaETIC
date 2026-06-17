@@ -1,0 +1,55 @@
+/* WB admin — production mobile breakpoints */
+
+@media (max-width: 1024px) {
+  .wb-mp-page__toolbar {
+    padding: 16px;
+  }
+
+  .wb-mp-chips {
+    max-height: 120px;
+    overflow-y: auto;
+  }
+
+  .wb-nav-row__main {
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 768px) {
+  .wb-mp-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .wb-mp-modal {
+    max-height: 100dvh;
+    border-radius: 0;
+    width: 100%;
+  }
+
+  .wb-mp-page__header {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .wb-tc-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .wb-ikas-page .MuiTabs-flexContainer {
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 390px) {
+  .wb-mp-card__actions {
+    flex-direction: column;
+  }
+
+  .wb-mp-card__action {
+    width: 100%;
+  }
+
+  .wb-nav-builder__panel {
+    padding: 12px;
+  }
+}

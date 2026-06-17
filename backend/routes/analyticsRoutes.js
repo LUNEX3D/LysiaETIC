@@ -27,6 +27,7 @@ router.get("/product-performance", authMiddleware, subscriptionMiddleware, requi
 router.get("/product-profit-loss", authMiddleware, subscriptionMiddleware, requireProfit, analyticsController.getProductProfitLoss);
 router.get("/marketplace-comparison", authMiddleware, subscriptionMiddleware, requireProfit, analyticsController.getMarketplaceComparison);
 router.get("/commission-analysis", authMiddleware, subscriptionMiddleware, requireProfit, analyticsController.getCommissionAnalysis);
+router.get("/payout-report", authMiddleware, subscriptionMiddleware, requireProfit, analyticsController.getPayoutReport);
 router.get("/stock-velocity", authMiddleware, subscriptionMiddleware, analyticsController.getStockVelocity);
 router.get("/actions", authMiddleware, subscriptionMiddleware, analyticsController.getActions);
 router.get("/daily-summary", authMiddleware, subscriptionMiddleware, analyticsController.getDailySummary);

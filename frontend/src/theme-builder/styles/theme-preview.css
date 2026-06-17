@@ -1,0 +1,60 @@
+/**
+ * Theme Studio live preview — storefront block styles
+ */
+@import "../../styles/websiteBuilder/blocks.css";
+
+.wb-block-image-with-text {
+  padding: 48px 24px;
+  background: var(--color-bg, #fff);
+}
+
+.wb-iwt-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 40px;
+  max-width: 1100px;
+  margin: 0 auto;
+  align-items: center;
+}
+
+.wb-iwt-grid img {
+  width: 100%;
+  height: auto;
+  max-height: 520px;
+  object-fit: cover;
+  border-radius: var(--border-radius, 0);
+}
+
+.wb-iwt-placeholder {
+  aspect-ratio: 4 / 3;
+  background: #e2e8f0;
+  border-radius: var(--border-radius, 0);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #94a3b8;
+  font-size: 14px;
+}
+
+.wb-iwt-body h2 {
+  font-family: var(--font-heading, inherit);
+  font-size: clamp(22px, 3vw, 32px);
+  font-weight: 700;
+  margin: 0 0 16px;
+  color: var(--color-text-primary, #121212);
+}
+
+.wb-trust-badges-section h2 {
+  font-family: var(--font-heading, inherit);
+  font-size: clamp(22px, 3vw, 28px);
+  font-weight: 700;
+  text-align: center;
+  margin: 0 0 32px;
+  color: var(--color-text-primary, #121212);
+}
+
+@media (max-width: 768px) {
+  .wb-iwt-grid {
+    grid-template-columns: 1fr;
+  }
+}

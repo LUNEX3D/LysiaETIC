@@ -48,6 +48,70 @@ const parseRateLimitWaitMs = (message = "") => {
 };
 
 // ═══════════════════════════════════════════════════════════════════════
+// ⏳ RATE-LIMIT THROTTLE (resmi ÇiçekSepeti API limitleri)
+// ───────────────────────────────────────────────────────────────────────
+// ÇiçekSepeti'nin çoğu endpoint'i "farklı istek 5 saniyede 1 kez" kuralı uygular.
+// Bütün çağıranlar (dashboard sync, auto-order, kargo, finans) bu servisi
+// kullandığından, throttle'ı MERKEZİ olarak burada uyguluyoruz: endpoint + apiKey
+// bazlı SERİ kuyruk + minimum aralık. Böylece eşzamanlı akışlar bile aynı
+// endpoint'e limit içinde istek atamaz; 400 "Limit aşımı" hataları önlenir.
+// ═══════════════════════════════════════════════════════════════════════
+const CS_DEFAULT_MIN_INTERVAL_MS = parseInt(process.env.CICEKSEPETI_MIN_INTERVAL_MS || "5500", 10); // 5sn + tampon
+const CS_FAST_MIN_INTERVAL_MS = parseInt(process.env.CICEKSEPETI_FAST_INTERVAL_MS || "1500", 10);   // "saniyede 1" endpointler
+const CS_MAX_RETRIES = parseInt(process.env.CICEKSEPETI_MAX_RETRIES || "4", 10);
+
+const _csThrottle = new Map(); // `${endpoint}::${apiKey}` -> { chain, lastAt }
+
+const isCsRateLimit = (err) => {
+    const status = err?.response?.status;
+    const msg = err?.response?.data?.Message || err?.response?.data?.message || err?.message || "";
+    return status === 429 || (status === 400 && /limit a[şs][ıi]m[ıi]|rate\s?limit|too many/i.test(msg));
+};
+
+/**
+ * ÇiçekSepeti isteğini endpoint+apiKey bazlı seri kuyrukta, minimum aralığı koruyarak
+ * ve rate-limit (400/429) durumunda otomatik bekleyip tekrar deneyerek çalıştırır.
+ * @param {string} apiKey
+ * @param {string} endpointKey - kuyruk anahtarı (örn. "Order/GetOrders")
+ * @param {Function} doRequest - axios çağrısını döndüren fonksiyon
+ * @param {number} minIntervalMs
+ */
+const csThrottledRequest = (apiKey, endpointKey, doRequest, minIntervalMs = CS_DEFAULT_MIN_INTERVAL_MS) => {
+    const key = `${endpointKey}::${apiKey || "anon"}`;
+    const slot = _csThrottle.get(key) || { chain: Promise.resolve(), lastAt: 0 };
+
+    const run = slot.chain.then(async () => {
+        let attempt = 0;
+        // eslint-disable-next-line no-constant-condition
+        while (true) {
+            const waitMs = slot.lastAt + minIntervalMs - Date.now();
+            if (waitMs > 0) await sleep(waitMs);
+            try {
+                const res = await doRequest();
+                slot.lastAt = Date.now();
+                return res;
+            } catch (err) {
+                slot.lastAt = Date.now();
+                if (isCsRateLimit(err) && attempt < CS_MAX_RETRIES) {
+                    attempt++;
+                    const msg = err.response?.data?.Message || err.response?.data?.message || "";
+                    const backoff = Math.max(parseRateLimitWaitMs(msg), minIntervalMs);
+                    logger.warn(`[ÇiçekSepeti] ${endpointKey} rate-limit — deneme ${attempt}/${CS_MAX_RETRIES}, ${backoff}ms bekleniyor`);
+                    await sleep(backoff);
+                    continue;
+                }
+                throw err;
+            }
+        }
+    });
+
+    // Hata bir sonraki isteğin kuyruğunu kırmasın
+    slot.chain = run.then(() => {}, () => {});
+    _csThrottle.set(key, slot);
+    return run;
+};
+
+// ═══════════════════════════════════════════════════════════════════════
 // 📦 SİPARİŞ YÖNETİMİ
 // ═══════════════════════════════════════════════════════════════════════
 
@@ -93,35 +157,17 @@ const getOrders = async (credentials, params = {}) => {
             page: requestBody.page
         });
 
-        let response;
-        try {
-            response = await axios.post(
-                `${baseUrl}/Order/GetOrders`,
-                requestBody,
-                { headers, timeout: 30000 }
-            );
-        } catch (firstErr) {
-            const msg = firstErr.response?.data?.Message || firstErr.response?.data?.message || "";
-            if (firstErr.response?.status === 400 && /Limit aşımı/i.test(msg)) {
-                const waitMs = parseRateLimitWaitMs(msg);
-                logger.warn(`[ÇiçekSepeti] GetOrders rate-limit, ${waitMs}ms sonra tekrar denenecek`);
-                await sleep(waitMs);
-                response = await axios.post(
-                    `${baseUrl}/Order/GetOrders`,
-                    requestBody,
-                    { headers, timeout: 30000 }
-                );
-            } else {
-                throw firstErr;
-            }
-        }
+        const response = await csThrottledRequest(credentials.apiKey, "Order/GetOrders", () =>
+            axios.post(`${baseUrl}/Order/GetOrders`, requestBody, { headers, timeout: 30000 })
+        );
 
         if (response.data && response.data.supplierOrderListWithBranch) {
             logger.info(`[ÇiçekSepeti] ${response.data.orderListCount} sipariş bulundu`);
             return {
                 success: true,
                 orders: response.data.supplierOrderListWithBranch,
-                totalCount: response.data.orderListCount
+                totalCount: response.data.orderListCount,
+                totalPages: response.data.totalPages ?? response.data.totalPage ?? null,
             };
         }
 
@@ -169,10 +215,8 @@ const getCanceledOrders = async (credentials, params = {}) => {
         if (startDate) requestBody.startDate = startDate;
         if (endDate) requestBody.endDate = endDate;
 
-        const response = await axios.post(
-            `${baseUrl}/Order/getcanceledorders`,
-            requestBody,
-            { headers, timeout: 30000 }
+        const response = await csThrottledRequest(credentials.apiKey, "Order/getcanceledorders", () =>
+            axios.post(`${baseUrl}/Order/getcanceledorders`, requestBody, { headers, timeout: 30000 })
         );
 
         if (response.data && response.data.orderItemList) {
@@ -206,10 +250,8 @@ const getCargoCode = async (credentials, orderItemsGroup) => {
         const baseUrl = getBaseUrl(credentials.isTestMode);
         const headers = getHeaders(credentials);
 
-        const response = await axios.put(
-            `${baseUrl}/Order/readyforcargowithcsintegration`,
-            { orderItemsGroup },
-            { headers, timeout: 30000 }
+        const response = await csThrottledRequest(credentials.apiKey, "Order/readyforcargowithcsintegration", () =>
+            axios.put(`${baseUrl}/Order/readyforcargowithcsintegration`, { orderItemsGroup }, { headers, timeout: 30000 })
         );
 
         if (response.data && response.data.statusUpdateResponse) {
@@ -238,10 +280,8 @@ const updateOrderStatus = async (credentials, orderItems) => {
         const baseUrl = getBaseUrl(credentials.isTestMode);
         const headers = getHeaders(credentials);
 
-        const response = await axios.put(
-            `${baseUrl}/Order/statusupdatewithsupplierintegration`,
-            { orderItems },
-            { headers, timeout: 30000 }
+        const response = await csThrottledRequest(credentials.apiKey, "Order/statusupdatewithsupplierintegration", () =>
+            axios.put(`${baseUrl}/Order/statusupdatewithsupplierintegration`, { orderItems }, { headers, timeout: 30000 })
         );
 
         if (response.data && response.data.orderItems) {
@@ -294,7 +334,9 @@ const getProducts = async (credentials, params = {}) => {
 
         const url = `${baseUrl}/Products${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
 
-        const response = await axios.get(url, { headers, timeout: 30000 });
+        const response = await csThrottledRequest(credentials.apiKey, "Products:GET", () =>
+            axios.get(url, { headers, timeout: 30000 })
+        );
 
         if (response.data && response.data.products) {
             return {
@@ -332,10 +374,8 @@ const createProducts = async (credentials, products) => {
             };
         }
 
-        const response = await axios.post(
-            `${baseUrl}/Products`,
-            { products },
-            { headers, timeout: 60000 }
+        const response = await csThrottledRequest(credentials.apiKey, "Products:POST", () =>
+            axios.post(`${baseUrl}/Products`, { products }, { headers, timeout: 60000 })
         );
 
         // Response'da batchId dönüyor
@@ -374,10 +414,11 @@ const updateProducts = async (credentials, products) => {
             };
         }
 
-        const response = await axios.put(
-            `${baseUrl}/Products`,
-            { products },
-            { headers, timeout: 60000 }
+        const response = await csThrottledRequest(
+            credentials.apiKey,
+            "Products:PUT",
+            () => axios.put(`${baseUrl}/Products`, { products }, { headers, timeout: 60000 }),
+            CS_FAST_MIN_INTERVAL_MS
         );
 
         if (response.data && response.data.batchId) {
@@ -415,10 +456,11 @@ const updatePriceAndStock = async (credentials, items) => {
             };
         }
 
-        const response = await axios.put(
-            `${baseUrl}/Products/price-and-stock`,
-            { items },
-            { headers, timeout: 60000 }
+        const response = await csThrottledRequest(
+            credentials.apiKey,
+            "Products/price-and-stock",
+            () => axios.put(`${baseUrl}/Products/price-and-stock`, { items }, { headers, timeout: 60000 }),
+            CS_FAST_MIN_INTERVAL_MS
         );
 
         if (response.data && response.data.batchId) {

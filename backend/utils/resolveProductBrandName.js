@@ -61,11 +61,11 @@ const resolveProductBrandName = (productData) => {
         if (!out.some((x) => x.toLowerCase() === s.toLowerCase())) out.push(s);
     };
 
+    // 1) Ürün kartı / master — tek güvenilir kaynak (dağıtımda TY kategori listesindeki LC Waikiki vb. ezmesin)
     add(productData.brand);
     add(productData.marka);
     add(productData.brandName);
 
-    // ProductMapping: bazen iç içe masterProduct (veya sadece bu alt alan dolu)
     const mp = productData.masterProduct;
     if (mp && typeof mp === "object") {
         add(mp.brand);
@@ -79,26 +79,9 @@ const resolveProductBrandName = (productData) => {
         }
     }
 
-    const a = productData.attributes;
-    if (a && typeof a === "object" && !Array.isArray(a)) {
-        add(a.brand);
-        add(a.marka);
-        add(a.Marka);
-        add(a.Brand);
-        const tyRows = a.trendyolAttributeRows;
-        if (Array.isArray(tyRows)) {
-            for (const row of tyRows) {
-                const n = String(row?.attributeName || row?.name || "").toLowerCase();
-                if (
-                    /^marka$|^brand$/i.test(n) ||
-                    (n.includes("marka") && !n.includes("model") && !n.includes("numara"))
-                ) {
-                    add(row?.attributeValue ?? row?.value);
-                }
-            }
-        }
-    }
+    if (out.length > 0) return out[0];
 
+    // 2) Yalnızca master boşsa: HB öznitelik blob'u (pazaryeri enum id değil, metin alanları)
     for (const key of ["hepsiburadaCatalogAttributes", "hbCatalogAttributes", "hbAttributes"]) {
         const o = productData[key];
         if (o && typeof o === "object" && !Array.isArray(o)) {
@@ -106,6 +89,14 @@ const resolveProductBrandName = (productData) => {
             add(o.marka);
             add(o.brand);
         }
+    }
+
+    const a = productData.attributes;
+    if (a && typeof a === "object" && !Array.isArray(a)) {
+        add(a.brand);
+        add(a.marka);
+        add(a.Marka);
+        add(a.Brand);
     }
 
     if (Array.isArray(a)) {
@@ -117,13 +108,8 @@ const resolveProductBrandName = (productData) => {
         }
     }
 
-    const maps = productData.marketplaceMappings;
-    if (Array.isArray(maps)) {
-        for (const m of maps) {
-            if (!m) continue;
-            readCustomAttributesBrand(m.customAttributes, add);
-        }
-    }
+    // Trendyol trendyolAttributeRows / mapping customAttributes marka satırı KULLANILMAZ —
+    // kategori enum'undaki ilk marka (ör. LC Waikiki) yanlışlıkla ürün markası sanılıyordu.
 
     return out[0] || "";
 };

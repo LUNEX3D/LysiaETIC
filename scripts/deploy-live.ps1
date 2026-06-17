@@ -42,31 +42,7 @@ if (Test-Path $envFile) {
     Write-Host "      UYARI: backend\.env yok" -ForegroundColor Yellow
 }
 
-$remoteScript = @'
-set -e
-mkdir -p ~/LysiaETIC
-cd ~/LysiaETIC
-if [ -d .git ]; then
-  git fetch --all 2>/dev/null || true
-  git reset --hard origin/main 2>/dev/null || true
-fi
-tar xf ~/dashtock-backend-live.tar -C ~/LysiaETIC
-cd ~/LysiaETIC/backend
-npm install --omit=dev
-if pm2 describe backend >/dev/null 2>&1; then
-  pm2 restart backend
-elif pm2 describe dashtock-api >/dev/null 2>&1; then
-  pm2 restart dashtock-api
-else
-  pm2 start ecosystem.config.cjs
-fi
-pm2 save
-echo "--- API ---"
-curl -sS http://127.0.0.1:5000/api/status || true
-echo ""
-curl -sS http://127.0.0.1:5000/api/paytr/health || true
-echo ""
-'@
+$remoteScript = "cd ~/LysiaETIC && tar xf ~/dashtock-backend-live.tar -C ~/LysiaETIC && cd backend && npm install --omit=dev && (pm2 restart backend || pm2 restart dashtock-api || pm2 start ecosystem.config.cjs) && pm2 save"
 
 Write-Host "[4/4] Sunucuda backend kurulum..." -ForegroundColor Yellow
 $remoteScript | ssh -i $Key -o StrictHostKeyChecking=no $Server "bash -s"

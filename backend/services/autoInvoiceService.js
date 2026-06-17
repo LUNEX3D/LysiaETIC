@@ -35,9 +35,98 @@ const Invoice = require("../models/Invoice");
 const Order = require("../models/Order");
 const User = require("../models/User");
 const qnbService = require("./qnbEInvoiceService");
+const sovosService = require("./sovosEInvoiceService");
+const sovosEArchiveService = require("./sovosEArchiveService");
+const { isValidGbIdentifier } = require("../utils/sovosApiGuard");
 
 // Ardışık hata limiti — bu kadar hatadan sonra otomatik fatura devre dışı kalır
 const MAX_CONSECUTIVE_ERRORS = 5;
+const STALE_PENDING_MS = 15 * 60 * 1000;
+const PLACEHOLDER_CUSTOMER_VKNS = new Set(["11111111111", "22222222222", "12345678901"]);
+
+const resolvePublicAssetUrl = (url) => {
+    const raw = String(url || "").trim();
+    if (!raw) return "";
+    if (/^https?:\/\//i.test(raw) || raw.startsWith("data:")) return raw;
+    const base = String(
+        process.env.PUBLIC_API_URL ||
+        process.env.API_PUBLIC_URL ||
+        process.env.APP_URL ||
+        "http://localhost:5000"
+    ).replace(/\/$/, "");
+    return raw.startsWith("/") ? `${base}${raw}` : `${base}/${raw}`;
+};
+
+const normalizeEArchiveVisuals = (visuals = {}) => ({
+    logoUrl: resolvePublicAssetUrl(visuals.logoUrl),
+    signatureUrl: resolvePublicAssetUrl(visuals.signatureUrl),
+    signatureName: String(visuals.signatureName || "").trim(),
+    invoiceDescription: String(visuals.invoiceDescription || "").trim(),
+});
+
+/** Takılı kalmış pending siparişleri serbest bırak (çökme/yarım işlem sonrası) */
+const releaseStalePendingOrders = async (userId) => {
+    const cutoff = new Date(Date.now() - STALE_PENDING_MS);
+    const result = await Order.updateMany(
+        {
+            user: userId,
+            invoiceStatus: "pending",
+            invoiceId: { $exists: false },
+            updatedAt: { $lt: cutoff },
+        },
+        { invoiceStatus: "" }
+    );
+    const n = result.modifiedCount || 0;
+    if (n > 0) {
+        logger.info("[AutoInvoice] " + n + " takılı pending sipariş sıfırlandı — userId=" + userId);
+    }
+    return n;
+};
+
+const getUninvoicedStartDate = (config) => {
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    return config?.autoInvoiceStartDate ? new Date(config.autoInvoiceStartDate) : thirtyDaysAgo;
+};
+
+/** Manuel test listesi — son 90 gün (otomatik cron autoInvoiceStartDate kullanır) */
+const getUninvoicedListStartDate = () => {
+    const d = new Date();
+    d.setDate(d.getDate() - 90);
+    return d;
+};
+
+/** Faturasız / işlenebilir sipariş sorgusu (pending hariç — aktif kilit) */
+const buildUninvoicedOrderFilter = (userId, config, { includeError = true, includePending = false } = {}) => {
+    const excludedStatuses = ["created"];
+    if (!includePending) excludedStatuses.push("pending");
+    if (!includeError) excludedStatuses.push("error");
+
+    const filter = {
+        user: userId,
+        invoiceId: { $exists: false },
+        invoiceStatus: { $nin: excludedStatuses },
+        isCancelled: false,
+        isReturned: false,
+        totalPrice: { $gt: 0 },
+        orderDate: { $gte: getUninvoicedStartDate(config) },
+    };
+    return filter;
+};
+
+/** UI sipariş listesi — 90 gün, pending dahil (test ekranı) */
+const buildUninvoicedListFilter = (userId, config) => {
+    const excludedStatuses = ["created"];
+    return {
+        user: userId,
+        invoiceId: { $exists: false },
+        invoiceStatus: { $nin: excludedStatuses },
+        isCancelled: false,
+        isReturned: false,
+        totalPrice: { $gt: 0 },
+        orderDate: { $gte: getUninvoicedListStartDate() },
+    };
+};
 
 /**
  * Tetikleme listesi boşken kullanılacak dar varsayılan (erken sipariş durumlarında otomatik kesim yok)
@@ -259,9 +348,9 @@ const processAutoInvoice = async (userId, marketplaceName, newOrderIds, options 
             return stats;
         }
 
-        // Pazaryeri aktif mi? (normalize ederek karşılaştır)
+        // Pazaryeri aktif mi? (normalize ederek karşılaştır) — manuel tetikte atla
         const normalizedMp = normalizeMarketplaceName(marketplaceName);
-        if (config.enabledMarketplaces.length > 0) {
+        if (!ignoreEnabled && config.enabledMarketplaces.length > 0) {
             const enabledNormalized = config.enabledMarketplaces.map(m => normalizeMarketplaceName(m));
             if (!enabledNormalized.includes(normalizedMp)) {
                 logger.info("[AutoInvoice] " + normalizedMp + " bu kullanıcı için aktif değil — userId=" + userId);
@@ -275,14 +364,70 @@ const processAutoInvoice = async (userId, marketplaceName, newOrderIds, options 
             return stats;
         }
 
-        // Otomatik yol: yalnızca QNB (diğer provider enum'da olsa da entegrasyon yok)
-        if (config.provider && config.provider !== "qnb") {
-            logger.warn("[AutoInvoice] Otomatik kesim şu an yalnızca QNB ile destekleniyor — provider=" + config.provider + " userId=" + userId);
-            return stats;
+        const provider = config.provider || "qnb";
+
+        // ── 3. Sağlayıcı oturumu (QNB veya Sovos) ─────────────────────────
+        let earsivSessionId = null;
+        let efaturaSessionId = null;
+        let sovosSessionId = null;
+        const env = provider === "sovos"
+            ? (config.sovosCredentials?.env || "test")
+            : (config.qnbCredentials?.env || "test");
+
+        if (provider === "sovos") {
+            const sc = config.sovosCredentials || {};
+            const username = sc.username || "";
+            const password = sc.password || "";
+            const vknTckn = sc.vknTckn || config.supplier?.vkn || "";
+            const senderIdentifier = sc.senderIdentifier || "";
+
+            if (!username || !password || !vknTckn) {
+                logger.error("[AutoInvoice] Sovos credentials eksik — userId=" + userId);
+                config.stats.lastError = "Sovos web servis bilgileri eksik. Faturalandırma → Sovos bağlantısını tamamlayın.";
+                config.stats.lastErrorDate = new Date();
+                await config.save();
+                return stats;
+            }
+
+            const gbValid = isValidGbIdentifier(senderIdentifier);
+            const sovosLogin = await sovosService.login({
+                username,
+                password,
+                vknTckn,
+                senderIdentifier,
+                receiverIdentifier: sc.receiverIdentifier || "",
+                branch: sc.branch || "default",
+                env,
+                loginMode: gbValid ? "auto" : "earsiv",
+            });
+
+            if (!sovosLogin.success) {
+                logger.error("[AutoInvoice] Sovos login başarısız: " + sovosLogin.error);
+                config.stats.lastError = "Sovos login başarısız: " + sovosLogin.error;
+                config.stats.lastErrorDate = new Date();
+                config.stats.consecutiveErrors += 1;
+                await config.save();
+                return stats;
+            }
+
+            sovosSessionId = sovosLogin.sessionId;
+            const caps = sovosLogin.capabilities || {};
+            if (caps.efatura && gbValid) {
+                efaturaSessionId = sovosLogin.sessionId;
+            }
+            if (gbValid && !caps.efatura) {
+                logger.warn(
+                    "[AutoInvoice] GB etiketi geçerli (" + senderIdentifier +
+                    ") ancak e-Fatura WS doğrulaması başarısız — ortam=test ve Sovos WS kullanıcısını kontrol edin"
+                );
+            }
+            if (caps.earsiv && !caps.efatura) {
+                logger.info("[AutoInvoice] Sovos yalnızca e-Arşiv — e-Fatura oturumu açılmadı");
+            }
+            logger.info("[AutoInvoice] Sovos oturum açıldı — sessionId=" + sovosSessionId.substring(0, 8) + "...");
         }
 
         // ── 2. Siparişleri getir ─────────────────────────────────────────
-        // ✅ FIX: "pending" siparişleri de hariç tut (başka işlem tarafından kilitli)
         const orderFilter = {
             _id: { $in: newOrderIds },
             invoiceId: { $exists: false },
@@ -292,18 +437,20 @@ const processAutoInvoice = async (userId, marketplaceName, newOrderIds, options 
             totalPrice: { $gt: 0 },
         };
 
-        // ── Mükerrer fatura koruması: autoInvoiceStartDate ──────────────
-        // Bu tarihten önce oluşan siparişler otomatik faturalanmaz.
-        // Kullanıcı sistemi aktif etmeden önce manuel kestiği faturaların
-        // tekrar kesilmesini engeller.
-        if (config.autoInvoiceStartDate) {
+        if (config.autoInvoiceStartDate && !ignoreEnabled) {
             orderFilter.orderDate = { $gte: config.autoInvoiceStartDate };
         }
 
         const orders = await Order.find(orderFilter).lean();
 
         if (orders.length === 0) {
-            logger.info("[AutoInvoice] Fatura kesilecek sipariş yok — userId=" + userId);
+            if (ignoreEnabled) {
+                logger.warn(
+                    "[AutoInvoice] Manuel tetik — sipariş bulunamadı (pending/kilit veya iptal?) userId=" + userId
+                );
+            } else {
+                logger.info("[AutoInvoice] Fatura kesilecek sipariş yok — userId=" + userId);
+            }
             return stats;
         }
 
@@ -328,17 +475,9 @@ const processAutoInvoice = async (userId, marketplaceName, newOrderIds, options 
             return stats;
         }
 
-        logger.info("[AutoInvoice] " + eligibleOrders.length + " sipariş için fatura kesilecek — userId=" + userId + " marketplace=" + marketplaceName);
+        logger.info("[AutoInvoice] " + eligibleOrders.length + " sipariş için fatura kesilecek — userId=" + userId + " marketplace=" + marketplaceName + " provider=" + provider);
 
-        // ── 3. QNB Login (e-Arşiv + e-Fatura ayrı oturumlar) ────────────
-        // ⚠️ QNB'de e-Fatura ve e-Arşiv FARKLI ortamlar — FARKLI credentials!
-        //   Her kullanıcı QNB'den aldığı kullanıcı adı/şifreyi olduğu gibi girer.
-        //   .env fallback KULLANILMAZ — başka kullanıcının credential'ı ile login önlenir.
-        let earsivSessionId = null;
-        let efaturaSessionId = null;
-        const env = config.qnbCredentials.env || "test";
-
-        if (!config.provider || config.provider === "qnb") {
+        if (provider === "qnb" || !config.provider) {
             // ⚠️ e-Arşiv ve e-Fatura FARKLI ortamlar — FARKLI credentials!
             //   Her kullanıcı QNB'den aldığı kullanıcı adı/şifreyi olduğu gibi girer.
             //   Öncelik: AutoInvoiceConfig.qnbCredentials > User.companyInfo.qnb
@@ -516,18 +655,33 @@ const processAutoInvoice = async (userId, marketplaceName, newOrderIds, options 
 
                 // invoiceData oluştur
                 const baseInvoiceTypeCode = isMicroExport ? "IHRACKAYITLI" : (config.invoiceTypeCode || "SATIS");
+                const visuals = config.eArchiveVisuals || {};
+                const baseDescription = String(visuals.invoiceDescription || "").trim();
                 const invoiceNote = isMicroExport
                     ? ("Mikro İhracat — " + normalizedMp + " Sipariş: " + (order.trackingNumber || "") + " — Ülke: " + shipCountry)
-                    : (mpSpecific.note || ("Otomatik fatura — " + normalizedMp + " Sipariş: " + (order.trackingNumber || "")));
+                    : (mpSpecific.note || baseDescription || ("Otomatik fatura — " + normalizedMp + " Sipariş: " + (order.trackingNumber || "")));
+                const supplierVkn = provider === "sovos"
+                    ? (config.sovosCredentials?.vknTckn || config.supplier.vkn)
+                    : config.supplier.vkn;
                 const invoiceData = {
-                    faturaKodu: mpSpecific.invoiceSeriesCode,
+                    faturaKodu: provider === "sovos"
+                        ? (mpSpecific.invoiceSeriesCode || config.invoiceSeriesCode || "FA")
+                        : (mpSpecific.invoiceSeriesCode || config.invoiceSeriesCode || "LYS"),
+                    custInvId: String(order.trackingNumber || order.orderNumber || order._id || ""),
+                    orderNumber: String(order.trackingNumber || order.orderNumber || ""),
                     invoiceTypeCode: baseInvoiceTypeCode,
                     issueDate: new Date().toISOString().split("T")[0],
                     currency: config.currency || "TRY",
                     note: invoiceNote,
                     sendingType: config.sendingType || "ELEKTRONIK",
+                    eArchiveVisuals: normalizeEArchiveVisuals({
+                        logoUrl: visuals.logoUrl || "",
+                        signatureUrl: visuals.signatureUrl || "",
+                        signatureName: visuals.signatureName || "",
+                        invoiceDescription: baseDescription,
+                    }),
                     supplier: {
-                        vkn: config.supplier.vkn,
+                        vkn: supplierVkn,
                         name: config.supplier.name,
                         taxOffice: config.supplier.taxOffice || "",
                         street: config.supplier.street || "",
@@ -545,24 +699,25 @@ const processAutoInvoice = async (userId, marketplaceName, newOrderIds, options 
 
                 // ── e-Fatura / e-Arşiv Karar Mekanizması ─────────────────
                 // Türk mevzuatı: Alıcı e-Fatura mükellefi ise e-Fatura zorunlu
-                // Pazaryeri bireysel müşterileri → e-Arşiv (VKN yok veya 11111111111)
+                // Pazaryeri bireysel müşterileri → e-Arşiv (VKN yok veya placeholder)
                 let useEFatura = false;
                 let resolvedProfileId = "EARSIVFATURA";
 
                 const customerVkn = customer.vkn || "";
-                const isNihaiTuketici = !customerVkn || customerVkn === "11111111111";
+                const isNihaiTuketici = !customerVkn || PLACEHOLDER_CUSTOMER_VKNS.has(customerVkn);
+
+                let sovosReceiverPk = "";
+                let result;
 
                 if (!isNihaiTuketici && efaturaSessionId) {
-                    // Alıcının VKN'si var — e-Fatura mükellefi mi kontrol et
                     try {
-                        const checkResult = await qnbService.checkEInvoiceUser({
-                            sessionId: efaturaSessionId,
-                            vkn: customerVkn,
-                            env
-                        });
+                        const checkResult = provider === "sovos"
+                            ? await sovosService.checkEInvoiceUser({ sessionId: efaturaSessionId, vkn: customerVkn })
+                            : await qnbService.checkEInvoiceUser({ sessionId: efaturaSessionId, vkn: customerVkn, env });
                         if (checkResult.success && checkResult.isRegistered) {
                             useEFatura = true;
                             resolvedProfileId = config.documentType || "TICARIFATURA";
+                            sovosReceiverPk = checkResult.receiverIdentifier || config.sovosCredentials?.receiverIdentifier || "";
                             logger.info("[AutoInvoice] Alıcı e-Fatura mükellefi — VKN: " + customerVkn + " → e-Fatura kesilecek");
                         } else {
                             logger.info("[AutoInvoice] Alıcı e-Fatura mükellefi değil — VKN: " + customerVkn + " → e-Arşiv kesilecek");
@@ -571,25 +726,142 @@ const processAutoInvoice = async (userId, marketplaceName, newOrderIds, options 
                         logger.warn("[AutoInvoice] e-Fatura mükellef sorgusu başarısız, e-Arşiv ile devam: " + checkErr.message);
                     }
                 } else if (!isNihaiTuketici && !efaturaSessionId) {
-                    // ⚠️ Alıcının VKN'si var ama e-Fatura oturumu yok
-                    // e-Arşiv'e düşecek — QNB, e-Fatura mükellefi olan VKN'ye e-Arşiv kestirmez
-                    // Güvenlik: müşteri VKN'sini 11111111111 (Nihai Tüketici) yap
-                    logger.warn("[AutoInvoice] Alıcı VKN=" + customerVkn +
-                        " ama e-Fatura oturumu yok — Nihai Tüketici (11111111111) olarak e-Arşiv kesilecek");
-                    customer.vkn = "11111111111";
-                    customer.firstName = customer.firstName || "Nihai";
-                    customer.lastName = customer.lastName || "Tuketici";
-                    if (invoiceData.customer) {
-                        invoiceData.customer.vkn = "11111111111";
+                    if (provider === "sovos") {
+                        const sellerEfatura = config.sovosCredentials?.capabilities?.efatura;
+                        if (!sellerEfatura) {
+                            logger.error(
+                                "[AutoInvoice] Alıcı e-Fatura mükellefi olabilir (VKN=" + customerVkn +
+                                ") ancak Sovos hesabınızda e-Fatura yetkisi yok — fatura kesilemedi"
+                            );
+                            result = {
+                                success: false,
+                                error: "Alıcı kurumsal/mükellef görünüyor; Sovos hesabınızda yalnızca e-Arşiv yetkisi var. e-Fatura lisansı ve GB etiketi gerekir.",
+                            };
+                        } else {
+                            logger.warn("[AutoInvoice] Alıcı VKN=" + customerVkn + " — e-Fatura oturumu yok, mükellef sorgusu yapılamadı");
+                            customer.vkn = "11111111111";
+                            customer.firstName = customer.firstName || "Nihai";
+                            customer.lastName = customer.lastName || "Tuketici";
+                            if (invoiceData.customer) invoiceData.customer.vkn = "11111111111";
+                        }
+                    } else {
+                        logger.warn("[AutoInvoice] Alıcı VKN=" + customerVkn +
+                            " ama e-Fatura oturumu yok — Nihai Tüketici (11111111111) olarak e-Arşiv kesilecek");
+                        customer.vkn = "11111111111";
+                        customer.firstName = customer.firstName || "Nihai";
+                        customer.lastName = customer.lastName || "Tuketici";
+                        if (invoiceData.customer) {
+                            invoiceData.customer.vkn = "11111111111";
+                        }
                     }
                 }
 
-                let result;
+                if (useEFatura && provider === "sovos" && !config.sovosCredentials?.capabilities?.efatura) {
+                    result = {
+                        success: false,
+                        error: "Alıcı e-Fatura mükellefi; Sovos hesabınızda e-Fatura yetkisi yok. GB etiketi ve e-Fatura lisansı gerekir.",
+                    };
+                }
 
-                if (useEFatura && efaturaSessionId) {
-                    // ── e-Fatura gönder (connectorService.belgeGonder) ────
-                    const { buildInvoiceXml } = require("../utils/ublBuilder");
+                if (!result) {
+                const { buildInvoiceXml } = require("../utils/ublBuilder");
 
+                if (provider === "sovos") {
+                    if (useEFatura && efaturaSessionId) {
+                        const invoiceNumber = sovosService.buildSovosInvoiceNumber(
+                            invoiceData.faturaKodu || "LYS",
+                            stats.processed
+                        );
+                        const { xml, uuid, totals } = buildInvoiceXml({
+                            profileId: resolvedProfileId,
+                            invoiceTypeCode: invoiceData.invoiceTypeCode || "SATIS",
+                            invoiceNumber,
+                            issueDate: invoiceData.issueDate,
+                            currency: invoiceData.currency || "TRY",
+                            note: invoiceData.note || "",
+                            sendingType: invoiceData.sendingType || "ELEKTRONIK",
+                            eArchiveVisuals: invoiceData.eArchiveVisuals || {},
+                            supplier: invoiceData.supplier || {},
+                            customer: invoiceData.customer || {},
+                            lines: invoiceData.lines || [],
+                        });
+
+                        const receiverId = sovosReceiverPk || config.sovosCredentials?.receiverIdentifier;
+                        if (!receiverId) {
+                            result = { success: false, error: "Alıcı PK etiketi bulunamadı — Sovos ayarlarından PK etiketi tanımlayın" };
+                        } else {
+                            const sendResult = await sovosService.sendUBL({
+                                sessionId: sovosSessionId,
+                                ublXml: xml,
+                                fileName: uuid,
+                                docType: "INVOICE",
+                                receiverIdentifier: receiverId,
+                                senderIdentifier: config.sovosCredentials?.senderIdentifier,
+                            });
+                            result = sendResult.success
+                                ? {
+                                    success: true,
+                                    uuid: sendResult.uuid || uuid,
+                                    invoiceNumber: sendResult.invoiceNumber || invoiceNumber,
+                                    totals,
+                                    data: sendResult.raw,
+                                }
+                                : sendResult;
+                        }
+                        logger.info("[AutoInvoice] Sovos e-Fatura gönderildi — " + (result.invoiceNumber || ""));
+                    } else {
+                        resolvedProfileId = "EARSIVFATURA";
+                        const custInvId = String(order.trackingNumber || order.orderNumber || order._id || "");
+                        const supplierVkn = config.sovosCredentials?.vknTckn || config.supplier.vkn;
+
+                        // Sovos'a gönderilmiş ama DB kaydı oluşmamış siparişleri kurtar (mükerrer gönderim önlenir)
+                        if (custInvId) {
+                            try {
+                                const existingStatus = await sovosEArchiveService.getStatus({
+                                    sessionId: sovosSessionId,
+                                    vkn: supplierVkn,
+                                    custInvID: custInvId,
+                                    custInvId,
+                                    orderNumber: custInvId,
+                                });
+                                const statusUuid = existingStatus.success && existingStatus.data?.uuid;
+                                if (statusUuid) {
+                                    logger.info(
+                                        "[AutoInvoice] Sovos'ta mevcut e-Arşiv bulundu — DB'ye kurtarılıyor custInvId=" + custInvId +
+                                        " UUID=" + statusUuid
+                                    );
+                                    result = {
+                                        success: true,
+                                        uuid: statusUuid,
+                                        invoiceNumber: existingStatus.data.invoiceNumber || "",
+                                        custInvId,
+                                        totals: {
+                                            payableAmount: Number(order.totalPrice || 0),
+                                            lineExtensionAmount: 0,
+                                            totalTax: 0,
+                                            taxInclusiveAmount: Number(order.totalPrice || 0),
+                                        },
+                                        recovered: true,
+                                    };
+                                }
+                            } catch (recoverErr) {
+                                logger.warn("[AutoInvoice] Sovos e-Arşiv kurtarma sorgusu atlandı: " + recoverErr.message);
+                            }
+                        }
+
+                        if (!result) {
+                            result = await sovosEArchiveService.createEArchiveFromForm({
+                                sessionId: sovosSessionId,
+                                vkn: supplierVkn,
+                                invoiceData: {
+                                    ...invoiceData,
+                                    faturaKodu: invoiceData.faturaKodu || config.sovosCredentials?.faturaKodu || config.invoiceSeriesCode || "FA",
+                                },
+                                branch: config.sovosCredentials?.branch || "default",
+                            });
+                        }
+                    }
+                } else if (useEFatura && efaturaSessionId) {
                     // Fatura numarası üret (e-Fatura için connectorService.faturaNoUret)
                     const noResult = await qnbService.generateInvoiceNumber({
                         sessionId: efaturaSessionId,
@@ -608,6 +880,7 @@ const processAutoInvoice = async (userId, marketplaceName, newOrderIds, options 
                         currency: invoiceData.currency || "TRY",
                         note: invoiceData.note || "",
                         sendingType: invoiceData.sendingType || "ELEKTRONIK",
+                        eArchiveVisuals: invoiceData.eArchiveVisuals || {},
                         supplier: invoiceData.supplier || {},
                         customer: invoiceData.customer || {},
                         lines: invoiceData.lines || [],
@@ -640,6 +913,7 @@ const processAutoInvoice = async (userId, marketplaceName, newOrderIds, options 
                         env
                     });
                 }
+                }
 
                 if (result.success) {
                     // Invoice kaydı oluştur
@@ -647,6 +921,7 @@ const processAutoInvoice = async (userId, marketplaceName, newOrderIds, options 
                         userId: userId,
                         orderId: order._id,
                         orderNumber: order.trackingNumber || "",
+                        custInvId: String(order.trackingNumber || order.orderNumber || order._id || ""),
                         marketplaceName: marketplaceName,
                         invoiceNumber: result.invoiceNumber,
                         uuid: result.uuid,
@@ -654,7 +929,7 @@ const processAutoInvoice = async (userId, marketplaceName, newOrderIds, options 
                         invoiceTypeCode: baseInvoiceTypeCode,
                         issueDate: new Date(),
                         currency: config.currency || "TRY",
-                        provider: "qnb",
+                        provider: provider === "sovos" ? "sovos" : "qnb",
                         env: env,
                         supplier: {
                             vkn: config.supplier.vkn,
@@ -704,8 +979,9 @@ const processAutoInvoice = async (userId, marketplaceName, newOrderIds, options 
                     logger.info("[AutoInvoice] ✅ Fatura kesildi — Sipariş: " + order.trackingNumber +
                         " FaturaNo: " + result.invoiceNumber + " UUID: " + result.uuid);
 
+                    // Pazaryeri yüklemesi henüz uygulanmıyor — yalnızca tercih kaydı (açıkken debug)
                     if (config.autoUploadInvoiceToMarketplace) {
-                        logger.info("[AutoInvoice] Pazaryeri fatura otomatik yükleme işaretlendi (API entegrasyonu sonrası) — mp=" +
+                        logger.debug("[AutoInvoice] Pazaryeri yükleme tercihi açık (henüz API yok) — mp=" +
                             marketplaceName + " order=" + order.trackingNumber);
                     }
                 } else {
@@ -756,20 +1032,30 @@ const processAutoInvoice = async (userId, marketplaceName, newOrderIds, options 
         await config.save();
 
         // ── 6. QNB Logout (her iki oturum) ─────────────────────────────
-        if (earsivSessionId) {
+        if (sovosSessionId) {
             try {
-                await qnbService.logout({ sessionId: earsivSessionId, env, service: "earsiv" });
-                logger.info("[AutoInvoice] QNB e-Arşiv logout başarılı");
+                await sovosService.logout({ sessionId: sovosSessionId });
+                logger.info("[AutoInvoice] Sovos logout başarılı");
             } catch (logoutErr) {
-                logger.warn("[AutoInvoice] QNB e-Arşiv logout hatası: " + logoutErr.message);
+                logger.warn("[AutoInvoice] Sovos logout hatası: " + logoutErr.message);
             }
         }
-        if (efaturaSessionId) {
-            try {
-                await qnbService.logout({ sessionId: efaturaSessionId, env, service: "efatura" });
-                logger.info("[AutoInvoice] QNB e-Fatura logout başarılı");
-            } catch (logoutErr) {
-                logger.warn("[AutoInvoice] QNB e-Fatura logout hatası: " + logoutErr.message);
+        if (provider === "qnb" || !config.provider) {
+            if (earsivSessionId) {
+                try {
+                    await qnbService.logout({ sessionId: earsivSessionId, env, service: "earsiv" });
+                    logger.info("[AutoInvoice] QNB e-Arşiv logout başarılı");
+                } catch (logoutErr) {
+                    logger.warn("[AutoInvoice] QNB e-Arşiv logout hatası: " + logoutErr.message);
+                }
+            }
+            if (efaturaSessionId) {
+                try {
+                    await qnbService.logout({ sessionId: efaturaSessionId, env, service: "efatura" });
+                    logger.info("[AutoInvoice] QNB e-Fatura logout başarılı");
+                } catch (logoutErr) {
+                    logger.warn("[AutoInvoice] QNB e-Fatura logout hatası: " + logoutErr.message);
+                }
             }
         }
 
@@ -955,7 +1241,7 @@ const buildCustomerFromOrder = (order, config, marketplaceName) => {
         || addr.vkn
         || "";
 
-    if (possibleVkn && possibleVkn.length >= 10 && possibleVkn !== "11111111111") {
+    if (possibleVkn && possibleVkn.length >= 10 && !PLACEHOLDER_CUSTOMER_VKNS.has(possibleVkn)) {
         extractedVkn = possibleVkn;
         extractedTaxOffice = rawInvoiceAddr.taxOffice || addr.taxOffice || "";
         extractedCompany = rawInvoiceAddr.company || rawInvoiceAddr.companyName || "";
@@ -966,7 +1252,7 @@ const buildCustomerFromOrder = (order, config, marketplaceName) => {
     // VKN belirleme: çıkarılan VKN > defaultCustomer VKN > Nihai Tüketici
     // ⚠️ Eski schema default "12345678901" QNB test ortamında e-Fatura mükellefi olarak kayıtlı
     //    Bu yüzden defaultCustomer.vkn olarak gelirse Nihai Tüketici'ye düş
-    const defaultVkn = defaultCustomer.vkn && defaultCustomer.vkn !== "12345678901"
+    const defaultVkn = defaultCustomer.vkn && !PLACEHOLDER_CUSTOMER_VKNS.has(defaultCustomer.vkn)
         ? defaultCustomer.vkn
         : "11111111111";
     const finalVkn = extractedVkn || defaultVkn;
@@ -1020,8 +1306,30 @@ const processManualBatchInvoice = async (userId, orderIds) => {
         return { ...stats, error: "Satıcı VKN bilgisi eksik. Lütfen ayarlardan firma bilgilerinizi girin." };
     }
 
+    // Manuel tetik — ardışık hata kilidini kaldır (kullanıcı bilinçli deniyor)
+    if (config.stats.consecutiveErrors > 0) {
+        config.stats.consecutiveErrors = 0;
+        if (String(config.stats.lastError || "").includes("Ardışık hata limiti")) {
+            config.stats.lastError = "";
+        }
+        await config.save();
+        logger.info("[AutoInvoice] Manuel tetik — hata sayacı sıfırlandı userId=" + userId);
+    }
+
+    // Takılı pending siparişleri serbest bırak
+    await releaseStalePendingOrders(userId);
+    // Hatalı siparişleri yeniden denenebilir yap
+    await Order.updateMany(
+        {
+            user: userId,
+            _id: { $in: orderIds },
+            invoiceId: { $exists: false },
+            invoiceStatus: "error",
+        },
+        { invoiceStatus: "" }
+    );
+
     // Siparişleri getir (Order modelinde alan adı "user", "userId" değil)
-    // ✅ FIX: "pending" durumundaki siparişleri de atla (başka işlem tarafından kilitlenmiş olabilir)
     const orders = await Order.find({
         _id: { $in: orderIds },
         user: userId,
@@ -1071,7 +1379,21 @@ const processManualBatchInvoice = async (userId, orderIds) => {
  */
 const processAllUninvoiced = async (userId, limit = 50) => {
     // ── 0. Kullanıcının auto-invoice config'ini yükle ────────────────────
-    const config = await AutoInvoiceConfig.findOne({ userId }).lean();
+    const config = await AutoInvoiceConfig.findOne({ userId });
+    if (!config) {
+        return { processed: 0, invoiced: 0, skipped: 0, errors: 0, error: "Otomatik fatura ayarları bulunamadı." };
+    }
+
+    if (config.stats.consecutiveErrors > 0) {
+        config.stats.consecutiveErrors = 0;
+        if (String(config.stats.lastError || "").includes("Ardışık hata limiti")) {
+            config.stats.lastError = "";
+        }
+        await config.save();
+        logger.info("[AutoInvoice] Toplu manuel tetik — hata sayacı sıfırlandı userId=" + userId);
+    }
+
+    await releaseStalePendingOrders(userId);
 
     // ── 1. Daha önce hata almış siparişleri sıfırla (tekrar denenebilsin) ──
     // "error" durumundaki siparişlerin invoiceStatus'unu "" yap
@@ -1091,26 +1413,49 @@ const processAllUninvoiced = async (userId, limit = 50) => {
     }
 
     // ── 2. Faturasız siparişleri getir ──────────────────────────────────────
-    const allFilter = {
-        user: userId,
-        invoiceId: { $exists: false },
-        invoiceStatus: { $nin: ["created", "pending"] },
-        isCancelled: false,
-        isReturned: false,
-        totalPrice: { $gt: 0 },
-    };
-
-    // ── Mükerrer fatura koruması: autoInvoiceStartDate ──────────────────
-    // "Tümünü Faturala" butonunda da bu tarihten önceki siparişleri atla.
-    if (config && config.autoInvoiceStartDate) {
-        allFilter.orderDate = { $gte: config.autoInvoiceStartDate };
-    }
+    const allFilter = buildUninvoicedOrderFilter(userId, config, { includeError: true, includePending: false });
 
     const orders = await Order.find(allFilter)
         .sort({ orderDate: -1 }).limit(limit).lean();
 
     if (orders.length === 0) {
-        return { processed: 0, invoiced: 0, skipped: 0, errors: 0, totalEligible: 0 };
+        const [pendingCount, errorCount, totalInRange] = await Promise.all([
+            Order.countDocuments({
+                user: userId,
+                invoiceId: { $exists: false },
+                invoiceStatus: "pending",
+                isCancelled: false,
+                isReturned: false,
+                totalPrice: { $gt: 0 },
+                orderDate: { $gte: getUninvoicedStartDate(config) },
+            }),
+            Order.countDocuments({
+                user: userId,
+                invoiceId: { $exists: false },
+                invoiceStatus: "error",
+                isCancelled: false,
+                isReturned: false,
+                totalPrice: { $gt: 0 },
+                orderDate: { $gte: getUninvoicedStartDate(config) },
+            }),
+            Order.countDocuments({
+                user: userId,
+                invoiceId: { $exists: false },
+                isCancelled: false,
+                isReturned: false,
+                totalPrice: { $gt: 0 },
+                orderDate: { $gte: getUninvoicedStartDate(config) },
+            }),
+        ]);
+        let hint = "Seçili tarih aralığında faturalanabilir sipariş bulunamadı.";
+        if (pendingCount > 0) {
+            hint = pendingCount + " sipariş işlem kilidinde (pending). 15 dk sonra otomatik açılır veya yenileyin.";
+        } else if (errorCount > 0) {
+            hint = errorCount + " hatalı sipariş var — 'Tekrar Dene' ile yeniden deneyin.";
+        } else if (totalInRange === 0) {
+            hint = "Başlangıç tarihinden (" + getUninvoicedStartDate(config).toISOString().slice(0, 10) + ") sonra sipariş yok.";
+        }
+        return { processed: 0, invoiced: 0, skipped: 0, errors: 0, totalEligible: 0, hint };
     }
 
     const orderIds = orders.map(o => o._id);
@@ -1123,6 +1468,11 @@ module.exports = {
     processAutoInvoice,
     processManualBatchInvoice,
     processAllUninvoiced,
+    releaseStalePendingOrders,
+    buildUninvoicedOrderFilter,
+    buildUninvoicedListFilter,
+    getUninvoicedStartDate,
+    getUninvoicedListStartDate,
     buildInvoiceLinesFromOrder,
     buildCustomerFromOrder,
     normalizeMarketplaceName,

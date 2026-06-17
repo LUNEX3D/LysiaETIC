@@ -1,0 +1,25 @@
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:esmm="http://foriba.com/eSmm/">
+   <soapenv:Header/>
+   <soapenv:Body>
+      <esmm:cancelDocumentRequest>
+         <esmm:VKN_TCKN>1111111111</esmm:VKN_TCKN>
+         <esmm:Branch>default</esmm:Branch>
+         <!--1 or more repetitions:-->
+         <esmm:CancelDocDetails>
+            <!--Optional:-->
+            <esmm:ID>FA72019000000001</esmm:ID>
+            <!--Optional:-->
+            <esmm:CustDocID>?</esmm:CustDocID>
+            <esmm:Type>SMM</esmm:Type>
+            <esmm:DocType>XML</esmm:DocType>
+            <esmm:TotalAmount>100</esmm:TotalAmount>
+            <esmm:CancelDate>2019-04-11</esmm:CancelDate>
+            <!--Zero or more repetitions:-->
+            <esmm:Parameters>
+               <esmm:Name>?</esmm:Name>
+               <esmm:Value>?</esmm:Value>
+            </esmm:Parameters>
+         </esmm:CancelDocDetails>
+      </esmm:cancelDocumentRequest>
+   </soapenv:Body>
+</soapenv:Envelope>

@@ -15,15 +15,21 @@ const { isHbInternalId, resolveHepsiburadaOrderKey } = require("./hepsiburadaSer
 const REQUEST_TIMEOUT_MS = 15000; // 15 saniye timeout
 const RETRY_LIMIT = 3;
 /** DB tabanlı özet — canlı API yokken daha uzun cache */
-const CACHE_TTL_MS = parseInt(process.env.DASHBOARD_CACHE_MS || "60000", 10);
+const CACHE_TTL_MS = parseInt(process.env.DASHBOARD_CACHE_MS || "20000", 10);
 /** false = varsayılan DB (hızlı); true veya refresh=1 = canlı pazaryeri API */
 const DASHBOARD_LIVE_DEFAULT = process.env.DASHBOARD_LIVE_API === "1";
 /** Canlı modda ek stok/bekleyen sync API çağrılarını atla (varsayılan: atla) */
 const DASHBOARD_SKIP_AUX_METRICS = process.env.DASHBOARD_SKIP_AUX_METRICS !== "1";
 const DASHBOARD_PIPELINE_DAYS = parseInt(process.env.DASHBOARD_PIPELINE_DAYS || "45", 10);
+/** Karttaki yeni/işlemde sayıları — sipariş yönetimi senkron penceresi ile hizalı */
+const DASHBOARD_ACTIVE_ORDER_DAYS = parseInt(
+    process.env.DASHBOARD_ACTIVE_ORDER_DAYS ||
+        process.env.DASHBOARD_SYNC_WINDOW_DAYS ||
+        "7",
+    10
+);
 const {
     mergeDbIntoMarketplaceStatus,
-    buildOrdersModalPayload,
     initMarketplaceStatusShells,
     filterHistoricalPipelineOrders,
     summarizeForMarketplace,
@@ -55,6 +61,9 @@ const startOfCalendarMonth = (ref = new Date()) =>
 const startOfCalendarYear = (ref = new Date()) =>
     new Date(ref.getFullYear(), 0, 1, 0, 0, 0, 0);
 
+/** İptal/iade siparişler ciroya (gerçekleşen satış) dahil edilmez */
+const REVENUE_EXCLUDED_BUCKETS = new Set(["cancelled", "returned"]);
+
 const computeRevenuePeriods = (orders = [], now = new Date()) => {
     const endMs = now.getTime();
     const win24 = endMs - 24 * 60 * 60 * 1000;
@@ -69,6 +78,11 @@ const computeRevenuePeriods = (orders = [], now = new Date()) => {
     let revenueYear = 0;
 
     orders.forEach((o) => {
+        // İptal/iade siparişler ciroya dahil edilmez (gerçekleşen satış değil)
+        if (o.isCancelled || o.isReturned) return;
+        const bucket = classifyOrderStatus(o.status, o.marketplaceName);
+        if (REVENUE_EXCLUDED_BUCKETS.has(bucket)) return;
+
         const amount = Number(o.totalPrice || 0);
         if (!amount) return;
         const t = new Date(o.orderDate).getTime();
@@ -120,7 +134,17 @@ const {
     pickPreferredOrderRecord,
     resolveBestOrderStatus,
     bucketPriority,
+    countActiveOrders,
 } = require("../utils/orderStatus");
+
+const VALID_BUCKETS = new Set(["new", "processing", "shipping", "delivered", "cancelled", "returned"]);
+
+const resolveOrderBucket = (order = {}) => {
+    const stored = String(order.statusBucket || order.statusNormalized || "").trim();
+    if (VALID_BUCKETS.has(stored)) return stored;
+    return classifyOrderStatus(order.status, order.marketplaceName);
+};
+const { dedupeOrderRows } = require("../utils/orderDedupe");
 
 const displayMarketplaceName = (name = "") => {
     const n = String(name || "").toLowerCase().trim();
@@ -149,7 +173,7 @@ const buildPipelineOrderView = (orders = []) => {
     };
 
     const flatOrders = unique.map((o) => {
-        const bucket = classifyOrderStatus(o.status, o.marketplaceName);
+        const bucket = resolveOrderBucket(o);
         if (statusCounts[bucket] !== undefined) statusCounts[bucket]++;
         return {
             orderNumber: o.orderNumber,
@@ -158,6 +182,12 @@ const buildPipelineOrderView = (orders = []) => {
             status: o.status,
             statusNormalized: bucket,
             marketplace: displayMarketplaceName(o.marketplaceName),
+            _id: o._id,
+            packageNumber: o.packageNumber || "",
+            cargoTrackingNumber: o.cargoTrackingNumber || "",
+            shipmentPackageId: o.shipmentPackageId || "",
+            cargoTrackingLink: o.cargoTrackingLink || "",
+            orderItemId: o.orderItemId || "",
         };
     }).filter(Boolean);
 
@@ -168,10 +198,26 @@ const buildPipelineOrderView = (orders = []) => {
 
     return {
         total: flatOrders.length,
+        activeOrderCount: countActiveOrders(statusCounts),
         statusCounts,
         orders: flatOrders,
         byStatus,
     };
+};
+
+/** Ana sayfa kartı: yalnızca senkron penceresindeki yeni + işlemde */
+const buildActiveCardCounts = (orders = [], windowDays = DASHBOARD_ACTIVE_ORDER_DAYS) => {
+    const cutoffMs = Date.now() - windowDays * 24 * 60 * 60 * 1000;
+    const statusCounts = { new: 0, processing: 0 };
+    let count = 0;
+    orders.forEach((o) => {
+        if (o.statusNormalized !== "new" && o.statusNormalized !== "processing") return;
+        const t = o.orderDate ? new Date(o.orderDate).getTime() : NaN;
+        if (Number.isNaN(t) || t < cutoffMs) return;
+        count++;
+        if (statusCounts[o.statusNormalized] !== undefined) statusCounts[o.statusNormalized]++;
+    });
+    return { activeOrderCount: count, activeStatusCounts: statusCounts, activeCardDays: windowDays };
 };
 
 const invalidateDashboardCache = (userId) => {
@@ -180,30 +226,17 @@ const invalidateDashboardCache = (userId) => {
 };
 
 /** Aynı pazaryeri + sipariş no — en ileri statü (Picking > Created), tek kayıt */
-const dedupeOrdersForSummary = (orders = []) => {
-    const map = new Map();
-    orders.forEach((order) => {
-        const mp = normalizeName(order.marketplaceName || order.marketplace || "");
-        const orderNo = String(order.orderNumber || order.trackingNumber || "").trim();
-        if (!mp || !orderNo || isHbInternalId(orderNo)) return;
-        const key = `${mp}::${orderNo}`;
-        const candidate = {
-            orderNumber: orderNo,
-            orderDate: order.orderDate,
-            updatedAt: order.updatedAt,
-            totalPrice: Number(order.totalPrice || order.price || 0),
-            status: order.status,
-            marketplaceName: order.marketplaceName || order.marketplace,
-        };
-        map.set(key, pickPreferredOrderRecord(map.get(key), candidate));
-    });
-    return Array.from(map.values());
-};
+const dedupeOrdersForSummary = (orders = []) => dedupeOrderRows(orders);
 
 const summarizeOrders = (orders = []) => {
     const unique = dedupeOrdersForSummary(orders);
     const orderCount = unique.length;
-    const revenue = unique.reduce((sum, order) => sum + Number(order.totalPrice || order.price || 0), 0);
+    // Ciro = gerçekleşen satış → iptal/iade siparişler hariç (headline ciro ile tutarlı)
+    const revenue = unique.reduce((sum, order) => {
+        const bucket = classifyOrderStatus(order.status, order.marketplaceName);
+        if (REVENUE_EXCLUDED_BUCKETS.has(bucket)) return sum;
+        return sum + Number(order.totalPrice || order.price || 0);
+    }, 0);
 
     const statusGroups = {
         new: 0,
@@ -691,9 +724,9 @@ const fetchAmazonOrders = async (credentials, start, end) => {
     return { ...summary, errorCount: 0, healthStatus: "healthy", pendingSync: 0 };
 };
 
-// ─── ÇiçekSepeti Dashboard Sipariş Çekme ───
+// ─── ÇiçekSepeti Dashboard Sipariş Çekme (ordersService ile aynı kaynak) ───
 const fetchCiceksepetiOrders = async (credentials, start, end) => {
-    const { apiKey, sellerId, integratorName } = credentials || {};
+    const { apiKey } = credentials || {};
 
     if (!apiKey) {
         const error = new Error("ÇiçekSepeti API Key eksik");
@@ -701,105 +734,31 @@ const fetchCiceksepetiOrders = async (credentials, start, end) => {
         throw error;
     }
 
-    // HTTP header'ları sadece ASCII kabul eder — Türkçe karakterleri temizle
-    const cleanSellerId = String(sellerId || '').replace(/[^\x00-\x7F]/g, '');
-    const cleanIntegrator = integratorName ? String(integratorName).replace(/[^\x00-\x7F]/g, '') : '';
-    const userAgent = cleanIntegrator ? `${cleanSellerId} - ${cleanIntegrator}` : cleanSellerId;
+    const { fetchCicekSepetiOrders: fetchCsOrders } = require("./ordersService");
+    const csResult = await fetchCsOrders(credentials, null, null, start, end);
+    const raw = Array.isArray(csResult) ? csResult : (csResult?.orders || []);
+    const winStart = new Date(start).getTime();
+    const winEnd = new Date(end).getTime();
 
-    const headers = {
-        "x-api-key": apiKey,
-        "user-agent": userAgent || "CicekSepetiIntegration",
-        "Content-Type": "application/json"
-    };
-
-    const allOrders = [];
-    let page = 0;
-    const pageSize = 100;
-
-    // ÇiçekSepeti max 2 hafta tarih aralığı destekliyor
-    const startDate = new Date(start).toISOString();
-    const endDate = new Date(end).toISOString();
-
-    try {
-        while (true) {
-            const result = await requestWithControls({
-                method: "POST",
-                url: `https://apis.ciceksepeti.com/api/v1/Order/GetOrders`,
-                headers,
-                data: { startDate, endDate, pageSize, page }
-            });
-
-            if (!result.ok) {
-                if (result.status === 401) {
-                    const error = new Error("ÇiçekSepeti API Key geçersiz");
-                    error.status = 401;
-                    throw error;
-                }
-                break;
-            }
-
-            const items = result.response.data?.supplierOrderListWithBranch || [];
-            if (!items.length) break;
-
-            allOrders.push(...items.map(order => ({
-                orderNumber: order.orderId?.toString(),
-                orderDate: order.orderCreateDate && order.orderCreateTime
-                    ? `${order.orderCreateDate} ${order.orderCreateTime}`
-                    : order.orderCreateDate,
-                totalPrice: Number(order.totalPrice || 0),
-                status: order.orderProductStatus || "Bilinmiyor"
-            })));
-
-            if (items.length < pageSize) break;
-            page++;
-
-            // Rate limit: 5 saniyede 1 istek
-            await sleep(5000);
-        }
-
-        const { fetchCiceksepetiReturnOrders } = require("../utils/ciceksepetiOrders");
-        const ciceksepetiService = require("./ciceksepeti/ciceksepetiService");
-        const returnRows = await fetchCiceksepetiReturnOrders(
-            ciceksepetiService,
-            { apiKey, sellerId, integratorName },
-            new Date(start),
-            new Date(end),
-            () => sleep(5000)
-        );
-        returnRows.forEach((row) => {
-            allOrders.push({
-                orderNumber: row.orderNumber,
-                orderDate: row.orderDate,
-                totalPrice: Number(row.totalPrice || 0),
-                status: row.status,
-            });
+    const filtered = raw
+        .map((o) => {
+            const orderDate =
+                marketplaceOrderDateToIsoString(o.orderDateRaw ?? o.orderDate) || o.orderDate;
+            return {
+                orderNumber: String(o.orderItemId || o.trackingNumber || o.orderNumber || "").trim(),
+                orderDate,
+                totalPrice: Number(o.totalPrice || 0),
+                status: o.status || "Bilinmiyor",
+                marketplaceName: "ÇiçekSepeti",
+            };
+        })
+        .filter((o) => {
+            if (!o.orderNumber) return false;
+            const t = new Date(o.orderDate).getTime();
+            return !Number.isNaN(t) && t >= winStart && t <= winEnd;
         });
-    } catch (err) {
-        if (err.status) throw err;
-        logger.error("[ÇiçekSepeti Dashboard] Sipariş çekme hatası", { error: err.message });
-        throw err;
-    }
 
-    const { pickPreferredOrderRecord, resolveBestOrderStatus } = require("../utils/orderStatus");
-    const mergedMap = new Map();
-    allOrders.forEach((order) => {
-        const no = String(order.orderNumber || "").trim();
-        if (!no) return;
-        const prev = mergedMap.get(no);
-        if (!prev) {
-            mergedMap.set(no, order);
-            return;
-        }
-        const bestStatus = resolveBestOrderStatus(prev.status, order.status, "ÇiçekSepeti");
-        const preferred = pickPreferredOrderRecord(
-            { status: prev.status, marketplaceName: "ÇiçekSepeti", orderDate: prev.orderDate },
-            { status: order.status, marketplaceName: "ÇiçekSepeti", orderDate: order.orderDate }
-        );
-        const base = preferred.status === order.status ? order : prev;
-        mergedMap.set(no, { ...base, status: bestStatus, orderNumber: no });
-    });
-
-    const summary = summarizeOrders(Array.from(mergedMap.values()));
+    const summary = summarizeOrders(filtered);
     return { ...summary, errorCount: 0, healthStatus: "healthy", pendingSync: 0 };
 };
 
@@ -1220,16 +1179,16 @@ exports.getDashboardData = async (userId, options = {}) => {
         };
     });
 
-    mergeDbIntoMarketplaceStatus(marketplaceStatus, orders24hDb);
+    mergeDbIntoMarketplaceStatus(marketplaceStatus, orders24hDb, { respectLiveSnapshot: liveApi });
 
     const activePipeline = ordersForStatus.filter((o) => {
-        const bucket = classifyOrderStatus(o.status, o.marketplaceName);
+        const bucket = resolveOrderBucket(o);
         if (bucket !== "new" && bucket !== "processing") return false;
         if (o.isReturned && bucket === "returned") return false;
         if (o.isCancelled && bucket === "cancelled") return false;
         return true;
     });
-    mergeDbIntoMarketplaceStatus(marketplaceStatus, activePipeline, { respectLiveSnapshot: true });
+    mergeDbIntoMarketplaceStatus(marketplaceStatus, activePipeline, { respectLiveSnapshot: liveApi });
 
     mergeDbIntoMarketplaceStatus(
         marketplaceStatus,
@@ -1237,11 +1196,35 @@ exports.getDashboardData = async (userId, options = {}) => {
         { respectLiveSnapshot: false }
     );
 
-    const ordersModal = buildOrdersModalPayload(marketplaceStatus, marketplaces);
+    const orderRowsForPipeline = ordersForStatus.map((o) => ({
+        orderNumber: String(o.trackingNumber || o.orderNumber || "").trim(),
+        orderDate: o.orderDate,
+        updatedAt: o.updatedAt,
+        totalPrice: o.totalPrice,
+        status: o.status,
+        statusBucket: o.statusBucket,
+        marketplaceName: o.marketplaceName,
+        _id: o._id,
+        packageNumber: o.packageNumber,
+        cargoTrackingNumber: o.cargoTrackingNumber,
+        shipmentPackageId: o.shipmentPackageId,
+        cargoTrackingLink: o.cargoTrackingLink,
+        orderItemId: o.orderItemId,
+    }));
+
+    const pipelineView = buildPipelineOrderView(orderRowsForPipeline);
+    const activeCard = buildActiveCardCounts(pipelineView.orders);
+    const ordersModal = {
+        ...pipelineView,
+        activeOrderCount: activeCard.activeOrderCount,
+        activeStatusCounts: activeCard.activeStatusCounts,
+        activeCardDays: activeCard.activeCardDays,
+    };
     const pipelineOrders = {
         total: ordersModal.total,
         activeOrderCount: ordersModal.activeOrderCount,
         statusCounts: ordersModal.statusCounts,
+        activeStatusCounts: ordersModal.activeStatusCounts,
         orders: ordersModal.orders,
         byStatus: ordersModal.byStatus,
     };

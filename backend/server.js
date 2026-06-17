@@ -73,6 +73,21 @@ const ticketRoutes            = require("./routes/ticketRoutes");
 const clientErrorRoutes       = require("./routes/clientErrorRoutes");
 const accessControlRoutes     = require("./routes/accessControlRoutes");
 const seoPublicRoutes         = require("./routes/seoPublicRoutes");
+const publicRoutes            = require("./routes/publicRoutes");
+const storeRoutes             = require("./routes/storeRoutes");
+const storeFacadeRoutes       = require("./routes/storeFacadeRoutes");
+const storeInboxOAuthRoutes   = require("./routes/storeInboxOAuthRoutes");
+const storePublicRoutes       = require("./routes/storePublicRoutes");
+const appStoreRoutes          = require("./routes/appStoreRoutes");
+const storeCustomDomainRoutes = require("./routes/storeCustomDomainRoutes");
+const webStoreManagerRoutes   = require("./routes/webStoreManagerRoutes");
+const websiteBuilderRoutes    = require("./routes/websiteBuilderRoutes");
+const wbPublicRoutes          = require("./routes/wbPublicRoutes");
+const themeStudioRoutes       = require("./theme-builder-v3/routes/themeStudioRoutes");
+const wbProductBuilderRoutes  = require("./routes/wbProductBuilderRoutes");
+const wbAIRoutes              = require("./routes/wbAIRoutes");
+const wbAnalyticsRoutes       = require("./routes/wbAnalyticsRoutes");
+const wbInternalSslRoutes     = require("./routes/wbInternalSslRoutes");
 
 // ─── 3. DNS & App ─────────────────────────────────────────────────────────────
 dns.setServers(["1.1.1.1", "8.8.8.8"]);
@@ -213,12 +228,18 @@ app.use(hpp());
 // Tüm POST/PUT/PATCH body'lerindeki HTML/script tag'lerini temizler
 app.use(sanitizeBody);
 
+// ─── Website Builder — Caddy on-demand TLS ask (rate limit / sanitize öncesi) ─
+app.use(wbInternalSslRoutes);
+
 // ─── 8.1 Genel API Rate Limiter ──────────────────────────────────────────────
 // ✅ PayTR callback ve Webhook endpoint'lerini rate limiter'dan muaf tut
 // PayTR sunucusu ve pazaryeri webhook sunucuları doğrudan erişmeli
 app.use("/api/", (req, res, next) => {
     if (req.originalUrl === "/api/paytr/callback" && req.method === "POST") {
         return next(); // Rate limiter atla
+    }
+    if (req.originalUrl === "/api/public/store/paytr/callback" && req.method === "POST") {
+        return next();
     }
     // ✅ FIX #3: Webhook endpoint'leri rate limiter'dan muaf
     if (req.originalUrl.startsWith("/api/webhooks/") && req.method === "POST") {
@@ -228,6 +249,13 @@ app.use("/api/", (req, res, next) => {
     // Zaten authMiddleware + subscriptionMiddleware ile korunuyorlar
     // LysiaBrain 25 tab + polling ile çok fazla istek atıyor, cache'den okuyor zaten
     if (req.originalUrl.startsWith("/api/ai-engine/") || req.originalUrl.startsWith("/api/ai-chat/")) {
+        return next();
+    }
+    if (req.originalUrl.startsWith("/internal/wb/ssl/")) {
+        return next();
+    }
+    // Bloklu kullanıcı yardım talebi ve durum sorgusu — rate-limit'e takılmasın
+    if (req.originalUrl.startsWith("/api/access/help") || req.originalUrl.startsWith("/api/access/my-status")) {
         return next();
     }
     apiLimiter(req, res, next);
@@ -305,6 +333,19 @@ if (process.env.NODE_ENV !== "production") {
 // ─── 9. Route'ları bağla ──────────────────────────────────────────────────────
 // SEO — robots.txt / sitemap.xml (nginx bu path'leri backend'e yönlendirir)
 app.use(seoPublicRoutes);
+app.use("/api/public",             publicRoutes);
+app.use("/api/public/store",       storePublicRoutes);
+app.use("/api/public/wb",          wbPublicRoutes);
+app.use("/api/website-builder",    websiteBuilderRoutes);
+app.use("/api/website-builder",    themeStudioRoutes);
+app.use("/api/website-builder/sites", wbProductBuilderRoutes);
+app.use("/api/website-builder/sites", wbAIRoutes);
+app.use("/api/website-builder/sites", wbAnalyticsRoutes);
+app.use("/api/wb/track",           wbAnalyticsRoutes);
+app.use("/api/store",              storeInboxOAuthRoutes);
+app.use("/api/store",              storeRoutes);
+app.use("/api/ec",                 storeFacadeRoutes);
+app.use("/api/apps",               appStoreRoutes);
 
 app.use("/api/orders",             orderRoutes);
 app.use("/api/products",           productRoutes);
@@ -347,6 +388,12 @@ app.use("/api/client-errors", clientErrorRoutes);
 app.use("/api/access",         accessControlRoutes);
 // ✅ FIX #3: Webhook endpoint'leri — auth gerektirmez, pazaryerlerinden gelir
 app.use("/api/webhooks",       webhookRoutes);
+// İade/Talep yönetimi (Trendyol Claims, HB Talep, N11 ReturnService, ÇiçekSepeti)
+const claimsRoutes             = require("./routes/claimsRoutes");
+app.use("/api/claims",         claimsRoutes);
+// Pazaryeri webhook abonelik yönetimi (Trendyol push bildirimleri)
+const integrationWebhookRoutes = require("./routes/integrationWebhookRoutes");
+app.use("/api/integrations",   integrationWebhookRoutes);
 
 // ✅ FIX #9: Eksik route bağlantıları — dosyalar var ama server.js'de bağlı değildi
 const inventoryRoutes         = require("./routes/inventoryRoutes");
@@ -358,6 +405,13 @@ app.use("/api/brands",         brandRoutes);
 app.use("/api/variants",       variantRoutes);
 app.use("/api/upload",         uploadRoutes);
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+
+// ✅ NEW: Custom Domain Management for Storefronts
+app.use("/api/store/domain",   storeCustomDomainRoutes);
+
+// ✅ NEW: Web Store Manager (IKAS, Ticimax, IdeaSoft, Shopify tarzı)
+app.use("/api/web-store",      webStoreManagerRoutes);
+
 
 // ─── 9.5 TANI ENDPOINT'LERİ — 403/CORS sorunlarını izole etmek için ─────────
 // GET /api/diagnostic/whoami → kullanıcının PC'sinden çağrıldığında
@@ -609,80 +663,148 @@ const startServer = async () => {
         }
         logger.info(`${line}\n`);
 
-        // ─── Otomatik Stok Senkronizasyon Cron'unu Başlat ─────────────────────
-        try {
-            const { startStockCron } = require("./services/stockCronService");
-            startStockCron();
-            logger.info("Stok senkronizasyon cron'u başlatıldı ✅");
+        const disableBackgroundJobs =
+            process.env.DISABLE_BACKGROUND_JOBS === "true" ||
+            process.env.DISABLE_BACKGROUND_JOBS === "1";
 
-            const { startBackgroundIdentityRepair } = require("./services/productIdentityGuardService");
-            startBackgroundIdentityRepair();
-            logger.info("Ürün kimlik koruyucu (tüm kullanıcılar) arka planda başlatıldı ✅");
-        } catch (err) {
-            logger.warn(`Stok cron başlatılamadı: ${err.message}`);
-        }
+        if (disableBackgroundJobs) {
+            logger.warn(
+                "⏸ Arka plan işleri kapalı (DISABLE_BACKGROUND_JOBS). Stok/AI/Radar cron'ları çalışmıyor."
+            );
+        } else {
+            // ─── Otomatik Stok Senkronizasyon Cron'unu Başlat ─────────────────────
+            try {
+                const { startStockCron } = require("./services/stockCronService");
+                startStockCron();
+                logger.info("Stok senkronizasyon cron'u başlatıldı ✅");
 
-        // ─── Otomatik Faturalama Cron'unu Başlat ────────────────────────────
-        try {
-            const { startInvoiceCron } = require("./services/invoiceCronService");
-            startInvoiceCron();
-            logger.info("🧾 Otomatik faturalama cron'u başlatıldı ✅");
-        } catch (err) {
-            logger.warn(`Fatura cron başlatılamadı: ${err.message}`);
-        }
+                const { startBackgroundIdentityRepair } = require("./services/productIdentityGuardService");
+                startBackgroundIdentityRepair();
+                logger.info("Ürün kimlik koruyucu (tüm kullanıcılar) arka planda başlatıldı ✅");
+            } catch (err) {
+                logger.warn(`Stok cron başlatılamadı: ${err.message}`);
+            }
 
-        // ─── Otomatik Sipariş İşleme Cron'unu Başlat ─────────────────────
-        try {
-            const { startAutoOrderCron } = require("./services/autoOrderCronService");
-            startAutoOrderCron();
-            logger.info("📦 Otomatik sipariş işleme cron'u başlatıldı ✅");
-        } catch (err) {
-            logger.warn(`Sipariş işleme cron başlatılamadı: ${err.message}`);
-        }
+            // ─── Otomatik Faturalama Cron'unu Başlat ────────────────────────────
+            try {
+                const { startInvoiceCron } = require("./services/invoiceCronService");
+                startInvoiceCron();
+                logger.info("🧾 Otomatik faturalama cron'u başlatıldı ✅");
+            } catch (err) {
+                logger.warn(`Fatura cron başlatılamadı: ${err.message}`);
+            }
 
-        // ─── AI Background Worker — Tüm kullanıcıları arka planda analiz eder ──
-        try {
-            const { startAIWorker } = require("./services/aiBackgroundWorker");
-            startAIWorker();
-            logger.info("🧠 AI Background Worker başlatıldı ✅");
-        } catch (err) {
-            logger.warn(`AI Worker başlatılamadı: ${err.message}`);
-        }
+            // ─── Otomatik Sipariş İşleme Cron'unu Başlat ─────────────────────
+            try {
+                const { startAutoOrderCron } = require("./services/autoOrderCronService");
+                startAutoOrderCron();
+                logger.info("📦 Otomatik sipariş işleme cron'u başlatıldı ✅");
+            } catch (err) {
+                logger.warn(`Sipariş işleme cron başlatılamadı: ${err.message}`);
+            }
 
-        // ─── LysiaRadar PRO Worker — Fırsat tarama motoru ──
-        try {
-            const { startRadarWorker } = require("./services/radar/radarWorker");
-            startRadarWorker();
-            logger.info("🔭 LysiaRadar PRO Worker başlatıldı ✅");
-        } catch (err) {
-            logger.warn(`Radar Worker başlatılamadı: ${err.message}`);
-        }
+            // ─── Pazaryeri sipariş ingestion (DB + e-posta bildirimi) ─────────
+            try {
+                const { startOrderSyncCron } = require("./services/orderSyncCronService");
+                startOrderSyncCron();
+                logger.info("📥 Pazaryeri sipariş sync cron'u başlatıldı ✅");
+            } catch (err) {
+                logger.warn(`Sipariş sync cron başlatılamadı: ${err.message}`);
+            }
 
-        // ─── Startup Cleanup: Eski "pasife al" / "Ölü Ürün" önerilerini sil + cache invalidate ──
-        try {
-            const Recommendation = require("./models/Recommendation");
-            const AIAnalysisCache = require("./models/AIAnalysisCache");
+            // ─── AI Background Worker — Tüm kullanıcıları arka planda analiz eder ──
+            try {
+                const { startAIWorker } = require("./services/aiBackgroundWorker");
+                startAIWorker();
+                logger.info("🧠 AI Background Worker başlatıldı ✅");
+            } catch (err) {
+                logger.warn(`AI Worker başlatılamadı: ${err.message}`);
+            }
 
-            // 1. DB'den eski önerileri sil
-            Recommendation.deleteMany({ $or: [
-                { "actionPayload.actionType": "mark_inactive" },
-                { description: { $regex: /[Pp]asife al/i } },
-                { title: { $regex: /Ölü Ürün/i } },
-            ]}).then(cleaned => {
-                if (cleaned.deletedCount > 0) {
-                    logger.info(`🧹 Startup cleanup: ${cleaned.deletedCount} eski "pasife al/Ölü Ürün" önerisi silindi ✅`);
+            // ─── LysiaRadar PRO Worker — Fırsat tarama motoru ──
+            try {
+                const { startRadarWorker } = require("./services/radar/radarWorker");
+                startRadarWorker();
+                logger.info("🔭 LysiaRadar PRO Worker başlatıldı ✅");
+            } catch (err) {
+                logger.warn(`Radar Worker başlatılamadı: ${err.message}`);
+            }
+
+            // ─── Pazarlama — planlı kampanyalar ve otomasyon kuyruğu ──
+            try {
+                const { startMarketingScheduler } = require("./services/marketing/marketingSchedulerService");
+                const { startMarketingQueueWorker } = require("./services/marketing/marketingQueueService");
+                startMarketingScheduler();
+                startMarketingQueueWorker();
+                logger.info("📣 Pazarlama zamanlayıcı ve kuyruk başlatıldı ✅");
+            } catch (err) {
+                logger.warn(`Pazarlama worker başlatılamadı: ${err.message}`);
+            }
+
+            // ─── Website Builder — domain DNS doğrulama (periyodik) ──
+            if (process.env.WB_DOMAIN_WORKER_ENABLED !== "false") {
+                try {
+                    const { startWbDomainWorker } = require("./workers/wbDomainWorker");
+                    startWbDomainWorker();
+                    logger.info("🌐 Website Builder Domain Worker başlatıldı ✅");
+                } catch (err) {
+                    logger.warn(`Website Builder domain worker başlatılamadı: ${err.message}`);
                 }
-            }).catch(e => logger.warn(`Startup cleanup (recommendations) başarısız: ${e.message}`));
+            }
 
-            // 2. Tüm AI cache'leri invalidate et — worker taze veri üretsin
-            AIAnalysisCache.updateMany({}, { $set: { lastAnalyzedAt: new Date(0) } })
-                .then(r => {
-                    if (r.modifiedCount > 0) {
-                        logger.info(`🧹 Startup cleanup: ${r.modifiedCount} AI cache invalidate edildi ✅`);
-                    }
-                }).catch(e => logger.warn(`Startup cleanup (cache) başarısız: ${e.message}`));
-        } catch (err) {
-            logger.warn(`Startup cleanup başarısız: ${err.message}`);
+            // ─── Website Builder — SSL provisioning (Caddy on-demand TLS) ──
+            if (process.env.WB_SSL_WORKER_ENABLED !== "false") {
+                try {
+                    const { startWbSslWorker } = require("./workers/wbSslWorker");
+                    startWbSslWorker();
+                    logger.info("🔒 Website Builder SSL Worker başlatıldı ✅");
+                } catch (err) {
+                    logger.warn(`Website Builder SSL worker başlatılamadı: ${err.message}`);
+                }
+            }
+
+            // ─── Website Builder AI — BullMQ worker (wb-ai-* kuyrukları, REDIS_URL zorunlu) ──
+            if (process.env.WB_AI_WORKER_ENABLED !== "false" && process.env.REDIS_URL) {
+                try {
+                    const { startWorkers: startWbAIWorkers } = require("./workers/wbAIWorker");
+                    startWbAIWorkers().catch((err) => {
+                        logger.warn(`Website Builder AI worker başlatılamadı: ${err.message}`);
+                    });
+                    logger.info("✨ Website Builder AI Worker başlatıldı ✅");
+                } catch (err) {
+                    logger.warn(`Website Builder AI worker yüklenemedi: ${err.message}`);
+                }
+            }
+
+            // ─── Startup Cleanup: Eski öneriler + AI cache invalidate ──
+            try {
+                const Recommendation = require("./models/Recommendation");
+                const AIAnalysisCache = require("./models/AIAnalysisCache");
+
+                Recommendation.deleteMany({
+                    $or: [
+                        { "actionPayload.actionType": "mark_inactive" },
+                        { description: { $regex: /[Pp]asife al/i } },
+                        { title: { $regex: /Ölü Ürün/i } },
+                    ],
+                })
+                    .then((cleaned) => {
+                        if (cleaned.deletedCount > 0) {
+                            logger.info(`🧹 Startup cleanup: ${cleaned.deletedCount} eski öneri silindi ✅`);
+                        }
+                    })
+                    .catch((e) => logger.warn(`Startup cleanup (recommendations): ${e.message}`));
+
+                AIAnalysisCache.updateMany({}, { $set: { lastAnalyzedAt: new Date(0) } })
+                    .then((r) => {
+                        if (r.modifiedCount > 0) {
+                            logger.info(`🧹 Startup cleanup: ${r.modifiedCount} AI cache invalidate ✅`);
+                        }
+                    })
+                    .catch((e) => logger.warn(`Startup cleanup (cache): ${e.message}`));
+            } catch (err) {
+                logger.warn(`Startup cleanup başarısız: ${err.message}`);
+            }
         }
     });
 };

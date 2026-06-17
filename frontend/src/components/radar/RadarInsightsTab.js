@@ -82,7 +82,12 @@ export default function RadarInsightsTab({ active, onKeywordSelect, onGoOpportun
             const next = {
                 stats: stD,
                 googleTrends: gtD?.trendingSearches || gtD?.trends || gtD?.items || [],
-                keywords: kwD?.keywords || kwD?.items || kwD?.breakouts || [],
+                keywords:
+                    kwD?.trending ||
+                    kwD?.keywords ||
+                    kwD?.items ||
+                    kwD?.breakouts ||
+                    [],
                 arbitrage: arbD?.opportunities || arbD?.items || [],
                 sources: dsD?.sources || dsD,
                 sectionErrors: errs,
@@ -114,8 +119,8 @@ export default function RadarInsightsTab({ active, onKeywordSelect, onGoOpportun
 
     if (loading && !loadedRef.current && active) {
         return (
-            <div className="rp-empty-state">
-                <FaSpinner className="rp-spin rp-empty-state__icon" />
+            <div className="rp-state rp-state--loading">
+                <div className="rp-state-spinner" />
                 <p>Trend verileri yükleniyor…</p>
             </div>
         );
@@ -124,69 +129,85 @@ export default function RadarInsightsTab({ active, onKeywordSelect, onGoOpportun
     return (
         <div className="rp-insights">
             <RadarTabGuide tabKey="insights" />
+
             {error && (
-                <div className="rp-alert rp-alert--error">
+                <div className="rp-banner rp-banner--error">
                     <FaExclamationTriangle />
                     <span>{error}</span>
-                    <button type="button" className="rp-action" onClick={() => load({ force: true })}>
+                    <button type="button" className="rp-btn-ghost" onClick={() => load({ force: true })}>
                         Tekrar dene
                     </button>
                 </div>
             )}
 
-            <div className="rp-insights-toolbar">
-                <button type="button" className="rp-action" onClick={() => load({ force: true })} disabled={loading}>
+            <div className="rp-insights-actions">
+                <button type="button" className="rp-btn-ghost" onClick={() => load({ force: true })} disabled={loading}>
                     {loading ? <FaSpinner className="rp-spin" /> : <FaSync />}
                     Yenile
                 </button>
-                <button type="button" className="rp-action rp-action--primary" onClick={onGoOpportunities}>
-                    <FaBolt /> Fırsat listesi
+                <button type="button" className="rp-btn-primary" onClick={onGoOpportunities}>
+                    <FaBolt /> Fırsat listesine git
                 </button>
             </div>
 
             {stats && (
-                <div className="rp-stats-grid rp-stats-grid--hero">
-                    <div className="rp-stat-card rp-stat-card--accent">
+                <div className="rp-insights-kpis">
+                    <div className="rp-insight-kpi rp-insight-kpi--hero">
                         <FaChartPie />
-                        <span className="rp-stat-label">Aktif fırsat</span>
-                        <strong>{fmt(stats.totalActive)}</strong>
+                        <div>
+                            <span>Aktif fırsat</span>
+                            <strong>{fmt(stats.totalActive)}</strong>
+                        </div>
                     </div>
-                    <div className="rp-stat-card">
-                        <span className="rp-stat-label">Ortalama skor</span>
-                        <strong>{stats.avgScore ?? "—"}</strong>
+                    <div className="rp-insight-kpi">
+                        <div>
+                            <span>Ortalama skor</span>
+                            <strong>{stats.avgScore ?? "—"}</strong>
+                        </div>
                     </div>
-                    <div className="rp-stat-card">
-                        <span className="rp-stat-label">Son analiz</span>
-                        <strong className="rp-stat-small">
-                            {stats.lastAnalysis
-                                ? new Date(stats.lastAnalysis).toLocaleString("tr-TR", {
-                                      dateStyle: "short",
-                                      timeStyle: "short",
-                                  })
-                                : "—"}
-                        </strong>
+                    <div className="rp-insight-kpi">
+                        <div>
+                            <span>Son analiz</span>
+                            <strong className="rp-insight-kpi-sm">
+                                {stats.lastAnalysis
+                                    ? new Date(stats.lastAnalysis).toLocaleString("tr-TR", {
+                                          dateStyle: "short",
+                                          timeStyle: "short",
+                                      })
+                                    : "—"}
+                            </strong>
+                        </div>
                     </div>
-                    <div className="rp-stat-card">
-                        <span className="rp-stat-label">Worker</span>
-                        <strong className="rp-stat-small">
-                            {stats.worker?.running ? "Çalışıyor" : stats.worker?.lastRun ? "Beklemede" : "—"}
-                        </strong>
+                    <div className="rp-insight-kpi">
+                        <div>
+                            <span>Worker</span>
+                            <strong className="rp-insight-kpi-sm">
+                                {stats.worker?.isRunning || stats.worker?.running
+                                    ? "Çalışıyor"
+                                    : stats.worker?.isActive || stats.worker?.lastCycleAt || stats.worker?.lastRun
+                                        ? "Beklemede"
+                                        : "—"}
+                            </strong>
+                        </div>
                     </div>
                 </div>
             )}
 
             {sources && !sectionErrors.sources && (
-                <section className="rp-panel">
-                    <h3><FaDatabase /> Veri kaynakları</h3>
-                    <div className="rp-source-grid">
+                <section className="rp-card-section">
+                    <header className="rp-card-section-head">
+                        <FaDatabase />
+                        <h3>Veri kaynakları</h3>
+                    </header>
+                    <div className="rp-sources">
                         {Object.entries(sources).map(([key, val]) => {
                             if (key === "worker") return null;
-                            const ok = val?.configured ?? val?.ok ?? val?.available;
+                            const ok = val?.configured ?? val?.active ?? val?.ok ?? val?.available;
                             const label = val?.label || SOURCE_LABELS[key] || key;
                             return (
-                                <div key={key} className={`rp-source-tile ${ok ? "ok" : "off"}`}>
-                                    <span className="rp-source-dot" />
-                                    <span>{label}</span>
+                                <div key={key} className={`rp-source ${ok ? "is-on" : "is-off"}`}>
+                                    <span className="rp-source-indicator" />
+                                    <span className="rp-source-name">{label}</span>
                                     <em>{ok ? "Aktif" : "Kapalı"}</em>
                                 </div>
                             );
@@ -195,27 +216,30 @@ export default function RadarInsightsTab({ active, onKeywordSelect, onGoOpportun
                 </section>
             )}
 
-            <div className="rp-insights-grid">
-                <section className="rp-panel">
-                    <h3><FaGoogle /> Google Trends</h3>
+            <div className="rp-insights-split">
+                <section className="rp-card-section">
+                    <header className="rp-card-section-head">
+                        <FaGoogle />
+                        <h3>Google Trends</h3>
+                    </header>
                     {sectionErrors.google ? (
                         <p className="rp-muted">Google trend verisi alınamadı.</p>
                     ) : googleTrends.length === 0 ? (
                         <p className="rp-muted">SerpAPI anahtarı yoksa veya veri henüz toplanmadıysa liste boş olabilir.</p>
                     ) : (
-                        <ul className="rp-trend-list">
+                        <ul className="rp-trend-rows">
                             {googleTrends.slice(0, 12).map((t, i) => {
                                 const kw = t.keyword || t.query || t.title;
                                 return (
                                     <li key={i}>
                                         <button
                                             type="button"
-                                            className="rp-trend-kw rp-link-btn"
+                                            className="rp-trend-link"
                                             onClick={() => onKeywordSelect?.(kw)}
                                         >
                                             {kw}
                                         </button>
-                                        {t.interest != null && <span className="rp-trend-val">{t.interest}</span>}
+                                        {t.interest != null && <span className="rp-trend-score">{t.interest}</span>}
                                     </li>
                                 );
                             })}
@@ -223,8 +247,11 @@ export default function RadarInsightsTab({ active, onKeywordSelect, onGoOpportun
                     )}
                 </section>
 
-                <section className="rp-panel">
-                    <h3><FaFire /> Yükselen kelimeler</h3>
+                <section className="rp-card-section">
+                    <header className="rp-card-section-head">
+                        <FaFire />
+                        <h3>Yükselen kelimeler</h3>
+                    </header>
                     {sectionErrors.keywords ? (
                         <p className="rp-muted">Anahtar kelime verisi alınamadı.</p>
                     ) : keywords.length === 0 ? (
@@ -232,16 +259,16 @@ export default function RadarInsightsTab({ active, onKeywordSelect, onGoOpportun
                             Henüz veri yok. Fırsat Radarı sekmesinde &quot;Yeni analiz&quot; çalıştırın.
                         </p>
                     ) : (
-                        <div className="rp-kw-cloud">
+                        <div className="rp-keyword-cloud">
                             {keywords.map((k, i) => (
                                 <button
                                     key={i}
                                     type="button"
-                                    className="rp-kw-tag"
-                                    style={{ opacity: 0.45 + Math.min(0.55, (k.score || k.strength || 5) / 18) }}
-                                    onClick={() => onKeywordSelect?.(k.keyword || k.term)}
+                                    className="rp-keyword-chip"
+                                    style={{ opacity: 0.45 + Math.min(0.55, (k.compositeScore || k.score || k.strength || 5) / 18) }}
+                                    onClick={() => onKeywordSelect?.(k.keyword || k.term || k.query)}
                                 >
-                                    {k.keyword || k.term}
+                                    {k.keyword || k.term || k.query}
                                 </button>
                             ))}
                         </div>
@@ -249,32 +276,39 @@ export default function RadarInsightsTab({ active, onKeywordSelect, onGoOpportun
                 </section>
             </div>
 
-            <section className="rp-panel">
-                <h3><FaAmazon /> Arbitraj fırsatları</h3>
+            <section className="rp-card-section">
+                <header className="rp-card-section-head">
+                    <FaAmazon />
+                    <h3>Arbitraj fırsatları</h3>
+                </header>
                 {sectionErrors.arb ? (
                     <p className="rp-muted">Arbitraj listesi yüklenemedi.</p>
                 ) : arbitrage.length === 0 ? (
                     <p className="rp-muted">Amazon ↔ Trendyol fiyat farkı bulunamadı veya analiz bekleniyor.</p>
                 ) : (
-                    <div className="rp-arb-grid">
+                    <div className="rp-arbitrage-grid">
                         {arbitrage.map((a, i) => (
-                            <div key={i} className="rp-arb-card">
+                            <div key={i} className="rp-arbitrage-card">
                                 <strong>{a.keyword || a.productName}</strong>
-                                <span className="rp-arb-margin">Marj: %{a.marginPercent ?? a.margin ?? "—"}</span>
-                                {a.suggestedAction && <p>{a.suggestedAction}</p>}
+                                <span className="rp-arbitrage-margin">
+                                    Marj: %{a.crossMarketAnalysis?.profitMarginPercent ?? a.marginPercent ?? a.margin ?? "—"}
+                                </span>
+                                {(a.aiExplanation || a.suggestedAction) && (
+                                    <p>{a.aiExplanation || a.suggestedAction}</p>
+                                )}
                             </div>
                         ))}
                     </div>
                 )}
             </section>
 
-            <div className="rp-tip-card">
+            <aside className="rp-info-banner">
                 <FaGlobe />
                 <p>
                     Arka planda worker her <strong>6 saatte</strong> fırsat havuzunu günceller. En taze sonuç için
-                    <strong> Fırsat Radarı</strong> sekmesinde &quot;Yeni analiz&quot; kullanın.
+                    <strong> Yeni analiz</strong> butonunu kullanın.
                 </p>
-            </div>
+            </aside>
         </div>
     );
 }

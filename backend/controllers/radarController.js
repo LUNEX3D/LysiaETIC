@@ -83,10 +83,15 @@ exports.getOpportunities = async (req, res) => {
                 .catch((err) => logger.warn(`[Radar] Stale yenileme: ${err.message}`));
         }
 
-        // Cache boşsa ve hiç fırsat yoksa, ilk kez analiz başlat
+        // Cache boşsa veya aktif fırsat yoksa analiz başlat
         if (opportunities.length === 0) {
-            const freshCheck = await OpportunityResult.countDocuments({ userId });
-            if (freshCheck === 0) {
+            const [totalCount, activeCount] = await Promise.all([
+                OpportunityResult.countDocuments({ userId }),
+                OpportunityResult.countDocuments({ userId, status: "active" }),
+            ]);
+
+            const shouldStartAnalysis = totalCount === 0 || activeCount === 0;
+            if (shouldStartAnalysis) {
                 opportunityEngine.analyzeOpportunities(userId).catch(err => {
                     logger.warn(`[Radar] Arka plan analiz hatası: ${err.message}`);
                 });
@@ -97,7 +102,9 @@ exports.getOpportunities = async (req, res) => {
                         opportunities: [],
                         stats: { total: 0, analyzing: true },
                         meta,
-                        message: "İlk analiz başlatıldı, birkaç dakika içinde fırsatlar hazır olacak.",
+                        message: totalCount === 0
+                            ? "İlk analiz başlatıldı, birkaç dakika içinde fırsatlar hazır olacak."
+                            : "Aktif fırsat bulunamadı — yeni analiz başlatıldı.",
                     },
                 });
             }
@@ -149,17 +156,25 @@ exports.refreshOpportunities = async (req, res) => {
                 data: {
                     opportunities: [],
                     stats: { total: 0, analyzing: true },
+                    meta: opportunityEngine.getDisplayRotationMeta?.() || null,
                     message: "Analiz devam ediyor, birkaç dakika içinde tamamlanacak.",
                 },
             });
         }
 
+        const opps = result.opportunities || [];
         res.json({
             success: true,
             data: {
-                opportunities: result.opportunities || [],
-                stats: result.stats || {},
-                fromCache: false,
+                opportunities: opps,
+                stats: {
+                    ...(result.stats || {}),
+                    analyzing: opps.length === 0 && (result.stats?.total || 0) === 0,
+                },
+                meta: result.displayRotation || opportunityEngine.getDisplayRotationMeta?.() || null,
+                fromCache: result.fromCache || false,
+                message: result.stats?.error || result.error || undefined,
+                persisted: result.persisted !== false,
             },
         });
     } catch (err) {
@@ -288,8 +303,12 @@ exports.getStats = async (req, res) => {
                 },
                 worker: {
                     isActive: workerStatus.isActive,
+                    isRunning: workerStatus.isRunning,
+                    running: workerStatus.isRunning,
                     totalCycles: workerStatus.totalCycles,
                     lastCycleAt: workerStatus.lastCycleAt,
+                    lastRun: workerStatus.lastCycleAt,
+                    lastDurationMs: workerStatus.lastDurationMs,
                 },
             },
         });
@@ -304,10 +323,17 @@ exports.getStats = async (req, res) => {
 // ═════════════════════════════════════════════════════════════════════════════
 exports.simulate = async (req, res) => {
     try {
-        const { opportunityId, investmentAmount, targetPrice, estimatedMonthlySales, marketplace } = req.body;
+        const { opportunityId, investmentAmount, targetPrice, estimatedMonthlySales, snapshot } = req.body;
         const userId = uid(req);
 
-        const opportunity = await OpportunityResult.findOne({ _id: opportunityId, userId }).lean();
+        let opportunity = null;
+        if (opportunityId && !String(opportunityId).startsWith("ephemeral-")) {
+            opportunity = await OpportunityResult.findOne({ _id: opportunityId, userId }).lean();
+        }
+        if (!opportunity && snapshot && typeof snapshot === "object") {
+            opportunity = snapshot;
+        }
+
         if (!opportunity) {
             return res.status(404).json({ success: false, message: "Fırsat bulunamadı" });
         }
@@ -351,7 +377,7 @@ exports.simulate = async (req, res) => {
             };
         }
 
-        await opportunityEngine.recordAction(userId, opportunityId, "simulated");
+        await opportunityEngine.recordAction(userId, opportunityId || opportunity._id, "simulated");
 
         res.json({
             success: true,
@@ -475,15 +501,26 @@ exports.getProductOpportunities = async (req, res) => {
         else if (sortBy === "rating") sortedProducts = products.sort((a, b) => (b.rating || 0) - (a.rating || 0));
         else sortedProducts = products.sort((a, b) => b.opportunityScore - a.opportunityScore);
 
+        const slice = sortedProducts.slice(0, parseInt(limit) || 50);
+        const avgScore = slice.length
+            ? Math.round(slice.reduce((s, p) => s + (p.opportunityScore || 0), 0) / slice.length)
+            : 0;
+        const withProfit = slice.filter((p) => p.estimatedProfit != null);
+        const avgProfit = withProfit.length
+            ? Math.round(withProfit.reduce((s, p) => s + (p.estimatedProfit || 0), 0) / withProfit.length)
+            : 0;
+
         res.json({
             success: true,
             data: {
-                products: sortedProducts.slice(0, parseInt(limit) || 50),
+                products: slice,
                 stats: {
-                    total: sortedProducts.length,
-                    trendyolProducts: products.filter(p => p.marketplace === "Trendyol").length,
-                    amazonProducts: products.filter(p => p.marketplace === "Amazon").length,
-                    arbitrageProducts: products.filter(p => p.isArbitrage).length,
+                    total: slice.length,
+                    avgScore,
+                    avgProfit,
+                    trendyolProducts: slice.filter(p => p.marketplace === "Trendyol").length,
+                    amazonProducts: slice.filter(p => p.marketplace === "Amazon").length,
+                    arbitrageProducts: slice.filter(p => p.isArbitrage).length,
                 },
             },
         });
@@ -630,17 +667,29 @@ exports.getDataSourceStatus = async (req, res) => {
             success: true,
             data: {
                 sources: {
-                    trendyol: { active: true, type: "scraping", description: "Trendyol HTML scraping" },
-                    googleTrends: { active: hasSerpAPI, type: "api", description: hasSerpAPI ? "SerpAPI Google Trends" : "Embed fallback" },
-                    amazon: { active: hasAmazonPAAPI || hasSerpAPI, type: "api", description: hasAmazonPAAPI ? "Amazon PA-API 5.0" : (hasSerpAPI ? "SerpAPI Amazon" : "Devre dışı") },
-                    instagram: { active: true, type: "oauth", description: "Instagram Graph API (kullanıcı bağlantısı gerekli)" },
-                    tiktok: { active: true, type: "oauth", description: "TikTok Research API (kullanıcı bağlantısı gerekli)" },
+                    trendyol: { active: true, configured: true, type: "scraping", description: "Trendyol HTML scraping" },
+                    googleTrends: {
+                        active: hasSerpAPI,
+                        configured: hasSerpAPI,
+                        type: "api",
+                        description: hasSerpAPI ? "SerpAPI Google Trends" : "Embed fallback (sınırlı)",
+                    },
+                    amazon: {
+                        active: hasAmazonPAAPI || hasSerpAPI,
+                        configured: hasAmazonPAAPI || hasSerpAPI,
+                        type: "api",
+                        description: hasAmazonPAAPI ? "Amazon PA-API 5.0" : (hasSerpAPI ? "SerpAPI Amazon" : "Devre dışı"),
+                    },
+                    instagram: { active: true, configured: true, type: "oauth", description: "Instagram Graph API (kullanıcı bağlantısı gerekli)" },
+                    tiktok: { active: true, configured: true, type: "oauth", description: "TikTok Research API (kullanıcı bağlantısı gerekli)" },
                 },
                 worker: {
                     isActive: workerStatus.isActive,
                     isRunning: workerStatus.isRunning,
+                    running: workerStatus.isRunning,
                     totalCycles: workerStatus.totalCycles,
                     lastCycleAt: workerStatus.lastCycleAt,
+                    lastRun: workerStatus.lastCycleAt,
                     lastDurationMs: workerStatus.lastDurationMs,
                 },
             },

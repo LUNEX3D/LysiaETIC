@@ -12,7 +12,7 @@ import {
     getMappings, getMappingStats, updateMapping, exportMappingsExcel,
     getMarketplaces, searchCategories,
     getHepsiburadaCategoryTree, exportHepsiburadaCategoriesExcel,
-    autoMatch, autoMatchReset, autoMatchPrepare, autoMatchApprove
+    autoMatch, autoMatchReset, autoMatchPrepare, autoMatchApprove, auditMappings, repairMappings
 } from "../services/categoryCenterApi";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -32,7 +32,11 @@ const PLATFORMS = [
     { key: "ciceksepeti", label: "ÇiçekSepeti",   icon: "🌸", color: "#E91E63", idField: "ciceksepetiId", pathField: "ciceksepetiPath" },
     { key: "hepsiburada", label: "Hepsiburada",   icon: "🟧", color: "#FF6000", idField: "hepsiburadaId", pathField: "hepsiburadaPath" },
     { key: "amazon",      label: "Amazon",        icon: "📦", color: "#FF9900", idField: "amazonId",      pathField: "amazonPath" },
+    { key: "ozon",        label: "Ozon",          icon: "🔵", color: "#005BFF", idField: "ozonId",        pathField: "ozonPath" },
 ];
+
+// Otomatik eşleştirilebilir platformlar — Trendyol master taksonomidir (kendisiyle eşleşmez)
+const AUTO_MATCHABLE_KEYS = ["n11", "ciceksepeti", "hepsiburada", "amazon", "ozon"];
 
 // ═══════════════════════════════════════════════════════════════
 // 🔍 Kategori Arama Popup
@@ -511,6 +515,7 @@ const CategoryCenterPage = ({ userId }) => {
     // Mappings State
     const [mappings, setMappings] = useState([]);
     const [stats, setStats] = useState(null);
+    const [auditIssues, setAuditIssues] = useState([]);
     const [platforms, setPlatforms] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
@@ -553,6 +558,8 @@ const CategoryCenterPage = ({ userId }) => {
     const [bulkRunning, setBulkRunning] = useState(false);
     const [bulkResult, setBulkResult] = useState(null);
     const [bulkProgress, setBulkProgress] = useState(null);
+    const [repairRunning, setRepairRunning] = useState(false);
+    const [repairResult, setRepairResult] = useState(null);
 
     // Auto-match dropdown dışına tıklayınca kapat
     useEffect(() => {
@@ -586,6 +593,18 @@ const CategoryCenterPage = ({ userId }) => {
             }
         };
         load();
+    }, []);
+
+    useEffect(() => {
+        const loadAudit = async () => {
+            try {
+                const res = await auditMappings({ limit: 40 });
+                setAuditIssues(res?.data?.issues || []);
+            } catch {
+                setAuditIssues([]);
+            }
+        };
+        loadAudit();
     }, []);
 
     // Eşleştirmeleri yükle
@@ -789,7 +808,7 @@ const CategoryCenterPage = ({ userId }) => {
     const runBulkAutoMatch = useCallback(async (platformKeys = []) => {
         setShowAutoMatchMenu(false);
         const scope = platformKeys.length === 0
-            ? "N11, ÇiçekSepeti ve Hepsiburada"
+            ? AUTO_MATCHABLE_KEYS.map((pk) => PLATFORMS.find((p) => p.key === pk)?.label || pk).join(", ")
             : platformKeys.map((pk) => PLATFORMS.find((p) => p.key === pk)?.label || pk).join(", ");
         const okConfirm = window.confirm(
             `Boş kategori hücreleri akıllı eşleştirme ile doldurulsun mu?\n\n` +
@@ -803,7 +822,7 @@ const CategoryCenterPage = ({ userId }) => {
         setBulkRunning(true);
         setBulkResult(null);
         const keys = platformKeys.length === 0
-            ? ["n11", "ciceksepeti", "hepsiburada"]
+            ? AUTO_MATCHABLE_KEYS
             : platformKeys;
         const merged = {
             results: {},
@@ -839,6 +858,34 @@ const CategoryCenterPage = ({ userId }) => {
         } finally {
             setBulkRunning(false);
             setBulkProgress(null);
+        }
+    }, [page, searchQuery, loadMappings]);
+
+    const runRepairMappings = useCallback(async () => {
+        setShowAutoMatchMenu(false);
+        const okConfirm = window.confirm(
+            "Şüpheli / çelişkili kategori eşleştirmeleri otomatik düzeltilsin mi?\n\n" +
+            "Örnek: Masaüstü Organizer → Kalemlik gibi yanlış eşleşmeler düzeltilir.\n" +
+            "Yalnızca yüksek güvenli alternatifler yazılır. Hepsiburada için önbellek yoksa atlanır."
+        );
+        if (!okConfirm) return;
+
+        setRepairRunning(true);
+        setRepairResult(null);
+        try {
+            const res = await repairMappings({ dryRun: false, includeManual: true });
+            const data = res?.data || res;
+            setRepairResult(data);
+            loadMappings(page, searchQuery);
+            getMappingStats().then((r) => setStats(r?.data || null)).catch(() => {});
+            const auditRes = await auditMappings({ limit: 40 });
+            setAuditIssues(auditRes?.data?.issues || []);
+        } catch (err) {
+            setRepairResult({
+                error: err?.response?.data?.message || err.message || "Onarım başarısız",
+            });
+        } finally {
+            setRepairRunning(false);
         }
     }, [page, searchQuery, loadMappings]);
 
@@ -1075,7 +1122,7 @@ const CategoryCenterPage = ({ userId }) => {
                                     <FaCheck style={{ color: "#22c55e", fontSize: "0.7rem" }} />
                                     Tüm platformlar (boş hücreler)
                                 </button>
-                                {["n11", "ciceksepeti", "hepsiburada"].map((pk) => {
+                                {AUTO_MATCHABLE_KEYS.map((pk) => {
                                     const pf = PLATFORMS.find((p) => p.key === pk);
                                     return (
                                         <button
@@ -1094,6 +1141,23 @@ const CategoryCenterPage = ({ userId }) => {
                                         </button>
                                     );
                                 })}
+                                <div style={{ height: 1, background: C.border, margin: "0.35rem 0" }} />
+                                <div style={{ padding: "0.3rem 0.5rem", color: C.dim, fontSize: "0.62rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                                    Hatalı eşleştirmeleri onar
+                                </div>
+                                <button
+                                    onClick={runRepairMappings}
+                                    disabled={repairRunning || bulkRunning}
+                                    style={{
+                                        width: "100%", textAlign: "left", background: "rgba(245,158,11,0.1)", border: "none",
+                                        padding: "0.45rem 0.5rem", borderRadius: 6, cursor: repairRunning ? "wait" : "pointer",
+                                        color: C.text, fontSize: "0.76rem", fontWeight: 600,
+                                        display: "flex", alignItems: "center", gap: "0.35rem", marginBottom: "0.25rem",
+                                    }}
+                                >
+                                    {repairRunning ? <FaSpinner className="cc-spin" /> : <FaExclamationTriangle style={{ color: "#f59e0b" }} />}
+                                    Çelişkili eşleştirmeleri düzelt
+                                </button>
                                 <div style={{ height: 1, background: C.border, margin: "0.35rem 0" }} />
                                 <div style={{ padding: "0.3rem 0.5rem", color: C.dim, fontSize: "0.62rem", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
                                     Tek tek onayla (sihirbaz)
@@ -1129,6 +1193,55 @@ const CategoryCenterPage = ({ userId }) => {
 
                 {/* İstatistikler — sadece mappings tab'ında */}
                 {activeTab === "mappings" && <StatsBar stats={stats} C={C} isDark={isDark} t={t} />}
+
+                {activeTab === "mappings" && auditIssues.length > 0 && (
+                    <div style={{
+                        marginTop: "0.5rem",
+                        padding: "0.65rem 0.85rem",
+                        borderRadius: 10,
+                        border: `1px solid ${C.yellow || "#f59e0b"}40`,
+                        background: `${C.yellow || "#f59e0b"}12`,
+                        fontSize: "0.78rem",
+                        lineHeight: 1.5,
+                        color: C.text,
+                    }}>
+                        <div style={{ display: "flex", alignItems: "flex-start", gap: "0.5rem" }}>
+                            <FaExclamationTriangle style={{ color: "#f59e0b", marginTop: 2, flexShrink: 0 }} />
+                            <div style={{ flex: 1 }}>
+                                <strong>{auditIssues.length} şüpheli kategori eşleştirmesi</strong> tespit edildi
+                                (ör. organizer → kalemlik).
+                                {auditIssues.slice(0, 2).map((iss, i) => (
+                                    <div key={i} style={{ marginTop: 4, color: C.dim, fontSize: "0.72rem" }}>
+                                        {iss.masterName}: {iss.platformLabel} → {iss.platformPath}
+                                    </div>
+                                ))}
+                                <button
+                                    type="button"
+                                    onClick={runRepairMappings}
+                                    disabled={repairRunning}
+                                    style={{
+                                        marginTop: 8, padding: "0.35rem 0.65rem", borderRadius: 6,
+                                        border: "1px solid #f59e0b55", background: "rgba(245,158,11,0.15)",
+                                        color: C.text, fontSize: "0.72rem", fontWeight: 600, cursor: "pointer",
+                                    }}
+                                >
+                                    {repairRunning ? "Onarılıyor…" : "Otomatik düzelt"}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {activeTab === "mappings" && repairResult && !repairResult.error && (
+                    <div style={{ marginTop: "0.5rem", padding: "0.5rem 0.75rem", borderRadius: 8, background: "rgba(34,197,94,0.1)", fontSize: "0.75rem" }}>
+                        {(repairResult.updated ?? repairResult.repairCount ?? 0)} eşleştirme güncellendi.
+                    </div>
+                )}
+                {activeTab === "mappings" && repairResult?.error && (
+                    <div style={{ marginTop: "0.5rem", padding: "0.5rem 0.75rem", borderRadius: 8, background: "rgba(239,68,68,0.1)", fontSize: "0.75rem", color: "#ef4444" }}>
+                        {repairResult.error}
+                    </div>
+                )}
 
                 {/* ── TAB BAR ── */}
                 <div style={{

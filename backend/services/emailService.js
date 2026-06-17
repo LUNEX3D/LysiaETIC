@@ -621,3 +621,262 @@ exports.sendPaymentSuccessEmail = async (user, { payment, subscription, receipt 
         return { success: false, error: err.message };
     }
 };
+
+/** Pazaryeri görsel kimliği (renk + rozet adı) */
+function platformBadge(marketplaceName) {
+    const n = String(marketplaceName || "").toLowerCase();
+    if (n.includes("trendyol")) return { label: "Trendyol", color: "#f27a1a" };
+    if (n.includes("hepsi")) return { label: "Hepsiburada", color: "#ff6000" };
+    if (n.includes("n11")) return { label: "N11", color: "#7b2d8e" };
+    if (n.includes("cicek") || n.includes("çiçek")) return { label: "ÇiçekSepeti", color: "#e6308a" };
+    if (n.includes("amazon")) return { label: "Amazon", color: "#ff9900" };
+    if (n.includes("pazarama")) return { label: "Pazarama", color: "#6d28d9" };
+    if (n.includes("ptt")) return { label: "PTT AVM", color: "#005aa0" };
+    return { label: marketplaceName || "Pazaryeri", color: "#6366f1" };
+}
+
+function escapeHtml(str) {
+    return String(str == null ? "" : str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+}
+
+/**
+ * Yeni sipariş bilgilendirme e-postası — ürün/sipariş detayı + platform bilgisi
+ * @param {object} user  - { name, email }
+ * @param {object} params - { order } (Order dökümanı / lean)
+ */
+exports.sendNewOrderEmail = async (user, { order }) => {
+    if (!user || !user.email) return { success: false, error: "Kullanıcı e-postası yok" };
+    if (!order) return { success: false, error: "Sipariş verisi yok" };
+
+    const badge = platformBadge(order.marketplaceName);
+    const ordersUrl = `${APP_URL}/orders`;
+    const items = Array.isArray(order.items) ? order.items : [];
+    const orderNo = order.trackingNumber || order.orderItemId || order.packageNumber || "—";
+    const totalAmount = Number(order.totalPrice || order.grossOrderAmount || 0);
+    const totalQty = items.reduce((s, it) => s + (Number(it.quantity) || 0), 0) || items.length;
+
+    const addr = order.customerAddress || {};
+    const locParts = [addr.district, addr.city].filter(Boolean);
+    const locText = locParts.join(", ") || addr.country || "—";
+    const cargo = String(order.cargoCompany || "").trim();
+
+    const PLACEHOLDER_RE = /placehold|via\.placeholder|default-product/i;
+    const itemRows = items
+        .map((it) => {
+            const name = escapeHtml(it.productName || it.name || "Ürün");
+            const qty = Number(it.quantity) || 1;
+            const unit = Number(it.price) || 0;
+            const line = fmtMoneyTl(unit * qty);
+            const img = it.imageUrl && !PLACEHOLDER_RE.test(it.imageUrl) ? it.imageUrl : "";
+            const thumb = img
+                ? `<img src="${escapeHtml(img)}" width="56" height="56" alt="" style="width:56px;height:56px;border-radius:10px;object-fit:cover;border:1px solid #e2e8f0;display:block;">`
+                : `<div style="width:56px;height:56px;border-radius:10px;background:#f1f5f9;border:1px solid #e2e8f0;"></div>`;
+            return `
+        <tr>
+            <td style="padding:12px 0;border-bottom:1px solid #eef2f7;vertical-align:top;width:64px;">${thumb}</td>
+            <td style="padding:12px 10px;border-bottom:1px solid #eef2f7;vertical-align:top;">
+                <p style="margin:0;color:#0f172a;font-size:14px;font-weight:600;line-height:1.4;">${name}</p>
+                <p style="margin:4px 0 0;color:#64748b;font-size:12px;">Adet: ${qty} × ${fmtMoneyTl(unit)}</p>
+            </td>
+            <td style="padding:12px 0;border-bottom:1px solid #eef2f7;vertical-align:top;text-align:right;white-space:nowrap;">
+                <span style="color:#0f172a;font-size:14px;font-weight:700;">${line}</span>
+            </td>
+        </tr>`;
+        })
+        .join("");
+
+    const infoRows = [
+        ["Sipariş No", orderNo],
+        ["Platform", badge.label],
+        ["Tarih", fmtDateTr(order.orderDate)],
+        ["Teslimat", locText],
+    ];
+    if (cargo) infoRows.push(["Kargo", cargo]);
+    if (order.customerName) infoRows.push(["Müşteri", escapeHtml(order.customerName)]);
+
+    const infoTable = infoRows
+        .map(
+            ([l, v]) => `
+        <tr>
+            <td style="padding:7px 0;color:#64748b;font-size:13px;width:40%;">${l}</td>
+            <td style="padding:7px 0;color:#0f172a;font-size:13px;font-weight:600;text-align:right;">${escapeHtml(v)}</td>
+        </tr>`
+        )
+        .join("");
+
+    const htmlContent = `
+<!DOCTYPE html>
+<html lang="tr">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Yeni Sipariş</title></head>
+<body style="margin:0;padding:0;background-color:#eef2ff;font-family:'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#eef2ff;padding:36px 16px;">
+        <tr><td align="center">
+            <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;">
+
+                <!-- Header -->
+                <tr>
+                    <td style="background:linear-gradient(135deg,#4f46e5 0%,#7c3aed 55%,#06b6d4 100%);border-radius:20px 20px 0 0;padding:32px 32px 26px;text-align:center;">
+                        <p style="margin:0 0 8px;color:rgba(255,255,255,0.85);font-size:12px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;">Yeni sipariş 🎉</p>
+                        <h1 style="margin:0;color:#ffffff;font-size:24px;font-weight:800;letter-spacing:-0.02em;">${escapeHtml(badge.label)}'den yeni siparişiniz var!</h1>
+                        <p style="margin:14px 0 0;">
+                            <span style="display:inline-block;background:${badge.color};color:#fff;font-size:12px;font-weight:700;padding:6px 14px;border-radius:999px;">${escapeHtml(badge.label)}</span>
+                        </p>
+                    </td>
+                </tr>
+
+                <!-- Tutar + Adet -->
+                <tr>
+                    <td style="background:#ffffff;padding:26px 28px 6px;border-left:1px solid #e2e8f0;border-right:1px solid #e2e8f0;">
+                        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">
+                            <tr>
+                                <td width="50%" style="padding:14px 16px;background:#f0fdf4;border-radius:12px;border:1px solid #bbf7d0;vertical-align:top;">
+                                    <p style="margin:0 0 4px;color:#166534;font-size:11px;font-weight:700;text-transform:uppercase;">Sipariş tutarı</p>
+                                    <p style="margin:0;color:#14532d;font-size:22px;font-weight:800;">${fmtMoneyTl(totalAmount)}</p>
+                                </td>
+                                <td width="8"></td>
+                                <td width="50%" style="padding:14px 16px;background:#eef2ff;border-radius:12px;border:1px solid #c7d2fe;vertical-align:top;">
+                                    <p style="margin:0 0 4px;color:#4338ca;font-size:11px;font-weight:700;text-transform:uppercase;">Ürün adedi</p>
+                                    <p style="margin:0;color:#312e81;font-size:22px;font-weight:800;">${totalQty}</p>
+                                </td>
+                            </tr>
+                        </table>
+
+                        <!-- Sipariş bilgileri -->
+                        <p style="margin:0 0 6px;color:#1e293b;font-size:15px;font-weight:700;">Sipariş bilgileri</p>
+                        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:6px 16px;margin-bottom:22px;">
+                            <tr><td>${infoTable}</td></tr>
+                        </table>
+
+                        <!-- Ürünler -->
+                        <p style="margin:0 0 6px;color:#1e293b;font-size:15px;font-weight:700;">Ürünler</p>
+                        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:8px;">
+                            ${itemRows || `<tr><td style="color:#64748b;font-size:13px;padding:10px 0;">Ürün bilgisi bulunamadı.</td></tr>`}
+                            <tr>
+                                <td></td>
+                                <td style="padding:14px 10px 4px;text-align:right;color:#64748b;font-size:13px;font-weight:600;">Toplam</td>
+                                <td style="padding:14px 0 4px;text-align:right;color:#0f172a;font-size:16px;font-weight:800;white-space:nowrap;">${fmtMoneyTl(totalAmount)}</td>
+                            </tr>
+                        </table>
+
+                        <!-- CTA -->
+                        <table role="presentation" cellpadding="0" cellspacing="0" style="margin:18px auto 6px;">
+                            <tr>
+                                <td style="border-radius:12px;background:linear-gradient(135deg,#6366f1,#7c3aed);">
+                                    <a href="${ordersUrl}" target="_blank" style="display:inline-block;padding:14px 38px;color:#ffffff;font-size:15px;font-weight:700;text-decoration:none;">Siparişi görüntüle →</a>
+                                </td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+
+                <!-- Footer -->
+                <tr>
+                    <td style="background:#f8fafc;padding:22px 28px;border-radius:0 0 20px 20px;border:1px solid #e2e8f0;border-top:none;">
+                        <p style="margin:0;color:#94a3b8;font-size:12px;line-height:1.6;text-align:center;">
+                            Bu bildirim ${BRAND_NAME} hesabınıza bağlı pazaryerlerinden gelen yeni sipariş içindir.<br>
+                            Sipariş bildirimlerini Ayarlar → Bildirimler bölümünden kapatabilirsiniz.<br>
+                            © ${new Date().getFullYear()} ${BRAND_NAME}
+                        </p>
+                    </td>
+                </tr>
+
+            </table>
+        </td></tr>
+    </table>
+</body>
+</html>`;
+
+    const textLines = [
+        `Merhaba ${user.name || ""},`,
+        "",
+        `${badge.label} platformundan yeni bir siparişiniz var.`,
+        "",
+        `Sipariş No: ${orderNo}`,
+        `Platform  : ${badge.label}`,
+        `Tarih     : ${fmtDateTr(order.orderDate)}`,
+        `Teslimat  : ${locText}`,
+        cargo ? `Kargo     : ${cargo}` : null,
+        "",
+        "Ürünler:",
+        ...items.map((it) => `  - ${it.productName || "Ürün"} (x${Number(it.quantity) || 1}) — ${fmtMoneyTl((Number(it.price) || 0) * (Number(it.quantity) || 1))}`),
+        "",
+        `Toplam: ${fmtMoneyTl(totalAmount)}`,
+        "",
+        `Siparişi görüntüle: ${ordersUrl}`,
+        "",
+        `© ${new Date().getFullYear()} ${BRAND_NAME}`,
+    ].filter((l) => l !== null);
+
+    try {
+        const resend = getResend();
+        if (!resend) return { success: false, error: "RESEND_API_KEY tanımlı değil" };
+
+        const { data, error } = await resend.emails.send({
+            ...mailHeaders(),
+            to: [user.email],
+            subject: `${BRAND_NAME} — ${badge.label}'den yeni sipariş · ${fmtMoneyTl(totalAmount)}`,
+            html: htmlContent,
+            text: textLines.join("\n"),
+        });
+
+        if (error) {
+            logger.error(`Resend yeni sipariş e-postası: ${formatResendError(error)}`);
+            return { success: false, error: formatResendError(error) };
+        }
+
+        logger.info(`Yeni sipariş e-postası gönderildi: ${user.email} (sipariş ${orderNo}, ID: ${data?.id})`);
+        return { success: true, id: data?.id };
+    } catch (err) {
+        logger.error(`Yeni sipariş e-postası hatası: ${err.message}`);
+        return { success: false, error: err.message };
+    }
+};
+
+/**
+ * İade onayı sonrası e-Arşiv fatura iptal bildirimi
+ */
+exports.sendReturnInvoiceCancelledEmail = async (user, { order, invoice, marketplace }) => {
+    if (!user?.email) return { success: false, error: "E-posta yok" };
+
+    const orderNo = order?.trackingNumber || order?.orderNumber || invoice?.orderNumber || "—";
+    const invNo = invoice?.invoiceNumber || "—";
+    const mp = marketplace || order?.marketplaceName || "Pazaryeri";
+    const amount = Number(invoice?.totals?.payableAmount || order?.totalPrice || 0);
+    const billingUrl = `${APP_URL}/billing`;
+
+    const htmlContent = `
+        <div style="font-family:Segoe UI,Arial,sans-serif;max-width:560px;margin:0 auto;color:#1e293b;">
+            <h2 style="color:#0f766e;margin-bottom:0.5rem;">İade onaylandı — fatura iptal edildi</h2>
+            <p>Merhaba ${escapeHtml(user.name || "Kullanıcı")},</p>
+            <p><strong>${escapeHtml(mp)}</strong> üzerinde onayladığınız iade talebi için ilgili e-Arşiv faturası otomatik olarak iptal edilmiştir.</p>
+            <table style="width:100%;border-collapse:collapse;margin:1rem 0;font-size:14px;">
+                <tr><td style="padding:8px;border-bottom:1px solid #e2e8f0;color:#64748b;">Sipariş No</td><td style="padding:8px;border-bottom:1px solid #e2e8f0;font-weight:600;">${escapeHtml(orderNo)}</td></tr>
+                <tr><td style="padding:8px;border-bottom:1px solid #e2e8f0;color:#64748b;">Fatura No</td><td style="padding:8px;border-bottom:1px solid #e2e8f0;font-weight:600;">${escapeHtml(invNo)}</td></tr>
+                <tr><td style="padding:8px;border-bottom:1px solid #e2e8f0;color:#64748b;">Tutar</td><td style="padding:8px;border-bottom:1px solid #e2e8f0;">${fmtMoneyTl(amount)}</td></tr>
+            </table>
+            <p style="font-size:13px;color:#64748b;">Gelir İdaresi kayıtlarında fatura iptal edilmiştir.</p>
+            <p><a href="${billingUrl}" style="display:inline-block;background:#0d9488;color:#fff;padding:10px 18px;border-radius:8px;text-decoration:none;font-weight:600;">Faturalandırma</a></p>
+        </div>`;
+
+    try {
+        const { data, error } = await resend.emails.send({
+            from: FROM_EMAIL,
+            to: [user.email],
+            subject: `${BRAND_NAME} — İade onayı: fatura ${invNo} iptal edildi`,
+            html: htmlContent,
+            text: ["İade onayı — fatura iptal", orderNo, invNo, fmtMoneyTl(amount), billingUrl].join("\n"),
+        });
+        if (error) {
+            logger.error(`İade fatura iptal e-postası: ${formatResendError(error)}`);
+            return { success: false, error: formatResendError(error) };
+        }
+        return { success: true, id: data?.id };
+    } catch (err) {
+        logger.error(`İade fatura iptal e-postası hatası: ${err.message}`);
+        return { success: false, error: err.message };
+    }
+};

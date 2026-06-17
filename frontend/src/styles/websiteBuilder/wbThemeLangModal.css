@@ -1,0 +1,146 @@
+.wb-lang-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  background: rgba(15, 15, 20, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.wb-lang-modal {
+  width: 100%;
+  max-width: 520px;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.2);
+  overflow: visible;
+}
+
+.wb-lang-modal__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 24px 24px 8px;
+}
+
+.wb-lang-modal__title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: #18181b;
+  line-height: 1.35;
+}
+
+.wb-lang-modal__close {
+  border: none;
+  background: transparent;
+  color: #71717a;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+}
+
+.wb-lang-modal__close:hover {
+  background: #f4f4f5;
+}
+
+.wb-lang-modal__body {
+  padding: 8px 24px 24px;
+}
+
+.wb-lang-modal__label {
+  display: block;
+  font-size: 12px;
+  color: #71717a;
+  margin-bottom: 8px;
+}
+
+.wb-lang-modal__req {
+  color: #7c3aed;
+}
+
+.wb-lang-modal__select-wrap {
+  position: relative;
+}
+
+.wb-lang-modal__select-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border: 2px solid #7c3aed;
+  border-radius: 8px;
+  background: #fff;
+  font-size: 14px;
+  font-weight: 500;
+  color: #18181b;
+  cursor: pointer;
+}
+
+.wb-lang-modal__dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: #fff;
+  border: 1px solid #e4e4e7;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  z-index: 10;
+  overflow: hidden;
+}
+
+.wb-lang-modal__option {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border: none;
+  background: transparent;
+  font-size: 14px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.wb-lang-modal__option:hover,
+.wb-lang-modal__option.active {
+  background: #faf5ff;
+}
+
+.wb-lang-modal__foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 0 24px 24px;
+}
+
+.wb-lang-modal__cancel {
+  padding: 10px 20px;
+  border: 1px solid #7c3aed;
+  border-radius: 8px;
+  background: #fff;
+  color: #7c3aed;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.wb-lang-modal__continue {
+  padding: 10px 22px;
+  border: none;
+  border-radius: 8px;
+  background: #7c3aed;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.wb-lang-modal__continue:hover {
+  background: #6d28d9;
+}

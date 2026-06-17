@@ -18,6 +18,10 @@
  */
 
 require("dotenv").config({ path: require("path").join(__dirname, "..", ".env") });
+require("dotenv").config({ path: require("path").join(__dirname, "..", ".env.local"), override: true });
+// Bazı ağlarda MongoDB SRV (DNS) çözümlemesi başarısız olabiliyor — güvenilir DNS sunucuları ata
+const dns = require("dns");
+try { dns.setServers(["8.8.8.8", "8.8.4.4", "1.1.1.1"]); } catch (_) {}
 const mongoose = require("mongoose");
 const XLSX = require("xlsx");
 const path = require("path");
@@ -239,11 +243,11 @@ const run = async () => {
 
     // ── 4. Opsiyonel: Koleksiyonu temizle ──
     if (shouldDrop) {
-        const existing = await MasterCategoryMapping.countDocuments();
-        if (existing > 0) {
-            await MasterCategoryMapping.deleteMany({});
-            console.log(`🗑️  Mevcut ${existing} kayıt silindi (--drop)\n`);
-        }
+        // ⚠️ Manuel (elle düzenlenmiş) satırlar ASLA silinmez — yalnızca Excel kaynaklı kayıtlar temizlenir
+        const manualCount = await MasterCategoryMapping.countDocuments({ manual: true });
+        const delRes = await MasterCategoryMapping.deleteMany({ manual: { $ne: true } });
+        console.log(`🗑️  ${delRes.deletedCount} Excel kaynaklı kayıt silindi (--drop)`);
+        console.log(`🛡️  ${manualCount} manuel kayıt korundu\n`);
 
         // Eski unique index'i de temizle (schema değişti)
         try {
@@ -257,12 +261,21 @@ const run = async () => {
     // ── 5. Satırları dönüştür ve upsert et ──
     let upserted = 0;
     let updated = 0;
+    let manualPreserved = 0;
     let errors = 0;
+
+    const PLATFORM_PAIRS = [
+        ["trendyolId", "trendyolPath"],
+        ["n11Id", "n11Path"],
+        ["ciceksepetiId", "ciceksepetiPath"],
+        ["hepsiburadaId", "hepsiburadaPath"],
+        ["amazonId", "amazonPath"],
+    ];
 
     for (let i = 0; i < merged.length; i++) {
         const row = merged[i];
         try {
-            const doc = {
+            const incoming = {
                 masterName: decodeHtml(row.master_name || ""),
                 masterPath: decodeHtml(row.master_path || ""),
                 trendyolId: row.trendyol_id || null,
@@ -277,16 +290,49 @@ const run = async () => {
                 amazonPath: decodeHtml(row.amazon_path || "")
             };
 
-            const result = await MasterCategoryMapping.findOneAndUpdate(
-                { masterId: row.master_id },
-                { $set: doc, $setOnInsert: { masterId: row.master_id } },
-                { upsert: true, new: true, rawResult: true }
-            );
+            const existing = await MasterCategoryMapping
+                .findOne({ masterId: row.master_id })
+                .lean();
 
-            if (result.lastErrorObject?.updatedExisting) {
+            if (existing && existing.manual) {
+                // 🛡️ Manuel satır — dolu platform eşleşmelerini KORU, yalnızca boş alanları Excel'den doldur
+                const preserved = {
+                    masterName: incoming.masterName,
+                    masterPath: incoming.masterPath,
+                };
+                for (const [idK, pathK] of PLATFORM_PAIRS) {
+                    const hasExisting =
+                        existing[idK] != null && String(existing[idK]).trim() !== "";
+                    if (hasExisting) {
+                        preserved[idK] = existing[idK];
+                        preserved[pathK] = existing[pathK];
+                    } else {
+                        preserved[idK] = incoming[idK];
+                        preserved[pathK] = incoming[pathK];
+                    }
+                }
+                // manual / source alanlarına DOKUNMA
+                await MasterCategoryMapping.updateOne(
+                    { masterId: row.master_id },
+                    { $set: preserved }
+                );
+                manualPreserved++;
                 updated++;
             } else {
-                upserted++;
+                const result = await MasterCategoryMapping.findOneAndUpdate(
+                    { masterId: row.master_id },
+                    {
+                        $set: { ...incoming, source: "excel" },
+                        $setOnInsert: { masterId: row.master_id, manual: false }
+                    },
+                    { upsert: true, new: true, rawResult: true }
+                );
+
+                if (result.lastErrorObject?.updatedExisting) {
+                    updated++;
+                } else {
+                    upserted++;
+                }
             }
         } catch (err) {
             errors++;
@@ -314,6 +360,7 @@ const run = async () => {
     console.log("═══════════════════════════════════════════════════");
     console.log(`  ✅ Yeni eklenen:  ${upserted}`);
     console.log(`  🔄 Güncellenen:   ${updated}`);
+    console.log(`  🛡️  Korunan manuel: ${manualPreserved}`);
     console.log(`  ❌ Hata:          ${errors}`);
     console.log(`  🗑️  Elenen duplike: ${totalDuplicates}`);
     console.log("═══════════════════════════════════════════════════");

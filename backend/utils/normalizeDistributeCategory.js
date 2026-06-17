@@ -5,11 +5,22 @@
 const normalizeDistributeCategory = (category) => {
     if (!category || typeof category !== "object") return null;
 
-    const idRaw =
+    let idRaw =
         category.id ??
         category.categoryId ??
         category.externalCategoryId;
     if (idRaw == null || String(idRaw).trim() === "") return null;
+
+    let typeId =
+        category.typeId != null && String(category.typeId).trim() !== ""
+            ? String(category.typeId).trim()
+            : null;
+    const idStr = String(idRaw).trim();
+    if (!typeId && idStr.includes(":")) {
+        const [cid, tid] = idStr.split(":");
+        idRaw = cid;
+        typeId = tid || null;
+    }
 
     const name = String(
         category.name || category.categoryName || category.externalCategoryName || ""
@@ -32,12 +43,14 @@ const normalizeDistributeCategory = (category) => {
         pathArr = [];
     }
 
-    return {
+    const out = {
         id: String(idRaw).trim(),
         name: name || pathArr[pathArr.length - 1] || "Kategori",
         path: pathArr,
-        pathDisplay: pathArr.join(" > ")
+        pathDisplay: pathArr.join(" > "),
     };
+    if (typeId) out.typeId = typeId;
+    return out;
 };
 
 module.exports = { normalizeDistributeCategory };

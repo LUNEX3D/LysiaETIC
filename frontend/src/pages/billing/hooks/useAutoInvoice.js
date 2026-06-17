@@ -7,6 +7,7 @@
  */
 import { useState, useCallback } from "react";
 import API from "../../../services/api";
+import { BILLING_DOCUMENTS_API } from "../constants";
 
 const useAutoInvoice = () => {
     // Config & Stats
@@ -16,10 +17,17 @@ const useAutoInvoice = () => {
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState("");
 
-    // QNB Fatura Listesi
+    // Kesilen fatura listesi (DB — tüm sağlayıcılar)
     const [qnbInvoices, setQnbInvoices] = useState([]);
     const [qnbLoading, setQnbLoading] = useState(false);
     const [qnbPagination, setQnbPagination] = useState({ page: 1, total: 0, totalPages: 0 });
+
+    // Faturasız sipariş listesi
+    const [uninvoicedOrders, setUninvoicedOrders] = useState([]);
+    const [uninvoicedLoading, setUninvoicedLoading] = useState(false);
+    const [uninvoicedPagination, setUninvoicedPagination] = useState({ page: 1, total: 0, totalPages: 0 });
+    const [uninvoicedSummary, setUninvoicedSummary] = useState(null);
+    const [invoiceProcessingId, setInvoiceProcessingId] = useState(null);
 
     // Toplu faturalama
     const [processLoading, setProcessLoading] = useState(false);
@@ -38,6 +46,27 @@ const useAutoInvoice = () => {
             ]);
             if (configRes.data.success) setConfig(configRes.data.data);
             if (statsRes.data.success) setStats(statsRes.data.data);
+
+            try {
+                const uninvoicedRes = await API.get("/auto-invoice/uninvoiced-orders", { params: { page: 1, limit: 25 } });
+                if (uninvoicedRes.data.success) {
+                    setUninvoicedOrders(uninvoicedRes.data.data || []);
+                    setUninvoicedPagination(uninvoicedRes.data.pagination || { page: 1, total: 0, totalPages: 0 });
+                    setUninvoicedSummary(uninvoicedRes.data.summary || null);
+                }
+            } catch {
+                /* sipariş listesi opsiyonel */
+            }
+
+            try {
+                const invRes = await API.get(BILLING_DOCUMENTS_API.list, { params: { page: 1, limit: 50 } });
+                if (invRes.data.success) {
+                    setQnbInvoices(invRes.data.data || []);
+                    setQnbPagination(invRes.data.pagination || { page: 1, total: 0, totalPages: 0 });
+                }
+            } catch {
+                /* fatura listesi opsiyonel */
+            }
         } catch (err) {
             // Subscription expired durumunda özel mesaj
             if (err.response?.status === 403 && (err.response?.data?.subscriptionExpired || err.response?.data?.subscriptionSuspended)) {
@@ -51,7 +80,7 @@ const useAutoInvoice = () => {
     }, []);
 
     /**
-     * QNB'den kesilen faturaları listele
+     * Kesilen faturaları listele (DB — QNB/Sovos)
      */
     const fetchQnbInvoices = useCallback(async (search, dateStart, dateEnd, page) => {
         setQnbLoading(true);
@@ -64,23 +93,65 @@ const useAutoInvoice = () => {
             if (page) params.page = page;
             params.limit = 50;
 
-            const res = await API.get("/auto-invoice/qnb-invoices", { params });
+            const res = await API.get(BILLING_DOCUMENTS_API.list, { params });
             if (res.data.success) {
                 setQnbInvoices(res.data.data || []);
                 setQnbPagination(res.data.pagination || { page: 1, total: 0, totalPages: 0 });
             } else {
-                setError(res.data.message || "QNB fatura listesi alınamadı");
+                setError(res.data.message || "Fatura listesi alınamadı");
             }
         } catch (err) {
             if (err.response?.status === 403 && (err.response?.data?.subscriptionExpired || err.response?.data?.subscriptionSuspended)) {
                 setError(err.response.data.message || "Abonelik süreniz dolmuş.");
             } else {
-                setError("QNB fatura listesi hatası: " + (err.response?.data?.message || err.message));
+                setError("Fatura listesi hatası: " + (err.response?.data?.message || err.message));
             }
         } finally {
             setQnbLoading(false);
         }
     }, []);
+
+    /**
+     * Faturasız siparişleri listele
+     */
+    const fetchUninvoicedOrders = useCallback(async (page = 1) => {
+        setUninvoicedLoading(true);
+        try {
+            const res = await API.get("/auto-invoice/uninvoiced-orders", { params: { page, limit: 25 } });
+            if (res.data.success) {
+                setUninvoicedOrders(res.data.data || []);
+                setUninvoicedPagination(res.data.pagination || { page: 1, total: 0, totalPages: 0 });
+                setUninvoicedSummary(res.data.summary || null);
+            }
+        } catch (err) {
+            setError("Sipariş listesi hatası: " + (err.response?.data?.message || err.message));
+        } finally {
+            setUninvoicedLoading(false);
+        }
+    }, []);
+
+    /**
+     * Tek sipariş için manuel fatura kes (test)
+     */
+    const processSingleOrder = useCallback(async (orderId) => {
+        setInvoiceProcessingId(orderId);
+        setError("");
+        try {
+            const res = await API.post("/auto-invoice/process-single/" + encodeURIComponent(orderId));
+            if (res.data.success) {
+                await fetchData();
+                return { success: true, message: res.data.message };
+            }
+            setError(res.data.message || "Fatura kesilemedi");
+            return { error: res.data.message };
+        } catch (err) {
+            const msg = "Fatura hatası: " + (err.response?.data?.message || err.message);
+            setError(msg);
+            return { error: msg };
+        } finally {
+            setInvoiceProcessingId(null);
+        }
+    }, [fetchData]);
 
     /**
      * Otomatik fatura ayarlarını kaydet
@@ -141,8 +212,9 @@ const useAutoInvoice = () => {
                 await fetchData();
                 return { success: true, data: res.data };
             }
-            setError(res.data.message || "Toplu faturalama hatası");
-            return { error: res.data.message };
+            const failMsg = res.data.message || res.data.data?.hint || "Toplu faturalama hatası";
+            setError(failMsg);
+            return { error: failMsg };
         } catch (err) {
             const msg = "Toplu faturalama hatası: " + (err.response?.data?.message || err.message);
             setError(msg);
@@ -170,7 +242,7 @@ const useAutoInvoice = () => {
     const previewQnbInvoice = useCallback(async (uuid) => {
         try {
             const res = await API.get(
-                "/auto-invoice/qnb-invoices/" + encodeURIComponent(uuid) + "/preview",
+                BILLING_DOCUMENTS_API.preview(uuid),
                 { responseType: "text" }
             );
             const text = typeof res.data === "string" ? res.data : JSON.stringify(res.data);
@@ -307,6 +379,26 @@ const useAutoInvoice = () => {
     }, []);
 
     /**
+     * e-Arşiv logo / imza görseli yükle
+     */
+    const uploadEArchiveVisual = useCallback(async (file, assetType = "logo") => {
+        try {
+            const formData = new FormData();
+            formData.append("file", file);
+            formData.append("assetType", assetType);
+            const res = await API.post("/auto-invoice/e-archive-visuals/upload", formData, {
+                headers: { "Content-Type": "multipart/form-data" },
+            });
+            if (res.data.success) {
+                return { success: true, url: res.data.data?.url || "" };
+            }
+            return { error: res.data.message || "Görsel yüklenemedi" };
+        } catch (err) {
+            return { error: err.response?.data?.message || err.message || "Görsel yüklenemedi" };
+        }
+    }, []);
+
+    /**
      * Otomatik fatura config form için başlangıç değerleri oluştur
      */
     const buildConfigForm = useCallback(() => {
@@ -329,6 +421,12 @@ const useAutoInvoice = () => {
             defaultVatRate: cfg.defaultVatRate || 20,
             pricesIncludeVat: cfg.pricesIncludeVat !== false,
             defaultNote: cfg.defaultNote || "",
+            eArchiveVisuals: {
+                logoUrl: cfg.eArchiveVisuals?.logoUrl || "",
+                signatureUrl: cfg.eArchiveVisuals?.signatureUrl || "",
+                signatureName: cfg.eArchiveVisuals?.signatureName || "",
+                invoiceDescription: cfg.eArchiveVisuals?.invoiceDescription || cfg.defaultNote || "",
+            },
             supplier: {
                 vkn: cfg.supplier?.vkn || "",
                 name: cfg.supplier?.name || "",
@@ -350,16 +448,23 @@ const useAutoInvoice = () => {
                 country: cfg.defaultCustomer?.country || "Turkiye",
             },
             qnbCredentials: {
-                // Eski alanlar (geriye uyumluluk — e-Fatura formatında)
                 username: cfg.qnbCredentials?.username || "",
                 password: cfg.qnbCredentials?.password || "",
-                // e-Arşiv credential'ları — eski "username" (e-Fatura) ile KARIŞTIRILMAMALI!
                 earsivUsername: cfg.qnbCredentials?.earsivUsername || "",
                 earsivPassword: cfg.qnbCredentials?.earsivPassword || "",
-                // e-Fatura: VKN formatı
                 efaturaUsername: cfg.qnbCredentials?.efaturaUsername || "",
                 efaturaPassword: cfg.qnbCredentials?.efaturaPassword || "",
                 env: cfg.qnbCredentials?.env || "test",
+            },
+            sovosCredentials: {
+                username: cfg.sovosCredentials?.username || "",
+                password: cfg.sovosCredentials?.password || "",
+                vknTckn: cfg.sovosCredentials?.vknTckn || cfg.supplier?.vkn || "",
+                senderIdentifier: cfg.sovosCredentials?.senderIdentifier || "",
+                receiverIdentifier: cfg.sovosCredentials?.receiverIdentifier || "",
+                branch: cfg.sovosCredentials?.branch || "default",
+                env: cfg.sovosCredentials?.env || "test",
+                capabilities: cfg.sovosCredentials?.capabilities || { efatura: false, earsiv: false },
             },
         };
     }, [config]);
@@ -376,8 +481,9 @@ const useAutoInvoice = () => {
         toggleEnabled,
         resetErrors,
         buildConfigForm,
+        uploadEArchiveVisual,
 
-        // QNB Fatura Listesi
+        // Kesilen fatura listesi (DB)
         qnbInvoices,
         qnbLoading,
         qnbPagination,
@@ -385,6 +491,15 @@ const useAutoInvoice = () => {
         previewQnbInvoice,
         fetchInvoiceDetail,
         downloadInvoicePdf,
+
+        // Faturasız siparişler
+        uninvoicedOrders,
+        uninvoicedLoading,
+        uninvoicedPagination,
+        uninvoicedSummary,
+        invoiceProcessingId,
+        fetchUninvoicedOrders,
+        processSingleOrder,
 
         // Toplu Faturalama
         processLoading,

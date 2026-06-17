@@ -6,18 +6,18 @@
  * ⚠️ Güvenlik: Credential'lar backend'e gönderilir, localStorage'da sadece
  *    session token saklanır (plain text password SAKLANMAZ).
  *
- * ✅ DB'deki auto-invoice config'den bağlı sağlayıcıyı otomatik algılar.
- *    Kullanıcının DB'de kayıtlı QNB ayarı varsa
- *    sağlayıcı "bağlı" olarak gösterilir.
+ * ✅ DB'deki auto-invoice config (provider alanı) tek kaynak — sayfa yenilemede
+ *    doğru sağlayıcı gösterilir.
  */
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect } from "react";
 import API from "../../../services/api";
+import { isValidSovosGbIdentifier } from "../constants";
 
 const STORAGE_KEY = "lysia_billing_providers";
 
 /**
  * localStorage'dan bağlı sağlayıcıları oku
- * Sİadece token ve meta bilgi saklanır, credential saklanmaz
+ * Sadece token ve meta bilgi saklanır, credential saklanmaz
  */
 const loadProviders = () => {
     try {
@@ -38,17 +38,19 @@ const loadProviders = () => {
  */
 const saveProviders = (providers) => {
     try {
+        if (!providers.length) {
+            localStorage.removeItem(STORAGE_KEY);
+            return;
+        }
         const sanitized = providers.map((p) => {
             const clean = { ...p };
-            // Credential'ları temizle — sadece token ve meta bilgi sakla
             delete clean.password;
             delete clean.apiSecret;
             delete clean.clientSecret;
             delete clean.customerPassword;
-            // fields bilgisini de temizle (büyük obje, gereksiz)
+            delete clean.wsPassword;
             delete clean.fields;
             delete clean.environments;
-            delete clean.capabilities;
             return clean;
         });
         localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
@@ -57,56 +59,103 @@ const saveProviders = (providers) => {
     }
 };
 
+const buildQnbProvider = (qnb) => ({
+    id: "qnb-esolutions",
+    name: "QNB eSolutions",
+    logo: "🏦",
+    color: "#7c3aed",
+    authType: "qnb",
+    env: qnb.env || "test",
+    connectedAt: new Date().toISOString(),
+    fromDb: true,
+    searchEndpoint: "/api/e-invoice/qnb/documents/search",
+});
+
+const buildSovosProvider = (sovos, session = {}) => ({
+    id: "sovos",
+    name: "Sovos (Foriba)",
+    logo: "🌐",
+    color: "#10b981",
+    authType: "sovos",
+    env: sovos.env || session.env || "test",
+    connectedAt: new Date().toISOString(),
+    apiToken: session.accessToken || session.sessionId,
+    sessionId: session.sessionId || session.accessToken,
+    vknTckn: session.vknTckn || sovos.vknTckn,
+    senderIdentifier: session.senderIdentifier || sovos.senderIdentifier || "",
+    receiverIdentifier: session.receiverIdentifier || sovos.receiverIdentifier || "",
+    capabilities: session.capabilities || sovos.capabilities || { efatura: false, earsiv: true },
+    branch: sovos.branch || "default",
+    faturaKodu: sovos.faturaKodu || "LYS",
+    fromDb: true,
+    searchEndpoint: "/api/e-invoice/sovos/documents/search",
+});
+
 const useProviders = () => {
     const [connectedProviders, setConnectedProviders] = useState(loadProviders);
     const [connecting, setConnecting] = useState(false);
     const [connectionError, setConnectionError] = useState("");
-    const dbCheckDoneRef = useRef(false);
 
     /**
-     * localStorage boşsa DB'deki auto-invoice config'den bağlı sağlayıcıyı algıla.
-     * Kullanıcı daha önce Otomatik Fatura ayarlarından QNB bilgilerini girmişse,
-     * Faturalandırma sayfasının "Genel Bakış" sekmesi de sağlayıcıyı bağlı gösterir.
+     * DB'deki provider alanına göre bağlı sağlayıcıyı yükle.
+     * localStorage önbellektir; DB ile çelişirse DB kazanır.
      */
-    useEffect(() => {
-        if (dbCheckDoneRef.current) return;
-        if (connectedProviders.length > 0) {
-            dbCheckDoneRef.current = true;
+    const hydrateFromDb = useCallback(async () => {
+        const token = localStorage.getItem("token") || sessionStorage.getItem("token");
+        if (!token) {
+            setConnectedProviders([]);
+            saveProviders([]);
             return;
         }
-        dbCheckDoneRef.current = true;
 
-        API.get("/auto-invoice/config")
-            .then((res) => {
-                if (!res.data.success) return;
-                const cfg = res.data.data;
-                if (!cfg || !cfg.supplier || !cfg.supplier.vkn) return;
+        try {
+            const res = await API.get("/auto-invoice/config");
+            if (!res.data.success) return;
+            const cfg = res.data.data;
+            if (!cfg) return;
 
-                // QNB credentials var mı?
-                const qnb = cfg.qnbCredentials || {};
-                const hasQnb = !!(qnb.earsivUsername || qnb.username);
-                if (!hasQnb) return;
+            const activeProvider = cfg.provider || "qnb";
+            const qnb = cfg.qnbCredentials || {};
+            const sovos = cfg.sovosCredentials || {};
+            const hasQnb = !!(qnb.earsivUsername || qnb.efaturaUsername || qnb.username);
+            const hasSovos = !!(sovos.username && sovos.password && sovos.vknTckn);
 
-                // DB'den algılanan sağlayıcıyı oluştur
-                const dbProvider = {
-                    id: "qnb-esolutions",
-                    name: "QNB eSolutions",
-                    logo: "🏦",
-                    color: "#7c3aed",
-                    authType: "qnb",
-                    env: qnb.env || "test",
-                    connectedAt: new Date().toISOString(),
-                    fromDb: true, // DB'den algılandığını işaretle
-                    searchEndpoint: "/api/e-invoice/qnb/documents/search",
-                };
-
+            if (activeProvider === "sovos" && hasSovos) {
+                const dbProvider = buildSovosProvider(sovos, {});
+                try {
+                    const restoreRes = await API.post("/e-invoice/sovos/session/restore");
+                    if (restoreRes.data?.success) {
+                        const session = restoreRes.data.data || {};
+                        const withSession = buildSovosProvider(sovos, session);
+                        setConnectedProviders([withSession]);
+                        saveProviders([withSession]);
+                        return;
+                    }
+                } catch {
+                    /* lazy restore */
+                }
                 setConnectedProviders([dbProvider]);
                 saveProviders([dbProvider]);
-            })
-            .catch(() => {
-                /* Subscription expired veya ağ hatası — sessizce geç */
-            });
-    }, [connectedProviders.length]);
+                return;
+            }
+
+            if (activeProvider !== "sovos" && hasQnb) {
+                const dbProvider = buildQnbProvider(qnb);
+                setConnectedProviders([dbProvider]);
+                saveProviders([dbProvider]);
+                return;
+            }
+
+            setConnectedProviders([]);
+            saveProviders([]);
+        } catch {
+            /* abonelik / ağ — localStorage önbelleği korunur */
+        }
+    }, []);
+
+    useEffect(() => {
+        hydrateFromDb();
+    }, [hydrateFromDb]);
 
     const isConnected = connectedProviders.length > 0;
     const activeProvider = connectedProviders.length > 0 ? connectedProviders[0] : null;
@@ -119,9 +168,13 @@ const useProviders = () => {
         setConnecting(true);
         setConnectionError("");
 
-        // Zorunlu alan kontrolü
+        const normalizedForm = { ...formData };
+        if (provider.authType === "sovos" && normalizedForm.vknTckn) {
+            normalizedForm.vknTckn = String(normalizedForm.vknTckn).replace(/\D/g, "");
+        }
+
         const missing = (provider.fields || []).filter(
-            (f) => f.required && !formData[f.key]
+            (f) => f.required && !normalizedForm[f.key]
         );
         if (missing.length > 0) {
             setConnectionError(
@@ -136,23 +189,20 @@ const useProviders = () => {
             const authType = provider.authType || "trendyol";
             let newProvider = null;
 
-            // ═══ QNB eSolutions ═══
             if (authType === "qnb") {
-                // Önce e-Arşiv olarak dene (en yaygın kullanım)
                 let loginResult = await API.post("/e-invoice/qnb/login", {
-                    username: formData.username,
-                    password: formData.password,
+                    username: normalizedForm.username,
+                    password: normalizedForm.password,
                     env: env,
                     service: "earsiv",
                 }).catch(() => ({ data: { success: false } }));
 
                 let loginData = loginResult.data;
 
-                // e-Arşiv başarısızsa e-Fatura olarak dene
                 if (!loginData.success) {
                     loginResult = await API.post("/e-invoice/qnb/login", {
-                        username: formData.username,
-                        password: formData.password,
+                        username: normalizedForm.username,
+                        password: normalizedForm.password,
                         env: env,
                         service: "efatura",
                     }).catch(() => ({ data: { success: false } }));
@@ -179,14 +229,10 @@ const useProviders = () => {
                     sessionId: loginData.data?.sessionId,
                     searchEndpoint: provider.searchEndpoint,
                 };
-            }
-
-            // ═══ TRENDYOL E-FATURAM ═══
-            else if (authType === "trendyol") {
-                // 1. Partner Login
+            } else if (authType === "trendyol") {
                 const partnerResult = await API.post("/e-invoice/trendyol/partner-login", {
-                    username: formData.username,
-                    password: formData.password,
+                    username: normalizedForm.username,
+                    password: normalizedForm.password,
                     env: env,
                 }).catch(() => ({ data: { success: false } }));
 
@@ -201,11 +247,10 @@ const useProviders = () => {
 
                 const partnerToken = partnerData.data?.accessToken;
 
-                // 2. Customer Login
                 const customerResult = await API.post("/e-invoice/trendyol/customer-login", {
                     partnerToken: partnerToken,
-                    customerUsername: formData.customerUsername,
-                    customerPassword: formData.customerPassword,
+                    customerUsername: normalizedForm.customerUsername,
+                    customerPassword: normalizedForm.customerPassword,
                     env: env,
                 }).catch(() => ({ data: { success: false } }));
 
@@ -233,25 +278,29 @@ const useProviders = () => {
                     userId: customerData.data?.userId,
                     searchEndpoint: provider.searchEndpoint,
                 };
-            }
-
-            // ═══ SOVOS (Foriba) ═══
-            else if (authType === "sovos") {
-                const tokenResult = await API.post("/e-invoice/sovos/token", {
-                    apiKey: formData.apiKey,
-                    apiSecret: formData.apiSecret,
+            } else if (authType === "sovos") {
+                const loginResult = await API.post("/e-invoice/sovos/login", {
+                    username: normalizedForm.username,
+                    password: normalizedForm.password,
+                    vknTckn: normalizedForm.vknTckn,
+                    senderIdentifier: normalizedForm.senderIdentifier?.trim() || "",
+                    receiverIdentifier: normalizedForm.receiverIdentifier?.trim() || "",
+                    branch: normalizedForm.branch?.trim() || "default",
+                    faturaKodu: normalizedForm.faturaKodu?.trim() || "",
                     env: env,
+                    loginMode: isValidSovosGbIdentifier(normalizedForm.senderIdentifier) ? "auto" : "earsiv",
                 }).catch(() => ({ data: { success: false } }));
 
-                const tokenData = tokenResult.data;
-                if (!tokenData.success) {
+                const loginData = loginResult.data;
+                if (!loginData.success) {
                     setConnectionError(
-                        "Sovos OAuth başarısız: " + (tokenData.message || "Bilinmeyen hata")
+                        "Sovos bağlantısı başarısız: " + (loginData.message || "Bilinmeyen hata")
                     );
                     setConnecting(false);
                     return false;
                 }
 
+                const session = loginData.data || {};
                 newProvider = {
                     id: provider.id,
                     name: provider.name,
@@ -260,19 +309,23 @@ const useProviders = () => {
                     authType: "sovos",
                     env: env,
                     connectedAt: new Date().toISOString(),
-                    apiToken: tokenData.data?.accessToken,
-                    expiresIn: tokenData.data?.expiresIn,
+                    apiToken: session.accessToken || session.sessionId,
+                    sessionId: session.sessionId || session.accessToken,
+                    vknTckn: session.vknTckn,
+                    senderIdentifier: session.senderIdentifier || normalizedForm.senderIdentifier?.trim() || "",
+                    receiverIdentifier: normalizedForm.receiverIdentifier?.trim() || "",
+                    capabilities: session.capabilities,
+                    verifiedVia: session.verifiedVia,
+                    branch: normalizedForm.branch || "default",
+                    faturaKodu: (normalizedForm.faturaKodu || "LYS").slice(0, 3).toUpperCase(),
                     searchEndpoint: provider.searchEndpoint,
                 };
-            }
-
-            // ═══ PARAŞÜT ═══
-            else if (authType === "parasut") {
+            } else if (authType === "parasut") {
                 const tokenResult = await API.post("/e-invoice/parasut/token", {
-                    clientId: formData.clientId,
-                    clientSecret: formData.clientSecret,
-                    email: formData.email,
-                    password: formData.password,
+                    clientId: normalizedForm.clientId,
+                    clientSecret: normalizedForm.clientSecret,
+                    email: normalizedForm.email,
+                    password: normalizedForm.password,
                 }).catch(() => ({ data: { success: false } }));
 
                 const tokenData = tokenResult.data;
@@ -303,13 +356,10 @@ const useProviders = () => {
                     userId: parasutData.userId,
                     searchEndpoint: provider.searchEndpoint,
                 };
-            }
-
-            // ═══ ÖDEAL (E-FaturaPos) ═══
-            else if (authType === "odeal") {
+            } else if (authType === "odeal") {
                 const validateResult = await API.post("/e-invoice/odeal/validate-key", {
-                    serviceKey: formData.serviceKey,
-                    merchantKey: formData.merchantKey || null,
+                    serviceKey: normalizedForm.serviceKey,
+                    merchantKey: normalizedForm.merchantKey || null,
                     env: env,
                 }).catch(() => ({ data: { success: false } }));
 
@@ -330,9 +380,9 @@ const useProviders = () => {
                     authType: "odeal",
                     env: env,
                     connectedAt: new Date().toISOString(),
-                    apiToken: formData.serviceKey,
-                    serviceKey: formData.serviceKey,
-                    merchantKey: formData.merchantKey || null,
+                    apiToken: normalizedForm.serviceKey,
+                    serviceKey: normalizedForm.serviceKey,
+                    merchantKey: normalizedForm.merchantKey || null,
                     searchEndpoint: provider.searchEndpoint,
                 };
             }
@@ -343,7 +393,7 @@ const useProviders = () => {
                 return false;
             }
 
-            const updated = [...connectedProviders, newProvider];
+            const updated = [newProvider];
             setConnectedProviders(updated);
             saveProviders(updated);
             setConnectionError("");
@@ -356,27 +406,31 @@ const useProviders = () => {
             setConnecting(false);
             return false;
         }
+    }, []);
+
+    /**
+     * Sağlayıcı bağlantısını kes — DB credential'larını da temizler
+     */
+    const disconnect = useCallback(async (providerId) => {
+        const target = connectedProviders.find((p) => p.id === providerId);
+
+        try {
+            await API.post("/auto-invoice/disconnect-provider", {
+                providerId,
+                sessionId: target?.sessionId,
+            });
+        } catch {
+            /* DB temizlenemese bile yerel durumu sıfırla */
+        }
+
+        if (target?.sessionId && target.authType === "sovos") {
+            API.post("/e-invoice/sovos/logout", { sessionId: target.sessionId }).catch(() => {});
+        }
+
+        setConnectedProviders([]);
+        saveProviders([]);
     }, [connectedProviders]);
 
-    /**
-     * Sağlayıcı bağlantısını kes
-     */
-    const disconnect = useCallback(
-        (providerId) => {
-            const updated = connectedProviders.filter((p) => p.id !== providerId);
-            setConnectedProviders(updated);
-            if (updated.length > 0) {
-                saveProviders(updated);
-            } else {
-                localStorage.removeItem(STORAGE_KEY);
-            }
-        },
-        [connectedProviders]
-    );
-
-    /**
-     * Bağlantı hatasını temizle
-     */
     const clearError = useCallback(() => {
         setConnectionError("");
     }, []);
@@ -390,6 +444,7 @@ const useProviders = () => {
         connect,
         disconnect,
         clearError,
+        hydrateFromDb,
     };
 };
 

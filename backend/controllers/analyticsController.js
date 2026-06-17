@@ -29,6 +29,7 @@ const {
     postProcessGroupedProducts,
     round2,
 } = require("../utils/analyticsEconomics");
+const { buildPayoutReport, reconcileTrendyol } = require("../services/payoutReportService");
 
 // ─── Yardımcı: Tarih aralığı oluştur ───
 const buildDateRange = (query) => {
@@ -811,6 +812,32 @@ exports.getCommissionAnalysis = async (req, res) => {
     } catch (error) {
         logger.error("❌ Commission analysis hatası:", error);
         res.status(500).json({ success: false, message: "Komisyon analizi alınamadı" });
+    }
+};
+
+// ═══════════════════════════════════════════════════════════
+// 10b. PAYOUT REPORT — Sipariş bazlı Hak Ediş + doğrulama/mutabakat
+// ═══════════════════════════════════════════════════════════
+exports.getPayoutReport = async (req, res) => {
+    try {
+        const userId = req.user._id || req.userId;
+        const { start, end } = buildDateRange(req.query);
+
+        const report = await buildPayoutReport(userId, start, end, {
+            limit: parseInt(req.query.limit, 10) || 2000,
+            marketplace: req.query.marketplace || req.query.platform || null,
+        });
+
+        // Opsiyonel: Trendyol gerçek settlement ile mutabakat
+        let reconcile = null;
+        if (req.query.reconcile === "trendyol" || req.query.reconcile === "1" || req.query.reconcile === "true") {
+            reconcile = await reconcileTrendyol(userId, start, end, report);
+        }
+
+        res.json({ success: true, data: { ...report, reconcile } });
+    } catch (error) {
+        logger.error("❌ Payout report hatası:", error);
+        res.status(500).json({ success: false, message: "Hak ediş raporu alınamadı" });
     }
 };
 

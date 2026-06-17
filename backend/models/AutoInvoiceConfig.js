@@ -148,6 +148,24 @@ const AutoInvoiceConfigSchema = new mongoose.Schema({
         env: { type: String, enum: ["test", "production"], default: "test" },
     },
 
+    // ── Sovos (Foriba) Bulut e-Fatura WS ───────────────────────────────────
+    sovosCredentials: {
+        username: { type: String, default: "" },
+        password: { type: String, default: "" },
+        vknTckn: { type: String, default: "" },
+        senderIdentifier: { type: String, default: "" },
+        receiverIdentifier: { type: String, default: "" },
+        branch: { type: String, default: "default" },
+        env: { type: String, enum: ["test", "production"], default: "test" },
+        capabilities: {
+            efatura: { type: Boolean, default: false },
+            earsiv: { type: Boolean, default: false },
+            edespatch: { type: Boolean, default: undefined },
+            esmm: { type: Boolean, default: undefined },
+        },
+        verifiedAt: { type: Date },
+    },
+
     // ── KDV Ayarları ──────────────────────────────────────────────────────
     defaultVatRate: { type: Number, default: 20 },
 
@@ -161,6 +179,16 @@ const AutoInvoiceConfigSchema = new mongoose.Schema({
 
     // ── Fatura Notu ───────────────────────────────────────────────────────
     defaultNote: { type: String, default: "" },
+
+    // ── e-Arşiv Görsel/Açıklama Ayarları ─────────────────────────────────
+    // Not: Resmi Foriba örneğinde logo/imza zorunlu alan değildir.
+    // Bu alanlar XSLT/önizleme şablonlarında kullanılmak üzere opsiyoneldir.
+    eArchiveVisuals: {
+        logoUrl: { type: String, default: "" },
+        signatureUrl: { type: String, default: "" },
+        signatureName: { type: String, default: "" },
+        invoiceDescription: { type: String, default: "" },
+    },
 
     // ── Otomatik Fatura Başlangıç Tarihi ──────────────────────────────────
     // Bu tarihten ÖNCE oluşan siparişler otomatik faturalanmaz.

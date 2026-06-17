@@ -1,0 +1,9 @@
+{
+  "name": "Atelier Luxe",
+  "category": "Premium Moda",
+  "descriptionTr": "Lüks moda evi vitrini — serif tipografi, editorial koleksiyon, altın vurgular.",
+  "source": "Lysia Premium",
+  "license": "MIT",
+  "stack": ["HTML", "CSS", "GrapesJS"],
+  "previewColors": { "primary": "#0b0b0c", "accent": "#b8860b" }
+}

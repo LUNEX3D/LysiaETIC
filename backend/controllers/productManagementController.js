@@ -56,13 +56,85 @@ const {
     HB_SIT_ENDPOINTS
 } = require("../services/hepsiburadaService");
 const { buildProductCategoryFieldOverview } = require("../services/categoryFieldOverviewService");
+
+const normMpLabel = (name) => {
+    if (!name) return "";
+    const n = String(name).trim().toLowerCase();
+    if (n === "trendyol") return "Trendyol";
+    if (n === "hepsiburada") return "Hepsiburada";
+    if (n === "n11") return "N11";
+    if (n === "amazon") return "Amazon";
+    if (n === "çiçeksepeti" || n === "ciceksepeti") return "ÇiçekSepeti";
+    return String(name).trim();
+};
+
+/** Aynı barkod/SKU ile başka kayıtta olan platform eşlemeleri (birleştirme ipucu) */
+async function findSiblingPlatformHints(userId, productDoc) {
+    const bc = productDoc.masterProduct?.barcode;
+    const sk = productDoc.masterProduct?.sku;
+    if (!bc && !sk) return [];
+
+    const or = [];
+    if (bc) {
+        or.push({ "masterProduct.barcode": bc });
+        or.push({ "marketplaceMappings.marketplaceBarcode": bc });
+    }
+    if (sk) {
+        or.push({ "masterProduct.sku": sk });
+        or.push({ "marketplaceMappings.marketplaceSku": sk });
+    }
+    if (or.length === 0) return [];
+
+    const currentPlatforms = new Set(
+        (productDoc.marketplaceMappings || []).map((m) => normMpLabel(m.marketplaceName)).filter(Boolean)
+    );
+
+    const siblings = await ProductMapping.find({
+        userId,
+        _id: { $ne: productDoc._id },
+        $or: or
+    })
+        .select("masterProduct.name masterProduct.barcode masterProduct.sku marketplaceMappings")
+        .lean();
+
+    const hints = [];
+    const seen = new Set();
+    for (const sib of siblings) {
+        for (const mp of sib.marketplaceMappings || []) {
+            const pl = normMpLabel(mp.marketplaceName);
+            if (!pl || currentPlatforms.has(pl)) continue;
+            const key = `${pl}|${sib._id}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            hints.push({
+                marketplaceName: pl,
+                syncStatus: mp.syncStatus || null,
+                siblingProductId: String(sib._id),
+                siblingName: sib.masterProduct?.name || "",
+                siblingBarcode: sib.masterProduct?.barcode || "",
+                siblingSku: sib.masterProduct?.sku || "",
+                reason: "Aynı barkod/SKU ile başka ürün kaydında bu platform eşlemesi var."
+            });
+        }
+    }
+    return hints;
+}
 const {
     scheduleMarketplacePull,
     scheduleAutoStockSync,
     scheduleSyncAllMarketplaces,
+    scheduleMissingDistribution,
     getJobForStatus,
-    assertJobForUser
+    assertJobForUser,
+    pauseSyncJob: pauseSyncJobRunner,
+    resumeSyncJob: resumeSyncJobRunner,
+    cancelSyncJob: cancelSyncJobRunner,
 } = require("../utils/syncJobRunner");
+const {
+    buildMissingDistributionPlan,
+    distributeOneSlot,
+    collectActiveTargets,
+} = require("../services/missingDistributionService");
 
 // Multer — memory storage (dosyayı diske yazmadan RAM'de tut)
 const upload = multer({
@@ -95,16 +167,24 @@ const imageStorage = multer.diskStorage({
     },
     filename: (req, file, cb) => {
         const ext = path.extname(file.originalname || "").toLowerCase();
-        const safeExt = [".jpg", ".jpeg", ".png", ".webp", ".gif"].includes(ext) ? ext : ".jpg";
+        const safeExt = [".jpg", ".jpeg", ".png", ".webp", ".gif", ".heic", ".mp4"].includes(ext)
+            ? ext
+            : file?.mimetype === "video/mp4"
+              ? ".mp4"
+              : ".jpg";
         cb(null, `${Date.now()}-${Math.random().toString(36).slice(2, 10)}${safeExt}`);
     }
 });
 const imageUpload = multer({
     storage: imageStorage,
-    limits: { fileSize: 8 * 1024 * 1024 },
+    limits: { fileSize: 10 * 1024 * 1024 },
     fileFilter: (req, file, cb) => {
-        if (file?.mimetype?.startsWith("image/")) return cb(null, true);
-        return cb(new Error("Sadece gorsel dosyalari kabul edilir"), false);
+        const ok =
+            file?.mimetype?.startsWith("image/") ||
+            file?.mimetype === "video/mp4" ||
+            file?.mimetype === "image/heic";
+        if (ok) return cb(null, true);
+        return cb(new Error("Sadece gorsel (.jpg, .png, .webp, .heic) veya .mp4 kabul edilir"), false);
     }
 });
 exports.imageUploadMiddleware = imageUpload.single("image");
@@ -112,18 +192,42 @@ exports.imageUploadMiddleware = imageUpload.single("image");
 exports.uploadProductImage = async (req, res) => {
     try {
         if (!req.file) {
-            return res.status(400).json({ error: "Gorsel dosyasi bulunamadi" });
+            return res.status(400).json({ error: "Dosya bulunamadi" });
         }
         const baseUrl = process.env.PUBLIC_BASE_URL || `${req.protocol}://${req.get("host")}`;
         const fileUrl = `${baseUrl}/uploads/product-images/${req.file.filename}`;
+        const isVideo = req.file.mimetype === "video/mp4" || req.file.filename.endsWith(".mp4");
         return res.status(200).json({
             success: true,
             url: fileUrl,
-            filename: req.file.filename
+            filename: req.file.filename,
+            kind: isVideo ? "video" : "image",
         });
     } catch (error) {
         logger.error("[PRODUCT IMAGE UPLOAD] Hata:", error.message);
-        return res.status(500).json({ error: "Gorsel yuklenemedi", details: error.message });
+        return res.status(500).json({ error: "Dosya yuklenemedi", details: error.message });
+    }
+};
+
+const productImageAiService = require("../services/productImageAiService");
+
+exports.productImageAiEdit = async (req, res) => {
+    try {
+        const { imageUrl, action, maskBase64 } = req.body || {};
+        if (!imageUrl) return res.status(400).json({ error: "Görsel URL gerekli" });
+        const allowed = new Set(["remove_bg", "upscale", "remove_object"]);
+        if (!allowed.has(action)) return res.status(400).json({ error: "Geçersiz işlem" });
+
+        const result = await productImageAiService.processImageEdit(req, {
+            imageUrl,
+            action,
+            maskBase64,
+        });
+        if (result.error) return res.status(400).json({ error: result.error });
+        return res.json({ success: true, ...result });
+    } catch (error) {
+        logger.error("[PRODUCT IMAGE AI]", error.message);
+        return res.status(500).json({ error: "Görsel işlenemedi", details: error.message });
     }
 };
 
@@ -312,6 +416,8 @@ exports.getProducts = async (req, res) => {
             filter["stockTracking.isOutOfStock"] = true;
         } else if (stockStatus === "lowStock") {
             filter["stockTracking.isLowStock"] = true;
+        } else if (stockStatus === "inStock") {
+            filter["stockTracking.totalStock"] = { $gt: 0 };
         }
 
         const total = await ProductMapping.countDocuments(filter);
@@ -432,7 +538,8 @@ exports.getProductDetail = async (req, res) => {
             marketplaceMappings: visibleMappings,
             categoryFieldOverview,
             fieldAuditSummary,
-            fieldAuditFields: FIELD_DEFS.map((f) => ({ key: f.key, label: f.label, severity: f.severity }))
+            fieldAuditFields: FIELD_DEFS.map((f) => ({ key: f.key, label: f.label, severity: f.severity })),
+            siblingPlatformHints: await findSiblingPlatformHints(userId, productDoc)
         };
 
         const activePlatforms = (product.marketplaceMappings || []).map(m => m.marketplaceName).filter(Boolean);
@@ -760,7 +867,10 @@ exports.getSyncJobStatus = async (req, res) => {
                 updatedAt: job.updatedAt,
                 etaSeconds,
                 ...(job.status === "completed" ? { result: job.result } : {}),
-                ...(job.status === "failed" ? { error: job.error } : {})
+                ...(job.status === "cancelled" ? { result: job.result } : {}),
+                ...(job.status === "failed" ? { error: job.error } : {}),
+                ...(job.platformStats ? { platformStats: job.platformStats } : {}),
+                ...(job.pendingCount != null ? { pendingCount: job.pendingCount } : {})
             }
         });
     } catch (error) {
@@ -769,10 +879,50 @@ exports.getSyncJobStatus = async (req, res) => {
     }
 };
 
+/** POST /product-management/sync/job/:jobId/pause */
+exports.pauseSyncJob = async (req, res) => {
+    try {
+        const userId = toObjectId(req.user?._id || req.user?.id);
+        if (!userId) return res.status(401).json({ error: "Yetkilendirme hatası" });
+        const result = await pauseSyncJobRunner(req.params.jobId, userId);
+        if (!result.ok) return res.status(400).json({ error: result.error });
+        return res.status(200).json({ success: true, message: "İş duraklatılıyor…" });
+    } catch (error) {
+        logger.error("[SYNC JOB PAUSE] Hata:", error.message);
+        return res.status(500).json({ error: "Duraklatılamadı", details: error.message });
+    }
+};
+
+/** POST /product-management/sync/job/:jobId/resume */
+exports.resumeSyncJob = async (req, res) => {
+    try {
+        const userId = toObjectId(req.user?._id || req.user?.id);
+        if (!userId) return res.status(401).json({ error: "Yetkilendirme hatası" });
+        const result = await resumeSyncJobRunner(req.params.jobId, userId);
+        if (!result.ok) return res.status(400).json({ error: result.error });
+        return res.status(200).json({ success: true, message: "İş devam ediyor…" });
+    } catch (error) {
+        logger.error("[SYNC JOB RESUME] Hata:", error.message);
+        return res.status(500).json({ error: "Devam ettirilemedi", details: error.message });
+    }
+};
+
+/** POST /product-management/sync/job/:jobId/cancel */
+exports.cancelSyncJob = async (req, res) => {
+    try {
+        const userId = toObjectId(req.user?._id || req.user?.id);
+        if (!userId) return res.status(401).json({ error: "Yetkilendirme hatası" });
+        const result = await cancelSyncJobRunner(req.params.jobId, userId);
+        if (!result.ok) return res.status(400).json({ error: result.error });
+        return res.status(200).json({ success: true, message: "İptal isteği gönderildi" });
+    } catch (error) {
+        logger.error("[SYNC JOB CANCEL] Hata:", error.message);
+        return res.status(500).json({ error: "İptal edilemedi", details: error.message });
+    }
+};
+
 /**
  * Pazaryerinden ürünleri çek ve eşleştir
- */
-/**
  * Trendyol'dan tek ürün içe aktar (barkod veya stok kodu) — listede görünmeyen ürünler için
  */
 exports.importMarketplaceProduct = async (req, res) => {
@@ -3510,6 +3660,156 @@ exports.distributeUndistributed = async (req, res) => {
     } catch (error) {
         logger.error("[DIST UNDISTRIBUTED] Hata:", error.message);
         logger.error("[DIST UNDISTRIBUTED] Stack:", error.stack);
+        return res.status(500).json({ error: "Dağıtım başarısız", details: error.message });
+    }
+};
+
+/**
+ * GET /product-management/sync/missing-distribution-preview
+ * Platform bazlı eksik ürün listesi (kategori merkezi durumu ile)
+ */
+exports.getMissingDistributionPreview = async (req, res) => {
+    try {
+        const userId = toObjectId(req.user?._id || req.user?.id);
+        if (!userId) return res.status(401).json({ error: "Yetkilendirme hatası" });
+
+        let targetMarketplaces = [];
+        if (req.query.targetMarketplaces) {
+            targetMarketplaces = String(req.query.targetMarketplaces)
+                .split(",")
+                .map((s) => s.trim())
+                .filter(Boolean);
+        }
+        const onlyFullyUndistributed = req.query.onlyFullyUndistributed === "true";
+        const onlyInStock = req.query.onlyInStock === "true";
+        const detailed = req.query.detailed === "true";
+
+        const plan = await buildMissingDistributionPlan(userId, {
+            targetMarketplaces,
+            onlyFullyUndistributed,
+            onlyInStock,
+            fast: !detailed,
+            maxItemsPerPlatform: detailed ? 50 : 40,
+        });
+        if (plan.error) {
+            return res.status(400).json({ error: plan.error });
+        }
+
+        return res.status(200).json({
+            success: true,
+            platforms: plan.platforms,
+            stats: plan.stats,
+            targets: plan.targets,
+            categoryCheckDeferred: plan.categoryCheckDeferred,
+        });
+    } catch (error) {
+        logger.error("[MISSING DIST PREVIEW] Hata:", error.message);
+        return res.status(500).json({ error: "Önizleme alınamadı", details: error.message });
+    }
+};
+
+/**
+ * POST /product-management/sync/missing-distribution-job
+ * Canlı takip için arka plan işi başlatır
+ */
+exports.startMissingDistributionJob = async (req, res) => {
+    try {
+        const userId = toObjectId(req.user?._id || req.user?.id);
+        if (!userId) return res.status(401).json({ error: "Yetkilendirme hatası" });
+
+        const { targetMarketplaces = [], onlyFullyUndistributed = false, onlyInStock = false } = req.body || {};
+
+        const { error: targetError } = await collectActiveTargets(userId, targetMarketplaces);
+        if (targetError) {
+            return res.status(400).json({ error: targetError });
+        }
+
+        const quick = await buildMissingDistributionPlan(userId, {
+            targetMarketplaces,
+            onlyFullyUndistributed,
+            onlyInStock,
+            fast: true,
+            summaryOnly: true,
+        });
+        if (quick.error) {
+            return res.status(400).json({ error: quick.error });
+        }
+        if (quick.stats.totalMissingSlots === 0) {
+            return res.status(200).json({
+                success: true,
+                message: "Tüm ürünler seçili platformlarda mevcut",
+                jobId: null,
+                stats: quick.stats,
+                platforms: quick.platforms,
+            });
+        }
+
+        const jobId = await scheduleMissingDistribution(userId, {
+            targetMarketplaces,
+            onlyFullyUndistributed,
+            onlyInStock,
+        });
+
+        return res.status(202).json({
+            success: true,
+            jobId,
+            message: "Eksikleri dağıt işlemi başlatıldı",
+            stats: quick.stats,
+            platforms: quick.platforms,
+            categoryCheckDeferred: true,
+        });
+    } catch (error) {
+        logger.error("[MISSING DIST JOB] Hata:", error.message);
+        return res.status(500).json({ error: "İş başlatılamadı", details: error.message });
+    }
+};
+
+/**
+ * POST /product-management/sync/distribute-missing-item
+ * Tek ürün + platform — manuel kategori ile veya kategori merkezi
+ */
+exports.distributeMissingItem = async (req, res) => {
+    try {
+        const userId = toObjectId(req.user?._id || req.user?.id);
+        if (!userId) return res.status(401).json({ error: "Yetkilendirme hatası" });
+
+        const { productId, platform, category } = req.body || {};
+        if (!productId || !platform) {
+            return res.status(400).json({ error: "productId ve platform zorunlu" });
+        }
+
+        const product = await ProductMapping.findOne({ _id: productId, userId });
+        if (!product) return res.status(404).json({ error: "Ürün bulunamadı" });
+
+        const out = await distributeOneSlot(
+            userId,
+            product,
+            platform,
+            category && category.id ? category : null
+        );
+
+        if (out.status === "success") {
+            return res.status(200).json({
+                success: true,
+                status: "success",
+                results: out.results,
+            });
+        }
+        if (out.status === "no_category") {
+            return res.status(422).json({
+                success: false,
+                status: "no_category",
+                message: out.message,
+            });
+        }
+        return res.status(422).json({
+            success: false,
+            status: out.status,
+            message: out.message || "Dağıtım başarısız",
+            results: out.results,
+        });
+    } catch (error) {
+        logger.error("[DIST MISSING ITEM] Hata:", error.message);
         return res.status(500).json({ error: "Dağıtım başarısız", details: error.message });
     }
 };

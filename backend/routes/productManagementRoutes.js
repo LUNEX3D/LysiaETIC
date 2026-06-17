@@ -30,6 +30,9 @@ router.delete("/products/:productId", controller.deleteProduct);
 // 🔄 SENKRONİZASYON & DAĞITIM
 // ═══════════════════════════════════════════════════════════════
 router.get("/sync/job/:jobId", controller.getSyncJobStatus);
+router.post("/sync/job/:jobId/pause", controller.pauseSyncJob);
+router.post("/sync/job/:jobId/resume", controller.resumeSyncJob);
+router.post("/sync/job/:jobId/cancel", controller.cancelSyncJob);
 router.post("/sync/from-marketplace", controller.syncFromMarketplace);
 router.post("/products/import-from-marketplace", controller.importMarketplaceProduct);
 router.post("/sync/distribute", controller.distributeProduct);
@@ -55,6 +58,7 @@ router.post(
     },
     controller.uploadProductImage
 );
+router.post("/images/ai-edit", controller.productImageAiEdit);
 router.post("/products/suggest-codes",         controller.suggestBarcodeAndSku);
 router.post("/products/generate-description",  controller.generateAIDescription);
 
@@ -82,6 +86,9 @@ router.post("/products/:productId/apply-platform-field", controller.applyPlatfor
 router.post("/products/:productId/apply-master-to-platform", controller.applyMasterToPlatformField);
 router.post("/sync/bulk-distribute-selected",  controller.bulkDistributeSelected);
 router.post("/sync/distribute-undistributed",  controller.distributeUndistributed);
+router.get("/sync/missing-distribution-preview", controller.getMissingDistributionPreview);
+router.post("/sync/missing-distribution-job", controller.startMissingDistributionJob);
+router.post("/sync/distribute-missing-item", controller.distributeMissingItem);
 
 // ═══════════════════════════════════════════════════════════════
 // 📋 TOPLU ÜRÜN YÖNETİMİ (BULK OPERATIONS)

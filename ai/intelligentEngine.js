@@ -193,11 +193,16 @@ class IntelligentEngine {
                         endDate
                     );
                 case "ciceksepeti":
-                case "çiçeksepeti":
-                    return await fetchCicekSepetiOrders(
-                        credentials.supplierId,
-                        credentials.apiKey || credentials.apiPassword
+                case "çiçeksepeti": {
+                    const csResult = await fetchCicekSepetiOrders(
+                        credentials,
+                        null,
+                        null,
+                        startDate,
+                        endDate
                     );
+                    return Array.isArray(csResult) ? csResult : (csResult?.orders || []);
+                }
 
                 case "amazon":
                 case "amazon türkiye":

@@ -17,9 +17,12 @@ import { useApp } from "../context/AppContext";
 // ✅ FIX E6: Shared auth components
 import AuthNavbar from "./auth/AuthNavbar";
 import DashboardMockup from "./auth/DashboardMockup";
+import PartnerMarquee from "./auth/PartnerMarquee";
 import { PlantDecoration, GoogleIcon, AuthFooter } from "./auth/AuthShared";
+import useLoginPageConfig from "../hooks/useLoginPageConfig";
 import { BRAND_EMAIL } from "../constants/brand";
 import { persistAuthSession } from "../utils/authSession";
+import { navigateAuthTab } from "../utils/authTabNavigation";
 
 const GOOGLE_CLIENT_ID = process.env.REACT_APP_GOOGLE_CLIENT_ID || "";
 
@@ -40,6 +43,13 @@ const RegisterFormInner = () => {
     const [showPassword, setShowPassword] = useState(false);
     const [showConfirmPassword, setShowConfirmPassword] = useState(false);
     const navigate = useNavigate();
+    const { config: pageConfig, partners: partnerItems } = useLoginPageConfig();
+
+    const handleAuthTabChange = (tab) => {
+        navigateAuthTab(tab, navigate, {
+            onHome: () => navigate("/register"),
+        });
+    };
 
     const handleChange = (e) => {
         setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -146,18 +156,20 @@ const RegisterFormInner = () => {
             <div className="auth-glow-lines" />
 
             {/* Navbar */}
-            <AuthNavbar />
+            <AuthNavbar activeTab="home" onTabChange={handleAuthTabChange} />
 
             {/* Main Content */}
             <div className="auth-main">
                 {/* Sol — Hero + Mockup */}
                 <div className="auth-hero auth-fade-in">
                     <h1 className="auth-hero-title">
-                        {t("auth.heroTitle1")}<br />{t("auth.heroTitle2")} <em>{t("auth.heroTitle3")}</em>
+                        {pageConfig.hero?.titleLine1 || t("auth.heroTitle1")}<br />
+                        {pageConfig.hero?.titleLine2 || t("auth.heroTitle2")}{" "}
+                        <em>{pageConfig.hero?.titleEmphasis || t("auth.heroTitle3")}</em>
                     </h1>
                     <p className="auth-hero-desc">
-                        {t("auth.heroDesc1")}<br />
-                        {t("auth.heroDesc2")}
+                        {pageConfig.hero?.description1 || t("auth.heroDesc1")}<br />
+                        {pageConfig.hero?.description2 || t("auth.heroDesc2")}
                     </p>
                     <DashboardMockup />
 
@@ -336,7 +348,8 @@ const RegisterFormInner = () => {
                 </div>
             </div>
 
-            {/* Footer — ✅ FIX E6: Shared component */}
+            <PartnerMarquee partners={pageConfig.partners} items={partnerItems} />
+
             <AuthFooter />
         </div>
     );

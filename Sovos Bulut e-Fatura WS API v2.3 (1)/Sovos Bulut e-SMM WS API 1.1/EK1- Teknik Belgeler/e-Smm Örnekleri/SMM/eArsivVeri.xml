@@ -1,0 +1,164 @@
+<?xml version="1.0" encoding="utf-8"?>
+<q1:eArsivVeri xmlns:ubltr="urn:oasis:names:specification:ubl:schema:xsd:TurkishCustomizationExtensionComponents" xmlns:qdt="urn:oasis:names:specification:ubl:schema:xsd:QualifiedDatatypes-2" xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2" xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2" xmlns:ds="http://www.w3.org/2000/09/xmldsig#" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:ccts="urn:un:unece:uncefact:documentation:2" xmlns:ext="urn:oasis:names:specification:ubl:schema:xsd:CommonExtensionComponents-2" xmlns:xades="http://uri.etsi.org/01903/v1.3.2#" xmlns:udt="urn:un:unece:uncefact:data:specification:UnqualifiedDataTypesSchemaModule:2" xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2" xmlns:q1="http://earsiv.efatura.gov.tr">
+  <q1:baslik>
+    <q1:mukellef>
+      <q1:vkn>1111111111</q1:vkn>
+    </q1:mukellef>
+    <q1:hazirlayan>
+      <q1:vkn>3840333291</q1:vkn>
+    </q1:hazirlayan>
+  </q1:baslik>
+  <q1:serbestMeslekMakbuz>
+    <q1:makbuzNo>ABC2019371859827</q1:makbuzNo>
+    <q1:ETTN>79c3ce05-9fa5-4434-8a11-9186aa0bd565</q1:ETTN>
+    <q1:gonderimSekli>ELEKTRONIK</q1:gonderimSekli>
+    <q1:dosyaAdi>79c3ce05-9fa5-4434-8a11-9186aa0bd565_s.pdf</q1:dosyaAdi>
+    <q1:belgeTarihi>2019-11-14</q1:belgeTarihi>
+    <q1:belgeZamani>15:57:00</q1:belgeZamani>
+    <q1:toplamTutar>331.2</q1:toplamTutar>
+    <q1:odenecekTutar>331.2</q1:odenecekTutar>
+    <q1:paraBirimi>TRY</q1:paraBirimi>
+    <q1:kur xmlns:q2="http://www.w3.org/2001/XMLSchema" xsi:type="q2:long">1</q1:kur>
+    <q1:vergiBilgisi>
+      <q1:vergilerToplami>0</q1:vergilerToplami>
+      <q1:vergi>
+        <q1:matrah>345</q1:matrah>
+        <q1:vergiKodu>0015</q1:vergiKodu>
+        <q1:vergiTutari>27.6</q1:vergiTutari>
+        <q1:vergiOrani>8</q1:vergiOrani>
+      </q1:vergi>
+      <q1:vergi>
+        <q1:matrah>345</q1:matrah>
+        <q1:vergiKodu>0003</q1:vergiKodu>
+        <q1:vergiTutari>41.4</q1:vergiTutari>
+        <q1:vergiOrani>12</q1:vergiOrani>
+      </q1:vergi>
+    </q1:vergiBilgisi>
+    <q1:aliciBilgileri>
+      <q1:gercekKisi>
+        <q1:tckn>11111111111</q1:tckn>
+        <q1:adiSoyadi>MVA-SMM  .</q1:adiSoyadi>
+      </q1:gercekKisi>
+      <q1:adres>
+        <q1:caddeSokak>ÖZ SOKAK</q1:caddeSokak>
+        <q1:binaAd>GOLD PLAZA</q1:binaAd>
+        <q1:binaNo />
+        <q1:kapiNo />
+        <q1:kasabaKoy />
+        <q1:semt>MALTEPE / ALATAYÇEŞME</q1:semt>
+        <q1:sehir>İSTANBUL</q1:sehir>
+        <q1:postaKod />
+        <q1:ulke>TR</q1:ulke>
+        <q1:vDaire />
+      </q1:adres>
+    </q1:aliciBilgileri>
+    <q1:malHizmetBilgisi>
+      <q1:malHizmet>
+        <q1:ad>hizmet</q1:ad>
+        <q1:vergiBilgisi>
+          <q1:vergilerToplami>0</q1:vergilerToplami>
+          <q1:vergi>
+            <q1:matrah>345</q1:matrah>
+            <q1:vergiKodu>0015</q1:vergiKodu>
+            <q1:vergiTutari>27.6</q1:vergiTutari>
+            <q1:vergiOrani>8</q1:vergiOrani>
+          </q1:vergi>
+          <q1:vergi>
+            <q1:matrah>345</q1:matrah>
+            <q1:vergiKodu>0003</q1:vergiKodu>
+            <q1:vergiTutari>41.4</q1:vergiTutari>
+            <q1:vergiOrani>12</q1:vergiOrani>
+          </q1:vergi>
+        </q1:vergiBilgisi>
+        <q1:burutUcret>345</q1:burutUcret>
+      </q1:malHizmet>
+    </q1:malHizmetBilgisi>
+    <q1:parameters>
+      <q1:parameter>
+        <q1:paramName>GONDERICI_VERGI_DAIRESI</q1:paramName>
+        <q1:paramValue>MALTEPE VERGİ DAİRESİ </q1:paramValue>
+        <q1:type>Sender</q1:type>
+      </q1:parameter>
+      <q1:parameter>
+        <q1:paramName>GONDERICI_ADSOYAD_UNVAN</q1:paramName>
+        <q1:paramValue>Test Mükellefi</q1:paramValue>
+        <q1:type>Sender</q1:type>
+      </q1:parameter>
+      <q1:parameter>
+        <q1:paramName>GONDERICI_CADDE</q1:paramName>
+        <q1:paramValue>Öz Sokak</q1:paramValue>
+        <q1:type>Sender</q1:type>
+      </q1:parameter>
+      <q1:parameter>
+        <q1:paramName>GONDERICI_BINA</q1:paramName>
+        <q1:paramValue>Gold Plaza</q1:paramValue>
+        <q1:type>Sender</q1:type>
+      </q1:parameter>
+      <q1:parameter>
+        <q1:paramName>GONDERICI_BINA_NO</q1:paramName>
+        <q1:paramValue>19</q1:paramValue>
+        <q1:type>Sender</q1:type>
+      </q1:parameter>
+      <q1:parameter>
+        <q1:paramName>GONDERICI_KAPI_NO</q1:paramName>
+        <q1:paramValue>10</q1:paramValue>
+        <q1:type>Sender</q1:type>
+      </q1:parameter>
+      <q1:parameter>
+        <q1:paramName>GONDERICI_ILCE</q1:paramName>
+        <q1:paramValue>Maltepe</q1:paramValue>
+        <q1:type>Sender</q1:type>
+      </q1:parameter>
+      <q1:parameter>
+        <q1:paramName>GONDERICI_IL</q1:paramName>
+        <q1:paramValue>İSTANBUL</q1:paramValue>
+        <q1:type>Sender</q1:type>
+      </q1:parameter>
+      <q1:parameter>
+        <q1:paramName>GONDERICI_ULKE</q1:paramName>
+        <q1:paramValue>TÜRKİYE</q1:paramValue>
+        <q1:type>Sender</q1:type>
+      </q1:parameter>
+      <q1:parameter>
+        <q1:paramName>GONDERICI_MAHALLE</q1:paramName>
+        <q1:paramValue>Altayçeşme</q1:paramValue>
+        <q1:type>Sender</q1:type>
+      </q1:parameter>
+      <q1:parameter>
+        <q1:paramName>GONDERICI_TELEFON</q1:paramName>
+        <q1:paramValue>0(216) 445 93 79</q1:paramValue>
+        <q1:type>Sender</q1:type>
+      </q1:parameter>
+      <q1:parameter>
+        <q1:paramName>GONDERICI_EPOSTA</q1:paramName>
+        <q1:paramValue>foriba@foriba.com</q1:paramValue>
+        <q1:type>Sender</q1:type>
+      </q1:parameter>
+      <q1:parameter>
+        <q1:paramName>GONDERICI_MERSIS_NO</q1:paramName>
+        <q1:paramValue>1234-5678-9010-0012</q1:paramValue>
+        <q1:type>Sender</q1:type>
+      </q1:parameter>
+      <q1:parameter>
+        <q1:paramName>ALICI_EPOSTA</q1:paramName>
+        <q1:paramValue>veysel.aslan@foriba.com</q1:paramValue>
+        <q1:type>Receiver</q1:type>
+      </q1:parameter>
+      <q1:parameter>
+        <q1:paramName>ALICI_MAHALLE</q1:paramName>
+        <q1:paramValue>ALATAYÇEŞME</q1:paramValue>
+        <q1:type>Receiver</q1:type>
+      </q1:parameter>
+      <q1:parameter>
+        <q1:paramName>ALICI_ULKE</q1:paramName>
+        <q1:paramValue>TÜRKİYE</q1:paramValue>
+        <q1:type>Receiver</q1:type>
+      </q1:parameter>
+	  <q1:parameter>
+        <q1:paramName>GONDERICI_POSTA_KODU</q1:paramName>
+        <q1:paramValue>41760</q1:paramValue>
+        <q1:type>Sender</q1:type>
+      </q1:parameter>
+    </q1:parameters>
+  </q1:serbestMeslekMakbuz>
+</q1:eArsivVeri>

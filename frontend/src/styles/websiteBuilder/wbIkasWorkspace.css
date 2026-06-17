@@ -1,0 +1,256 @@
+/* ─── İkas tarzı Website Builder workspace ─────────────────────────────────── */
+@import "../designSystem/lysiaDesignSystem.css";
+@import "./wbDesignSystem.css";
+
+.wb-ikas-workspace-main {
+  flex: 1;
+  min-width: 0;
+  background: #f5f5f7;
+  overflow: auto;
+}
+
+.wb-ikas-page {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 8px 0 48px;
+  color: #18181b;
+  font-family: "Inter", system-ui, -apple-system, sans-serif;
+}
+
+.wb-ikas-page-header {
+  margin-bottom: 28px;
+}
+
+.wb-ikas-page-header h1 {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: #09090b;
+  line-height: 1.2;
+}
+
+.wb-ikas-page-header p {
+  margin: 8px 0 0;
+  font-size: 14px;
+  line-height: 1.55;
+  color: #71717a;
+  max-width: 640px;
+}
+
+.wb-ikas-page-header-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.wb-ikas-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff !important;
+  background: #6366f1 !important;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  text-decoration: none;
+  box-shadow: none;
+  transition: background 0.15s;
+}
+
+.wb-ikas-btn-primary:hover {
+  background: #4f46e5 !important;
+}
+
+.wb-ikas-btn-outline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #6366f1 !important;
+  background: #fff !important;
+  border: 1px solid #c7d2fe !important;
+  border-radius: 8px;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.wb-ikas-btn-outline:hover {
+  background: #eef2ff !important;
+}
+
+.wb-ikas-card {
+  background: #ffffff;
+  border: 1px solid #e4e4e7;
+  border-radius: 12px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+/* Aktif tema — İkas üst kart */
+.wb-ikas-active-theme {
+  display: grid;
+  grid-template-columns: minmax(280px, 420px) 1fr;
+  gap: 32px;
+  align-items: center;
+  padding: 24px;
+  margin-bottom: 32px;
+}
+
+.wb-ikas-active-theme-preview {
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid #e4e4e7;
+  background: #f4f4f5;
+  aspect-ratio: 16 / 10;
+  min-height: 200px;
+}
+
+.wb-ikas-active-theme-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top center;
+  display: block;
+}
+
+.wb-ikas-active-theme-preview-gradient {
+  width: 100%;
+  height: 100%;
+  min-height: 200px;
+  display: flex;
+  align-items: flex-end;
+  padding: 20px;
+}
+
+.wb-ikas-active-theme-body h2 {
+  margin: 0 0 12px;
+  font-size: 22px;
+  font-weight: 700;
+  color: #09090b;
+}
+
+.wb-ikas-active-theme-body p {
+  margin: 0 0 20px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #52525b;
+}
+
+/* Temalarım listesi */
+.wb-ikas-section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 24px;
+  border-bottom: 1px solid #f4f4f5;
+}
+
+.wb-ikas-section-head h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: #09090b;
+}
+
+.wb-ikas-section-head p {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: #71717a;
+}
+
+.wb-ikas-theme-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 24px;
+}
+
+.wb-ikas-theme-row + .wb-ikas-theme-row {
+  border-top: 1px solid #f4f4f5;
+}
+
+.wb-ikas-theme-row-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: #18181b;
+  margin-bottom: 8px;
+}
+
+.wb-ikas-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.wb-ikas-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 6px;
+}
+
+.wb-ikas-badge--published {
+  background: #ecfdf5;
+  color: #047857;
+  border: 1px solid #a7f3d0;
+}
+
+.wb-ikas-badge--new {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+}
+
+.wb-ikas-badge--draft {
+  background: #fafafa;
+  color: #52525b;
+  border: 1px solid #e4e4e7;
+}
+
+.wb-ikas-marketplace-panel {
+  margin-top: 24px;
+  padding: 24px;
+}
+
+.wb-ikas-marketplace-panel .wb-theme-marketplace-hero {
+  display: none;
+}
+
+.wb-ikas-alert {
+  padding: 12px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
+.wb-ikas-alert--error {
+  background: #fef2f2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+}
+
+.wb-ikas-alert--success {
+  background: #ecfdf5;
+  color: #047857;
+  border: 1px solid #a7f3d0;
+}
+
+@media (max-width: 900px) {
+  .wb-ikas-active-theme {
+    grid-template-columns: 1fr;
+  }
+}

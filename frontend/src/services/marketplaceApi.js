@@ -41,7 +41,7 @@ export const fetchOrdersCard = async () => {
 export const syncRecentOrders = async ({ days } = {}) => {
     const response = await API.get("/orders/sync-recent", {
         params: { parallel: "1", ...(days ? { days } : {}) },
-        timeout: 90000,
+        timeout: 180000,
     });
     if (response.status === 200) {
         return response.data;

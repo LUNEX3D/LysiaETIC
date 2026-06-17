@@ -1,0 +1,186 @@
+/* Shopify Theme Editor — Dawn özelleştirme paneli */
+.dawn-customizer {
+  width: 300px;
+  flex-shrink: 0;
+  background: #1a1a1a;
+  color: #e3e3e3;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-right: 1px solid #2e2e2e;
+  font-size: 13px;
+}
+
+.dawn-customizer__brand {
+  padding: 14px 16px;
+  border-bottom: 1px solid #2e2e2e;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dawn-customizer__brand strong {
+  font-size: 15px;
+  color: #fff;
+  letter-spacing: 0.04em;
+}
+
+.dawn-customizer__brand span {
+  font-size: 11px;
+  color: #8a8a8a;
+}
+
+.dawn-customizer__template {
+  padding: 12px 16px;
+  border-bottom: 1px solid #2e2e2e;
+}
+
+.dawn-customizer__template label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #8a8a8a;
+  margin-bottom: 8px;
+}
+
+.dawn-customizer__template select {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #3a3a3a;
+  border-radius: 6px;
+  background: #252525;
+  color: #fff;
+  font-size: 13px;
+}
+
+.dawn-acc__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 12px 16px;
+  border: none;
+  border-bottom: 1px solid #2e2e2e;
+  background: transparent;
+  color: #e3e3e3;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+
+.dawn-acc__head span { flex: 1; }
+
+.dawn-acc__body {
+  max-height: 280px;
+  overflow-y: auto;
+  border-bottom: 1px solid #2e2e2e;
+}
+
+.dawn-customizer__global {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 10px 12px;
+  border-bottom: 1px solid #2e2e2e;
+}
+
+.dawn-customizer__global button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid #3a3a3a;
+  border-radius: 6px;
+  background: #252525;
+  color: #ccc;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.dawn-customizer__global button:hover {
+  background: #303030;
+  color: #fff;
+}
+
+.dawn-customizer__sections .tb-navigator {
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: inherit;
+}
+
+.dawn-customizer__sections .tb-navigator__title,
+.dawn-customizer__sections .tb-navigator__global {
+  display: none;
+}
+
+.dawn-customizer__sections .tb-navigator__header {
+  padding: 8px 12px;
+}
+
+.dawn-settings__group {
+  border-bottom: 1px solid #2e2e2e;
+}
+
+.dawn-settings__group summary {
+  padding: 10px 16px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 12px;
+  color: #bbb;
+  list-style: none;
+}
+
+.dawn-settings__group summary::-webkit-details-marker { display: none; }
+
+.dawn-settings .tb-field label {
+  color: #aaa;
+  font-size: 11px;
+}
+
+.dawn-settings .tb-field input,
+.dawn-settings .tb-field select,
+.dawn-settings .tb-field textarea {
+  background: #252525;
+  border-color: #3a3a3a;
+  color: #fff;
+}
+
+.dawn-settings-empty {
+  padding: 16px;
+  color: #888;
+  font-size: 12px;
+}
+
+/* Dawn modunda studio genişliği */
+.tb-studio--dawn .tb-studio__navigator {
+  padding: 0;
+  background: transparent;
+  border: none;
+  width: 300px;
+  flex-shrink: 0;
+}
+
+.tb-studio--dawn .tb-properties {
+  background: #1a1a1a;
+  color: #e3e3e3;
+  border-left: 1px solid #2e2e2e;
+}
+
+.tb-studio--dawn .tb-properties__head h2,
+.tb-studio--dawn .tb-properties__head p {
+  color: #e3e3e3;
+}
+
+.tb-studio--dawn .tb-field label { color: #aaa; }
+.tb-studio--dawn .tb-field input,
+.tb-studio--dawn .tb-field select,
+.tb-studio--dawn .tb-field textarea {
+  background: #252525;
+  border-color: #3a3a3a;
+  color: #fff;
+}

@@ -1,0 +1,16 @@
+<soap:Envelope xmlns:soap="http://www.w3.org/2003/05/soap-envelope" xmlns:led="http://ws.cloud.eledger.fit.com/ledger">
+	<soap:Header/>
+	<soap:Body>
+		<led:SaveRequest>
+			<company>
+				<identifier>1111111111</identifier>
+				<branchId>0</branchId>
+			</company>
+			<source>
+				<fileName>test.zip</fileName>
+				<binaryData>UEsDBBQAAAAIAK2Glk67JWPDiAAAAOQAAAAIAAAAdWZhay50eHR7v3u/T42xhYWBuaGFiaV5TY2RgaGlroEhEMGZxoY1hrxcHjXBqUUZiSUK/lUlpUXZyApB0PFwu6eP59F5Cm5HNhydd2RDjREvl0uNoYFBjbdjsCOIoWdgCEQ1IT4KIJFgzxpjI2MjPQuLGpcaEDCswTAD0wQjkAmhwS5QIxQ0VDThxjjjMgYAUEsBAh8AFAAAAAgArYaWTrslY8OIAAAA5AAAAAgAJAAAAAAAAAAgAAAAAAAAAHVmYWsudHh0CgAgAAAAAAABABgAIFoMwxL51AEgWgzDEvnUASgXdCHU9dQBUEsFBgAAAAABAAEAWgAAAK4AAAAAAA==</binaryData>
+				<hash>6CF1A0CCE42D338223CAB6E981248BD7</hash>
+			</source>
+		</led:SaveRequest>
+	</soap:Body>
+</soap:Envelope>
