@@ -671,6 +671,7 @@ const LoginFormInner = () => {
                         prices={prices}
                         onGoHome={() => handleAuthTabChange("home")}
                         onGoPricing={() => handleAuthTabChange("pricing")}
+                        onGoContact={() => handleAuthTabChange("contact")}
                     />
                 </div>
 
