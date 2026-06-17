@@ -1,0 +1,70 @@
+/*! Bundled license information:
+
+lucide-react/dist/esm/shared/src/utils.js:
+lucide-react/dist/esm/defaultAttributes.js:
+lucide-react/dist/esm/Icon.js:
+lucide-react/dist/esm/createLucideIcon.js:
+lucide-react/dist/esm/icons/align-left.js:
+lucide-react/dist/esm/icons/heading.js:
+lucide-react/dist/esm/icons/list.js:
+lucide-react/dist/esm/icons/align-center.js:
+lucide-react/dist/esm/icons/align-justify.js:
+lucide-react/dist/esm/icons/align-right.js:
+lucide-react/dist/esm/icons/bold.js:
+lucide-react/dist/esm/icons/chevron-down.js:
+lucide-react/dist/esm/icons/chevron-right.js:
+lucide-react/dist/esm/icons/chevron-up.js:
+lucide-react/dist/esm/icons/circle-check-big.js:
+lucide-react/dist/esm/icons/code.js:
+lucide-react/dist/esm/icons/copy.js:
+lucide-react/dist/esm/icons/corner-left-up.js:
+lucide-react/dist/esm/icons/ellipsis-vertical.js:
+lucide-react/dist/esm/icons/expand.js:
+lucide-react/dist/esm/icons/globe.js:
+lucide-react/dist/esm/icons/hammer.js:
+lucide-react/dist/esm/icons/hash.js:
+lucide-react/dist/esm/icons/heading-1.js:
+lucide-react/dist/esm/icons/heading-2.js:
+lucide-react/dist/esm/icons/heading-3.js:
+lucide-react/dist/esm/icons/heading-4.js:
+lucide-react/dist/esm/icons/heading-5.js:
+lucide-react/dist/esm/icons/heading-6.js:
+lucide-react/dist/esm/icons/italic.js:
+lucide-react/dist/esm/icons/layers.js:
+lucide-react/dist/esm/icons/layout-grid.js:
+lucide-react/dist/esm/icons/link.js:
+lucide-react/dist/esm/icons/list-ordered.js:
+lucide-react/dist/esm/icons/lock-open.js:
+lucide-react/dist/esm/icons/lock.js:
+lucide-react/dist/esm/icons/maximize-2.js:
+lucide-react/dist/esm/icons/minimize-2.js:
+lucide-react/dist/esm/icons/minus.js:
+lucide-react/dist/esm/icons/monitor.js:
+lucide-react/dist/esm/icons/panel-left.js:
+lucide-react/dist/esm/icons/panel-right.js:
+lucide-react/dist/esm/icons/plus.js:
+lucide-react/dist/esm/icons/quote.js:
+lucide-react/dist/esm/icons/rectangle-ellipsis.js:
+lucide-react/dist/esm/icons/redo-2.js:
+lucide-react/dist/esm/icons/search.js:
+lucide-react/dist/esm/icons/sliders-horizontal.js:
+lucide-react/dist/esm/icons/smartphone.js:
+lucide-react/dist/esm/icons/square-code.js:
+lucide-react/dist/esm/icons/strikethrough.js:
+lucide-react/dist/esm/icons/tablet.js:
+lucide-react/dist/esm/icons/toy-brick.js:
+lucide-react/dist/esm/icons/trash.js:
+lucide-react/dist/esm/icons/type.js:
+lucide-react/dist/esm/icons/underline.js:
+lucide-react/dist/esm/icons/undo-2.js:
+lucide-react/dist/esm/icons/x.js:
+lucide-react/dist/esm/icons/zoom-in.js:
+lucide-react/dist/esm/icons/zoom-out.js:
+lucide-react/dist/esm/lucide-react.js:
+  (**
+   * @license lucide-react v0.468.0 - ISC
+   *
+   * This source code is licensed under the ISC license.
+   * See the LICENSE file in the root directory of this source tree.
+   *)
+*/

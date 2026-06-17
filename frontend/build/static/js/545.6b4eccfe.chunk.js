@@ -1,0 +1,1 @@
+"use strict";(globalThis.webpackChunkfrontend=globalThis.webpackChunkfrontend||[]).push([[545],{80545(n,e,o){function r(n){throw new TypeError('"'+n+'" is read-only')}o.d(e,{A:()=>r})}}]);

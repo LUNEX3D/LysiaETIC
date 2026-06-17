@@ -1,0 +1,1 @@
+"use strict";(globalThis.webpackChunkfrontend=globalThis.webpackChunkfrontend||[]).push([[808],{80808(n,e,t){t.r(e),t.d(e,{App:()=>p});var p=(0,t(29344).F3)("App",{web:function(){return t.e(6970).then(t.bind(t,56970)).then((function(n){return new n.AppWeb}))}})}}]);

@@ -1,0 +1,1 @@
+"use strict";(globalThis.webpackChunkfrontend=globalThis.webpackChunkfrontend||[]).push([[8515],{78515(e,n,t){t.r(n),t.d(n,{Network:()=>r});var r=(0,t(29344).F3)("Network",{web:function(){return t.e(2169).then(t.bind(t,52169)).then((function(e){return new e.NetworkWeb}))}})}}]);

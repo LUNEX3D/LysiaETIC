@@ -1,0 +1,1 @@
+"use strict";(globalThis.webpackChunkfrontend=globalThis.webpackChunkfrontend||[]).push([[6843],{36843(e,n,r){r.r(n),r.d(n,{default:()=>o});r(9950);var t=r(28429),a=r(44414);function o(){return(0,a.jsx)(t.C5,{to:"/website-builder/onboarding",replace:!0})}}}]);

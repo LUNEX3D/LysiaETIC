@@ -1,0 +1,1 @@
+"use strict";(globalThis.webpackChunkfrontend=globalThis.webpackChunkfrontend||[]).push([[6743],{86743(e,n,r){r.r(n),r.d(n,{SplashScreen:()=>h});var h=(0,r(29344).F3)("SplashScreen",{web:function(){return r.e(9973).then(r.bind(r,39973)).then((function(e){return new e.SplashScreenWeb}))}})}}]);
